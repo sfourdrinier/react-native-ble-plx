@@ -337,26 +337,27 @@ export class ConnectionManager {
 
     this._cancelState(state)
 
-    const error = new BleError(
-      {
-        errorCode: BleErrorCode.OperationCancelled,
-        attErrorCode: null,
-        iosErrorCode: null,
-        androidErrorCode: null,
-        reason: `Connection cancelled for device ${deviceId}`
-      },
-      BleErrorCodeMessage
-    )
-
-    // Reject pending promise if exists
+    // Only reject promise and call callbacks if there was actually a pending connection
     if (state.pendingPromise) {
+      const error = new BleError(
+        {
+          errorCode: BleErrorCode.OperationCancelled,
+          attErrorCode: null,
+          iosErrorCode: null,
+          androidErrorCode: null,
+          reason: `Connection cancelled for device ${deviceId}`
+        },
+        BleErrorCodeMessage
+      )
+
+      // Reject pending promise
       state.pendingPromise.reject(error)
       state.pendingPromise = undefined
-    }
 
-    // Notify callbacks
-    state.callbacks?.onConnectFailed?.(deviceId, error)
-    this._globalCallbacks.onConnectFailed?.(deviceId, error)
+      // Notify callbacks
+      state.callbacks?.onConnectFailed?.(deviceId, error)
+      this._globalCallbacks.onConnectFailed?.(deviceId, error)
+    }
 
     // For auto-reconnect devices, reset cancelled flag so future disconnects can trigger reconnection
     if (state.autoReconnect) {
@@ -665,16 +666,28 @@ export class ConnectionManager {
   destroy(): void {
     // Force remove ALL subscriptions before clearing (prevents leaks)
     for (const state of this._devices.values()) {
+      // Cancel timers
+      state.cancelled = true
+      if (state.timeoutId) {
+        clearTimeout(state.timeoutId)
+      }
+      if (state.connectionTimeoutId) {
+        clearTimeout(state.connectionTimeoutId)
+      }
+
+      // Remove subscriptions
       if (state.disconnectSubscription) {
         state.disconnectSubscription.remove()
         state.disconnectSubscription = undefined
       }
+
+      // Cancel native connection if in progress
+      if (state.isConnecting) {
+        this._manager.cancelDeviceConnection(state.deviceId).catch(() => {})
+      }
     }
 
-    // Cancel all pending operations
-    this.cancelAll()
-
-    // Clear all state
+    // Clear all state (don't call cancelAll to avoid unnecessary promise rejections during cleanup)
     this._devices.clear()
     this._globalCallbacks = {}
   }
