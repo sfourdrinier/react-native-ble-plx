@@ -24,6 +24,9 @@ It supports:
 - [reading RSSI](https://github.com/dotintent/react-native-ble-plx/wiki/RSSI-Reading)
 - [negotiating MTU](https://github.com/dotintent/react-native-ble-plx/wiki/MTU-Negotiation)
 - [background mode on iOS](<https://github.com/dotintent/react-native-ble-plx/wiki/Background-mode-(iOS)>)
+- **NEW: background mode on Android** (foreground service)
+- **NEW: automatic reconnection** with exponential backoff
+- **NEW: connection queue** with retry logic
 - turning the device's Bluetooth adapter on
 
 It does NOT support:
@@ -40,9 +43,11 @@ It does NOT support:
 3. [Documentation & Support](#documentation--support)
 4. [Configuration & Installation](#configuration--installation)
 5. [iOS BLE State Restoration](#ios-ble-state-restoration-optional)
-6. [Troubleshooting](#troubleshooting)
-7. [Releasing](#releasing)
-8. [Contributions](#contributions)
+6. [Android Background Mode](#android-background-mode-new)
+7. [Reliability Features](#reliability-features-new)
+8. [Troubleshooting](#troubleshooting)
+9. [Releasing](#releasing)
+10. [Contributions](#contributions)
 
 ## Compatibility
 
@@ -61,6 +66,44 @@ It does NOT support:
 For older React Native versions, use the upstream [dotintent/react-native-ble-plx](https://github.com/dotintent/react-native-ble-plx) library.
 
 ## Recent Changes
+
+**3.7.7 (This Fork)**
+
+- **Connection Manager**: NEW unified `ConnectionManager` with retry logic, timeout support, and automatic reconnection
+- **Critical Bug Fixes** (4 Stop-Ship Issues Resolved):
+  - ✅ Fixed promise coalescing hang when multiple callers connect to same device
+  - ✅ Fixed memory leak in destroy() for auto-reconnect subscriptions
+  - ✅ Fixed connection storms from repeated disconnect events
+  - ✅ **Fixed race condition** where cancel() + auto-reconnect could still trigger retries (attemptId pattern)
+  - Fixed foreground service crash on null intent restart (Android)
+  - Fixed ReconnectionManager race condition (callbacks after disable)
+  - Fixed ConnectionQueue blocking all devices during retry delays
+  - Added proper error normalization to BleError
+- **Android 12+ Compatibility** (Production-Critical):
+  - ✅ Fixed STOP service crash (now uses `stopService()` instead of `startService()`)
+  - ✅ Added foreground state check before starting service (prevents `ForegroundServiceStartNotAllowedException`)
+  - ✅ Safe UPDATE notification handling with try-catch
+  - ✅ Verified Android 14 (API 34) compliance with `FOREGROUND_SERVICE_CONNECTED_DEVICE`
+- **Improvements**:
+  - Connection timeout support (prevents hangs)
+  - Concurrent connections to different devices
+  - Comprehensive test suite (8 tests covering all critical bugs)
+  - Production-grade error handling and cleanup
+- **Deprecated**: `ConnectionQueue` and `ReconnectionManager` (use `ConnectionManager` instead)
+
+**3.7.6 (This Fork)**
+
+- Refactored iOS BLE restoration to work standalone without external dependencies
+- Removed BleRestoration pod dependency, added bundled fallback registry
+- Improved Expo config plugin to use autolinking config
+
+**3.7.0 (This Fork)**
+
+- **Android Background Mode**: Added foreground service support for reliable background BLE operations
+- **Connection Queue**: `ConnectionQueue` class with automatic retry and exponential backoff
+- **Reconnection Manager**: `ReconnectionManager` class for automatic reconnection on unexpected disconnects
+- **New Types**: Added `BackgroundModeOptions` and `ReconnectionOptions` types
+- Expo config plugin now supports `androidEnableForegroundService` option
 
 **3.5.x (This Fork)**
 
@@ -128,6 +171,7 @@ The plugin provides props for extra customization. Every time you change the pro
 - `bluetoothAlwaysPermission` (_string | false_): Sets the iOS `NSBluetoothAlwaysUsageDescription` permission message to the `Info.plist`. Setting `false` will skip adding the permission. Defaults to `Allow $(PRODUCT_NAME) to connect to bluetooth devices`.
 - `iosEnableRestoration` (_boolean_): Opt-in to the iOS BLE state restoration subspec (disabled by default). When true, the Podfile will include `react-native-ble-plx/Restoration` and the adapter will register with a restoration registry if present.
 - `iosRestorationIdentifier` (_string_): Custom CBCentralManager restoration identifier. Written to `Info.plist` as `BlePlxRestoreIdentifier` and passed to `BleManager` for state restoration. Defaults to `com.reactnativebleplx.restore`.
+- `androidEnableForegroundService` (_boolean_): **NEW** Enable Android foreground service for background BLE operations. Adds necessary permissions (`FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`) and service declaration to `AndroidManifest.xml`. Default `false`.
 
 > Expo SDK 48 supports iOS 13+ which means `NSBluetoothPeripheralUsageDescription` is fully deprecated. It is no longer setup in `@config-plugins/react-native-ble-plx@5.0.0` and greater.
 
@@ -144,7 +188,8 @@ The plugin provides props for extra customization. Every time you change the pro
           "modes": ["peripheral", "central"],
           "bluetoothAlwaysPermission": "Allow $(PRODUCT_NAME) to connect to bluetooth devices",
           "iosEnableRestoration": true,
-          "iosRestorationIdentifier": "com.example.myapp.bleplx"
+          "iosRestorationIdentifier": "com.example.myapp.bleplx",
+          "androidEnableForegroundService": true
         }
       ]
     ]
@@ -345,6 +390,428 @@ public final class BleRestorationRegistry: NSObject {
 ```
 
 This ensures that when iOS restores the app, each device is reconnected by the appropriate SDK.
+
+## Android Background Mode (NEW)
+
+### ⚠️ Android 12+ Requirements (CRITICAL)
+
+**If you're targeting Android 12 (API 31) or higher, you MUST follow these requirements:**
+
+#### 1. Required Permissions in `AndroidManifest.xml`
+
+```xml
+<!-- Android 14+ (API 34+) - Required for foreground service type -->
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission
+  android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"
+  tools:targetApi="upside_down_cake" />
+
+<!-- Android 12+ (API 31+) - Required for BLE -->
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+<!-- Android < 12 -->
+<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+
+<!-- Location (required for BLE scanning on all versions) -->
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+```
+
+#### 2. Call `enableBackgroundMode()` While App is in Foreground
+
+**Android 12+ restricts starting foreground services from background.** You must call `enableBackgroundMode()` while your app is visible to the user:
+
+```typescript
+// ✅ CORRECT: Call while app is in foreground
+const handleStartRecording = async () => {
+  // User just tapped "Start Recording" button - app is in foreground
+  await bleManager.enableBackgroundMode({
+    notificationTitle: 'Recording Session Active',
+    notificationText: 'Syncing sensor data...'
+  });
+
+  // Now you can safely background the app and BLE will continue
+  await connectAndStartRecording();
+};
+
+// ❌ WRONG: Calling from background task/timer
+setTimeout(async () => {
+  // App may be backgrounded - this will throw on Android 12+
+  await bleManager.enableBackgroundMode({ /* ... */ });
+}, 60000);
+```
+
+**Error if violated:** `IllegalStateException: Cannot start foreground service from background on Android 12+`
+
+#### 3. Service Type Declaration (Expo Plugin Handles This)
+
+If using the Expo config plugin with `androidEnableForegroundService: true`, the service type is configured automatically. For manual setup, ensure your service has:
+
+```xml
+<service
+  android:name="com.bleplx.BlePlxForegroundService"
+  android:enabled="true"
+  android:exported="false"
+  android:foregroundServiceType="connectedDevice"
+  tools:targetApi="q" />
+```
+
+### Platform Compatibility
+
+| Android Version | Min SDK | Target SDK | Requirements |
+|----------------|---------|------------|--------------|
+| Android 14+ (API 34+) | 24 | 34 | `FOREGROUND_SERVICE_CONNECTED_DEVICE` permission + service type |
+| Android 12-13 (API 31-33) | 24 | 31+ | Foreground state check required |
+| Android 8-11 (API 26-30) | 24 | 26+ | Standard foreground service |
+| Android < 8 (API < 26) | 24 | - | No foreground service needed |
+
+---
+
+### Basic Usage
+
+Android requires a foreground service to keep BLE operations alive when the app is in the background. This fork adds built-in support for this.
+
+### Enabling via Expo Config Plugin
+
+```json
+{
+  "expo": {
+    "plugins": [
+      [
+        "@sfourdrinier/react-native-ble-plx",
+        {
+          "isBackgroundEnabled": true,
+          "androidEnableForegroundService": true
+        }
+      ]
+    ]
+  }
+}
+```
+
+### Using in JavaScript
+
+```typescript
+import { BleManager } from '@sfourdrinier/react-native-ble-plx';
+
+const manager = new BleManager();
+
+// Enable background mode before starting BLE operations
+await manager.enableBackgroundMode({
+  notificationTitle: 'Connected to Heart Rate Monitor',
+  notificationText: 'Syncing health data...'
+});
+
+// ... perform BLE operations ...
+
+// Update the notification while running
+await manager.updateBackgroundNotification({
+  notificationTitle: 'Syncing Data',
+  notificationText: 'Progress: 75%'
+});
+
+// Check if background mode is active
+const isEnabled = await manager.isBackgroundModeEnabled();
+
+// Disable when done
+await manager.disableBackgroundMode();
+```
+
+### Platform Behavior & iOS/Android Parity
+
+| Feature | iOS | Android | Notes |
+|---------|-----|---------|-------|
+| **Background BLE Operations** | ✅ Built-in via UIBackgroundModes | ✅ Foreground Service | Both platforms fully supported |
+| **Configuration** | Info.plist + Expo plugin | Manifest permissions + Expo plugin | Platform-specific setup |
+| **`enableBackgroundMode()` API** | ✅ No-op (graceful) | ✅ Required | Same API, platform-appropriate behavior |
+| **`disableBackgroundMode()` API** | ✅ No-op (graceful) | ✅ Stops service | Same API, platform-appropriate behavior |
+| **`updateBackgroundNotification()` API** | ✅ No-op (graceful) | ✅ Updates notification | iOS doesn't show notification |
+| **`isBackgroundModeEnabled()` API** | ✅ Returns false | ✅ Returns true/false | Consistent return type |
+| **Connection Management** | ✅ ConnectionManager | ✅ ConnectionManager | **100% API parity** |
+| **Auto-reconnection** | ✅ Full support | ✅ Full support | **100% feature parity** |
+| **Retry Logic** | ✅ Full support | ✅ Full support | **100% feature parity** |
+| **Timeout Support** | ✅ Full support | ✅ Full support | **100% feature parity** |
+
+**Cross-Platform Code Example:**
+```typescript
+// This exact code works on BOTH iOS and Android
+await bleManager.enableBackgroundMode({
+  notificationTitle: 'Recording Active',  // Shown on Android, ignored on iOS
+  notificationText: 'Syncing sensor data'  // Shown on Android, ignored on iOS
+});
+
+// ConnectionManager has 100% API parity between platforms
+const connectionManager = new ConnectionManager(bleManager);
+await connectionManager.connect(deviceId, {
+  maxRetries: 5,
+  timeoutMs: 15000
+});
+```
+
+> **✅ Platform Parity Guarantee**: All ConnectionManager features, retry logic, auto-reconnection, and timeout support work identically on iOS and Android. Only background mode setup differs due to platform requirements.
+
+## Reliability Features (NEW)
+
+### ConnectionManager (Recommended)
+
+**Unified connection management** with retry logic, timeout support, and automatic reconnection - all in one manager:
+
+```typescript
+import { BleManager, ConnectionManager } from '@sfourdrinier/react-native-ble-plx';
+
+const bleManager = new BleManager();
+const connectionManager = new ConnectionManager(bleManager);
+
+// Connect with retry logic and timeout
+const device = await connectionManager.connect('AA:BB:CC:DD:EE:FF', {
+  maxRetries: 5,
+  initialDelayMs: 1000,
+  timeoutMs: 15000,  // Connection timeout
+  backoffMultiplier: 2
+});
+
+// Enable auto-reconnect for a device
+connectionManager.enableAutoReconnect('AA:BB:CC:DD:EE:FF', {
+  maxRetries: 10,
+  initialDelayMs: 2000,
+  timeoutMs: 15000
+}, {
+  onConnect: (device) => console.log('Connected!', device.id),
+  onDisconnect: (deviceId, error) => console.log('Disconnected', deviceId),
+  onConnectFailed: (deviceId, error) => console.log('Failed', deviceId, error)
+});
+
+// Set global callbacks for all devices
+connectionManager.setGlobalCallbacks({
+  onConnect: (device) => console.log('Any device connected:', device.id),
+  onDisconnect: (deviceId) => console.log('Any device disconnected:', deviceId),
+  onConnecting: (deviceId, attempt, max) => {
+    console.log(`Connecting ${deviceId}: attempt ${attempt}/${max}`);
+  }
+});
+
+// Check status
+console.log('Is connecting:', connectionManager.isConnecting('AA:BB:CC:DD:EE:FF'));
+console.log('Auto-reconnect enabled:', connectionManager.isAutoReconnectEnabled('AA:BB:CC:DD:EE:FF'));
+console.log('Active connections:', connectionManager.activeCount);
+
+// Cancel a connection
+connectionManager.cancel('AA:BB:CC:DD:EE:FF');
+
+// Disable auto-reconnect
+connectionManager.disableAutoReconnect('AA:BB:CC:DD:EE:FF');
+```
+
+**Key Features:**
+- ✅ Single state machine per device (no competing retry engines)
+- ✅ Concurrent connections to different devices
+- ✅ Configurable connection timeout (prevents hangs)
+- ✅ Exponential backoff retry logic
+- ✅ Automatic reconnection on unexpected disconnects
+- ✅ Comprehensive event callbacks (onConnect, onDisconnect, onConnecting, onConnectFailed)
+- ✅ Clean cancellation and lifecycle management
+
+---
+
+### Migration Guide: ConnectionQueue + ReconnectionManager → ConnectionManager
+
+If you're using the deprecated `ConnectionQueue` and `ReconnectionManager` classes, here's how to migrate to the unified `ConnectionManager`:
+
+#### Before (Separate Managers - Deprecated)
+
+```typescript
+import { BleManager, ConnectionQueue, ReconnectionManager } from '@sfourdrinier/react-native-ble-plx';
+
+const bleManager = new BleManager();
+const queue = new ConnectionQueue(bleManager);
+const reconnectionManager = new ReconnectionManager(bleManager);
+
+// Connect with retry
+const device = await queue.connect(deviceId, {
+  maxRetries: 5,
+  initialDelayMs: 1000
+});
+
+// Enable auto-reconnect
+reconnectionManager.enableAutoReconnect(deviceId, {
+  maxRetries: 10
+}, {
+  onReconnect: (device) => console.log('Reconnected'),
+  onReconnectFailed: (id, error) => console.log('Failed')
+});
+```
+
+#### After (Unified Manager - Recommended)
+
+```typescript
+import { BleManager, ConnectionManager } from '@sfourdrinier/react-native-ble-plx';
+
+const bleManager = new BleManager();
+const connectionManager = new ConnectionManager(bleManager);
+
+// Connect with retry AND enable auto-reconnect in one step
+connectionManager.enableAutoReconnect(deviceId, {
+  maxRetries: 10,
+  initialDelayMs: 2000,
+  timeoutMs: 15000  // NEW: connection timeout support
+}, {
+  onConnect: (device) => console.log('Connected'),  // Fires on initial connect AND reconnects
+  onDisconnect: (deviceId, error) => console.log('Disconnected'),
+  onConnectFailed: (deviceId, error) => console.log('Failed')
+});
+
+// Initial connection (auto-reconnect handles future disconnects)
+const device = await connectionManager.connect(deviceId, {
+  maxRetries: 5,
+  timeoutMs: 15000
+});
+```
+
+#### Key Benefits of Migration
+
+| Feature | Old (Queue + Reconnection) | New (ConnectionManager) |
+|---------|---------------------------|------------------------|
+| **State Management** | Two competing retry engines | Single state machine per device |
+| **Connection Timeout** | ❌ Not supported | ✅ Configurable `timeoutMs` |
+| **Race Conditions** | ⚠️ Possible bugs | ✅ Fixed with attemptId pattern |
+| **Memory Leaks** | ⚠️ destroy() leaked subscriptions | ✅ Fixed |
+| **Connection Storms** | ⚠️ Repeated disconnects caused storms | ✅ Fixed with guards |
+| **Concurrent Connections** | ⚠️ Queue blocked all devices | ✅ Per-device isolation |
+| **Event Callbacks** | Split between two managers | Unified callbacks |
+| **Code Complexity** | Manage 2 instances | Single instance |
+
+---
+
+### ConnectionQueue (Deprecated)
+
+> **⚠️ Deprecated**: Use `ConnectionManager` instead for unified connection management.
+
+Manage connection attempts with automatic retry logic and queue management:
+
+```typescript
+import { BleManager, ConnectionQueue } from '@sfourdrinier/react-native-ble-plx';
+
+const manager = new BleManager();
+const queue = new ConnectionQueue(manager);
+
+// Connect with automatic retry on failure
+const device = await queue.connect('AA:BB:CC:DD:EE:FF', {
+  maxRetries: 5,
+  initialDelayMs: 1000,
+  maxDelayMs: 30000,
+  backoffMultiplier: 2,
+  connectionOptions: { timeout: 10000 }
+});
+
+// Cancel a pending connection
+queue.cancel('AA:BB:CC:DD:EE:FF');
+
+// Cancel all pending connections
+queue.cancelAll();
+
+// Check queue status
+console.log('Pending connections:', queue.pendingCount);
+console.log('Is device pending:', queue.isPending('AA:BB:CC:DD:EE:FF'));
+```
+
+### ReconnectionManager (Deprecated)
+
+> **⚠️ Deprecated**: Use `ConnectionManager` instead for unified connection management.
+
+Automatically reconnect when devices disconnect unexpectedly:
+
+```typescript
+import { BleManager, ReconnectionManager } from '@sfourdrinier/react-native-ble-plx';
+
+const manager = new BleManager();
+const reconnectionManager = new ReconnectionManager(manager);
+
+// Enable auto-reconnect for a device
+reconnectionManager.enableAutoReconnect('AA:BB:CC:DD:EE:FF', {
+  maxRetries: 10,
+  initialDelayMs: 1000,
+  maxDelayMs: 60000,
+  backoffMultiplier: 1.5
+}, {
+  onReconnect: (device) => {
+    console.log('Reconnected to', device.id);
+  },
+  onReconnectFailed: (deviceId, error) => {
+    console.log('Failed to reconnect to', deviceId, error);
+  }
+});
+
+// Set global callbacks for all devices
+reconnectionManager.setGlobalCallbacks({
+  onReconnect: (device) => console.log('Any device reconnected:', device.id),
+  onReconnectFailed: (deviceId) => console.log('Any device failed:', deviceId),
+  onReconnecting: (deviceId, attempt, max) => {
+    console.log(`Reconnecting ${deviceId}: attempt ${attempt}/${max}`);
+  }
+});
+
+// Check status
+console.log('Is enabled:', reconnectionManager.isEnabled('AA:BB:CC:DD:EE:FF'));
+console.log('Is reconnecting:', reconnectionManager.isReconnecting('AA:BB:CC:DD:EE:FF'));
+console.log('Retry count:', reconnectionManager.getRetryCount('AA:BB:CC:DD:EE:FF'));
+
+// Disable auto-reconnect
+reconnectionManager.disableAutoReconnect('AA:BB:CC:DD:EE:FF');
+
+// Or disable all
+reconnectionManager.disableAll();
+```
+
+### Combining Features for Reliable Background Sync
+
+Use `ConnectionManager` with background mode for reliable, long-running connections:
+
+```typescript
+import {
+  BleManager,
+  ConnectionManager
+} from '@sfourdrinier/react-native-ble-plx';
+
+const bleManager = new BleManager();
+const connectionManager = new ConnectionManager(bleManager);
+
+async function startReliableSync(deviceId: string) {
+  // 1. Enable background mode (Android)
+  await bleManager.enableBackgroundMode({
+    notificationTitle: 'Syncing Data',
+    notificationText: 'Connected to device'
+  });
+
+  // 2. Connect with retry logic and auto-reconnect
+  connectionManager.enableAutoReconnect(deviceId, {
+    maxRetries: 10,
+    initialDelayMs: 2000,
+    timeoutMs: 15000
+  }, {
+    onConnect: async (device) => {
+      // Start or resume data sync when connected
+      await startDataSync(device);
+    },
+    onDisconnect: (deviceId, error) => {
+      console.log('Device disconnected, will auto-reconnect:', deviceId);
+    },
+    onConnectFailed: (deviceId, error) => {
+      console.error('Failed to reconnect after all retries:', deviceId, error);
+    }
+  });
+
+  // 3. Initial connection
+  const device = await connectionManager.connect(deviceId, {
+    maxRetries: 5,
+    initialDelayMs: 1000,
+    timeoutMs: 15000
+  });
+
+  // Auto-reconnect is now active and will handle disconnects automatically
+}
+
+```
 
 ## Troubleshooting
 

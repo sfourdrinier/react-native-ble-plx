@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh repo view:*)",
+      "Bash(pnpm test:package:*)",
+      "WebSearch"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -8,6 +8,24 @@ export { Descriptor } from './Descriptor'
 export { fullUUID } from './Utils'
 export { State, LogLevel, ConnectionPriority, ScanCallbackType, ScanMode } from './TypeDefinition'
 
+// Unified connection management (recommended)
+export { ConnectionManager } from './ConnectionManager'
+export type {
+  ConnectionOptionsWithRetry,
+  AutoReconnectOptions,
+  ConnectionCallbacks
+} from './ConnectionManager'
+
+// Legacy reliability utilities (deprecated - use ConnectionManager instead)
+/** @deprecated Use ConnectionManager instead for unified connection management */
+export { ConnectionQueue } from './ConnectionQueue'
+/** @deprecated Use ConnectionOptionsWithRetry instead */
+export type { QueuedConnectionOptions } from './ConnectionQueue'
+/** @deprecated Use ConnectionManager instead for unified connection management */
+export { ReconnectionManager } from './ReconnectionManager'
+/** @deprecated Use ConnectionCallbacks instead */
+export type { ReconnectionCallbacks } from './ReconnectionManager'
+
 export type {
   Subscription,
   DeviceId,
@@ -17,5 +35,7 @@ export type {
   ScanOptions,
   ConnectionOptions,
   BleManagerOptions,
-  BleRestoredState
+  BleRestoredState,
+  BackgroundModeOptions,
+  ReconnectionOptions
 } from './TypeDefinition'
