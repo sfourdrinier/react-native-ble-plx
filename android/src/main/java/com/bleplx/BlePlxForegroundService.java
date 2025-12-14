@@ -1,5 +1,6 @@
 package com.bleplx;
 
+import android.app.ActivityManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -15,6 +16,8 @@ import android.os.IBinder;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
+
+import java.util.List;
 
 /**
  * Foreground Service for maintaining BLE connections in the background.
@@ -277,8 +280,21 @@ public class BlePlxForegroundService extends Service {
 
   /**
    * Static helper to start the foreground service
+   *
+   * @throws IllegalStateException on Android 12+ if app is not in foreground
    */
   public static void start(Context context, String title, String text) {
+    // Android 12+ restricts starting foreground services from background
+    // Fail fast with clear error message instead of mysterious crash
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {  // API 31 = Android 12
+      if (!isAppInForeground(context)) {
+        throw new IllegalStateException(
+          "Cannot start foreground service from background on Android 12+. " +
+          "Call enableBackgroundMode() while app is in foreground or user-initiated."
+        );
+      }
+    }
+
     Intent intent = new Intent(context, BlePlxForegroundService.class);
     intent.setAction(ACTION_START);
     if (title != null) {
@@ -299,13 +315,18 @@ public class BlePlxForegroundService extends Service {
    * Static helper to stop the foreground service
    */
   public static void stop(Context context) {
+    // Use stopService() instead of startService() to avoid IllegalStateException
+    // on Android 12+ when called from background
     Intent intent = new Intent(context, BlePlxForegroundService.class);
-    intent.setAction(ACTION_STOP);
-    context.startService(intent);
+    context.stopService(intent);
   }
 
   /**
    * Static helper to update the notification
+   *
+   * Note: This only works if the service is already running. If called when
+   * the service is not active, the update will be silently ignored to avoid
+   * IllegalStateException on Android 12+.
    */
   public static void updateNotification(Context context, String title, String text) {
     Intent intent = new Intent(context, BlePlxForegroundService.class);
@@ -316,6 +337,46 @@ public class BlePlxForegroundService extends Service {
     if (text != null) {
       intent.putExtra(EXTRA_NOTIFICATION_TEXT, text);
     }
-    context.startService(intent);
+    // Use startService() since UPDATE doesn't call startForeground()
+    // The service's onStartCommand will check isRunning and ignore if not active
+    try {
+      context.startService(intent);
+    } catch (IllegalStateException e) {
+      // Android 12+ may throw if service not already running
+      // This is expected and safe to ignore - update simply fails silently
+    }
+  }
+
+  /**
+   * Check if the app is currently in the foreground
+   *
+   * This is used on Android 12+ to prevent ForegroundServiceStartNotAllowedException
+   * when trying to start a foreground service from background.
+   *
+   * @param context Application context
+   * @return true if app is in foreground, false otherwise
+   */
+  private static boolean isAppInForeground(Context context) {
+    ActivityManager activityManager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+    if (activityManager == null) {
+      // If we can't get the service, assume we're in foreground to avoid blocking
+      return true;
+    }
+
+    List<ActivityManager.RunningAppProcessInfo> processes = activityManager.getRunningAppProcesses();
+    if (processes == null || processes.isEmpty()) {
+      // No process info available, assume foreground to avoid blocking
+      return true;
+    }
+
+    String packageName = context.getPackageName();
+    for (ActivityManager.RunningAppProcessInfo processInfo : processes) {
+      if (processInfo.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND &&
+          processInfo.processName.equals(packageName)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }
