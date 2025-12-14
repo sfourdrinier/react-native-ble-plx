@@ -1,7 +1,7 @@
 import { Device } from './Device'
 import { BleError } from './BleError'
 import type { BleManager } from './BleManager'
-import type { DeviceId, ConnectionOptions, Subscription, ReconnectionOptions } from './TypeDefinition'
+import type { DeviceId, Subscription, ReconnectionOptions } from './TypeDefinition'
 
 /**
  * Reconnection state for a device
@@ -121,7 +121,7 @@ export class ReconnectionManager {
     }
 
     // Subscribe to disconnection events for this device
-    state.disconnectSubscription = this._manager.onDeviceDisconnected(deviceId, (error, device) => {
+    state.disconnectSubscription = this._manager.onDeviceDisconnected(deviceId, (error, _device) => {
       // Only auto-reconnect on unexpected disconnections (error is not null)
       // If error is null, it was an intentional disconnect via cancelDeviceConnection
       if (error) {

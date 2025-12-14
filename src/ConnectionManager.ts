@@ -283,7 +283,7 @@ export class ConnectionManager {
 
     // Subscribe to disconnection events if not already subscribed
     if (!state.disconnectSubscription) {
-      state.disconnectSubscription = this._manager.onDeviceDisconnected(deviceId, (error, device) => {
+      state.disconnectSubscription = this._manager.onDeviceDisconnected(deviceId, (error, _device) => {
         const currentState = this._devices.get(deviceId)
         if (!currentState) return
 
