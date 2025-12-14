@@ -88,6 +88,7 @@ interface DeviceConnectionState {
   autoReconnect: boolean
   callbacks?: ConnectionCallbacks
   cancelled: boolean
+  attemptId: number  // Generation token to invalidate old async attempts
   pendingPromise?: {
     resolve: (device: Device) => void
     reject: (error: BleError) => void
@@ -215,6 +216,7 @@ export class ConnectionManager {
         retryCount: 0,
         autoReconnect: false,
         cancelled: false,
+        attemptId: 0,
         pendingPromise: { resolve, reject }
       }
 
@@ -270,7 +272,8 @@ export class ConnectionManager {
         retryCount: 0,
         autoReconnect: true,
         callbacks,
-        cancelled: false
+        cancelled: false,
+        attemptId: 0
       }
 
       this._devices.set(deviceId, state)
@@ -328,6 +331,9 @@ export class ConnectionManager {
     if (!state) {
       return false
     }
+
+    // Increment attemptId to invalidate any in-flight async attempts
+    state.attemptId++
 
     this._cancelState(state)
 
@@ -497,6 +503,9 @@ export class ConnectionManager {
       state.timeoutId = undefined
     }
 
+    // Capture attempt ID to detect if this attempt was invalidated during async operations
+    const myAttemptId = state.attemptId
+
     state.isConnecting = true
     state.retryCount++
 
@@ -533,6 +542,12 @@ export class ConnectionManager {
     try {
       const device = await this._manager.connectToDevice(state.deviceId, state.options.connectionOptions)
 
+      // Check if this attempt was invalidated during the async connect operation
+      if (state.attemptId !== myAttemptId) {
+        // This attempt is stale - a newer attempt has started or cancel was called
+        return
+      }
+
       // Clear connection timeout
       if (state.connectionTimeoutId) {
         clearTimeout(state.connectionTimeoutId)
@@ -549,6 +564,12 @@ export class ConnectionManager {
       if (!currentState || currentState !== state || currentState.cancelled) {
         // State was cancelled during connection - disconnect immediately
         await this._manager.cancelDeviceConnection(state.deviceId).catch(() => {})
+
+        // Check again after the disconnect await
+        if (state.attemptId !== myAttemptId) {
+          return
+        }
+
         return
       }
 
@@ -571,6 +592,12 @@ export class ConnectionManager {
         this._devices.delete(state.deviceId)
       }
     } catch (error) {
+      // Check if this attempt was invalidated during the async operation
+      if (state.attemptId !== myAttemptId) {
+        // This attempt is stale - don't schedule retry or update state
+        return
+      }
+
       // Clear connection timeout
       if (state.connectionTimeoutId) {
         clearTimeout(state.connectionTimeoutId)
