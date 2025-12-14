@@ -214,9 +214,11 @@ export class ConnectionManager {
         options: connectionOptions,
         isConnecting: false,
         retryCount: 0,
-        autoReconnect: false,
+        autoReconnect: existing?.autoReconnect ?? false, // Preserve autoReconnect flag if it exists
+        callbacks: existing?.callbacks, // Preserve callbacks if they exist
+        disconnectSubscription: existing?.disconnectSubscription, // Preserve disconnect subscription
         cancelled: false,
-        attemptId: 0,
+        attemptId: existing ? existing.attemptId + 1 : 0, // Increment attemptId if reusing state
         pendingPromise: { resolve, reject }
       }
 
@@ -289,8 +291,9 @@ export class ConnectionManager {
         currentState.callbacks?.onDisconnect?.(deviceId, error)
         this._globalCallbacks.onDisconnect?.(deviceId, error)
 
-        // Only auto-reconnect on unexpected disconnections (error is not null)
-        if (error && currentState.autoReconnect && !currentState.cancelled) {
+        // Auto-reconnect on ANY disconnect unless explicitly cancelled
+        // This handles all platform behaviors including quirky null-error disconnects
+        if (currentState.autoReconnect && !currentState.cancelled) {
           this._startReconnection(deviceId)
         }
       })

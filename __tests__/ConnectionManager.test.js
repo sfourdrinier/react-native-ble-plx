@@ -219,4 +219,31 @@ describe('ConnectionManager', () => {
     // With the attemptId fix, this should pass.
     expect(ble.connectToDevice).toHaveBeenCalledTimes(1);
   });
+
+  test('auto-reconnect triggers on disconnect even when error is null (platform quirk handling)', async () => {
+    mgr.enableAutoReconnect('d1', { maxRetries: 1, initialDelayMs: 0, timeoutMs: 0 });
+
+    // Initial connection
+    const p = mgr.connect('d1', { timeoutMs: 0 });
+    ble._resolveConnect('d1', createDevice('d1'));
+    await expect(p).resolves.toMatchObject({ id: 'd1' });
+
+    // Reset call count
+    ble.connectToDevice.mockClear();
+
+    // Simulate disconnect with null error (some platforms do this)
+    ble._simulateDisconnect('d1', null);
+
+    // Auto-reconnect should still trigger
+    jest.runOnlyPendingTimers();
+    await flushMicrotasks();
+
+    expect(ble.connectToDevice).toHaveBeenCalledTimes(1);
+
+    // Clean up the pending reconnection attempt
+    if (ble._connectCalls.length > 0) {
+      ble._connectCalls[0].deferred.reject(createBleError(BleErrorCode.DeviceDisconnected, 'cleanup'));
+      await flushMicrotasks().catch(() => {});
+    }
+  });
 });
