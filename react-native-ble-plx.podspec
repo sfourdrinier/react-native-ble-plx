@@ -20,12 +20,12 @@ Pod::Spec.new do |s|
   s.compiler_flags = "-DMULTIPLATFORM_BLE_ADAPTER -fmodules -fcxx-modules"
 
   # Optional iOS BLE restoration support (off by default).
-  # Consumers who want to integrate with a restoration registry can enable the
-  # `Restoration` subspec, which adds a small Swift adapter plus the
-  # BleRestoration pod dependency.
+  # Enable via the Expo config plugin: `iosEnableRestoration: true`
+  # This subspec includes a bundled BleRestorationRegistry so it works standalone.
+  # For advanced multi-adapter routing, host apps can include their own registry.
   s.subspec "Restoration" do |ss|
     ss.source_files = "ios/Restoration/**/*.{h,m,mm,swift}"
-    ss.dependency "BleRestoration"
+    # No external dependency - BleRestorationRegistry is now bundled
   end
 
   # Use install_modules_dependencies helper to install the dependencies if React Native version >=0.71.0.
