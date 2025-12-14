@@ -1,90 +1,143 @@
 import { withPodfile, type ConfigPlugin } from '@expo/config-plugins'
 
-// NPM package may be scoped (@scope/pkg) but the CocoaPods spec name is unscoped (pkg).
-const toPodName = (pkgName: string) => pkgName.includes('/') ? pkgName.split('/').pop()! : pkgName
+const toPodName = (pkgName: string) => (pkgName.includes('/') ? pkgName.split('/').pop()! : pkgName)
 
-// Extract the path used for the existing react-native-ble-plx pod from the Podfile
-// This handles monorepos where the path might be '../../../node_modules/...' instead of '../node_modules/...'
-function extractExistingPath(podfile: string): string | null {
-  // Match patterns like:
-  //   pod 'react-native-ble-plx', :path => "../../../node_modules/react-native-ble-plx"
-  //   pod 'react-native-ble-plx', :path => File.join(...)
+const MARKER_START = '# >>> BLEPLX_RESTORATION_SUBSPEC'
+const MARKER_END = '# <<< BLEPLX_RESTORATION_SUBSPEC'
+
+function extractExistingPath(podfile: string, podName: string): string | null {
   const patterns = [
-    // Direct string path: :path => "..."
-    /pod\s+['"]react-native-ble-plx['"]\s*,\s*:path\s*=>\s*["']([^"']+)["']/,
-    // File.join pattern: :path => File.join(File.dirname(__FILE__), '...')
-    /pod\s+['"]react-native-ble-plx['"]\s*,\s*:path\s*=>\s*File\.join\([^,]+,\s*["']([^"']+)["']\)/
+    new RegExp(
+      String.raw`pod\s+['"]${podName}['"]\s*,\s*:path\s*=>\s*["']([^"']+)["']`
+    ),
+    new RegExp(
+      String.raw`pod\s+['"]${podName}['"]\s*,\s*:path\s*=>\s*File\.join\([^,]+,\s*["']([^"']+)["']\)`
+    )
   ]
 
   for (const pattern of patterns) {
     const match = podfile.match(pattern)
-    if (match && match[1]) {
-      console.log('[BLEPLX_PODFILE] Found existing path:', match[1])
-      return match[1]
-    }
+    if (match?.[1]) return match[1]
   }
-
   return null
 }
 
-// Pure helper for easier testing
+function buildRubySnippet(params: { podName: string; jsPackageCandidates: string[] }): string {
+  const { podName, jsPackageCandidates } = params
+
+  const rubyCandidates = jsPackageCandidates
+    .filter(Boolean)
+    .map(v => v.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))
+    .map(v => `'${v}'`)
+    .join(', ')
+
+  // Uses the autolinking config from use_native_modules! to find the exact path
+  // This avoids path mismatches from resolving independently with Node
+  return `
+${MARKER_START}
+begin
+  bleplx_pod_name = '${podName}'
+  bleplx_candidates = [${rubyCandidates}]
+
+  # Reuse the autolinking config from use_native_modules! (stored in 'config' variable)
+  bleplx_deps =
+    if defined?(config) && config.is_a?(Hash)
+      config[:dependencies] || config['dependencies'] || {}
+    else
+      {}
+    end
+
+  bleplx_podspec_path = nil
+
+  bleplx_candidates.each do |name|
+    dep = bleplx_deps[name] || bleplx_deps[name.to_sym]
+    next unless dep.is_a?(Hash)
+
+    p =
+      dep.dig(:platforms, :ios, :podspecPath) ||
+      dep.dig('platforms', 'ios', 'podspecPath')
+
+    if p && File.exist?(p)
+      bleplx_podspec_path = p
+      break
+    end
+  end
+
+  if bleplx_podspec_path
+    bleplx_podspec_dir = File.dirname(bleplx_podspec_path)
+    pod "#{bleplx_pod_name}/Restoration", :path => bleplx_podspec_dir
+  else
+    Pod::UI.warn "[BLEPLX] Could not find podspecPath for #{bleplx_pod_name} in autolinking config. deps keys=#{bleplx_deps.keys.inspect}"
+  end
+rescue => e
+  Pod::UI.warn "[BLEPLX] Failed to configure Restoration subspec: #{e}"
+end
+${MARKER_END}
+`.trim()
+}
+
+function indentBlock(block: string, indent: string): string {
+  return block
+    .split('\n')
+    .map(line => (line.length ? indent + line : line))
+    .join('\n')
+}
+
 export function injectRestorationPodLine(podfile: string, pkgName: string): string {
-  console.log('[BLEPLX_PODFILE] injectRestorationPodLine called')
-  console.log('[BLEPLX_PODFILE] pkgName:', pkgName)
+  if (!podfile) return podfile
+  if (podfile.includes(MARKER_START) || podfile.includes(`${toPodName(pkgName)}/Restoration`)) return podfile
 
   const podName = toPodName(pkgName)
-  console.log('[BLEPLX_PODFILE] podName (after toPodName):', podName)
 
-  // Check for either the pod name or the full package name to avoid duplicates
-  if (!podfile) {
-    console.log('[BLEPLX_PODFILE] ✗ Podfile is empty/null - returning unchanged')
-    return podfile
-  }
-  if (podfile.includes(`${podName}/Restoration`)) {
-    console.log('[BLEPLX_PODFILE] ✗ Already contains', `${podName}/Restoration`, '- skipping')
-    return podfile
-  }
-  if (podfile.includes(`${pkgName}/Restoration`)) {
-    console.log('[BLEPLX_PODFILE] ✗ Already contains', `${pkgName}/Restoration`, '- skipping')
-    return podfile
-  }
-
-  // Find the path used by the existing react-native-ble-plx pod
-  const existingPath = extractExistingPath(podfile)
-  if (!existingPath) {
-    console.log('[BLEPLX_PODFILE] ✗ Could not find existing react-native-ble-plx pod path - cannot inject Restoration')
-    return podfile
+  // If someone already has an explicit pod line with a :path, reuse it
+  const existingPath = extractExistingPath(podfile, podName)
+  if (existingPath) {
+    const basePodLineRe = new RegExp(String.raw`^(\s*)pod\s+['"]${podName}['"].*$`, 'm')
+    const match = basePodLineRe.exec(podfile)
+    if (match?.index != null) {
+      const indent = match[1] ?? ''
+      const insertion = `${indent}pod '${podName}/Restoration', :path => "${existingPath}"\n`
+      const matchEnd = match.index + match[0].length
+      const lineEnd = podfile.indexOf('\n', matchEnd)
+      const insertAt = lineEnd === -1 ? podfile.length : lineEnd + 1
+      return podfile.slice(0, insertAt) + insertion + podfile.slice(insertAt)
+    }
   }
 
-  // Use the same path for the Restoration subspec
-  const podLine = `  pod '${podName}/Restoration', :path => "${existingPath}"\n`
-  console.log('[BLEPLX_PODFILE] Generated pod line:', podLine.trim())
+  // Expo/RN autolinking case: inject Ruby snippet AFTER use_native_modules!
+  const useNativeModulesRe = /^(\s*)(?:\w+\s*=\s*)?use_native_modules!\s*(?:\([^)]*\))?\s*$/m
+  const useMatch = useNativeModulesRe.exec(podfile)
 
-  const marker = 'post_install do |installer|'
-  const idx = podfile.indexOf(marker)
+  const rubySnippet = buildRubySnippet({
+    podName,
+    jsPackageCandidates: [podName, pkgName]
+  })
 
-  if (idx !== -1) {
-    console.log('[BLEPLX_PODFILE] ✓ Found post_install marker at index', idx, '- inserting before it')
-    podfile = podfile.slice(0, idx) + podLine + '\n' + podfile.slice(idx)
-  } else {
-    console.log('[BLEPLX_PODFILE] ✗ No post_install marker found - appending to end')
-    podfile += '\n' + podLine
+  if (useMatch?.index != null) {
+    const indent = useMatch[1] ?? ''
+    const lineEnd = podfile.indexOf('\n', useMatch.index)
+    const insertAt = lineEnd === -1 ? podfile.length : lineEnd + 1
+    const indented = '\n' + indentBlock(rubySnippet, indent) + '\n'
+    return podfile.slice(0, insertAt) + indented + podfile.slice(insertAt)
   }
 
-  console.log('[BLEPLX_PODFILE] ✓ Successfully injected Restoration pod line')
-  return podfile
+  // Fallback: inject before use_react_native!
+  const useReactNativeRe = /^(\s*)use_react_native!\s*(?:\([^)]*\))?\s*$/m
+  const rnMatch = useReactNativeRe.exec(podfile)
+  if (rnMatch?.index != null) {
+    const indent = rnMatch[1] ?? ''
+    const indented = indentBlock(rubySnippet, indent) + '\n'
+    return podfile.slice(0, rnMatch.index) + indented + podfile.slice(rnMatch.index)
+  }
+
+  // Last resort: append
+  return podfile + '\n\n' + rubySnippet + '\n'
 }
 
 export const withBLERestorationPodfile: ConfigPlugin<{ pkgName: string }> = (config, { pkgName }) =>
-  withPodfile(config, config => {
-    const raw = (config.modResults as any)?.contents ?? (config.modResults as unknown as string)
-    const updated = injectRestorationPodLine(raw, pkgName)
-
-    if ((config.modResults as any)?.contents !== undefined) {
-      (config.modResults as any).contents = updated
-    } else {
-      config.modResults = updated as any
-    }
-
-    return config
+  withPodfile(config, modConfig => {
+    const contents = modConfig.modResults.contents
+    const updated = injectRestorationPodLine(contents, pkgName)
+    modConfig.modResults.contents = updated
+    return modConfig
   })

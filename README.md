@@ -306,9 +306,7 @@ const manager = new BleManager({
    pod 'react-native-ble-plx/Restoration', :path => '../node_modules/@sfourdrinier/react-native-ble-plx'
    ```
 
-2. Add `BleRestoration` pod as a dependency (or implement your own restoration registry)
-
-3. Add to your `Info.plist`:
+2. Add to your `Info.plist`:
    ```xml
    <key>BlePlxRestoreIdentifier</key>
    <string>com.yourapp.bleplx</string>
@@ -325,13 +323,25 @@ const manager = new BleManager({
 - No changes to the JavaScript API
 - Works exactly like upstream `react-native-ble-plx`
 
-### Multi-Adapter Support
+### Multi-Adapter Support (Advanced)
 
-If your app uses multiple BLE SDKs (e.g., Polar SDK + generic BLE-PLX), the restoration system supports routing devices to the correct adapter via `BleRestorationRegistry`:
+For apps using multiple BLE SDKs (e.g., Polar SDK + generic BLE-PLX), you can provide your own `BleRestorationRegistry` implementation with device-to-adapter routing. The bundled adapter uses reflection to find registries:
+
+1. **Bundled fallback**: Works out of the box via `BlePlxBundledRestorationRegistry`
+2. **Custom registry**: If you provide a class named `BleRestorationRegistry`, it takes priority
 
 ```swift
-// Each adapter registers itself
-BleRestorationRegistry.registerDevice(deviceId, BlePlxRestorationAdapter.self)
+// Your custom BleRestorationRegistry implementation
+@objc(BleRestorationRegistry)
+public final class BleRestorationRegistry: NSObject {
+  @objc public static let shared = BleRestorationRegistry()
+
+  @objc(registerAdapter:)
+  public func registerAdapter(_ cls: AnyClass) { /* ... */ }
+
+  @objc(registerDevice:forAdapter:)
+  public func registerDevice(_ deviceId: String, for cls: AnyClass) { /* ... */ }
+}
 ```
 
 This ensures that when iOS restores the app, each device is reconnected by the appropriate SDK.
