@@ -67,11 +67,31 @@ For older React Native versions, use the upstream [dotintent/react-native-ble-pl
 
 ## Recent Changes
 
+**3.7.7 (This Fork)**
+
+- **Connection Manager**: NEW unified `ConnectionManager` with retry logic, timeout support, and automatic reconnection
+- **Critical Bug Fixes**:
+  - Fixed foreground service crash on null intent restart
+  - Fixed ReconnectionManager race condition (callbacks after disable)
+  - Fixed ConnectionQueue blocking all devices during retry delays
+  - Added proper error normalization to BleError
+- **Improvements**:
+  - Connection timeout support (prevents hangs)
+  - Concurrent connections to different devices
+  - Android 14+ foreground service compliance verified
+- **Deprecated**: `ConnectionQueue` and `ReconnectionManager` (use `ConnectionManager` instead)
+
+**3.7.6 (This Fork)**
+
+- Refactored iOS BLE restoration to work standalone without external dependencies
+- Removed BleRestoration pod dependency, added bundled fallback registry
+- Improved Expo config plugin to use autolinking config
+
 **3.7.0 (This Fork)**
 
 - **Android Background Mode**: Added foreground service support for reliable background BLE operations
-- **Connection Queue**: New `ConnectionQueue` class with automatic retry and exponential backoff
-- **Reconnection Manager**: New `ReconnectionManager` class for automatic reconnection on unexpected disconnects
+- **Connection Queue**: `ConnectionQueue` class with automatic retry and exponential backoff
+- **Reconnection Manager**: `ReconnectionManager` class for automatic reconnection on unexpected disconnects
 - **New Types**: Added `BackgroundModeOptions` and `ReconnectionOptions` types
 - Expo config plugin now supports `androidEnableForegroundService` option
 
@@ -412,7 +432,70 @@ await manager.disableBackgroundMode();
 
 ## Reliability Features (NEW)
 
-### ConnectionQueue
+### ConnectionManager (Recommended)
+
+**Unified connection management** with retry logic, timeout support, and automatic reconnection - all in one manager:
+
+```typescript
+import { BleManager, ConnectionManager } from '@sfourdrinier/react-native-ble-plx';
+
+const bleManager = new BleManager();
+const connectionManager = new ConnectionManager(bleManager);
+
+// Connect with retry logic and timeout
+const device = await connectionManager.connect('AA:BB:CC:DD:EE:FF', {
+  maxRetries: 5,
+  initialDelayMs: 1000,
+  timeoutMs: 15000,  // Connection timeout
+  backoffMultiplier: 2
+});
+
+// Enable auto-reconnect for a device
+connectionManager.enableAutoReconnect('AA:BB:CC:DD:EE:FF', {
+  maxRetries: 10,
+  initialDelayMs: 2000,
+  timeoutMs: 15000
+}, {
+  onConnect: (device) => console.log('Connected!', device.id),
+  onDisconnect: (deviceId, error) => console.log('Disconnected', deviceId),
+  onConnectFailed: (deviceId, error) => console.log('Failed', deviceId, error)
+});
+
+// Set global callbacks for all devices
+connectionManager.setGlobalCallbacks({
+  onConnect: (device) => console.log('Any device connected:', device.id),
+  onDisconnect: (deviceId) => console.log('Any device disconnected:', deviceId),
+  onConnecting: (deviceId, attempt, max) => {
+    console.log(`Connecting ${deviceId}: attempt ${attempt}/${max}`);
+  }
+});
+
+// Check status
+console.log('Is connecting:', connectionManager.isConnecting('AA:BB:CC:DD:EE:FF'));
+console.log('Auto-reconnect enabled:', connectionManager.isAutoReconnectEnabled('AA:BB:CC:DD:EE:FF'));
+console.log('Active connections:', connectionManager.activeCount);
+
+// Cancel a connection
+connectionManager.cancel('AA:BB:CC:DD:EE:FF');
+
+// Disable auto-reconnect
+connectionManager.disableAutoReconnect('AA:BB:CC:DD:EE:FF');
+```
+
+**Key Features:**
+- ✅ Single state machine per device (no competing retry engines)
+- ✅ Concurrent connections to different devices
+- ✅ Configurable connection timeout (prevents hangs)
+- ✅ Exponential backoff retry logic
+- ✅ Automatic reconnection on unexpected disconnects
+- ✅ Comprehensive event callbacks (onConnect, onDisconnect, onConnecting, onConnectFailed)
+- ✅ Clean cancellation and lifecycle management
+
+---
+
+### ConnectionQueue (Deprecated)
+
+> **⚠️ Deprecated**: Use `ConnectionManager` instead for unified connection management.
 
 Manage connection attempts with automatic retry logic and queue management:
 
@@ -442,7 +525,9 @@ console.log('Pending connections:', queue.pendingCount);
 console.log('Is device pending:', queue.isPending('AA:BB:CC:DD:EE:FF'));
 ```
 
-### ReconnectionManager
+### ReconnectionManager (Deprecated)
+
+> **⚠️ Deprecated**: Use `ConnectionManager` instead for unified connection management.
 
 Automatically reconnect when devices disconnect unexpectedly:
 
@@ -490,44 +575,52 @@ reconnectionManager.disableAll();
 
 ### Combining Features for Reliable Background Sync
 
+Use `ConnectionManager` with background mode for reliable, long-running connections:
+
 ```typescript
 import {
   BleManager,
-  ConnectionQueue,
-  ReconnectionManager
+  ConnectionManager
 } from '@sfourdrinier/react-native-ble-plx';
 
-const manager = new BleManager();
-const queue = new ConnectionQueue(manager);
-const reconnector = new ReconnectionManager(manager);
+const bleManager = new BleManager();
+const connectionManager = new ConnectionManager(bleManager);
 
 async function startReliableSync(deviceId: string) {
   // 1. Enable background mode (Android)
-  await manager.enableBackgroundMode({
+  await bleManager.enableBackgroundMode({
     notificationTitle: 'Syncing Data',
     notificationText: 'Connected to device'
   });
 
-  // 2. Connect with retry logic
-  const device = await queue.connect(deviceId, {
-    maxRetries: 5,
-    initialDelayMs: 1000
-  });
-
-  // 3. Enable auto-reconnect for unexpected disconnects
-  reconnector.enableAutoReconnect(deviceId, {
+  // 2. Connect with retry logic and auto-reconnect
+  connectionManager.enableAutoReconnect(deviceId, {
     maxRetries: 10,
-    initialDelayMs: 2000
+    initialDelayMs: 2000,
+    timeoutMs: 15000
   }, {
-    onReconnect: async (device) => {
-      // Resume data sync after reconnection
-      await resumeDataSync(device);
+    onConnect: async (device) => {
+      // Start or resume data sync when connected
+      await startDataSync(device);
+    },
+    onDisconnect: (deviceId, error) => {
+      console.log('Device disconnected, will auto-reconnect:', deviceId);
+    },
+    onConnectFailed: (deviceId, error) => {
+      console.error('Failed to reconnect after all retries:', deviceId, error);
     }
   });
 
-  // 4. Start your data sync
-  await startDataSync(device);
+  // 3. Initial connection
+  const device = await connectionManager.connect(deviceId, {
+    maxRetries: 5,
+    initialDelayMs: 1000,
+    timeoutMs: 15000
+  });
+
+  // Auto-reconnect is now active and will handle disconnects automatically
 }
+
 ```
 
 ## Troubleshooting

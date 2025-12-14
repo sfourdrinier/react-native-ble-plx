@@ -15,6 +15,7 @@ interface ReconnectionState {
   disconnectSubscription?: Subscription
   onReconnect?: (device: Device) => void
   onReconnectFailed?: (deviceId: DeviceId, error: BleError) => void
+  cancelled: boolean
 }
 
 /**
@@ -39,6 +40,9 @@ export interface ReconnectionCallbacks {
 
 /**
  * ReconnectionManager automatically handles reconnection when devices disconnect unexpectedly.
+ *
+ * @deprecated Use ConnectionManager instead for unified connection management
+ * with both retry logic and auto-reconnection support.
  *
  * Features:
  * - Automatic reconnection with exponential backoff
@@ -112,7 +116,8 @@ export class ReconnectionManager {
       isReconnecting: false,
       retryCount: 0,
       onReconnect: callbacks?.onReconnect,
-      onReconnectFailed: callbacks?.onReconnectFailed
+      onReconnectFailed: callbacks?.onReconnectFailed,
+      cancelled: false
     }
 
     // Subscribe to disconnection events for this device
@@ -138,6 +143,9 @@ export class ReconnectionManager {
     if (!state) {
       return false
     }
+
+    // Mark as cancelled to stop in-flight reconnection attempts
+    state.cancelled = true
 
     // Clear any pending reconnection attempt
     if (state.timeoutId) {
@@ -254,6 +262,11 @@ export class ReconnectionManager {
       throw new Error(`Auto-reconnect not enabled for device ${deviceId}`)
     }
 
+    // Check if cancelled before attempting
+    if (state.cancelled) {
+      throw new Error(`Auto-reconnect cancelled for device ${deviceId}`)
+    }
+
     state.retryCount++
     const maxRetries = state.options.maxRetries ?? 5
 
@@ -262,6 +275,16 @@ export class ReconnectionManager {
 
     try {
       const device = await this._manager.connectToDevice(deviceId, state.options.connectionOptions)
+
+      // Check if cancelled or removed after await (race condition protection)
+      const currentState = this._devices.get(deviceId)
+      if (!currentState || currentState !== state || currentState.cancelled) {
+        // State was disabled during connection - disconnect immediately
+        await this._manager.cancelDeviceConnection(deviceId).catch(() => {
+          // Ignore errors when cleaning up
+        })
+        throw new Error(`Auto-reconnect cancelled for device ${deviceId} during connection`)
+      }
 
       // Success!
       state.isReconnecting = false
@@ -273,6 +296,13 @@ export class ReconnectionManager {
 
       return device
     } catch (error) {
+      // Check if cancelled after await
+      const currentState = this._devices.get(deviceId)
+      if (!currentState || currentState !== state || currentState.cancelled) {
+        // Don't schedule retry or call callbacks if cancelled
+        throw new Error(`Auto-reconnect cancelled for device ${deviceId}`)
+      }
+
       if (state.retryCount >= maxRetries) {
         // Max retries exceeded
         state.isReconnecting = false

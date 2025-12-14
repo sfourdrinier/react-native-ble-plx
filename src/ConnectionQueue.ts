@@ -18,6 +18,7 @@ interface ConnectionAttempt {
   backoffMultiplier: number
   timeoutId?: ReturnType<typeof setTimeout>
   cancelled: boolean
+  isConnecting: boolean
 }
 
 /**
@@ -54,6 +55,9 @@ export interface QueuedConnectionOptions {
  * ConnectionQueue manages connection attempts with automatic retry logic
  * and queue management to prevent connection storms.
  *
+ * @deprecated Use ConnectionManager instead for unified connection management
+ * with both retry logic and auto-reconnection support.
+ *
  * Features:
  * - Queues connection attempts to prevent multiple simultaneous connections
  * - Exponential backoff retry logic
@@ -76,8 +80,6 @@ export interface QueuedConnectionOptions {
 export class ConnectionQueue {
   private _manager: BleManager
   private _queue: Map<DeviceId, ConnectionAttempt> = new Map()
-  private _activeConnection: DeviceId | null = null
-  private _isProcessing: boolean = false
 
   constructor(manager: BleManager) {
     this._manager = manager
@@ -120,7 +122,8 @@ export class ConnectionQueue {
         initialDelayMs: options?.initialDelayMs ?? 1000,
         maxDelayMs: options?.maxDelayMs ?? 30000,
         backoffMultiplier: options?.backoffMultiplier ?? 2,
-        cancelled: false
+        cancelled: false,
+        isConnecting: false
       }
 
       this._queue.set(deviceId, attempt)
@@ -161,14 +164,15 @@ export class ConnectionQueue {
       )
     )
 
-    // If this was the active connection, try to disconnect and process next
-    if (this._activeConnection === deviceId) {
-      this._activeConnection = null
+    // If this was actively connecting, try to disconnect
+    if (attempt.isConnecting) {
       this._manager.cancelDeviceConnection(deviceId).catch(() => {
         // Ignore errors when cancelling
       })
-      this._processQueue()
     }
+
+    // Process queue to start next pending connection
+    this._processQueue()
 
     return true
   }
@@ -200,43 +204,30 @@ export class ConnectionQueue {
 
   /**
    * Process the connection queue
+   * Allows concurrent connections to different devices
    */
-  private async _processQueue(): Promise<void> {
-    if (this._isProcessing || this._activeConnection != null) {
-      return
-    }
-
-    // Find next non-cancelled attempt
-    let nextAttempt: ConnectionAttempt | undefined
+  private _processQueue(): void {
+    // Start connection attempts for all pending (not connecting, not cancelled) devices
     for (const attempt of this._queue.values()) {
-      if (!attempt.cancelled) {
-        nextAttempt = attempt
-        break
+      if (!attempt.cancelled && !attempt.isConnecting) {
+        // Start this connection attempt asynchronously
+        this._attemptConnection(attempt)
       }
     }
-
-    if (!nextAttempt) {
-      return
-    }
-
-    this._isProcessing = true
-    this._activeConnection = nextAttempt.deviceId
-
-    await this._attemptConnection(nextAttempt)
-
-    this._isProcessing = false
   }
 
   /**
    * Attempt to connect to a device with retry logic
+   * Runs asynchronously per device, allowing concurrent connections
    */
   private async _attemptConnection(attempt: ConnectionAttempt): Promise<void> {
     if (attempt.cancelled) {
-      this._activeConnection = null
       this._queue.delete(attempt.deviceId)
-      this._processQueue()
       return
     }
+
+    // Mark as actively connecting (prevents duplicate concurrent attempts to same device)
+    attempt.isConnecting = true
 
     try {
       const device = await this._manager.connectToDevice(attempt.deviceId, attempt.options)
@@ -244,22 +235,16 @@ export class ConnectionQueue {
       if (attempt.cancelled) {
         // Connection succeeded but was cancelled, disconnect
         await this._manager.cancelDeviceConnection(attempt.deviceId).catch(() => {})
-        this._activeConnection = null
         this._queue.delete(attempt.deviceId)
-        this._processQueue()
         return
       }
 
       // Success!
-      this._activeConnection = null
       this._queue.delete(attempt.deviceId)
       attempt.resolve(device)
-      this._processQueue()
     } catch (error) {
       if (attempt.cancelled) {
-        this._activeConnection = null
         this._queue.delete(attempt.deviceId)
-        this._processQueue()
         return
       }
 
@@ -267,10 +252,23 @@ export class ConnectionQueue {
 
       if (attempt.retryCount >= attempt.maxRetries) {
         // Max retries exceeded
-        this._activeConnection = null
         this._queue.delete(attempt.deviceId)
-        attempt.reject(error as BleError)
-        this._processQueue()
+
+        // Normalize error to BleError
+        const bleError = error instanceof BleError
+          ? error
+          : new BleError(
+              {
+                errorCode: BleErrorCode.UnknownError,
+                attErrorCode: null,
+                iosErrorCode: null,
+                androidErrorCode: null,
+                reason: error instanceof Error ? error.message : String(error)
+              },
+              BleErrorCodeMessage
+            )
+
+        attempt.reject(bleError)
         return
       }
 
@@ -279,6 +277,9 @@ export class ConnectionQueue {
         attempt.initialDelayMs * Math.pow(attempt.backoffMultiplier, attempt.retryCount - 1),
         attempt.maxDelayMs
       )
+
+      // Mark as not connecting during delay (allows cancellation)
+      attempt.isConnecting = false
 
       // Schedule retry
       attempt.timeoutId = setTimeout(() => {

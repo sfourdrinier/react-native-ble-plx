@@ -66,7 +66,23 @@ public class BlePlxForegroundService extends Service {
 
   @Override
   public int onStartCommand(Intent intent, int flags, int startId) {
+    // Handle null intent (system restart of sticky service)
+    // Use cached notification content to ensure we call startForeground()
     if (intent == null) {
+      if (!isRunning) {
+        // Service was restarted by system, use cached content
+        Notification notification = createNotification(currentTitle, currentText);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+          startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+          startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+        } else {
+          startForeground(NOTIFICATION_ID, notification);
+        }
+
+        isRunning = true;
+      }
       return START_STICKY;
     }
 
