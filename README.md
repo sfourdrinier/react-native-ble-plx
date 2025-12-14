@@ -70,15 +70,25 @@ For older React Native versions, use the upstream [dotintent/react-native-ble-pl
 **3.7.7 (This Fork)**
 
 - **Connection Manager**: NEW unified `ConnectionManager` with retry logic, timeout support, and automatic reconnection
-- **Critical Bug Fixes**:
-  - Fixed foreground service crash on null intent restart
+- **Critical Bug Fixes** (4 Stop-Ship Issues Resolved):
+  - ✅ Fixed promise coalescing hang when multiple callers connect to same device
+  - ✅ Fixed memory leak in destroy() for auto-reconnect subscriptions
+  - ✅ Fixed connection storms from repeated disconnect events
+  - ✅ **Fixed race condition** where cancel() + auto-reconnect could still trigger retries (attemptId pattern)
+  - Fixed foreground service crash on null intent restart (Android)
   - Fixed ReconnectionManager race condition (callbacks after disable)
   - Fixed ConnectionQueue blocking all devices during retry delays
   - Added proper error normalization to BleError
+- **Android 12+ Compatibility** (Production-Critical):
+  - ✅ Fixed STOP service crash (now uses `stopService()` instead of `startService()`)
+  - ✅ Added foreground state check before starting service (prevents `ForegroundServiceStartNotAllowedException`)
+  - ✅ Safe UPDATE notification handling with try-catch
+  - ✅ Verified Android 14 (API 34) compliance with `FOREGROUND_SERVICE_CONNECTED_DEVICE`
 - **Improvements**:
   - Connection timeout support (prevents hangs)
   - Concurrent connections to different devices
-  - Android 14+ foreground service compliance verified
+  - Comprehensive test suite (8 tests covering all critical bugs)
+  - Production-grade error handling and cleanup
 - **Deprecated**: `ConnectionQueue` and `ReconnectionManager` (use `ConnectionManager` instead)
 
 **3.7.6 (This Fork)**
@@ -373,6 +383,83 @@ This ensures that when iOS restores the app, each device is reconnected by the a
 
 ## Android Background Mode (NEW)
 
+### ⚠️ Android 12+ Requirements (CRITICAL)
+
+**If you're targeting Android 12 (API 31) or higher, you MUST follow these requirements:**
+
+#### 1. Required Permissions in `AndroidManifest.xml`
+
+```xml
+<!-- Android 14+ (API 34+) - Required for foreground service type -->
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission
+  android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"
+  tools:targetApi="upside_down_cake" />
+
+<!-- Android 12+ (API 31+) - Required for BLE -->
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+<!-- Android < 12 -->
+<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+
+<!-- Location (required for BLE scanning on all versions) -->
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+```
+
+#### 2. Call `enableBackgroundMode()` While App is in Foreground
+
+**Android 12+ restricts starting foreground services from background.** You must call `enableBackgroundMode()` while your app is visible to the user:
+
+```typescript
+// ✅ CORRECT: Call while app is in foreground
+const handleStartRecording = async () => {
+  // User just tapped "Start Recording" button - app is in foreground
+  await bleManager.enableBackgroundMode({
+    notificationTitle: 'Recording Session Active',
+    notificationText: 'Syncing sensor data...'
+  });
+
+  // Now you can safely background the app and BLE will continue
+  await connectAndStartRecording();
+};
+
+// ❌ WRONG: Calling from background task/timer
+setTimeout(async () => {
+  // App may be backgrounded - this will throw on Android 12+
+  await bleManager.enableBackgroundMode({ /* ... */ });
+}, 60000);
+```
+
+**Error if violated:** `IllegalStateException: Cannot start foreground service from background on Android 12+`
+
+#### 3. Service Type Declaration (Expo Plugin Handles This)
+
+If using the Expo config plugin with `androidEnableForegroundService: true`, the service type is configured automatically. For manual setup, ensure your service has:
+
+```xml
+<service
+  android:name="com.bleplx.BlePlxForegroundService"
+  android:enabled="true"
+  android:exported="false"
+  android:foregroundServiceType="connectedDevice"
+  tools:targetApi="q" />
+```
+
+### Platform Compatibility
+
+| Android Version | Min SDK | Target SDK | Requirements |
+|----------------|---------|------------|--------------|
+| Android 14+ (API 34+) | 24 | 34 | `FOREGROUND_SERVICE_CONNECTED_DEVICE` permission + service type |
+| Android 12-13 (API 31-33) | 24 | 31+ | Foreground state check required |
+| Android 8-11 (API 26-30) | 24 | 26+ | Standard foreground service |
+| Android < 8 (API < 26) | 24 | - | No foreground service needed |
+
+---
+
+### Basic Usage
+
 Android requires a foreground service to keep BLE operations alive when the app is in the background. This fork adds built-in support for this.
 
 ### Enabling via Expo Config Plugin
@@ -421,14 +508,38 @@ const isEnabled = await manager.isBackgroundModeEnabled();
 await manager.disableBackgroundMode();
 ```
 
-### Platform Behavior
+### Platform Behavior & iOS/Android Parity
 
-| Platform | Background Support | Implementation |
-|----------|-------------------|----------------|
-| **iOS** | Built-in via UIBackgroundModes | Configure in Info.plist or Expo plugin |
-| **Android** | Foreground Service | Use `enableBackgroundMode()` API |
+| Feature | iOS | Android | Notes |
+|---------|-----|---------|-------|
+| **Background BLE Operations** | ✅ Built-in via UIBackgroundModes | ✅ Foreground Service | Both platforms fully supported |
+| **Configuration** | Info.plist + Expo plugin | Manifest permissions + Expo plugin | Platform-specific setup |
+| **`enableBackgroundMode()` API** | ✅ No-op (graceful) | ✅ Required | Same API, platform-appropriate behavior |
+| **`disableBackgroundMode()` API** | ✅ No-op (graceful) | ✅ Stops service | Same API, platform-appropriate behavior |
+| **`updateBackgroundNotification()` API** | ✅ No-op (graceful) | ✅ Updates notification | iOS doesn't show notification |
+| **`isBackgroundModeEnabled()` API** | ✅ Returns false | ✅ Returns true/false | Consistent return type |
+| **Connection Management** | ✅ ConnectionManager | ✅ ConnectionManager | **100% API parity** |
+| **Auto-reconnection** | ✅ Full support | ✅ Full support | **100% feature parity** |
+| **Retry Logic** | ✅ Full support | ✅ Full support | **100% feature parity** |
+| **Timeout Support** | ✅ Full support | ✅ Full support | **100% feature parity** |
 
-> **Note**: On iOS, `enableBackgroundMode()` is a no-op since iOS handles background mode through system configuration. The API exists for cross-platform convenience.
+**Cross-Platform Code Example:**
+```typescript
+// This exact code works on BOTH iOS and Android
+await bleManager.enableBackgroundMode({
+  notificationTitle: 'Recording Active',  // Shown on Android, ignored on iOS
+  notificationText: 'Syncing sensor data'  // Shown on Android, ignored on iOS
+});
+
+// ConnectionManager has 100% API parity between platforms
+const connectionManager = new ConnectionManager(bleManager);
+await connectionManager.connect(deviceId, {
+  maxRetries: 5,
+  timeoutMs: 15000
+});
+```
+
+> **✅ Platform Parity Guarantee**: All ConnectionManager features, retry logic, auto-reconnection, and timeout support work identically on iOS and Android. Only background mode setup differs due to platform requirements.
 
 ## Reliability Features (NEW)
 
@@ -490,6 +601,75 @@ connectionManager.disableAutoReconnect('AA:BB:CC:DD:EE:FF');
 - ✅ Automatic reconnection on unexpected disconnects
 - ✅ Comprehensive event callbacks (onConnect, onDisconnect, onConnecting, onConnectFailed)
 - ✅ Clean cancellation and lifecycle management
+
+---
+
+### Migration Guide: ConnectionQueue + ReconnectionManager → ConnectionManager
+
+If you're using the deprecated `ConnectionQueue` and `ReconnectionManager` classes, here's how to migrate to the unified `ConnectionManager`:
+
+#### Before (Separate Managers - Deprecated)
+
+```typescript
+import { BleManager, ConnectionQueue, ReconnectionManager } from '@sfourdrinier/react-native-ble-plx';
+
+const bleManager = new BleManager();
+const queue = new ConnectionQueue(bleManager);
+const reconnectionManager = new ReconnectionManager(bleManager);
+
+// Connect with retry
+const device = await queue.connect(deviceId, {
+  maxRetries: 5,
+  initialDelayMs: 1000
+});
+
+// Enable auto-reconnect
+reconnectionManager.enableAutoReconnect(deviceId, {
+  maxRetries: 10
+}, {
+  onReconnect: (device) => console.log('Reconnected'),
+  onReconnectFailed: (id, error) => console.log('Failed')
+});
+```
+
+#### After (Unified Manager - Recommended)
+
+```typescript
+import { BleManager, ConnectionManager } from '@sfourdrinier/react-native-ble-plx';
+
+const bleManager = new BleManager();
+const connectionManager = new ConnectionManager(bleManager);
+
+// Connect with retry AND enable auto-reconnect in one step
+connectionManager.enableAutoReconnect(deviceId, {
+  maxRetries: 10,
+  initialDelayMs: 2000,
+  timeoutMs: 15000  // NEW: connection timeout support
+}, {
+  onConnect: (device) => console.log('Connected'),  // Fires on initial connect AND reconnects
+  onDisconnect: (deviceId, error) => console.log('Disconnected'),
+  onConnectFailed: (deviceId, error) => console.log('Failed')
+});
+
+// Initial connection (auto-reconnect handles future disconnects)
+const device = await connectionManager.connect(deviceId, {
+  maxRetries: 5,
+  timeoutMs: 15000
+});
+```
+
+#### Key Benefits of Migration
+
+| Feature | Old (Queue + Reconnection) | New (ConnectionManager) |
+|---------|---------------------------|------------------------|
+| **State Management** | Two competing retry engines | Single state machine per device |
+| **Connection Timeout** | ❌ Not supported | ✅ Configurable `timeoutMs` |
+| **Race Conditions** | ⚠️ Possible bugs | ✅ Fixed with attemptId pattern |
+| **Memory Leaks** | ⚠️ destroy() leaked subscriptions | ✅ Fixed |
+| **Connection Storms** | ⚠️ Repeated disconnects caused storms | ✅ Fixed with guards |
+| **Concurrent Connections** | ⚠️ Queue blocked all devices | ✅ Per-device isolation |
+| **Event Callbacks** | Split between two managers | Unified callbacks |
+| **Code Complexity** | Manage 2 instances | Single instance |
 
 ---
 
