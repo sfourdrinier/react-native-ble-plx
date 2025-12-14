@@ -156,27 +156,46 @@ export class ConnectionManager {
    * @returns Promise resolving to connected Device
    */
   connect(deviceId: DeviceId, options?: ConnectionOptionsWithRetry): Promise<Device> {
-    return new Promise((resolve, reject) => {
-      const existing = this._devices.get(deviceId)
-      if (existing && !existing.cancelled && existing.isConnecting) {
-        // Connection already in progress
-        reject(
-          new BleError(
-            {
-              errorCode: BleErrorCode.OperationCancelled,
-              attErrorCode: null,
-              iosErrorCode: null,
-              androidErrorCode: null,
-              reason: `Connection already in progress for device ${deviceId}`
-            },
-            BleErrorCodeMessage
-          )
-        )
-        return
-      }
+    const existing = this._devices.get(deviceId)
 
-      // Cancel existing state if present
+    // If there's already a connection attempt in progress, coalesce to the same promise
+    if (existing && existing.pendingPromise && !existing.cancelled) {
+      // Return a new promise that resolves/rejects when the existing one does
+      return new Promise((resolve, reject) => {
+        const originalResolve = existing.pendingPromise!.resolve
+        const originalReject = existing.pendingPromise!.reject
+
+        // Chain to the original promise
+        existing.pendingPromise!.resolve = (device: Device) => {
+          originalResolve(device)
+          resolve(device)
+        }
+
+        existing.pendingPromise!.reject = (error: BleError) => {
+          originalReject(error)
+          reject(error)
+        }
+      })
+    }
+
+    return new Promise((resolve, reject) => {
+      // Cancel and clean up existing state if present
       if (existing) {
+        // Reject any existing pending promise before replacing
+        if (existing.pendingPromise) {
+          existing.pendingPromise.reject(
+            new BleError(
+              {
+                errorCode: BleErrorCode.OperationCancelled,
+                attErrorCode: null,
+                iosErrorCode: null,
+                androidErrorCode: null,
+                reason: `Connection attempt replaced for device ${deviceId}`
+              },
+              BleErrorCodeMessage
+            )
+          )
+        }
         this._cancelState(existing)
       }
 
@@ -326,14 +345,18 @@ export class ConnectionManager {
     // Reject pending promise if exists
     if (state.pendingPromise) {
       state.pendingPromise.reject(error)
+      state.pendingPromise = undefined
     }
 
     // Notify callbacks
     state.callbacks?.onConnectFailed?.(deviceId, error)
     this._globalCallbacks.onConnectFailed?.(deviceId, error)
 
-    // Remove if auto-reconnect is disabled
-    if (!state.autoReconnect) {
+    // For auto-reconnect devices, reset cancelled flag so future disconnects can trigger reconnection
+    if (state.autoReconnect) {
+      state.cancelled = false
+    } else {
+      // Remove if auto-reconnect is disabled
       this._devices.delete(deviceId)
     }
 
@@ -424,6 +447,11 @@ export class ConnectionManager {
       return
     }
 
+    // Don't start if a retry is already scheduled
+    if (state.timeoutId) {
+      return
+    }
+
     state.retryCount = 0
     this._scheduleConnection(state, 0)
   }
@@ -434,6 +462,12 @@ export class ConnectionManager {
   private _scheduleConnection(state: DeviceConnectionState, delay: number): void {
     if (state.cancelled) {
       return
+    }
+
+    // Clear any existing retry timer to prevent multiple scheduled attempts
+    if (state.timeoutId) {
+      clearTimeout(state.timeoutId)
+      state.timeoutId = undefined
     }
 
     state.timeoutId = setTimeout(() => {
@@ -447,8 +481,20 @@ export class ConnectionManager {
    * Attempt to connect to a device with timeout and retry logic
    */
   private async _attemptConnection(state: DeviceConnectionState): Promise<void> {
+    // Early returns to prevent concurrent attempts
     if (state.cancelled) {
       return
+    }
+
+    if (state.isConnecting) {
+      // Already connecting - don't start another attempt
+      return
+    }
+
+    // Clear the retry timer since we're now consuming this scheduled attempt
+    if (state.timeoutId) {
+      clearTimeout(state.timeoutId)
+      state.timeoutId = undefined
     }
 
     state.isConnecting = true
@@ -590,7 +636,18 @@ export class ConnectionManager {
    * Destroy the manager and cancel all pending connections.
    */
   destroy(): void {
+    // Force remove ALL subscriptions before clearing (prevents leaks)
+    for (const state of this._devices.values()) {
+      if (state.disconnectSubscription) {
+        state.disconnectSubscription.remove()
+        state.disconnectSubscription = undefined
+      }
+    }
+
+    // Cancel all pending operations
     this.cancelAll()
+
+    // Clear all state
     this._devices.clear()
     this._globalCallbacks = {}
   }
