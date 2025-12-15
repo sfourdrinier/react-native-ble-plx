@@ -14,8 +14,11 @@ export function setBlePlxDebugLoggingAndroidManifest(
 ) {
   const mainApplication = AndroidConfig.Manifest.getMainApplicationOrThrow(androidManifest)
 
+  // Ensure meta-data is an array. When there's only one meta-data entry,
+  // the XML parser returns an object instead of an array. We must preserve
+  // existing entries to avoid wiping host app configuration.
   if (!Array.isArray(mainApplication['meta-data'])) {
-    mainApplication['meta-data'] = []
+    mainApplication['meta-data'] = mainApplication['meta-data'] ? [mainApplication['meta-data']] : []
   }
 
   const existing = mainApplication['meta-data'].find(
