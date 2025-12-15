@@ -8,35 +8,6 @@
   },
   "overrides": [
     {
-      "files": ["src/**", "__tests__/**", "integration-tests/**"],
-      "parser": "hermes-eslint",
-      "extends": [
-        "plugin:react/recommended",
-        "plugin:flowtype/recommended",
-        "plugin:prettier/recommended",
-        "@react-native-community",
-        "eslint:recommended",
-        "plugin:jest/recommended",
-        "plugin:ft-flow/recommended"
-      ],
-      "plugins": ["ft-flow", "react", "react-native", "flowtype", "jest", "prettier"],
-      "rules": {
-        "ft-flow/define-flow-type": "off",
-        "ft-flow/use-flow-type": "off",
-        "flowtype/define-flow-type": "off",
-        "flowtype/no-types-missing-file-annotation": 0,
-        "semi": ["error", "never"],
-        "comma-dangle": ["error", "never"],
-        "react/display-name": 0,
-        "ft-flow/no-types-missing-file-annotation": 0,
-        "jest/no-export": 0
-      },
-      "globals": {
-        "$Keys": true,
-        "$Values": true
-      }
-    },
-    {
       "files": ["*.tsx", "*.ts", "*.d.ts"],
       "parser": "@typescript-eslint/parser",
       "extends": [
@@ -44,18 +15,17 @@
         "plugin:@typescript-eslint/recommended",
         "plugin:react-hooks/recommended",
         "plugin:react/recommended",
-        "airbnb",
-        "airbnb-typescript",
         "prettier"
       ],
-      "parserOptions": {
-        "project": ["./tsconfig.json"]
-      },
-      "plugins": ["react-refresh", "@typescript-eslint"],
+      "plugins": ["react-refresh", "@typescript-eslint", "import"],
       "rules": {
         "import/prefer-default-export": "off",
         "import/no-default-export": 2,
+        "prettier/prettier": "warn",
         "@typescript-eslint/no-use-before-define": "off",
+        "@typescript-eslint/ban-ts-comment": "warn",
+        "@typescript-eslint/no-empty-function": "warn",
+        "@typescript-eslint/no-inferrable-types": "warn",
         "no-promise-executor-return": "off",
         "no-bitwise": "off",
         "no-param-reassign": "off",
@@ -94,6 +64,7 @@
       "files": ["plugin/**"],
       "rules": {
         "no-underscore-dangle": 0,
+        "no-console": "warn",
         "@typescript-eslint/naming-convention": 0,
         "import/no-default-export": 0,
         "@typescript-eslint/no-shadow": 0,

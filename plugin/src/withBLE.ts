@@ -1,4 +1,10 @@
-import { AndroidConfig, type ConfigPlugin, createRunOncePlugin, WarningAggregator, withInfoPlist } from '@expo/config-plugins'
+import {
+  AndroidConfig,
+  type ConfigPlugin,
+  createRunOncePlugin,
+  WarningAggregator,
+  withInfoPlist
+} from '@expo/config-plugins'
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 // Path is ../../package.json because this file is compiled to plugin/build/withBLE.js
 const pkg = require('../../package.json')
@@ -7,12 +13,15 @@ import { withBLEAndroidForegroundService } from './withBLEAndroidForegroundServi
 import { BackgroundMode, withBLEBackgroundModes } from './withBLEBackgroundModes'
 import { withBluetoothPermissions } from './withBluetoothPermissions'
 import { withBLERestorationPodfile } from './withBLERestorationPodfile'
+import { blePlxPluginDebugLog, isBlePlxPluginDebugEnabled } from './debugLog'
 
 /**
  * Apply BLE native configuration.
  */
 const withBLE: ConfigPlugin<
   {
+    /** Enable debug logging for this config plugin (also controllable via BLEPLX_PLUGIN_DEBUG=1). */
+    debug?: boolean
     isBackgroundEnabled?: boolean
     neverForLocation?: boolean
     modes?: BackgroundMode[]
@@ -25,18 +34,19 @@ const withBLE: ConfigPlugin<
     androidEnableForegroundService?: boolean
   } | void
 > = (config, props = {}) => {
-  console.log('[BLEPLX_PLUGIN] Plugin running with props:', JSON.stringify(props))
-  console.log('[BLEPLX_PLUGIN] Package name from pkg.json:', pkg.name)
-
   const _props = props || {}
+  const debugEnabled = isBlePlxPluginDebugEnabled(_props.debug)
+  blePlxPluginDebugLog(debugEnabled, 'Plugin running with props:', JSON.stringify(props))
+  blePlxPluginDebugLog(debugEnabled, 'Package name from pkg.json:', pkg.name)
+
   const isBackgroundEnabled = _props.isBackgroundEnabled ?? false
   const neverForLocation = _props.neverForLocation ?? false
   const iosEnableRestoration = _props.iosEnableRestoration ?? false
   const iosRestorationIdentifier = _props.iosRestorationIdentifier ?? 'com.reactnativebleplx.restore'
   const androidEnableForegroundService = _props.androidEnableForegroundService ?? false
 
-  console.log('[BLEPLX_PLUGIN] iosEnableRestoration:', iosEnableRestoration)
-  console.log('[BLEPLX_PLUGIN] androidEnableForegroundService:', androidEnableForegroundService)
+  blePlxPluginDebugLog(debugEnabled, 'iosEnableRestoration:', iosEnableRestoration)
+  blePlxPluginDebugLog(debugEnabled, 'androidEnableForegroundService:', androidEnableForegroundService)
 
   if ('bluetoothPeripheralPermission' in _props) {
     WarningAggregator.addWarningIOS(
@@ -50,8 +60,8 @@ const withBLE: ConfigPlugin<
   config = withBLEBackgroundModes(config, _props.modes || [])
 
   if (iosEnableRestoration) {
-    console.log('[BLEPLX_PLUGIN] ✓ iosEnableRestoration is TRUE - adding Restoration subspec')
-    console.log('[BLEPLX_PLUGIN] Setting BlePlxRestoreIdentifier in Info.plist:', iosRestorationIdentifier)
+    blePlxPluginDebugLog(debugEnabled, '✓ iosEnableRestoration is TRUE - adding Restoration subspec')
+    blePlxPluginDebugLog(debugEnabled, 'Setting BlePlxRestoreIdentifier in Info.plist:', iosRestorationIdentifier)
 
     // Persist the identifier in Info.plist so the Swift adapter can read it
     config = withInfoPlist(config, conf => {
@@ -59,11 +69,11 @@ const withBLE: ConfigPlugin<
       return conf
     })
 
-    console.log('[BLEPLX_PLUGIN] Calling withBLERestorationPodfile with pkgName:', pkg.name)
+    blePlxPluginDebugLog(debugEnabled, 'Calling withBLERestorationPodfile with pkgName:', pkg.name)
     // Inject Restoration subspec into Podfile
     config = withBLERestorationPodfile(config, { pkgName: pkg.name })
   } else {
-    console.log('[BLEPLX_PLUGIN] ✗ iosEnableRestoration is FALSE - skipping Restoration subspec')
+    blePlxPluginDebugLog(debugEnabled, '✗ iosEnableRestoration is FALSE - skipping Restoration subspec')
   }
 
   // Android
@@ -79,12 +89,12 @@ const withBLE: ConfigPlugin<
 
   // Android foreground service for background BLE operations
   if (androidEnableForegroundService) {
-    console.log('[BLEPLX_PLUGIN] ✓ androidEnableForegroundService is TRUE - adding foreground service config')
+    blePlxPluginDebugLog(debugEnabled, '✓ androidEnableForegroundService is TRUE - adding foreground service config')
     config = withBLEAndroidForegroundService(config, {
       enableAndroidForegroundService: true
     })
   } else {
-    console.log('[BLEPLX_PLUGIN] ✗ androidEnableForegroundService is FALSE - skipping foreground service config')
+    blePlxPluginDebugLog(debugEnabled, '✗ androidEnableForegroundService is FALSE - skipping foreground service config')
   }
 
   return config

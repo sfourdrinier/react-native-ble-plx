@@ -82,7 +82,9 @@ describe('withBLERestorationPodfile', () => {
   describe('with explicit pod line (monorepo)', () => {
     it('uses the same path as the existing pod', () => {
       const result = injectRestorationPodLine(SAMPLE_PODFILE_EXPLICIT, '@sfourdrinier/react-native-ble-plx')
-      expect(result).toContain("pod 'react-native-ble-plx/Restoration', :path => \"../../../node_modules/@sfourdrinier/react-native-ble-plx\"")
+      expect(result).toContain(
+        'pod \'react-native-ble-plx/Restoration\', :path => "../../../node_modules/@sfourdrinier/react-native-ble-plx"'
+      )
     })
 
     it('inserts right after the base pod line', () => {

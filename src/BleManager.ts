@@ -4,12 +4,7 @@ import { Characteristic } from './Characteristic'
 import { Descriptor } from './Descriptor'
 import { State, LogLevel, ConnectionPriority } from './TypeDefinition'
 import { BleModule, EventEmitter } from './BleModule'
-import {
-  parseBleError,
-  BleError,
-  BleErrorCode,
-  BleErrorCodeMessage
-} from './BleError'
+import { parseBleError, BleError, BleErrorCode, BleErrorCodeMessage } from './BleError'
 import type { NativeDevice, NativeCharacteristic, NativeDescriptor, NativeBleRestoredState } from './BleModule'
 import type {
   BleErrorCodeMessageMapping,
@@ -83,8 +78,10 @@ export class BleManager {
       : BleErrorCodeMessage
     this._scanEventSubscription = null
 
+    const restoreStateIdentifier = options.restoreStateIdentifier
     const restoreStateFunction = options.restoreStateFunction
-    if (restoreStateFunction != null && options.restoreStateIdentifier != null) {
+    if (restoreStateFunction != null && restoreStateIdentifier != null) {
+      const restoreFn = restoreStateFunction
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       this._activeSubscriptions[this._nextUniqueID()] = this._eventEmitter.addListener(
         BleModule.RestoreStateEvent,
@@ -92,13 +89,11 @@ export class BleManager {
         (nativeRestoredState: NativeBleRestoredState | any) => {
           if (nativeRestoredState == null) {
             // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-            // @ts-ignore: Suppress possibly undefined error as we check for existence before call, though TS doesn't infer it inside the closure perfectly with the variable from outer scope if not const
-            restoreStateFunction(null)
+            restoreFn(null)
             return
           }
           // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-          // @ts-ignore: Suppress possibly undefined error
-          restoreStateFunction({
+          restoreFn({
             // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
             connectedPeripherals: nativeRestoredState.connectedPeripherals.map(
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -327,7 +322,7 @@ export class BleManager {
    *
    * @returns {Subscription} Subscription on which `remove()` function can be called to unsubscribe.
    */
-  onStateChange(listener: (newState: keyof typeof State) => void, emitCurrentState: boolean = false): Subscription {
+  onStateChange(listener: (newState: keyof typeof State) => void, emitCurrentState = false): Subscription {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
     const subscription: Subscription = this._eventEmitter.addListener(BleModule.StateChangeEvent, listener)
     const id = this._nextUniqueID()
@@ -535,7 +530,10 @@ export class BleManager {
    * {@link #blemanagercanceldeviceconnection|bleManager.cancelDeviceConnection()} call.
    * @returns {Subscription} Subscription on which `remove()` function can be called to unsubscribe.
    */
-  onDeviceDisconnected(deviceIdentifier: DeviceId, listener: (error: BleError | null, device: Device) => void): Subscription {
+  onDeviceDisconnected(
+    deviceIdentifier: DeviceId,
+    listener: (error: BleError | null, device: Device) => void
+  ): Subscription {
     const disconnectionListener = ([error, nativeDevice]: [string | null, NativeDevice]) => {
       if (deviceIdentifier !== nativeDevice.id) {
         return
@@ -989,8 +987,14 @@ export class BleManager {
     const filledTransactionId = transactionId || this._nextUniqueID()
 
     const promise = isIOS
-      ? BleModule.monitorCharacteristicForDevice(deviceIdentifier, serviceUUID, characteristicUUID, filledTransactionId, null)
-      : BleModule.monitorCharacteristicForDevice(deviceIdentifier, serviceUUID, characteristicUUID, filledTransactionId, subscriptionType ?? null)
+      ? BleModule.monitorCharacteristicForDevice(deviceIdentifier, serviceUUID, characteristicUUID, filledTransactionId)
+      : BleModule.monitorCharacteristicForDevice(
+          deviceIdentifier,
+          serviceUUID,
+          characteristicUUID,
+          filledTransactionId,
+          subscriptionType ?? null
+        )
 
     return this._handleMonitorCharacteristic(promise, filledTransactionId, listener)
   }
@@ -1016,22 +1020,16 @@ export class BleManager {
     subscriptionType?: CharacteristicSubscriptionType | null
   ): Subscription {
     const filledTransactionId = transactionId || this._nextUniqueID()
-    const commonArgs = [serviceIdentifier, characteristicUUID, filledTransactionId] as const
+    const promise = isIOS
+      ? BleModule.monitorCharacteristicForService(serviceIdentifier, characteristicUUID, filledTransactionId)
+      : BleModule.monitorCharacteristicForService(
+          serviceIdentifier,
+          characteristicUUID,
+          filledTransactionId,
+          subscriptionType ?? null
+        )
 
-    if (isIOS) {
-        return this._handleMonitorCharacteristic(
-            BleModule.monitorCharacteristicForService(...commonArgs, null),
-            filledTransactionId,
-            listener
-        )
-    } else {
-        const args = [...commonArgs, subscriptionType || null] as const
-        return this._handleMonitorCharacteristic(
-            BleModule.monitorCharacteristicForService(...args),
-            filledTransactionId,
-            listener
-        )
-    }
+    return this._handleMonitorCharacteristic(promise, filledTransactionId, listener)
   }
 
   /**
@@ -1054,22 +1052,11 @@ export class BleManager {
     subscriptionType?: CharacteristicSubscriptionType | null
   ): Subscription {
     const filledTransactionId = transactionId || this._nextUniqueID()
-    const commonArgs = [characteristicIdentifier, filledTransactionId] as const
+    const promise = isIOS
+      ? BleModule.monitorCharacteristic(characteristicIdentifier, filledTransactionId)
+      : BleModule.monitorCharacteristic(characteristicIdentifier, filledTransactionId, subscriptionType ?? null)
 
-    if (isIOS) {
-        return this._handleMonitorCharacteristic(
-            BleModule.monitorCharacteristic(...commonArgs, null),
-            filledTransactionId,
-            listener
-        )
-    } else {
-        const args = [...commonArgs, subscriptionType || null] as const
-        return this._handleMonitorCharacteristic(
-            BleModule.monitorCharacteristic(...args),
-            filledTransactionId,
-            listener
-        )
-    }
+    return this._handleMonitorCharacteristic(promise, filledTransactionId, listener)
   }
 
   /**

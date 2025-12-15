@@ -31,9 +31,7 @@ export const withBLEAndroidForegroundService: ConfigPlugin<{
 /**
  * Add FOREGROUND_SERVICE and FOREGROUND_SERVICE_CONNECTED_DEVICE permissions
  */
-function addForegroundServicePermissions(
-  androidManifest: AndroidConfig.Manifest.AndroidManifest
-): void {
+function addForegroundServicePermissions(androidManifest: AndroidConfig.Manifest.AndroidManifest): void {
   const manifest = androidManifest.manifest
 
   if (!Array.isArray(manifest['uses-permission'])) {
@@ -75,9 +73,7 @@ function addForegroundServicePermissions(
 /**
  * Add BlePlxForegroundService declaration to the application
  */
-function addForegroundServiceDeclaration(
-  androidManifest: AndroidConfig.Manifest.AndroidManifest
-): void {
+function addForegroundServiceDeclaration(androidManifest: AndroidConfig.Manifest.AndroidManifest): void {
   const manifest = androidManifest.manifest
 
   // Ensure application array exists

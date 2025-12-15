@@ -4,7 +4,7 @@ pre-commit:
     lint:
       files: git diff --name-only @{push}
       glob: '*.{js,ts,jsx,tsx}'
-      run: yarn lint
+      run: pnpm lint
 commit-msg:
   parallel: true
   commands:

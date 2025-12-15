@@ -2,17 +2,17 @@ import { fillStringWithArguments } from './Utils'
 import type { BleErrorCodeMessageMapping } from './TypeDefinition'
 
 export interface NativeBleError {
-  errorCode: BleErrorCode;
-  attErrorCode: BleATTErrorCode | null;
-  iosErrorCode: BleIOSErrorCode | null;
-  androidErrorCode: BleAndroidErrorCode | null;
-  reason: string | null;
+  errorCode: BleErrorCode
+  attErrorCode: BleATTErrorCode | null
+  iosErrorCode: BleIOSErrorCode | null
+  androidErrorCode: BleAndroidErrorCode | null
+  reason: string | null
 
-  deviceID?: string;
-  serviceUUID?: string;
-  characteristicUUID?: string;
-  descriptorUUID?: string;
-  internalMessage?: string;
+  deviceID?: string
+  serviceUUID?: string
+  characteristicUUID?: string
+  descriptorUUID?: string
+  internalMessage?: string
 }
 
 /**

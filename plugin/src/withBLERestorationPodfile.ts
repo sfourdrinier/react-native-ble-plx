@@ -1,18 +1,18 @@
 import { withPodfile, type ConfigPlugin } from '@expo/config-plugins'
 
-const toPodName = (pkgName: string) => (pkgName.includes('/') ? pkgName.split('/').pop()! : pkgName)
+const toPodName = (pkgName: string) => {
+  if (!pkgName.includes('/')) return pkgName
+  const last = pkgName.split('/').pop()
+  return last || pkgName
+}
 
 const MARKER_START = '# >>> BLEPLX_RESTORATION_SUBSPEC'
 const MARKER_END = '# <<< BLEPLX_RESTORATION_SUBSPEC'
 
 function extractExistingPath(podfile: string, podName: string): string | null {
   const patterns = [
-    new RegExp(
-      String.raw`pod\s+['"]${podName}['"]\s*,\s*:path\s*=>\s*["']([^"']+)["']`
-    ),
-    new RegExp(
-      String.raw`pod\s+['"]${podName}['"]\s*,\s*:path\s*=>\s*File\.join\([^,]+,\s*["']([^"']+)["']\)`
-    )
+    new RegExp(String.raw`pod\s+['"]${podName}['"]\s*,\s*:path\s*=>\s*["']([^"']+)["']`),
+    new RegExp(String.raw`pod\s+['"]${podName}['"]\s*,\s*:path\s*=>\s*File\.join\([^,]+,\s*["']([^"']+)["']\)`)
   ]
 
   for (const pattern of patterns) {

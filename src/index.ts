@@ -1,4 +1,3 @@
-
 export { BleError, BleErrorCode, BleATTErrorCode, BleIOSErrorCode, BleAndroidErrorCode } from './BleError'
 export { BleManager } from './BleManager'
 export { Device } from './Device'
@@ -10,11 +9,7 @@ export { State, LogLevel, ConnectionPriority, ScanCallbackType, ScanMode } from 
 
 // Unified connection management (recommended)
 export { ConnectionManager } from './ConnectionManager'
-export type {
-  ConnectionOptionsWithRetry,
-  AutoReconnectOptions,
-  ConnectionCallbacks
-} from './ConnectionManager'
+export type { ConnectionOptionsWithRetry, AutoReconnectOptions, ConnectionCallbacks } from './ConnectionManager'
 
 // Legacy reliability utilities (deprecated - use ConnectionManager instead)
 /** @deprecated Use ConnectionManager instead for unified connection management */

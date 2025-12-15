@@ -1,4 +1,3 @@
-
 import { Platform } from 'react-native'
 import type { UUID } from './TypeDefinition'
 

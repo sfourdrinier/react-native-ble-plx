@@ -1,4 +1,3 @@
-
 import type { BleManager } from './BleManager'
 import type { BleError } from './BleError'
 import type { Characteristic } from './Characteristic'
@@ -138,10 +137,7 @@ export class Device implements NativeDevice {
    * @param {?TransactionId} transactionId Transaction handle used to cancel operation.
    * @returns {Promise<Device>} Connected device.
    */
-  requestConnectionPriority(
-    connectionPriority: ConnectionPriority,
-    transactionId?: TransactionId
-  ): Promise<Device> {
+  requestConnectionPriority(connectionPriority: ConnectionPriority, transactionId?: TransactionId): Promise<Device> {
     return this._manager.requestConnectionPriorityForDevice(this.id, connectionPriority, transactionId)
   }
 
@@ -339,9 +335,22 @@ export class Device implements NativeDevice {
     subscriptionType?: CharacteristicSubscriptionType
   ): Subscription {
     if (isIOS) {
-      return this._manager.monitorCharacteristicForDevice(this.id, serviceUUID, characteristicUUID, listener, transactionId ?? undefined)
+      return this._manager.monitorCharacteristicForDevice(
+        this.id,
+        serviceUUID,
+        characteristicUUID,
+        listener,
+        transactionId ?? undefined
+      )
     }
-    return this._manager.monitorCharacteristicForDevice(this.id, serviceUUID, characteristicUUID, listener, transactionId ?? undefined, subscriptionType)
+    return this._manager.monitorCharacteristicForDevice(
+      this.id,
+      serviceUUID,
+      characteristicUUID,
+      listener,
+      transactionId ?? undefined,
+      subscriptionType
+    )
   }
 
   /**

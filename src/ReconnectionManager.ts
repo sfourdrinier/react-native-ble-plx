@@ -92,11 +92,7 @@ export class ReconnectionManager {
    * @param options Reconnection options (retries, delays, etc.)
    * @param callbacks Optional callbacks for this specific device
    */
-  enableAutoReconnect(
-    deviceId: DeviceId,
-    options?: ReconnectionOptions,
-    callbacks?: ReconnectionCallbacks
-  ): void {
+  enableAutoReconnect(deviceId: DeviceId, options?: ReconnectionOptions, callbacks?: ReconnectionCallbacks): void {
     // If already enabled, disable first
     if (this._devices.has(deviceId)) {
       this.disableAutoReconnect(deviceId)

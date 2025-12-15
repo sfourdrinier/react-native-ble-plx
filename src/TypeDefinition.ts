@@ -1,4 +1,3 @@
-
 import { Device } from './Device'
 import { BleErrorCode } from './BleError'
 
@@ -47,7 +46,7 @@ export interface Subscription {
    * @memberof Subscription
    * @ignore
    */
-  remove(): void;
+  remove(): void
 }
 
 /**
@@ -64,7 +63,7 @@ export interface BleManagerOptions {
    * @memberof BleManagerOptions
    * @instance
    */
-  restoreStateIdentifier?: string;
+  restoreStateIdentifier?: string
 
   /**
    * Optional function which is used to properly restore state of your BLE Manager. Callback
@@ -75,7 +74,7 @@ export interface BleManagerOptions {
    * @memberof BleManagerOptions
    * @instance
    */
-  restoreStateFunction?: (restoredState: BleRestoredState | null) => void;
+  restoreStateFunction?: (restoredState: BleRestoredState | null) => void
 
   /**
    * Optional mapping of error codes to error messages. Uses {@link BleErrorCodeMessage}
@@ -87,7 +86,7 @@ export interface BleManagerOptions {
    * @memberof BleManagerOptions
    * @instance
    */
-  errorCodesToMessagesMapping?: BleErrorCodeMessageMapping;
+  errorCodesToMessagesMapping?: BleErrorCodeMessageMapping
 }
 
 /**
@@ -100,7 +99,7 @@ export interface BleRestoredState {
    * @instance
    * @memberof BleRestoredState
    */
-  connectedPeripherals: Array<Device>;
+  connectedPeripherals: Array<Device>
 }
 
 /**
@@ -166,28 +165,28 @@ export interface ScanOptions {
    * @memberof ScanOptions
    * @instance
    */
-  allowDuplicates?: boolean;
+  allowDuplicates?: boolean
 
   /**
    * Scan mode for Bluetooth LE scan [Android only]
    * @memberof ScanOptions
    * @instance
    */
-  scanMode?: ScanMode;
+  scanMode?: ScanMode
 
   /**
    * Scan callback type for Bluetooth LE scan [Android only]
    * @memberof ScanOptions
    * @instance
    */
-  callbackType?: ScanCallbackType;
+  callbackType?: ScanCallbackType
   /**
    * Use legacyScan (default true) [Android only]
    * https://developer.android.com/reference/android/bluetooth/le/ScanSettings.Builder#setLegacy(boolean)
    * @memberof ScanOptions
    * @instance
    */
-  legacyScan?: boolean;
+  legacyScan?: boolean
 }
 
 /**
@@ -200,7 +199,7 @@ export interface ConnectionOptions {
    * @memberof ConnectionOptions
    * @instance
    */
-  autoConnect?: boolean;
+  autoConnect?: boolean
 
   /**
    * Whether MTU size will be negotiated to this value. It is not guaranteed to get it after connection is successful.
@@ -208,7 +207,7 @@ export interface ConnectionOptions {
    * @memberof ConnectionOptions
    * @instance
    */
-  requestMTU?: number;
+  requestMTU?: number
 
   /**
    * Whether action will be taken to reset services cache. This option may be useful when a peripheral's firmware was
@@ -217,7 +216,7 @@ export interface ConnectionOptions {
    * @memberof ConnectionOptions
    * @instance
    */
-  refreshGatt?: RefreshGattMoment;
+  refreshGatt?: RefreshGattMoment
 
   /**
    * Number of milliseconds after connection is automatically timed out. In case of race condition were connection is
@@ -227,7 +226,7 @@ export interface ConnectionOptions {
    * @memberof ConnectionOptions
    * @instance
    */
-  timeout?: number;
+  timeout?: number
 }
 
 /**
@@ -323,7 +322,7 @@ export interface BackgroundModeOptions {
    * @memberof BackgroundModeOptions
    * @instance
    */
-  notificationTitle?: string;
+  notificationTitle?: string
 
   /**
    * Text content displayed in the foreground service notification.
@@ -331,7 +330,7 @@ export interface BackgroundModeOptions {
    * @memberof BackgroundModeOptions
    * @instance
    */
-  notificationText?: string;
+  notificationText?: string
 }
 
 /**
@@ -345,7 +344,7 @@ export interface ReconnectionOptions {
    * @memberof ReconnectionOptions
    * @instance
    */
-  maxRetries?: number;
+  maxRetries?: number
 
   /**
    * Initial delay in milliseconds before the first reconnection attempt.
@@ -353,7 +352,7 @@ export interface ReconnectionOptions {
    * @memberof ReconnectionOptions
    * @instance
    */
-  initialDelayMs?: number;
+  initialDelayMs?: number
 
   /**
    * Maximum delay in milliseconds between reconnection attempts (for exponential backoff).
@@ -361,7 +360,7 @@ export interface ReconnectionOptions {
    * @memberof ReconnectionOptions
    * @instance
    */
-  maxDelayMs?: number;
+  maxDelayMs?: number
 
   /**
    * Multiplier for exponential backoff between reconnection attempts.
@@ -369,12 +368,12 @@ export interface ReconnectionOptions {
    * @memberof ReconnectionOptions
    * @instance
    */
-  backoffMultiplier?: number;
+  backoffMultiplier?: number
 
   /**
    * Connection options to use when reconnecting.
    * @memberof ReconnectionOptions
    * @instance
    */
-  connectionOptions?: ConnectionOptions;
+  connectionOptions?: ConnectionOptions
 }

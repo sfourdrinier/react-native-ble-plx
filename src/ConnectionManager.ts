@@ -79,7 +79,14 @@ export interface ConnectionCallbacks {
  */
 interface DeviceConnectionState {
   deviceId: DeviceId
-  options: ConnectionOptionsWithRetry
+  options: {
+    connectionOptions?: ConnectionOptions
+    maxRetries: number
+    initialDelayMs: number
+    maxDelayMs: number
+    backoffMultiplier: number
+    timeoutMs: number
+  }
   isConnecting: boolean
   retryCount: number
   timeoutId?: ReturnType<typeof setTimeout>
@@ -88,7 +95,7 @@ interface DeviceConnectionState {
   autoReconnect: boolean
   callbacks?: ConnectionCallbacks
   cancelled: boolean
-  attemptId: number  // Generation token to invalidate old async attempts
+  attemptId: number // Generation token to invalidate old async attempts
   pendingPromise?: {
     resolve: (device: Device) => void
     reject: (error: BleError) => void
@@ -161,18 +168,19 @@ export class ConnectionManager {
 
     // If there's already a connection attempt in progress, coalesce to the same promise
     if (existing && existing.pendingPromise && !existing.cancelled) {
+      const pending = existing.pendingPromise
       // Return a new promise that resolves/rejects when the existing one does
       return new Promise((resolve, reject) => {
-        const originalResolve = existing.pendingPromise!.resolve
-        const originalReject = existing.pendingPromise!.reject
+        const originalResolve = pending.resolve
+        const originalReject = pending.reject
 
         // Chain to the original promise
-        existing.pendingPromise!.resolve = (device: Device) => {
+        pending.resolve = (device: Device) => {
           originalResolve(device)
           resolve(device)
         }
 
-        existing.pendingPromise!.reject = (error: BleError) => {
+        pending.reject = (error: BleError) => {
           originalReject(error)
           reject(error)
         }
@@ -200,7 +208,7 @@ export class ConnectionManager {
         this._cancelState(existing)
       }
 
-      const connectionOptions: ConnectionOptionsWithRetry = {
+      const connectionOptions = {
         maxRetries: options?.maxRetries ?? 3,
         initialDelayMs: options?.initialDelayMs ?? 1000,
         maxDelayMs: options?.maxDelayMs ?? 30000,
@@ -234,11 +242,7 @@ export class ConnectionManager {
    * @param options Connection and retry options for reconnection
    * @param callbacks Optional callbacks for this specific device
    */
-  enableAutoReconnect(
-    deviceId: DeviceId,
-    options?: ConnectionOptionsWithRetry,
-    callbacks?: ConnectionCallbacks
-  ): void {
+  enableAutoReconnect(deviceId: DeviceId, options?: ConnectionOptionsWithRetry, callbacks?: ConnectionCallbacks): void {
     // If already exists, update settings
     let state = this._devices.get(deviceId)
 
@@ -258,7 +262,7 @@ export class ConnectionManager {
       }
     } else {
       // Create new state
-      const connectionOptions: ConnectionOptionsWithRetry = {
+      const connectionOptions = {
         maxRetries: options?.maxRetries ?? 5,
         initialDelayMs: options?.initialDelayMs ?? 1000,
         maxDelayMs: options?.maxDelayMs ?? 30000,
@@ -621,18 +625,19 @@ export class ConnectionManager {
 
       if (state.retryCount >= maxRetries) {
         // Max retries exceeded
-        const bleError = actualError instanceof BleError
-          ? actualError
-          : new BleError(
-              {
-                errorCode: BleErrorCode.UnknownError,
-                attErrorCode: null,
-                iosErrorCode: null,
-                androidErrorCode: null,
-                reason: actualError instanceof Error ? actualError.message : String(actualError)
-              },
-              BleErrorCodeMessage
-            )
+        const bleError =
+          actualError instanceof BleError
+            ? actualError
+            : new BleError(
+                {
+                  errorCode: BleErrorCode.UnknownError,
+                  attErrorCode: null,
+                  iosErrorCode: null,
+                  androidErrorCode: null,
+                  reason: actualError instanceof Error ? actualError.message : String(actualError)
+                },
+                BleErrorCodeMessage
+              )
 
         // Notify callbacks
         state.callbacks?.onConnectFailed?.(state.deviceId, bleError)
@@ -654,8 +659,8 @@ export class ConnectionManager {
 
       // Calculate delay with exponential backoff
       const delay = Math.min(
-        state.options.initialDelayMs! * Math.pow(state.options.backoffMultiplier!, state.retryCount - 1),
-        state.options.maxDelayMs!
+        state.options.initialDelayMs * Math.pow(state.options.backoffMultiplier, state.retryCount - 1),
+        state.options.maxDelayMs
       )
 
       // Schedule retry

@@ -255,18 +255,19 @@ export class ConnectionQueue {
         this._queue.delete(attempt.deviceId)
 
         // Normalize error to BleError
-        const bleError = error instanceof BleError
-          ? error
-          : new BleError(
-              {
-                errorCode: BleErrorCode.UnknownError,
-                attErrorCode: null,
-                iosErrorCode: null,
-                androidErrorCode: null,
-                reason: error instanceof Error ? error.message : String(error)
-              },
-              BleErrorCodeMessage
-            )
+        const bleError =
+          error instanceof BleError
+            ? error
+            : new BleError(
+                {
+                  errorCode: BleErrorCode.UnknownError,
+                  attErrorCode: null,
+                  iosErrorCode: null,
+                  androidErrorCode: null,
+                  reason: error instanceof Error ? error.message : String(error)
+                },
+                BleErrorCodeMessage
+              )
 
         attempt.reject(bleError)
         return

@@ -4,18 +4,5 @@
   "singleQuote": true,
   "semi": false,
   "trailingComma": "none",
-  "arrowParens": "avoid",
-  "overrides": [
-    {
-      "files": ["src/*"],
-      "options": {
-        "parser": "babel-flow",
-        "useTabs": false,
-        "quoteProps": "as-needed",
-        "jsxSingleQuote": false,
-        "bracketSpacing": true,
-        "jsxBracketSameLine": false
-      }
-    }
-  ]
+  "arrowParens": "avoid"
 }

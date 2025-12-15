@@ -20,23 +20,23 @@ export interface NativeDevice {
    * Device identifier: MAC address on Android and UUID on iOS.
    * @private
    */
-  id: DeviceId;
+  id: DeviceId
   /**
    * Device name if present
    * @private
    */
-  name: string | null;
+  name: string | null
   /**
    * Current Received Signal Strength Indication of device
    * @private
    */
-  rssi: number | null;
+  rssi: number | null
   /**
    * Current Maximum Transmission Unit for this device. When device is not connected
    * default value of 23 is used.
    * @private
    */
-  mtu: number;
+  mtu: number
 
   // Advertisement
 
@@ -44,56 +44,56 @@ export interface NativeDevice {
    * Device's custom manufacturer data. Its format is defined by manufacturer.
    * @private
    */
-  manufacturerData: Base64 | null;
+  manufacturerData: Base64 | null
 
   /**
    * Raw device scan data. When you have specific advertiser data,
    * you can implement your own processing.
    * @private
    */
-  rawScanRecord: Base64;
+  rawScanRecord: Base64
 
   /**
    * Map of service UUIDs with associated data.
    * @private
    */
-  serviceData: { [uuid: string]: Base64 } | null;
+  serviceData: { [uuid: string]: Base64 } | null
 
   /**
    * List of available services visible during scanning.
    * @private
    */
-  serviceUUIDs: Array<UUID> | null;
+  serviceUUIDs: Array<UUID> | null
 
   /**
    * User friendly name of device.
    * @private
    */
-  localName: string | null;
+  localName: string | null
 
   /**
    * Transmission power level of device.
    * @private
    */
-  txPowerLevel: number | null;
+  txPowerLevel: number | null
 
   /**
    * List of solicited service UUIDs.
    * @private
    */
-  solicitedServiceUUIDs: Array<UUID> | null;
+  solicitedServiceUUIDs: Array<UUID> | null
 
   /**
    * Is device connectable.
    * @private
    */
-  isConnectable: boolean | null;
+  isConnectable: boolean | null
 
   /**
    * List of overflow service UUIDs.
    * @private
    */
-  overflowServiceUUIDs: Array<UUID> | null;
+  overflowServiceUUIDs: Array<UUID> | null
 }
 
 /**
@@ -105,22 +105,22 @@ export interface NativeService {
    * Service unique identifier
    * @private
    */
-  id: Identifier;
+  id: Identifier
   /**
    * Service UUID
    * @private
    */
-  uuid: UUID;
+  uuid: UUID
   /**
    * Device's ID to which service belongs
    * @private
    */
-  deviceID: DeviceId;
+  deviceID: DeviceId
   /**
    * Value indicating whether the type of service is primary or secondary.
    * @private
    */
-  isPrimary: boolean;
+  isPrimary: boolean
 }
 
 /**
@@ -132,62 +132,62 @@ export interface NativeCharacteristic {
    * Characteristic unique identifier
    * @private
    */
-  id: Identifier;
+  id: Identifier
   /**
    * Characteristic UUID
    * @private
    */
-  uuid: UUID;
+  uuid: UUID
   /**
    * Service's ID to which characteristic belongs
    * @private
    */
-  serviceID: Identifier;
+  serviceID: Identifier
   /**
    * Service's UUID to which characteristic belongs
    * @private
    */
-  serviceUUID: UUID;
+  serviceUUID: UUID
   /**
    * Device's ID to which characteristic belongs
    * @private
    */
-  deviceID: DeviceId;
+  deviceID: DeviceId
   /**
    * True if characteristic can be read
    * @private
    */
-  isReadable: boolean;
+  isReadable: boolean
   /**
    * True if characteristic can be written with response
    * @private
    */
-  isWritableWithResponse: boolean;
+  isWritableWithResponse: boolean
   /**
    * True if characteristic can be written without response
    * @private
    */
-  isWritableWithoutResponse: boolean;
+  isWritableWithoutResponse: boolean
   /**
    * True if characteristic can monitor value changes.
    * @private
    */
-  isNotifiable: boolean;
+  isNotifiable: boolean
   /**
    * True if characteristic is monitoring value changes without ACK.
    * @private
    */
-  isNotifying: boolean;
+  isNotifying: boolean
   /**
    * True if characteristic is monitoring value changes with ACK.
    * @private
    */
-  isIndicatable: boolean;
+  isIndicatable: boolean
   /**
    * Characteristic value if present
    * @private
    */
-  value: Base64 | null;
+  value: Base64 | null
 }
 
 /**
@@ -199,42 +199,42 @@ export interface NativeDescriptor {
    * Descriptor unique identifier
    * @private
    */
-  id: Identifier;
+  id: Identifier
   /**
    * Descriptor UUID
    * @private
    */
-  uuid: UUID;
+  uuid: UUID
   /**
    * Characteristic's ID to which descriptor belongs
    * @private
    */
-  characteristicID: Identifier;
+  characteristicID: Identifier
   /**
    * Characteristic's UUID to which descriptor belongs
    * @private
    */
-  characteristicUUID: UUID;
+  characteristicUUID: UUID
   /**
    * Service's ID to which descriptor belongs
    * @private
    */
-  serviceID: Identifier;
+  serviceID: Identifier
   /**
    * Service's UUID to which descriptor belongs
    * @private
    */
-  serviceUUID: UUID;
+  serviceUUID: UUID
   /**
    * Device's ID to which descriptor belongs
    * @private
    */
-  deviceID: DeviceId;
+  deviceID: DeviceId
   /**
    * Descriptor value if present
    * @private
    */
-  value: Base64 | null;
+  value: Base64 | null
 }
 
 /**
@@ -249,7 +249,7 @@ export interface NativeBleRestoredState {
    * @memberof NativeBleRestoredState
    * @private
    */
-  connectedPeripherals: Array<NativeDevice>;
+  connectedPeripherals: Array<NativeDevice>
 }
 
 /**
@@ -259,8 +259,8 @@ export interface NativeBleRestoredState {
 export interface BleModuleInterface {
   // NativeModule methods
 
-  addListener(eventType: string): void;
-  removeListeners(count: number): void;
+  addListener(eventType: string): void
+  removeListeners(count: number): void
 
   // Lifecycle
 
@@ -270,7 +270,7 @@ export interface BleModuleInterface {
    * @param {?string} restoreIdentifierKey Optional unique Id used for state restoration of BLE manager.
    * @private
    */
-  createClient(restoreIdentifierKey: string | null): void;
+  createClient(restoreIdentifierKey: string | null): void
 
   /**
    * Debug method to check if BLE restoration components are available.
@@ -278,11 +278,11 @@ export interface BleModuleInterface {
    * @private
    */
   checkRestorationStatus(): Promise<{
-    blePlxRestorationAdapterFound: boolean;
-    bleRestorationRegistryFound: boolean;
-    hasRegisterSelector: boolean;
-    initializeWasCalled: boolean;
-  }>;
+    blePlxRestorationAdapterFound: boolean
+    bleRestorationRegistryFound: boolean
+    hasRegisterSelector: boolean
+    initializeWasCalled: boolean
+  }>
 
   /**
    * Destroys previously instantiated module. This function is
@@ -290,7 +290,7 @@ export interface BleModuleInterface {
    * @returns {Promise<void>} Promise may return an error when the function cannot be called.
    * @private
    */
-  destroyClient(): Promise<void>;
+  destroyClient(): Promise<void>
 
   // Monitoring state
 
@@ -301,7 +301,7 @@ export interface BleModuleInterface {
    * @returns {Promise<void>} Promise completes when state transition was successful.
    * @private
    */
-  enable(transactionId: TransactionId): Promise<void>;
+  enable(transactionId: TransactionId): Promise<void>
 
   /**
    * Disable Bluetooth. This function blocks until BLE is in PoweredOff state. [Android only]
@@ -310,7 +310,7 @@ export interface BleModuleInterface {
    * @returns {Promise<void>} Promise completes when state transition was successful.
    * @private
    */
-  disable(transactionId: TransactionId): Promise<void>;
+  disable(transactionId: TransactionId): Promise<void>
 
   /**
    * Current state of BLE device.
@@ -318,7 +318,7 @@ export interface BleModuleInterface {
    * @returns {Promise<State>} Current state of BLE device.
    * @private
    */
-  state(): Promise<keyof typeof State>;
+  state(): Promise<keyof typeof State>
 
   // Scanning
 
@@ -331,14 +331,14 @@ export interface BleModuleInterface {
    * @returns {Promise<void>} the promise may be rejected if the operation is impossible to perform.
    * @private
    */
-  startDeviceScan(filteredUUIDs: Array<UUID> | null, options: ScanOptions | null): Promise<void>;
+  startDeviceScan(filteredUUIDs: Array<UUID> | null, options: ScanOptions | null): Promise<void>
 
   /**
    * Stops device scan.
    * @private
    * @returns {Promise<void>} the promise may be rejected if the operation is impossible to perform.
    */
-  stopDeviceScan(): Promise<void>;
+  stopDeviceScan(): Promise<void>
 
   // Device operations
 
@@ -356,7 +356,7 @@ export interface BleModuleInterface {
     deviceIdentifier: DeviceId,
     connectionPriority: ConnectionPriority,
     transactionId: TransactionId
-  ): Promise<NativeDevice>;
+  ): Promise<NativeDevice>
 
   /**
    * Reads RSSI for connected device.
@@ -366,7 +366,7 @@ export interface BleModuleInterface {
    * @returns {Promise<NativeDevice>} Connected device with updated RSSI value.
    * @private
    */
-  readRSSIForDevice(deviceIdentifier: DeviceId, transactionId: TransactionId): Promise<NativeDevice>;
+  readRSSIForDevice(deviceIdentifier: DeviceId, transactionId: TransactionId): Promise<NativeDevice>
 
   /**
    * Request new MTU value for this device. This function currently is not doing anything
@@ -379,7 +379,7 @@ export interface BleModuleInterface {
    * @returns {Promise<NativeDevice>} Device with updated MTU size. Default value is 23 (517 since Android 14)..
    * @private
    */
-  requestMTUForDevice(deviceIdentifier: DeviceId, mtu: number, transactionId: TransactionId): Promise<NativeDevice>;
+  requestMTUForDevice(deviceIdentifier: DeviceId, mtu: number, transactionId: TransactionId): Promise<NativeDevice>
 
   // Device management
 
@@ -389,7 +389,7 @@ export interface BleModuleInterface {
    * @returns {Promise<Array<NativeDevice>>} List of known devices by their identifiers.
    * @private
    */
-  devices(deviceIdentifiers: Array<DeviceId>): Promise<Array<NativeDevice>>;
+  devices(deviceIdentifiers: Array<DeviceId>): Promise<Array<NativeDevice>>
 
   /**
    * Returns a list of the peripherals (containing any of the specified services) currently connected to the system
@@ -398,7 +398,7 @@ export interface BleModuleInterface {
    * @returns {Promise<Array<NativeDevice>>} List of known devices with discovered services as stated in the parameter.
    * @private
    */
-  connectedDevices(serviceUUIDs: Array<UUID>): Promise<Array<NativeDevice>>;
+  connectedDevices(serviceUUIDs: Array<UUID>): Promise<Array<NativeDevice>>
 
   // Connection management
 
@@ -410,7 +410,7 @@ export interface BleModuleInterface {
    * @returns {Promise<NativeDevice>} Connected device.
    * @private
    */
-  connectToDevice(deviceIdentifier: DeviceId, options: ConnectionOptions | null): Promise<NativeDevice>;
+  connectToDevice(deviceIdentifier: DeviceId, options: ConnectionOptions | null): Promise<NativeDevice>
 
   /**
    * Cancels pending device connection.
@@ -419,7 +419,7 @@ export interface BleModuleInterface {
    * @returns {Promise<NativeDevice>} Disconnected device.
    * @private
    */
-  cancelDeviceConnection(deviceIdentifier: DeviceId): Promise<NativeDevice>;
+  cancelDeviceConnection(deviceIdentifier: DeviceId): Promise<NativeDevice>
 
   /**
    * Checks if specified device is connected.
@@ -428,7 +428,7 @@ export interface BleModuleInterface {
    * @returns {Promise<boolean>} True if specified device is connected.
    * @private
    */
-  isDeviceConnected(deviceIdentifier: DeviceId): Promise<boolean>;
+  isDeviceConnected(deviceIdentifier: DeviceId): Promise<boolean>
 
   // Discovery
 
@@ -443,7 +443,7 @@ export interface BleModuleInterface {
   discoverAllServicesAndCharacteristicsForDevice(
     deviceIdentifier: DeviceId,
     transactionId: TransactionId
-  ): Promise<NativeDevice>;
+  ): Promise<NativeDevice>
 
   // Service and characteristic getters
 
@@ -454,7 +454,7 @@ export interface BleModuleInterface {
    * @returns {Promise<Array<NativeService>>} List of services available in device.
    * @private
    */
-  servicesForDevice(deviceIdentifier: DeviceId): Promise<Array<NativeService>>;
+  servicesForDevice(deviceIdentifier: DeviceId): Promise<Array<NativeService>>
 
   /**
    * List of discovered characteristics for specified service.
@@ -464,7 +464,7 @@ export interface BleModuleInterface {
    * @returns {Promise<Array<NativeCharacteristic>>} List of characteristics available in service.
    * @private
    */
-  characteristicsForDevice(deviceIdentifier: DeviceId, serviceUUID: UUID): Promise<Array<NativeCharacteristic>>;
+  characteristicsForDevice(deviceIdentifier: DeviceId, serviceUUID: UUID): Promise<Array<NativeCharacteristic>>
 
   /**
    * List of discovered characteristics for specified service.
@@ -473,7 +473,7 @@ export interface BleModuleInterface {
    * @returns {Promise<Array<NativeCharacteristic>>} List of characteristics available in service.
    * @private
    */
-  characteristicsForService(serviceIdentifier: Identifier): Promise<Array<NativeCharacteristic>>;
+  characteristicsForService(serviceIdentifier: Identifier): Promise<Array<NativeCharacteristic>>
 
   /**
    * List of discovered descriptors for specified characteristic.
@@ -488,7 +488,7 @@ export interface BleModuleInterface {
     deviceIdentifier: DeviceId,
     serviceUUID: UUID,
     characteristicUUID: UUID
-  ): Promise<Array<NativeDescriptor>>;
+  ): Promise<Array<NativeDescriptor>>
 
   /**
    * List of discovered descriptors for specified characteristic.
@@ -498,7 +498,7 @@ export interface BleModuleInterface {
    * @returns {Promise<Array<NativeDescriptor>>} List of descriptors available in characteristic.
    * @private
    */
-  descriptorsForService(serviceIdentifier: Identifier, characteristicUUID: UUID): Promise<Array<NativeDescriptor>>;
+  descriptorsForService(serviceIdentifier: Identifier, characteristicUUID: UUID): Promise<Array<NativeDescriptor>>
 
   /**
    * List of discovered descriptors for specified characteristic.
@@ -507,7 +507,7 @@ export interface BleModuleInterface {
    * @returns {Promise<Array<NativeDescriptor>>} List of descriptors available in characteristic.
    * @private
    */
-  descriptorsForCharacteristic(characteristicIdentifier: Identifier): Promise<Array<NativeDescriptor>>;
+  descriptorsForCharacteristic(characteristicIdentifier: Identifier): Promise<Array<NativeDescriptor>>
 
   // Characteristics operations
 
@@ -526,7 +526,7 @@ export interface BleModuleInterface {
     serviceUUID: UUID,
     characteristicUUID: UUID,
     transactionId: TransactionId
-  ): Promise<NativeCharacteristic>;
+  ): Promise<NativeCharacteristic>
 
   /**
    * Read characteristic's value.
@@ -541,7 +541,7 @@ export interface BleModuleInterface {
     serviceIdentifier: Identifier,
     characteristicUUID: UUID,
     transactionId: TransactionId
-  ): Promise<NativeCharacteristic>;
+  ): Promise<NativeCharacteristic>
 
   /**
    * Read characteristic's value.
@@ -551,7 +551,7 @@ export interface BleModuleInterface {
    * @returns {Promise<NativeCharacteristic>} Characteristic for which value was read
    * @private
    */
-  readCharacteristic(characteristicIdentifer: Identifier, transactionId: TransactionId): Promise<NativeCharacteristic>;
+  readCharacteristic(characteristicIdentifer: Identifier, transactionId: TransactionId): Promise<NativeCharacteristic>
 
   /**
    * Write value to characteristic.
@@ -572,7 +572,7 @@ export interface BleModuleInterface {
     valueBase64: Base64,
     withResponse: boolean,
     transactionId: TransactionId
-  ): Promise<NativeCharacteristic>;
+  ): Promise<NativeCharacteristic>
 
   /**
    * Write value to characteristic.
@@ -591,7 +591,7 @@ export interface BleModuleInterface {
     valueBase64: Base64,
     withResponse: boolean,
     transactionId: TransactionId
-  ): Promise<NativeCharacteristic>;
+  ): Promise<NativeCharacteristic>
 
   /**
    * Write value to characteristic.
@@ -608,7 +608,7 @@ export interface BleModuleInterface {
     valueBase64: Base64,
     withResponse: boolean,
     transactionId: TransactionId
-  ): Promise<NativeCharacteristic>;
+  ): Promise<NativeCharacteristic>
 
   /**
    * Setup monitoring of characteristic value.
@@ -625,9 +625,15 @@ export interface BleModuleInterface {
     deviceIdentifier: DeviceId,
     serviceUUID: UUID,
     characteristicUUID: UUID,
+    transactionId: TransactionId
+  ): Promise<void>
+  monitorCharacteristicForDevice(
+    deviceIdentifier: DeviceId,
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
     transactionId: TransactionId,
     subscriptionType: CharacteristicSubscriptionType | null
-  ): Promise<void>;
+  ): Promise<void>
 
   /**
    * Setup monitoring of characteristic value.
@@ -642,9 +648,14 @@ export interface BleModuleInterface {
   monitorCharacteristicForService(
     serviceIdentifier: Identifier,
     characteristicUUID: UUID,
+    transactionId: TransactionId
+  ): Promise<void>
+  monitorCharacteristicForService(
+    serviceIdentifier: Identifier,
+    characteristicUUID: UUID,
     transactionId: TransactionId,
     subscriptionType: CharacteristicSubscriptionType | null
-  ): Promise<void>;
+  ): Promise<void>
 
   /**
    * Setup monitoring of characteristic value.
@@ -655,11 +666,12 @@ export interface BleModuleInterface {
    * @returns {Promise<void>} Value which is returned when monitoring was cancelled or resulted in error
    * @private
    */
+  monitorCharacteristic(characteristicIdentifier: Identifier, transactionId: TransactionId): Promise<void>
   monitorCharacteristic(
     characteristicIdentifier: Identifier,
     transactionId: TransactionId,
     subscriptionType: CharacteristicSubscriptionType | null
-  ): Promise<void>;
+  ): Promise<void>
 
   // Descriptor operations
 
@@ -680,7 +692,7 @@ export interface BleModuleInterface {
     characteristicUUID: UUID,
     descriptorUUID: UUID,
     transactionId: TransactionId
-  ): Promise<NativeDescriptor>;
+  ): Promise<NativeDescriptor>
 
   /**
    * Read descriptor's value.
@@ -697,7 +709,7 @@ export interface BleModuleInterface {
     characteristicUUID: UUID,
     descriptorUUID: UUID,
     transactionId: TransactionId
-  ): Promise<NativeDescriptor>;
+  ): Promise<NativeDescriptor>
 
   /**
    * Read descriptor's value.
@@ -712,7 +724,7 @@ export interface BleModuleInterface {
     characteristicIdentifier: Identifier,
     descriptorUUID: UUID,
     transactionId: TransactionId
-  ): Promise<NativeDescriptor>;
+  ): Promise<NativeDescriptor>
 
   /**
    * Read descriptor's value.
@@ -722,7 +734,7 @@ export interface BleModuleInterface {
    * @returns {Promise<NativeDescriptor>} Descriptor for which value was read
    * @private
    */
-  readDescriptor(descriptorIdentifier: Identifier, transactionId: TransactionId): Promise<NativeDescriptor>;
+  readDescriptor(descriptorIdentifier: Identifier, transactionId: TransactionId): Promise<NativeDescriptor>
 
   /**
    * Write value to descriptor.
@@ -743,7 +755,7 @@ export interface BleModuleInterface {
     descriptorUUID: UUID,
     valueBase64: Base64,
     transactionId: TransactionId
-  ): Promise<NativeDescriptor>;
+  ): Promise<NativeDescriptor>
 
   /**
    * Write value to descriptor.
@@ -762,7 +774,7 @@ export interface BleModuleInterface {
     descriptorUUID: UUID,
     valueBase64: Base64,
     transactionId: TransactionId
-  ): Promise<NativeDescriptor>;
+  ): Promise<NativeDescriptor>
 
   /**
    * Write value to descriptor.
@@ -779,7 +791,7 @@ export interface BleModuleInterface {
     descriptorUUID: UUID,
     valueBase64: Base64,
     transactionId: TransactionId
-  ): Promise<NativeDescriptor>;
+  ): Promise<NativeDescriptor>
 
   /**
    * Write value to descriptor.
@@ -794,7 +806,7 @@ export interface BleModuleInterface {
     descriptorIdentifier: Identifier,
     valueBase64: Base64,
     transactionId: TransactionId
-  ): Promise<NativeDescriptor>;
+  ): Promise<NativeDescriptor>
 
   // Background Mode (Android Foreground Service)
 
@@ -808,7 +820,7 @@ export interface BleModuleInterface {
    * @returns {Promise<boolean>} True if background mode was enabled successfully
    * @private
    */
-  enableBackgroundMode(options: { notificationTitle?: string; notificationText?: string } | null): Promise<boolean>;
+  enableBackgroundMode(options: { notificationTitle?: string; notificationText?: string } | null): Promise<boolean>
 
   /**
    * Disable background mode and stop the foreground service. [Android only]
@@ -816,7 +828,7 @@ export interface BleModuleInterface {
    * @returns {Promise<boolean>} True if background mode was disabled successfully
    * @private
    */
-  disableBackgroundMode(): Promise<boolean>;
+  disableBackgroundMode(): Promise<boolean>
 
   /**
    * Update the notification content while background mode is active. [Android only]
@@ -829,7 +841,7 @@ export interface BleModuleInterface {
    */
   updateBackgroundNotification(
     options: { notificationTitle?: string; notificationText?: string } | null
-  ): Promise<boolean>;
+  ): Promise<boolean>
 
   /**
    * Check if background mode is currently enabled. [Android only]
@@ -837,7 +849,7 @@ export interface BleModuleInterface {
    * @returns {Promise<boolean>} True if background mode is enabled
    * @private
    */
-  isBackgroundModeEnabled(): Promise<boolean>;
+  isBackgroundModeEnabled(): Promise<boolean>
 
   // Other APIs
 
@@ -848,7 +860,7 @@ export interface BleModuleInterface {
    * @returns {Promise<void>}
    * @private
    */
-  cancelTransaction(transactionId: TransactionId): Promise<void>;
+  cancelTransaction(transactionId: TransactionId): Promise<void>
 
   /**
    * Sets new log level for native module's logging mechanism.
@@ -856,14 +868,14 @@ export interface BleModuleInterface {
    * @returns {Promise<LogLevel>} Current log level.
    * @private
    */
-  setLogLevel(logLevel: keyof typeof LogLevel): Promise<keyof typeof LogLevel | void>;
+  setLogLevel(logLevel: keyof typeof LogLevel): Promise<keyof typeof LogLevel | void>
 
   /**
    * Get current log level for native module's logging mechanism.
    * @returns {Promise<LogLevel>} Current log level.
    * @private
    */
-  logLevel(): Promise<keyof typeof LogLevel>;
+  logLevel(): Promise<keyof typeof LogLevel>
 
   // Events
 
@@ -871,32 +883,32 @@ export interface BleModuleInterface {
    * New scanned event arrived as [?Error, ?NativeDevice] object.
    * @private
    */
-  ScanEvent: string;
+  ScanEvent: string
 
   /**
    * Characteristic value update broadcasted due to registered notification as
    * [?Error, ?NativeCharacteristic, ?TransactionId].
    * @private
    */
-  ReadEvent: string;
+  ReadEvent: string
 
   /**
    * BLE Manager changed its state as $Keys<typeof State>
    * @private
    */
-  StateChangeEvent: string;
+  StateChangeEvent: string
 
   /**
    * BLE Manager restored its internal state
    * @private
    */
-  RestoreStateEvent: string;
+  RestoreStateEvent: string
 
   /**
    * Device disconnected as [Error?, NativeDevice]
    * @private
    */
-  DisconnectionEvent: string;
+  DisconnectionEvent: string
 }
 
 /**

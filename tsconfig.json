@@ -26,5 +26,6 @@
     "target": "esnext",
     "verbatimModuleSyntax": true
   },
-  "exclude": ["src/**", "__tests__/**", "integration-tests/**", "example/**", "example-expo/**", "plugin/**"]
+  "include": ["src/**/*"],
+  "exclude": ["lib", "node_modules", "example", "example-expo", "integration-tests", "plugin", "android", "ios"]
 }

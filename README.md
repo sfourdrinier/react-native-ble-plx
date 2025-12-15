@@ -11,6 +11,8 @@
 >
 > **Looking for maintainers!** We're looking for volunteers to help maintain this fork. If you're interested, please open an issue or submit a PR.
 
+> **Maintainers note**: This repo is managed with `pnpm` (not yarn/npm).
+
 ## About this library
 
 It supports:
@@ -165,6 +167,7 @@ You can find more details in the ["Adding custom native code"](https://docs.expo
 
 The plugin provides props for extra customization. Every time you change the props or plugins, you'll need to rebuild (and `prebuild`) the native app. If no extra properties are added, defaults will be used.
 
+- `debug` (_boolean_): Enable debug logging for the Expo config plugin. You can also set `BLEPLX_PLUGIN_DEBUG=1` (or `true`/`yes`) in your environment to enable logs without changing config. Default `false`.
 - `isBackgroundEnabled` (_boolean_): Enable background BLE support on Android. Adds `<uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>` to the `AndroidManifest.xml`. Default `false`.
 - `neverForLocation` (_boolean_): Set to true only if you can strongly assert that your app never derives physical location from Bluetooth scan results. The location permission will be still required on older Android devices. Note, that some BLE beacons are filtered from the scan results. Android SDK 31+. Default `false`. _WARNING: This parameter is experimental and BLE might not work. Make sure to test before releasing to production._
 - `modes` (_string[]_): Adds iOS `UIBackgroundModes` to the `Info.plist`. Options are: `peripheral`, and `central`. Defaults to undefined.
@@ -199,7 +202,7 @@ The plugin provides props for extra customization. Every time you change the pro
 
 ### iOS (Manual Setup)
 
-1. `npm install --save @sfourdrinier/react-native-ble-plx`
+1. Install the package: `pnpm add @sfourdrinier/react-native-ble-plx` (or `npm install --save @sfourdrinier/react-native-ble-plx`)
 1. Enter `ios` folder and run `pod update`
 1. Add `NSBluetoothAlwaysUsageDescription` in `info.plist` file. (it is a requirement since iOS 13)
 1. If you want to support background mode:
@@ -226,7 +229,7 @@ const manager = new BleManager({
 
 ### Android (Manual Setup)
 
-1. `npm install --save @sfourdrinier/react-native-ble-plx`
+1. Install the package: `pnpm add @sfourdrinier/react-native-ble-plx` (or `npm install --save @sfourdrinier/react-native-ble-plx`)
 1. In top level `build.gradle` make sure that min SDK version is at least 23:
 
    ```groovy
