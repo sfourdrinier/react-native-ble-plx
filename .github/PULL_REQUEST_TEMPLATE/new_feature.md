@@ -11,8 +11,8 @@ Please answer the following questions for yourself before submitting an issue. *
 
 - [ ] I am working on the latest version of the library.
 - [ ] I tested all the changes locally both on iOS and Android devices.
-- [ ] I run `npm run lint` and `npm test` to verify my fix.
-- [ ] I added Flow types and Typescript definitions to new APIs.
+- [ ] I ran `pnpm run lint` and `pnpm test` to verify my fix.
+- [ ] I added TypeScript types for new APIs.
 - [ ] I added local tests if possible.
 
 ## Current Behavior

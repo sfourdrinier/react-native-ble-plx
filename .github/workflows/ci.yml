@@ -18,10 +18,10 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Lint files
-        run: yarn lint
+        run: pnpm lint
 
       - name: Typecheck files
-        run: yarn typecheck
+        run: pnpm typecheck
 
   test:
     runs-on: ubuntu-latest
@@ -33,7 +33,7 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Run unit tests
-        run: yarn test --maxWorkers=2 --coverage
+        run: pnpm test --maxWorkers=2 --coverage
 
   build-library:
     runs-on: ubuntu-latest
@@ -45,7 +45,7 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Build package
-        run: yarn prepack
+        run: pnpm prepack
 
   build-android:
     runs-on: macos-latest
@@ -75,13 +75,13 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ${{ env.TURBO_CACHE_DIR }}
-          key: ${{ runner.os }}-${{ matrix.configurations.react_native_version }}-turborepo-android-${{ hashFiles('**/yarn.lock') }}
+          key: ${{ runner.os }}-${{ matrix.configurations.react_native_version }}-turborepo-android-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.configurations.react_native_version }}-turborepo-android-
 
       - name: Check turborepo cache for Android
         run: |
-          TURBO_CACHE_STATUS=$(node -p "($(yarn --silent turbo run test:android --cache-dir="${{ env.TURBO_CACHE_DIR }}" --dry=json)).tasks.find(t => t.task === 'test:android').cache.status")
+          TURBO_CACHE_STATUS=$(node -p "($(pnpm -s turbo run test:android --cache-dir="${{ env.TURBO_CACHE_DIR }}" --dry=json)).tasks.find(t => t.task === 'test:android').cache.status")
 
           if [[ $TURBO_CACHE_STATUS == "HIT" ]]; then
             echo "turbo_cache_hit=1" >> $GITHUB_ENV
@@ -107,7 +107,7 @@ jobs:
 
       - name: Build example for Android
         run: |
-          yarn turbo run test:android --cache-dir="${{ env.TURBO_CACHE_DIR }}"
+          pnpm turbo run test:android --cache-dir="${{ env.TURBO_CACHE_DIR }}"
 
   build-ios:
     runs-on: macos-latest
@@ -137,13 +137,13 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ${{ env.TURBO_CACHE_DIR }}
-          key: ${{ runner.os }}-${{ matrix.configurations.react_native_version }}-turborepo-ios-${{ hashFiles('**/yarn.lock') }}
+          key: ${{ runner.os }}-${{ matrix.configurations.react_native_version }}-turborepo-ios-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.configurations.react_native_version }}-turborepo-ios-
 
       - name: Check turborepo cache for iOS
         run: |
-          TURBO_CACHE_STATUS=$(node -p "($(yarn --silent turbo run test:ios --cache-dir="${{ env.TURBO_CACHE_DIR }}" --dry=json)).tasks.find(t => t.task === 'test:ios').cache.status")
+          TURBO_CACHE_STATUS=$(node -p "($(pnpm -s turbo run test:ios --cache-dir="${{ env.TURBO_CACHE_DIR }}" --dry=json)).tasks.find(t => t.task === 'test:ios').cache.status")
 
           if [[ $TURBO_CACHE_STATUS == "HIT" ]]; then
             echo "turbo_cache_hit=1" >> $GITHUB_ENV
@@ -171,7 +171,7 @@ jobs:
       - name: Build example for iOS
         if: env.turbo_cache_hit != 1
         run: |
-          yarn turbo run test:ios --cache-dir="${{ env.TURBO_CACHE_DIR }}"
+          pnpm turbo run test:ios --cache-dir="${{ env.TURBO_CACHE_DIR }}"
 
   prebuild-expo:
     runs-on: macos-latest
@@ -196,13 +196,13 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ${{ env.TURBO_CACHE_DIR }}
-          key: ${{ runner.os }}-${{ matrix.configurations.react_native_version }}-turborepo-android-${{ hashFiles('**/yarn.lock') }}
+          key: ${{ runner.os }}-${{ matrix.configurations.react_native_version }}-turborepo-android-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.configurations.react_native_version }}-turborepo-android-
 
       - name: Check turborepo cache for Expo
         run: |
-          TURBO_CACHE_STATUS=$(node -p "($(yarn --silent turbo run test:android --cache-dir="${{ env.TURBO_CACHE_DIR }}" --dry=json)).tasks.find(t => t.task === 'test:android').cache.status")
+          TURBO_CACHE_STATUS=$(node -p "($(pnpm -s turbo run test:android --cache-dir="${{ env.TURBO_CACHE_DIR }}" --dry=json)).tasks.find(t => t.task === 'test:android').cache.status")
 
           if [[ $TURBO_CACHE_STATUS == "HIT" ]]; then
             echo "turbo_cache_hit=1" >> $GITHUB_ENV
@@ -232,4 +232,4 @@ jobs:
             ${{ runner.os }}-${{ matrix.configurations.react_native_version }}-gradle-
 
       - name: Prebuild example for expo
-        run: yarn turbo run test:expo --cache-dir="${{ env.TURBO_CACHE_DIR }}"
+        run: pnpm turbo run test:expo --cache-dir="${{ env.TURBO_CACHE_DIR }}"

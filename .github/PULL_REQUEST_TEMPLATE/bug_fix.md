@@ -11,7 +11,7 @@ Please answer the following questions for yourself before submitting an issue. *
 
 - [ ] I am working on the latest version of the library.
 - [ ] I tested all the changes locally both on iOS and Android devices.
-- [ ] I run `npm run lint` and `npm test` to verify my fix.
+- [ ] I ran `pnpm run lint` and `pnpm test` to verify my fix.
 - [ ] I added local regression tests if possible.
 
 ## Bug description
