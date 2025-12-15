@@ -39,6 +39,52 @@ describe('setBlePlxDebugLoggingAndroidManifest', () => {
     expect(xml).toMatch(/<meta-data android:name="BlePlxDebugLogging" android:value="false"\/>/)
   })
 
+  it('handles null meta-data gracefully', () => {
+    const androidManifest = {
+      manifest: {
+        application: [
+          {
+            $: { 'android:name': '.MainApplication' },
+            'meta-data': null
+          }
+        ]
+      }
+    }
+
+    const result = setBlePlxDebugLoggingAndroidManifest(androidManifest as any, true)
+
+    const mainApp = AndroidConfig.Manifest.getMainApplicationOrThrow(result)
+    const metaData = mainApp['meta-data']
+
+    expect(Array.isArray(metaData)).toBe(true)
+    expect(metaData).toHaveLength(1)
+    expect(metaData[0].$['android:name']).toBe('BlePlxDebugLogging')
+    expect(metaData[0].$['android:value']).toBe('true')
+  })
+
+  it('handles empty array meta-data', () => {
+    const androidManifest = {
+      manifest: {
+        application: [
+          {
+            $: { 'android:name': '.MainApplication' },
+            'meta-data': []
+          }
+        ]
+      }
+    }
+
+    const result = setBlePlxDebugLoggingAndroidManifest(androidManifest as any, true)
+
+    const mainApp = AndroidConfig.Manifest.getMainApplicationOrThrow(result)
+    const metaData = mainApp['meta-data']
+
+    expect(Array.isArray(metaData)).toBe(true)
+    expect(metaData).toHaveLength(1)
+    expect(metaData[0].$['android:name']).toBe('BlePlxDebugLogging')
+    expect(metaData[0].$['android:value']).toBe('true')
+  })
+
   it('preserves existing meta-data when it is a single object (not array)', () => {
     // Simulate the XML parser returning a single meta-data entry as an object
     const androidManifest = {
