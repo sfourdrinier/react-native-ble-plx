@@ -7,6 +7,7 @@
 //
 
 #import "BlePlx.h"
+#import "BlePlxDebugLogging.h"
 
 // Conditionally import Swift header - it may not exist if no Swift code is compiled
 // (e.g., when the Restoration subspec is not included)
@@ -36,7 +37,7 @@ static BOOL _hasAttemptedAdapterRegistration = NO;
 + (void)initialize {
     if (self == [BlePlx class]) {
         // Only run for BlePlx itself, not subclasses
-        NSLog(@"[BlePlx] +initialize called - attempting early adapter registration");
+        BlePlxDebugLog(@"[BlePlx] +initialize called - attempting early adapter registration");
         [self attemptAdapterRegistration];
     }
 }
@@ -47,18 +48,18 @@ static BOOL _hasAttemptedAdapterRegistration = NO;
     if (_hasAttemptedAdapterRegistration) return;
     _hasAttemptedAdapterRegistration = YES;
 
-    NSLog(@"[BlePlx] Attempting to register BlePlxRestorationAdapter");
+    BlePlxDebugLog(@"[BlePlx] Attempting to register BlePlxRestorationAdapter");
     Class adapterClass = NSClassFromString(@"BlePlxRestorationAdapter");
-    NSLog(@"[BlePlx] BlePlxRestorationAdapter class: %@", adapterClass ? @"FOUND" : @"NOT FOUND (Restoration subspec may not be included)");
+    BlePlxDebugLog(@"[BlePlx] BlePlxRestorationAdapter class: %@", adapterClass ? @"FOUND" : @"NOT FOUND (Restoration subspec may not be included)");
     if (adapterClass && [adapterClass respondsToSelector:@selector(register)]) {
-        NSLog(@"[BlePlx] Calling BlePlxRestorationAdapter.register()");
+        BlePlxDebugLog(@"[BlePlx] Calling BlePlxRestorationAdapter.register()");
         #pragma clang diagnostic push
         #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
         [adapterClass performSelector:@selector(register)];
         #pragma clang diagnostic pop
-        NSLog(@"[BlePlx] BlePlxRestorationAdapter.register() completed");
+        BlePlxDebugLog(@"[BlePlx] BlePlxRestorationAdapter.register() completed");
     } else if (adapterClass) {
-        NSLog(@"[BlePlx] WARNING: BlePlxRestorationAdapter found but register selector not available");
+        BlePlxDebugLog(@"[BlePlx] WARNING: BlePlxRestorationAdapter found but register selector not available");
     }
 }
 

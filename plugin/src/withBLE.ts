@@ -12,6 +12,7 @@ import { withBLEAndroidManifest } from './withBLEAndroidManifest'
 import { withBLEAndroidForegroundService } from './withBLEAndroidForegroundService'
 import { BackgroundMode, withBLEBackgroundModes } from './withBLEBackgroundModes'
 import { withBluetoothPermissions } from './withBluetoothPermissions'
+import { withBLEDebugLogging } from './withBLEDebugLogging'
 import { withBLERestorationPodfile } from './withBLERestorationPodfile'
 import { blePlxPluginDebugLog, isBlePlxPluginDebugEnabled } from './debugLog'
 
@@ -38,6 +39,8 @@ const withBLE: ConfigPlugin<
   const debugEnabled = isBlePlxPluginDebugEnabled(_props.debug)
   blePlxPluginDebugLog(debugEnabled, 'Plugin running with props:', JSON.stringify(props))
   blePlxPluginDebugLog(debugEnabled, 'Package name from pkg.json:', pkg.name)
+
+  config = withBLEDebugLogging(config, { debugEnabled })
 
   const isBackgroundEnabled = _props.isBackgroundEnabled ?? false
   const neverForLocation = _props.neverForLocation ?? false

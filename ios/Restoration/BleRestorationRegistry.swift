@@ -35,7 +35,7 @@ public final class BlePlxBundledRestorationRegistry: NSObject {
   @objc public static let shared = BlePlxBundledRestorationRegistry()
   private override init() {
     super.init()
-    print("[BlePlxBundledRestorationRegistry] Bundled fallback registry initialized")
+    BlePlxDebugLogging.log("[BlePlxBundledRestorationRegistry] Bundled fallback registry initialized")
   }
 
   // MARK: - Storage
@@ -60,19 +60,21 @@ public final class BlePlxBundledRestorationRegistry: NSObject {
   public func registerAdapter(_ cls: AnyClass) {
     // Verify the class implements the required selector
     guard cls.responds(to: BlePlxBundledRestorationRegistry.handleRestoredSelector) else {
-      print("[BlePlxBundledRestorationRegistry] ✗ \(cls) does not implement handleRestoredWithCentral:willRestoreState:")
+      BlePlxDebugLogging.log(
+        "[BlePlxBundledRestorationRegistry] ✗ \(cls) does not implement handleRestoredWithCentral:willRestoreState:"
+      )
       return
     }
 
     queue.sync(flags: .barrier) {
       // Avoid duplicate registration
       if adapterClasses.contains(where: { $0 === cls }) {
-        print("[BlePlxBundledRestorationRegistry] Already registered: \(cls)")
+        BlePlxDebugLogging.log("[BlePlxBundledRestorationRegistry] Already registered: \(cls)")
         return
       }
 
       adapterClasses.append(cls)
-      print("[BlePlxBundledRestorationRegistry] ✓ Registered \(cls)")
+      BlePlxDebugLogging.log("[BlePlxBundledRestorationRegistry] ✓ Registered \(cls)")
     }
   }
 
@@ -100,7 +102,9 @@ public final class BlePlxBundledRestorationRegistry: NSObject {
   /// BleRestorationRegistry implementation.
   @objc(registerDevice:forAdapter:)
   public func registerDevice(_ deviceId: String, for cls: AnyClass) {
-    print("[BlePlxBundledRestorationRegistry] Device \(deviceId) noted (advanced routing requires host registry)")
+    BlePlxDebugLogging.log(
+      "[BlePlxBundledRestorationRegistry] Device \(deviceId) noted (advanced routing requires host registry)"
+    )
   }
 
   // MARK: - Restoration Dispatch
@@ -114,11 +118,11 @@ public final class BlePlxBundledRestorationRegistry: NSObject {
     let classes = allAdapterClasses
 
     guard !classes.isEmpty else {
-      print("[BlePlxBundledRestorationRegistry] No adapters registered - nothing to restore")
+      BlePlxDebugLogging.log("[BlePlxBundledRestorationRegistry] No adapters registered - nothing to restore")
       return
     }
 
-    print("[BlePlxBundledRestorationRegistry] Dispatching restoration to \(classes.count) adapter(s)")
+    BlePlxDebugLogging.log("[BlePlxBundledRestorationRegistry] Dispatching restoration to \(classes.count) adapter(s)")
 
     for cls in classes {
       // Use ObjC runtime to invoke the class method
@@ -130,9 +134,9 @@ public final class BlePlxBundledRestorationRegistry: NSObject {
         let handleRestored = unsafeBitCast(imp, to: HandleRestoredFunc.self)
         handleRestored(cls, BlePlxBundledRestorationRegistry.handleRestoredSelector, central, dict)
 
-        print("[BlePlxBundledRestorationRegistry] ✓ Dispatched to \(cls)")
+        BlePlxDebugLogging.log("[BlePlxBundledRestorationRegistry] ✓ Dispatched to \(cls)")
       } else {
-        print("[BlePlxBundledRestorationRegistry] ✗ Could not find method on \(cls)")
+        BlePlxDebugLogging.log("[BlePlxBundledRestorationRegistry] ✗ Could not find method on \(cls)")
       }
     }
   }

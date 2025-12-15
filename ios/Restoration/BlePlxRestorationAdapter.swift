@@ -116,11 +116,11 @@ public final class BlePlxRestorationAdapter: NSObject {
   ) {
     guard let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral],
           !peripherals.isEmpty else {
-      print("[BlePlxRestorationAdapter] No peripherals to restore")
+      BlePlxDebugLogging.log("[BlePlxRestorationAdapter] No peripherals to restore")
       return
     }
 
-    print("[BlePlxRestorationAdapter] Restoring \(peripherals.count) peripheral(s)")
+    BlePlxDebugLogging.log("[BlePlxRestorationAdapter] Restoring \(peripherals.count) peripheral(s)")
 
     // Recreate a BleClientManager bound to the same restoration ID.
     let manager = BleClientManager(
@@ -140,11 +140,11 @@ public final class BlePlxRestorationAdapter: NSObject {
         deviceId,
         options: [:],
         resolve: { _ in
-          print("[BlePlxRestorationAdapter] ✓ Reconnected to \(deviceId)")
+          BlePlxDebugLogging.log("[BlePlxRestorationAdapter] ✓ Reconnected to \(deviceId)")
         },
         reject: { code, message, error in
           let reason = message ?? error?.localizedDescription ?? "unknown"
-          print("[BlePlxRestorationAdapter] ✗ Failed to reconnect \(deviceId): \(code ?? "-") / \(reason)")
+          BlePlxDebugLogging.log("[BlePlxRestorationAdapter] ✗ Failed to reconnect \(deviceId): \(code ?? "-") / \(reason)")
         }
       )
     }
@@ -155,14 +155,14 @@ public final class BlePlxRestorationAdapter: NSObject {
   /// Register a device-to-adapter route using whichever registry is available.
   private static func registerDeviceRoute(deviceId: String) {
     guard let (registry, name) = findRegistry() else {
-      print("[BlePlxRestorationAdapter] No registry found for device routing")
+      BlePlxDebugLogging.log("[BlePlxRestorationAdapter] No registry found for device routing")
       return
     }
 
     let selector = NSSelectorFromString("registerDevice:forAdapter:")
     if registry.responds(to: selector) {
       _ = registry.perform(selector, with: deviceId, with: BlePlxRestorationAdapter.self)
-      print("[BlePlxRestorationAdapter] Registered device route via \(name)")
+      BlePlxDebugLogging.log("[BlePlxRestorationAdapter] Registered device route via \(name)")
     }
   }
 
@@ -177,12 +177,12 @@ public final class BlePlxRestorationAdapter: NSObject {
   @objc public static func register() {
     // Prevent duplicate registrations
     guard !isRegistered else {
-      print("[BlePlxRestorationAdapter] Already registered - skipping")
+      BlePlxDebugLogging.log("[BlePlxRestorationAdapter] Already registered - skipping")
       return
     }
 
     guard let (registry, name) = findRegistry() else {
-      print("[BlePlxRestorationAdapter] ✗ No restoration registry found")
+      BlePlxDebugLogging.log("[BlePlxRestorationAdapter] ✗ No restoration registry found")
       return
     }
 
@@ -190,9 +190,9 @@ public final class BlePlxRestorationAdapter: NSObject {
     if registry.responds(to: selector) {
       _ = registry.perform(selector, with: BlePlxRestorationAdapter.self)
       isRegistered = true
-      print("[BlePlxRestorationAdapter] ✓ Registered with \(name)")
+      BlePlxDebugLogging.log("[BlePlxRestorationAdapter] ✓ Registered with \(name)")
     } else {
-      print("[BlePlxRestorationAdapter] ✗ \(name) does not respond to registerAdapter:")
+      BlePlxDebugLogging.log("[BlePlxRestorationAdapter] ✗ \(name) does not respond to registerAdapter:")
     }
   }
 }
