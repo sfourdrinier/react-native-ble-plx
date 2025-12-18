@@ -22,7 +22,7 @@ export class Service implements NativeService {
    * Internal BLE Manager handle
    * @private
    */
-  _manager: BleManager
+  _manager!: BleManager
   /**
    * Service unique identifier
    */
@@ -64,7 +64,6 @@ export class Service implements NativeService {
     this.uuid = nativeService.uuid
     this.deviceID = nativeService.deviceID
     this.isPrimary = nativeService.isPrimary
-    this._manager = manager
   }
 
   /**

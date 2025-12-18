@@ -21,7 +21,7 @@ export class Characteristic implements NativeCharacteristic {
    * Internal BLE Manager handle
    * @private
    */
-  _manager: BleManager
+  _manager!: BleManager
   /**
    * Characteristic unique identifier
    */
@@ -101,7 +101,6 @@ export class Characteristic implements NativeCharacteristic {
     this.isNotifying = nativeCharacteristic.isNotifying
     this.isIndicatable = nativeCharacteristic.isIndicatable
     this.value = nativeCharacteristic.value
-    this._manager = manager
   }
 
   /**

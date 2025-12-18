@@ -10,7 +10,7 @@ export class Descriptor implements NativeDescriptor {
    * Internal BLE Manager handle
    * @private
    */
-  _manager: BleManager
+  _manager!: BleManager
   /**
    * Descriptor unique identifier
    */
@@ -70,7 +70,6 @@ export class Descriptor implements NativeDescriptor {
     this.serviceUUID = nativeDescriptor.serviceUUID
     this.deviceID = nativeDescriptor.deviceID
     this.value = nativeDescriptor.value
-    this._manager = manager
   }
 
   /**
