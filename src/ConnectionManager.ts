@@ -87,6 +87,14 @@ interface DeviceConnectionState {
     backoffMultiplier: number
     timeoutMs: number
   }
+  reconnectOptions?: {
+    connectionOptions?: ConnectionOptions
+    maxRetries: number
+    initialDelayMs: number
+    maxDelayMs: number
+    backoffMultiplier: number
+    timeoutMs: number
+  }
   isConnecting: boolean
   retryCount: number
   timeoutId?: ReturnType<typeof setTimeout>
@@ -220,13 +228,14 @@ export class ConnectionManager {
       const state: DeviceConnectionState = {
         deviceId,
         options: connectionOptions,
+        reconnectOptions: existing?.reconnectOptions,
         isConnecting: false,
         retryCount: 0,
-        autoReconnect: existing?.autoReconnect ?? false, // Preserve autoReconnect flag if it exists
-        callbacks: existing?.callbacks, // Preserve callbacks if they exist
-        disconnectSubscription: existing?.disconnectSubscription, // Preserve disconnect subscription
+        autoReconnect: existing?.autoReconnect ?? false,
+        callbacks: existing?.callbacks,
+        disconnectSubscription: existing?.disconnectSubscription,
         cancelled: false,
-        attemptId: existing ? existing.attemptId + 1 : 0, // Increment attemptId if reusing state
+        attemptId: existing ? existing.attemptId + 1 : 0,
         pendingPromise: { resolve, reject }
       }
 
@@ -246,34 +255,26 @@ export class ConnectionManager {
     // If already exists, update settings
     let state = this._devices.get(deviceId)
 
+    const reconnectOpts = {
+      maxRetries: options?.maxRetries ?? 5,
+      initialDelayMs: options?.initialDelayMs ?? 1000,
+      maxDelayMs: options?.maxDelayMs ?? 30000,
+      backoffMultiplier: options?.backoffMultiplier ?? 2,
+      timeoutMs: options?.timeoutMs ?? 30000,
+      connectionOptions: options?.connectionOptions
+    }
+
     if (state) {
       // Update existing state
       state.autoReconnect = true
       state.callbacks = callbacks
-      if (options) {
-        state.options = {
-          maxRetries: options.maxRetries ?? state.options.maxRetries,
-          initialDelayMs: options.initialDelayMs ?? state.options.initialDelayMs,
-          maxDelayMs: options.maxDelayMs ?? state.options.maxDelayMs,
-          backoffMultiplier: options.backoffMultiplier ?? state.options.backoffMultiplier,
-          timeoutMs: options.timeoutMs ?? state.options.timeoutMs,
-          connectionOptions: options.connectionOptions ?? state.options.connectionOptions
-        }
-      }
+      state.reconnectOptions = reconnectOpts
     } else {
       // Create new state
-      const connectionOptions = {
-        maxRetries: options?.maxRetries ?? 5,
-        initialDelayMs: options?.initialDelayMs ?? 1000,
-        maxDelayMs: options?.maxDelayMs ?? 30000,
-        backoffMultiplier: options?.backoffMultiplier ?? 2,
-        timeoutMs: options?.timeoutMs ?? 30000,
-        connectionOptions: options?.connectionOptions
-      }
-
       state = {
         deviceId,
-        options: connectionOptions,
+        options: reconnectOpts,
+        reconnectOptions: reconnectOpts,
         isConnecting: false,
         retryCount: 0,
         autoReconnect: true,
@@ -466,6 +467,11 @@ export class ConnectionManager {
       return
     }
 
+    // Use reconnect-specific options if available
+    if (state.reconnectOptions) {
+      state.options = { ...state.reconnectOptions }
+    }
+
     state.retryCount = 0
     this._scheduleConnection(state, 0)
   }
@@ -484,11 +490,21 @@ export class ConnectionManager {
       state.timeoutId = undefined
     }
 
-    state.timeoutId = setTimeout(() => {
-      if (!state.cancelled) {
-        this._attemptConnection(state)
-      }
-    }, delay)
+    if (delay === 0) {
+      // Use microtask for immediate scheduling — setTimeout(fn, 0) relies on
+      // Choreographer frame callbacks which don't fire when the app is backgrounded
+      Promise.resolve().then(() => {
+        if (!state.cancelled) {
+          this._attemptConnection(state)
+        }
+      })
+    } else {
+      state.timeoutId = setTimeout(() => {
+        if (!state.cancelled) {
+          this._attemptConnection(state)
+        }
+      }, delay)
+    }
   }
 
   /**
