@@ -23,9 +23,6 @@ import type {
 import { isIOS } from './Utils'
 import { Platform } from 'react-native'
 
-const enableDisableDeprecatedMessage =
-  'react-native-ble-plx: The enable and disable feature is no longer supported. In Android SDK 31+ there were major changes in permissions, which may cause problems with these functions, and in SDK 33+ they were completely removed.'
-
 /**
  *
  * BleManager is an entry point for react-native-ble-plx library. It provides all means to discover and work with
@@ -82,19 +79,17 @@ export class BleManager {
     const restoreStateFunction = options.restoreStateFunction
     if (restoreStateFunction != null && restoreStateIdentifier != null) {
       const restoreFn = restoreStateFunction
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+
       this._activeSubscriptions[this._nextUniqueID()] = this._eventEmitter.addListener(
         BleModule.RestoreStateEvent,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (nativeRestoredState: NativeBleRestoredState | any) => {
           if (nativeRestoredState == null) {
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-call
             restoreFn(null)
             return
           }
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+
           restoreFn({
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
             connectedPeripherals: nativeRestoredState.connectedPeripherals.map(
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               (nativeDevice: any) => new Device(nativeDevice, this)
@@ -149,7 +144,6 @@ export class BleManager {
 
     // Unsubscribe from any subscriptions
     if (this._scanEventSubscription != null) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       this._scanEventSubscription.remove()
       this._scanEventSubscription = null
     }
@@ -266,36 +260,6 @@ export class BleManager {
   // Mark: Monitoring state --------------------------------------------------------------------------------------------
 
   /**
-   * Enable Bluetooth. This function blocks until BLE is in PoweredOn state. [Android only]
-   *
-   * @param {?TransactionId} transactionId Transaction handle used to cancel operation
-   * @returns {Promise<BleManager>} Promise completes when state transition was successful.
-   */
-  async enable(transactionId?: TransactionId): Promise<BleManager> {
-    if (!transactionId) {
-      transactionId = this._nextUniqueID()
-    }
-    await this._callPromise(BleModule.enable(transactionId))
-    return this
-  }
-
-  /**
-   * Deprecated
-   * Disable Bluetooth. This function blocks until BLE is in PoweredOff state. [Android only]
-   *
-   * @param {?TransactionId} transactionId Transaction handle used to cancel operation
-   * @returns {Promise<BleManager>} Promise completes when state transition was successful.
-   */
-  async disable(transactionId?: TransactionId): Promise<BleManager> {
-    console.warn(enableDisableDeprecatedMessage)
-    if (!transactionId) {
-      transactionId = this._nextUniqueID()
-    }
-    await this._callPromise(BleModule.disable(transactionId))
-    return this
-  }
-
-  /**
    * Current, global {@link State} of a {@link BleManager}. All APIs are working only when active state
    * is "PoweredOn".
    *
@@ -323,7 +287,6 @@ export class BleManager {
    * @returns {Subscription} Subscription on which `remove()` function can be called to unsubscribe.
    */
   onStateChange(listener: (newState: keyof typeof State) => void, emitCurrentState = false): Subscription {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
     const subscription: Subscription = this._eventEmitter.addListener(BleModule.StateChangeEvent, listener)
     const id = this._nextUniqueID()
     let wrappedSubscription: Subscription
@@ -341,7 +304,7 @@ export class BleManager {
           if (this._activeSubscriptions[id] != null) {
             cancelled = true
             delete this._activeSubscriptions[id]
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+
             subscription.remove()
           }
         }
@@ -351,7 +314,7 @@ export class BleManager {
         remove: () => {
           if (this._activeSubscriptions[id] != null) {
             delete this._activeSubscriptions[id]
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+
             subscription.remove()
           }
         }
@@ -389,7 +352,6 @@ export class BleManager {
       )
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     this._scanEventSubscription = this._eventEmitter.addListener(BleModule.ScanEvent, scanListener)
 
     return this._callPromise(BleModule.startDeviceScan(UUIDs || null, options || null))
@@ -401,7 +363,6 @@ export class BleManager {
    */
   stopDeviceScan(): Promise<void> {
     if (this._scanEventSubscription != null) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       this._scanEventSubscription.remove()
       this._scanEventSubscription = null
     }
@@ -541,7 +502,6 @@ export class BleManager {
       listener(error ? parseBleError(error, this._errorCodesToMessagesMapping) : null, new Device(nativeDevice, this))
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     const subscription: Subscription = this._eventEmitter.addListener(
       BleModule.DisconnectionEvent,
       disconnectionListener
@@ -1089,7 +1049,6 @@ export class BleManager {
       listener(null, new Characteristic(characteristic, this))
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     const subscription: Subscription = this._eventEmitter.addListener(BleModule.ReadEvent, monitorListener)
 
     const id = this._nextUniqueID()
@@ -1103,14 +1062,12 @@ export class BleManager {
     }
     this._activeSubscriptions[id] = wrappedSubscription
 
-    // eslint-disable-next-line @typescript-eslint/no-floating-promises
     this._callPromise(monitorPromise).then(
       () => {
         wrappedSubscription.remove()
       },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (error: any) => {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
         listener(parseBleError(error.message, this._errorCodesToMessagesMapping), null)
         wrappedSubscription.remove()
       }

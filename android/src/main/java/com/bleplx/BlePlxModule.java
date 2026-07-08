@@ -3,6 +3,7 @@ package com.bleplx;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import com.bleplx.NativeBlePlxSpec;
 import com.bleplx.adapter.BleAdapter;
 import com.bleplx.adapter.BleAdapterFactory;
 import com.bleplx.adapter.Characteristic;
@@ -32,7 +33,6 @@ import android.content.Context;
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
-import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReadableMap;
@@ -51,7 +51,7 @@ import io.reactivex.exceptions.UndeliverableException;
 import io.reactivex.plugins.RxJavaPlugins;
 
 @ReactModule(name = BlePlxModule.NAME)
-public class BlePlxModule extends ReactContextBaseJavaModule {
+public class BlePlxModule extends NativeBlePlxSpec {
   public static final String NAME = "BlePlx";
   private static final String DEFAULT_ERROR_CODE = "BlePlxError";
   private final ReactApplicationContext reactContext;
@@ -90,7 +90,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   private BleAdapter bleAdapter;
 
   @Override
-  public Map<String, Object> getConstants() {
+  protected Map<String, Object> getTypedExportedConstants() {
     final Map<String, Object> constants = new HashMap<>();
     for (Event event : Event.values()) {
       constants.put(event.name, event.name);
@@ -115,6 +115,16 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
           sendEvent(Event.RestoreStateEvent, null);
         }
       });
+  }
+
+  @ReactMethod
+  public void checkRestorationStatus(final Promise promise) {
+    WritableMap status = Arguments.createMap();
+    status.putBoolean("blePlxRestorationAdapterFound", false);
+    status.putBoolean("bleRestorationRegistryFound", false);
+    status.putBoolean("hasRegisterSelector", false);
+    status.putBoolean("initializeWasCalled", true);
+    promise.resolve(status);
   }
 
   @ReactMethod
@@ -157,44 +167,6 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   // Mark: Monitoring state ----------------------------------------------------------------------
-
-  @ReactMethod
-  public void enable(final String transactionId, final Promise promise) {
-    if (!this.isRequestPossibleHandler("enable", promise)) {
-      return;
-    }
-    final SafePromise safePromise = new SafePromise(promise);
-    bleAdapter.enable(transactionId, new OnSuccessCallback<Void>() {
-      @Override
-      public void onSuccess(Void data) {
-        safePromise.resolve(null);
-      }
-    }, new OnErrorCallback() {
-      @Override
-      public void onError(BleError error) {
-        safePromise.reject(DEFAULT_ERROR_CODE, errorConverter.toJs(error));
-      }
-    });
-  }
-
-  @ReactMethod
-  public void disable(final String transactionId, final Promise promise) {
-    if (!this.isRequestPossibleHandler("disable", promise)) {
-      return;
-    }
-    final SafePromise safePromise = new SafePromise(promise);
-    bleAdapter.disable(transactionId, new OnSuccessCallback<Void>() {
-      @Override
-      public void onSuccess(Void data) {
-        safePromise.resolve(null);
-      }
-    }, new OnErrorCallback() {
-      @Override
-      public void onError(BleError error) {
-        safePromise.reject(DEFAULT_ERROR_CODE, errorConverter.toJs(error));
-      }
-    });
-  }
 
   @ReactMethod
   public void state(final Promise promise) {
@@ -308,12 +280,12 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   // Mark: Device operations ---------------------------------------------------------------------
 
   @ReactMethod
-  public void requestConnectionPriorityForDevice(final String deviceId, int connectionPriority, final String transactionId, final Promise promise) {
+  public void requestConnectionPriorityForDevice(final String deviceId, double connectionPriority, final String transactionId, final Promise promise) {
     if (!this.isRequestPossibleHandler("requestConnectionPriorityForDevice", promise)) {
       return;
     }
     final SafePromise safePromise = new SafePromise(promise);
-    bleAdapter.requestConnectionPriorityForDevice(deviceId, connectionPriority, transactionId,
+    bleAdapter.requestConnectionPriorityForDevice(deviceId, (int) connectionPriority, transactionId,
       new OnSuccessCallback<Device>() {
         @Override
         public void onSuccess(Device data) {
@@ -328,12 +300,12 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void requestMTUForDevice(final String deviceId, int mtu, final String transactionId, final Promise promise) {
+  public void requestMTUForDevice(final String deviceId, double mtu, final String transactionId, final Promise promise) {
     if (!this.isRequestPossibleHandler("requestMTUForDevice", promise)) {
       return;
     }
     final SafePromise safePromise = new SafePromise(promise);
-    bleAdapter.requestMTUForDevice(deviceId, mtu, transactionId,
+    bleAdapter.requestMTUForDevice(deviceId, (int) mtu, transactionId,
       new OnSuccessCallback<Device>() {
         @Override
         public void onSuccess(Device data) {
@@ -533,12 +505,12 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void characteristicsForService(final int serviceIdentifier, final Promise promise) {
+  public void characteristicsForService(final double serviceIdentifier, final Promise promise) {
     if (!this.isRequestPossibleHandler("characteristicsForService", promise)) {
       return;
     }
     try {
-      List<Characteristic> characteristics = bleAdapter.getCharacteristicsForService(serviceIdentifier);
+      List<Characteristic> characteristics = bleAdapter.getCharacteristicsForService((int) serviceIdentifier);
       WritableArray jsCharacteristics = Arguments.createArray();
       for (Characteristic characteristic : characteristics) {
         jsCharacteristics.pushMap(characteristicConverter.toJSObject(characteristic));
@@ -570,14 +542,14 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void descriptorsForService(final int serviceIdentifier,
+  public void descriptorsForService(final double serviceIdentifier,
                                     final String characteristicUUID,
                                     final Promise promise) {
     if (!this.isRequestPossibleHandler("descriptorsForService", promise)) {
       return;
     }
     try {
-      List<Descriptor> descriptors = bleAdapter.descriptorsForService(serviceIdentifier, characteristicUUID);
+      List<Descriptor> descriptors = bleAdapter.descriptorsForService((int) serviceIdentifier, characteristicUUID);
       WritableArray jsDescriptors = Arguments.createArray();
       for (Descriptor descriptor : descriptors) {
         jsDescriptors.pushMap(descriptorConverter.toJSObject(descriptor));
@@ -589,13 +561,13 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void descriptorsForCharacteristic(final int characteristicIdentifier,
+  public void descriptorsForCharacteristic(final double characteristicIdentifier,
                                            final Promise promise) {
     if (!this.isRequestPossibleHandler("descriptorsForCharacteristic", promise)) {
       return;
     }
     try {
-      List<Descriptor> descriptors = bleAdapter.descriptorsForCharacteristic(characteristicIdentifier);
+      List<Descriptor> descriptors = bleAdapter.descriptorsForCharacteristic((int) characteristicIdentifier);
       WritableArray jsDescriptors = Arguments.createArray();
       for (Descriptor descriptor : descriptors) {
         jsDescriptors.pushMap(descriptorConverter.toJSObject(descriptor));
@@ -613,7 +585,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
                                            final String serviceUUID,
                                            final String characteristicUUID,
                                            final String valueBase64,
-                                           final Boolean response,
+                                           final boolean response,
                                            final String transactionId,
                                            final Promise promise) {
     if (!this.isRequestPossibleHandler("writeCharacteristicForDevice", promise)) {
@@ -638,10 +610,10 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void writeCharacteristicForService(final int serviceIdentifier,
+  public void writeCharacteristicForService(final double serviceIdentifier,
                                             final String characteristicUUID,
                                             final String valueBase64,
-                                            final Boolean response,
+                                            final boolean response,
                                             final String transactionId,
                                             final Promise promise) {
     if (!this.isRequestPossibleHandler("writeCharacteristicForService", promise)) {
@@ -649,7 +621,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
     }
     final SafePromise safePromise = new SafePromise(promise);
     bleAdapter.writeCharacteristicForService(
-      serviceIdentifier, characteristicUUID, valueBase64, response, transactionId,
+      (int) serviceIdentifier, characteristicUUID, valueBase64, response, transactionId,
       new OnSuccessCallback<Characteristic>() {
         @Override
         public void onSuccess(Characteristic data) {
@@ -665,9 +637,9 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void writeCharacteristic(final int characteristicIdentifier,
+  public void writeCharacteristic(final double characteristicIdentifier,
                                   final String valueBase64,
-                                  final Boolean response,
+                                  final boolean response,
                                   final String transactionId,
                                   final Promise promise) {
     if (!this.isRequestPossibleHandler("writeCharacteristic", promise)) {
@@ -675,7 +647,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
     }
     final SafePromise safePromise = new SafePromise(promise);
 
-    bleAdapter.writeCharacteristic(characteristicIdentifier, valueBase64, response, transactionId,
+    bleAdapter.writeCharacteristic((int) characteristicIdentifier, valueBase64, response, transactionId,
       new OnSuccessCallback<Characteristic>() {
         @Override
         public void onSuccess(Characteristic data) {
@@ -717,7 +689,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void readCharacteristicForService(final int serviceIdentifier,
+  public void readCharacteristicForService(final double serviceIdentifier,
                                            final String characteristicUUID,
                                            final String transactionId,
                                            final Promise promise) {
@@ -727,7 +699,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
     final SafePromise safePromise = new SafePromise(promise);
 
     bleAdapter.readCharacteristicForService(
-      serviceIdentifier, characteristicUUID, transactionId,
+      (int) serviceIdentifier, characteristicUUID, transactionId,
       new OnSuccessCallback<Characteristic>() {
         @Override
         public void onSuccess(Characteristic data) {
@@ -743,7 +715,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void readCharacteristic(final int characteristicIdentifier,
+  public void readCharacteristic(final double characteristicIdentifier,
                                  final String transactionId,
                                  final Promise promise) {
     if (!this.isRequestPossibleHandler("readCharacteristic", promise)) {
@@ -752,7 +724,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
     final SafePromise safePromise = new SafePromise(promise);
 
     bleAdapter.readCharacteristic(
-      characteristicIdentifier, transactionId,
+      (int) characteristicIdentifier, transactionId,
       new OnSuccessCallback<Characteristic>() {
         @Override
         public void onSuccess(Characteristic data) {
@@ -799,7 +771,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void monitorCharacteristicForService(final int serviceIdentifier,
+  public void monitorCharacteristicForService(final double serviceIdentifier,
                                               final String characteristicUUID,
                                               final String transactionId,
                                               final String subscriptionType,
@@ -809,7 +781,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
     }
     final SafePromise safePromise = new SafePromise(promise);
     bleAdapter.monitorCharacteristicForService(
-      serviceIdentifier, characteristicUUID, transactionId, subscriptionType,
+      (int) serviceIdentifier, characteristicUUID, transactionId, subscriptionType,
       new OnEventCallback<Characteristic>() {
         @Override
         public void onEvent(Characteristic data) {
@@ -829,7 +801,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void monitorCharacteristic(final int characteristicIdentifier,
+  public void monitorCharacteristic(final double characteristicIdentifier,
                                     final String transactionId,
                                     final String subscriptionType,
                                     final Promise promise) {
@@ -839,7 +811,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
     final SafePromise safePromise = new SafePromise(promise);
     //TODO resolve safePromise with null when monitoring has been completed
     bleAdapter.monitorCharacteristic(
-      characteristicIdentifier, transactionId, subscriptionType,
+      (int) characteristicIdentifier, transactionId, subscriptionType,
       new OnEventCallback<Characteristic>() {
         @Override
         public void onEvent(Characteristic data) {
@@ -888,7 +860,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void readDescriptorForService(final int serviceIdentifier,
+  public void readDescriptorForService(final double serviceIdentifier,
                                        final String characteristicUUID,
                                        final String descriptorUUID,
                                        final String transactionId,
@@ -897,7 +869,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
       return;
     }
     bleAdapter.readDescriptorForService(
-      serviceIdentifier,
+      (int) serviceIdentifier,
       characteristicUUID,
       descriptorUUID,
       transactionId,
@@ -916,7 +888,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void readDescriptorForCharacteristic(final int characteristicIdentifier,
+  public void readDescriptorForCharacteristic(final double characteristicIdentifier,
                                               final String descriptorUUID,
                                               final String transactionId,
                                               final Promise promise) {
@@ -924,7 +896,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
       return;
     }
     bleAdapter.readDescriptorForCharacteristic(
-      characteristicIdentifier,
+      (int) characteristicIdentifier,
       descriptorUUID,
       transactionId,
       new OnSuccessCallback<Descriptor>() {
@@ -942,14 +914,14 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void readDescriptor(final int descriptorIdentifier,
+  public void readDescriptor(final double descriptorIdentifier,
                              final String transactionId,
                              final Promise promise) {
     if (!this.isRequestPossibleHandler("readDescriptor", promise)) {
       return;
     }
     bleAdapter.readDescriptor(
-      descriptorIdentifier,
+      (int) descriptorIdentifier,
       transactionId,
       new OnSuccessCallback<Descriptor>() {
         @Override
@@ -999,7 +971,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void writeDescriptorForService(final int serviceIdentifier,
+  public void writeDescriptorForService(final double serviceIdentifier,
                                         final String characteristicUUID,
                                         final String descriptorUUID,
                                         final String valueBase64,
@@ -1009,7 +981,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
       return;
     }
     bleAdapter.writeDescriptorForService(
-      serviceIdentifier,
+      (int) serviceIdentifier,
       characteristicUUID,
       descriptorUUID,
       valueBase64,
@@ -1030,7 +1002,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void writeDescriptorForCharacteristic(final int characteristicIdentifier,
+  public void writeDescriptorForCharacteristic(final double characteristicIdentifier,
                                                final String descriptorUUID,
                                                final String valueBase64,
                                                final String transactionId,
@@ -1039,7 +1011,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
       return;
     }
     bleAdapter.writeDescriptorForCharacteristic(
-      characteristicIdentifier,
+      (int) characteristicIdentifier,
       descriptorUUID,
       valueBase64,
       transactionId,
@@ -1059,7 +1031,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void writeDescriptor(final int descriptorIdentifier,
+  public void writeDescriptor(final double descriptorIdentifier,
                               final String valueBase64,
                               final String transactionId,
                               final Promise promise) {
@@ -1067,7 +1039,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
       return;
     }
     bleAdapter.writeDescriptor(
-      descriptorIdentifier,
+      (int) descriptorIdentifier,
       valueBase64,
       transactionId,
       new OnSuccessCallback<Descriptor>() {
@@ -1172,7 +1144,7 @@ public class BlePlxModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void removeListeners(int count) {
+  public void removeListeners(double count) {
     // Keep: Required for RN built in Event Emitter Calls.
   }
 

@@ -67,4 +67,3 @@ buck-out/
 
 # Local pnpm lockfiles for example apps (until we commit them)
 example/pnpm-lock.yaml
-example-expo/pnpm-lock.yaml

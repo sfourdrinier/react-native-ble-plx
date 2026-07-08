@@ -38,13 +38,6 @@ public class SafePromise {
     }
   }
 
-  @Deprecated
-  public void reject(String message) {
-    if (isFinished.compareAndSet(false, true)) {
-      promise.reject(message);
-    }
-  }
-
   public void reject(Throwable reason) {
     if (isFinished.compareAndSet(false, true)) {
       promise.reject(reason);

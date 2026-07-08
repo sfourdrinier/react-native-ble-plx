@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
-import { BleError, Characteristic, Device, type Subscription, type DeviceId, BleErrorCode } from 'react-native-ble-plx'
+import { BleError, Characteristic, Device, type Subscription, type DeviceId, BleErrorCode } from '@sfourdrinier/react-native-ble-plx'
 import { Alert, ScrollView } from 'react-native'
 import base64 from 'react-native-base64'
 import Toast from 'react-native-toast-message'

@@ -10,6 +10,12 @@
 #import <React/RCTBridgeModule.h>
 #import <React/RCTEventEmitter.h>
 
+#ifdef RCT_NEW_ARCH_ENABLED
+#import <BlePlxSpec/BlePlxSpec.h>
+
+@interface BlePlx : RCTEventEmitter <NativeBlePlxSpec>
+#else
 @interface BlePlx : RCTEventEmitter <RCTBridgeModule>
+#endif
 
 @end

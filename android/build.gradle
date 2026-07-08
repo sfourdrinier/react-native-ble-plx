@@ -10,7 +10,15 @@ buildscript {
 }
 
 def isNewArchitectureEnabled() {
-  return rootProject.hasProperty("newArchEnabled") && rootProject.getProperty("newArchEnabled") == "true"
+  if (!rootProject.hasProperty("newArchEnabled")) {
+    return true
+  }
+
+  if (rootProject.getProperty("newArchEnabled") == "false") {
+    logger.warn("[react-native-ble-plx] newArchEnabled=false is ignored because react-native-ble-plx requires React Native 0.86+.")
+  }
+
+  return true
 }
 
 apply plugin: "com.android.library"
@@ -85,10 +93,7 @@ repositories {
 
 
 dependencies {
-  // For < 0.71, this will be from the local maven repo
-  // For > 0.71, this will be replaced by `com.facebook.react:react-android:$version` by react gradle plugin
-  //noinspection GradleDynamicVersion
-  implementation "com.facebook.react:react-native:+"
+  implementation "com.facebook.react:react-android"
   implementation 'io.reactivex.rxjava2:rxjava:2.2.17'
   implementation "com.polidea.rxandroidble2:rxandroidble:1.17.2"
 }

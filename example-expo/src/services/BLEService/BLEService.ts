@@ -11,7 +11,7 @@ import {
   type Characteristic,
   type Base64,
   type Subscription
-} from 'react-native-ble-plx'
+} from '@sfourdrinier/react-native-ble-plx'
 import { PermissionsAndroid, Platform } from 'react-native'
 import Toast from 'react-native-toast-message'
 
@@ -49,11 +49,6 @@ class BLEServiceInstance {
             break
           case BluetoothState.PoweredOff:
             this.onBluetoothPowerOff()
-            this.manager.enable().catch((error: BleError) => {
-              if (error.errorCode === BleErrorCode.BluetoothUnauthorized) {
-                this.requestBluetoothPermission()
-              }
-            })
             break
           case BluetoothState.Unauthorized:
             this.requestBluetoothPermission()
@@ -361,16 +356,6 @@ class BLEServiceInstance {
   }
 
   cancelTransaction = (transactionId: TransactionId) => this.manager.cancelTransaction(transactionId)
-
-  enable = () =>
-    this.manager.enable().catch(error => {
-      this.onError(error)
-    })
-
-  disable = () =>
-    this.manager.disable().catch(error => {
-      this.onError(error)
-    })
 
   getState = () =>
     this.manager.state().catch(error => {

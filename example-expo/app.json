@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.withintent.bleplxexample"
@@ -22,6 +17,18 @@
       },
       "package": "com.withintent.bleplxexample"
     },
+    "plugins": [
+      [
+        "@sfourdrinier/react-native-ble-plx",
+        {
+          "isBackgroundEnabled": true,
+          "modes": ["central"],
+          "iosEnableRestoration": true,
+          "iosRestorationIdentifier": "com.withintent.bleplxexample.restore",
+          "androidEnableForegroundService": true
+        }
+      ]
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
     }

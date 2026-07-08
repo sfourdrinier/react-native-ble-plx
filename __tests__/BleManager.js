@@ -139,16 +139,6 @@ test('BleModule calls destroy function when destroyed', () => {
   expect(Native.BleModule.destroyClient).toBeCalled()
 })
 
-test('BleModule calls enable function when enabled', async () => {
-  expect(await bleManager.enable('tid')).toBe(bleManager)
-  expect(Native.BleModule.enable).toBeCalledWith('tid')
-})
-
-test('BleModule calls disable function when disabled', async () => {
-  expect(await bleManager.disable('tid')).toBe(bleManager)
-  expect(Native.BleModule.disable).toBeCalledWith('tid')
-})
-
 test('BleModule calls setLogLevel function when logLevel is modified', () => {
   bleManager.setLogLevel('Debug')
   expect(Native.BleModule.setLogLevel).toBeCalledWith('Debug')

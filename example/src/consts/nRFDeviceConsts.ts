@@ -1,4 +1,4 @@
-import { fullUUID } from 'react-native-ble-plx'
+import { fullUUID } from '@sfourdrinier/react-native-ble-plx'
 import base64 from 'react-native-base64'
 import { getDateAsBase64 } from '../utils/getDateAsBase64'
 

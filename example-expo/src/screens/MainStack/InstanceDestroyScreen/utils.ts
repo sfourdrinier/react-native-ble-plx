@@ -1,4 +1,4 @@
-import { ConnectionPriority, LogLevel } from 'react-native-ble-plx'
+import { ConnectionPriority, LogLevel } from '@sfourdrinier/react-native-ble-plx'
 import { BLEService } from '../../../services'
 import { deviceTimeCharacteristic, deviceTimeService } from '../../../consts/nRFDeviceConsts'
 
@@ -119,13 +119,5 @@ export const functionsToTest: { name: string; functionToCall: () => Promise<any>
         deviceTimeCharacteristic,
         'Base64'
       )
-  },
-  {
-    name: 'disable',
-    functionToCall: () => BLEService.manager.disable()
-  },
-  {
-    name: 'enable',
-    functionToCall: () => BLEService.manager.enable()
   }
 ] as const

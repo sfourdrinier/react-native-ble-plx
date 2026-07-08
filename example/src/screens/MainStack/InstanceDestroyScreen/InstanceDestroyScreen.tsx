@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
-import { BleError } from 'react-native-ble-plx'
+import { BleError } from '@sfourdrinier/react-native-ble-plx'
 import { ScrollView, View } from 'react-native'
 import type { MainStackParamList } from '../../../navigation/navigators'
 import { AppButton, AppText, ScreenDefaultContainer, TestStateDisplay } from '../../../components/atoms'
