@@ -43,7 +43,8 @@ describe('iOS modernization defaults', () => {
       'destroyClient:(RCTPromiseResolveBlock)resolve',
       'state:(RCTPromiseResolveBlock)resolve',
       'startDeviceScan:(NSArray*)filteredUUIDs',
-      'options:(NSDictionary*)options',
+      'options:(JS::NativeBlePlx::ScanOptions &)options',
+      'NSDictionaryFromScanOptions(options)',
       'stopDeviceScan:(RCTPromiseResolveBlock)resolve',
       'requestConnectionPriorityForDevice:(NSString*)deviceIdentifier',
       'connectionPriority:(double)connectionPriority',
@@ -52,6 +53,8 @@ describe('iOS modernization defaults', () => {
       'devices:(NSArray<NSString*>*)deviceIdentifiers',
       'connectedDevices:(NSArray<NSString*>*)serviceUUIDs',
       'connectToDevice:(NSString*)deviceIdentifier',
+      'options:(JS::NativeBlePlx::ConnectionOptions &)options',
+      'NSDictionaryFromConnectionOptions(options)',
       'cancelDeviceConnection:(NSString*)deviceIdentifier',
       'isDeviceConnected:(NSString*)deviceIdentifier',
       'discoverAllServicesAndCharacteristicsForDevice:(NSString*)deviceIdentifier',
@@ -63,9 +66,9 @@ describe('iOS modernization defaults', () => {
       'subscriptionType:(NSString*)subscriptionType',
       'readDescriptor:(double)descriptorIdentifier',
       'writeDescriptor:(double)descriptorIdentifier',
-      'enableBackgroundMode:(NSDictionary*)options',
+      'enableBackgroundMode:(JS::NativeBlePlx::BackgroundModeOptions &)options',
       'disableBackgroundMode:(RCTPromiseResolveBlock)resolve',
-      'updateBackgroundNotification:(NSDictionary*)options',
+      'updateBackgroundNotification:(JS::NativeBlePlx::BackgroundModeOptions &)options',
       'isBackgroundModeEnabled:(RCTPromiseResolveBlock)resolve',
       'cancelTransaction:(NSString*)transactionId',
       'setLogLevel:(NSString*)logLevel',
@@ -85,5 +88,7 @@ describe('iOS modernization defaults', () => {
     expect(iosImplementation).not.toContain('transactionID:')
     expect(iosImplementation).not.toContain('destroyClient) {')
     expect(iosImplementation).not.toContain('stopDeviceScan) {')
+    expect(iosImplementation).toContain('#else\nRCT_EXPORT_METHOD(startDeviceScan:(NSArray*)filteredUUIDs\n                          options:(NSDictionary*)options')
+    expect(iosImplementation).toContain('#else\nRCT_EXPORT_METHOD(connectToDevice:(NSString*)deviceIdentifier\n                          options:(NSDictionary*)options')
   })
 })

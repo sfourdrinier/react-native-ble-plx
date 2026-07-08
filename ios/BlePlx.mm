@@ -31,6 +31,60 @@ RCT_EXPORT_MODULE();
 // Track whether we've attempted adapter registration
 static BOOL _hasAttemptedAdapterRegistration = NO;
 
+#ifdef RCT_NEW_ARCH_ENABLED
+static NSDictionary *NSDictionaryFromScanOptions(JS::NativeBlePlx::ScanOptions &options) {
+    NSMutableDictionary *dictionary = [NSMutableDictionary dictionary];
+
+    auto allowDuplicates = options.allowDuplicates();
+    if (allowDuplicates.has_value()) {
+        dictionary[@"allowDuplicates"] = @(*allowDuplicates);
+    }
+
+    auto scanMode = options.scanMode();
+    if (scanMode.has_value()) {
+        dictionary[@"scanMode"] = @(*scanMode);
+    }
+
+    auto callbackType = options.callbackType();
+    if (callbackType.has_value()) {
+        dictionary[@"callbackType"] = @(*callbackType);
+    }
+
+    auto legacyScan = options.legacyScan();
+    if (legacyScan.has_value()) {
+        dictionary[@"legacyScan"] = @(*legacyScan);
+    }
+
+    return dictionary;
+}
+
+static NSDictionary *NSDictionaryFromConnectionOptions(JS::NativeBlePlx::ConnectionOptions &options) {
+    NSMutableDictionary *dictionary = [NSMutableDictionary dictionary];
+
+    auto autoConnect = options.autoConnect();
+    if (autoConnect.has_value()) {
+        dictionary[@"autoConnect"] = @(*autoConnect);
+    }
+
+    auto requestMTU = options.requestMTU();
+    if (requestMTU.has_value()) {
+        dictionary[@"requestMTU"] = @(*requestMTU);
+    }
+
+    NSString *refreshGatt = options.refreshGatt();
+    if (refreshGatt != nil) {
+        dictionary[@"refreshGatt"] = refreshGatt;
+    }
+
+    auto timeout = options.timeout();
+    if (timeout.has_value()) {
+        dictionary[@"timeout"] = @(*timeout);
+    }
+
+    return dictionary;
+}
+#endif
+
 // +initialize is called by the Objective-C runtime when the class is first used.
 // This happens early during React Native module registration, BEFORE JavaScript runs.
 // Unlike +load, it doesn't conflict with Swift and is called at a predictable time.
@@ -200,6 +254,18 @@ RCT_EXPORT_METHOD(   state:(RCTPromiseResolveBlock)resolve
 
 // Mark: Scanning ------------------------------------------------------------------------------------------------------
 
+#ifdef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(startDeviceScan:(NSArray*)filteredUUIDs
+                          options:(JS::NativeBlePlx::ScanOptions &)options
+                          resolve:(RCTPromiseResolveBlock)resolve
+                          reject:(RCTPromiseRejectBlock)reject) {
+  if (filteredUUIDs == nil || [filteredUUIDs isEqual:[NSNull null]]) {
+    filteredUUIDs = @[];
+  }
+  [_manager startDeviceScan:filteredUUIDs options:NSDictionaryFromScanOptions(options)];
+  resolve(nil);
+}
+#else
 RCT_EXPORT_METHOD(startDeviceScan:(NSArray*)filteredUUIDs
                           options:(NSDictionary*)options
                           resolve:(RCTPromiseResolveBlock)resolve
@@ -213,6 +279,7 @@ RCT_EXPORT_METHOD(startDeviceScan:(NSArray*)filteredUUIDs
   [_manager startDeviceScan:filteredUUIDs options:options];
   resolve(nil);
 }
+#endif
 
 RCT_EXPORT_METHOD(stopDeviceScan:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
@@ -274,6 +341,17 @@ RCT_EXPORT_METHOD(connectedDevices:(NSArray<NSString*>*)serviceUUIDs
 
 // Mark: Connection management -----------------------------------------------------------------------------------------
 
+#ifdef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(connectToDevice:(NSString*)deviceIdentifier
+                          options:(JS::NativeBlePlx::ConnectionOptions &)options
+                         resolve:(RCTPromiseResolveBlock)resolve
+                         reject:(RCTPromiseRejectBlock)reject) {
+    [_manager connectToDevice:deviceIdentifier
+                      options:NSDictionaryFromConnectionOptions(options)
+                      resolve:resolve
+                       reject:reject];
+}
+#else
 RCT_EXPORT_METHOD(connectToDevice:(NSString*)deviceIdentifier
                           options:(NSDictionary*)options
                          resolve:(RCTPromiseResolveBlock)resolve
@@ -283,6 +361,7 @@ RCT_EXPORT_METHOD(connectToDevice:(NSString*)deviceIdentifier
                       resolve:resolve
                        reject:reject];
 }
+#endif
 
 RCT_EXPORT_METHOD(cancelDeviceConnection:(NSString*)deviceIdentifier
                                 resolve:(RCTPromiseResolveBlock)resolve
@@ -612,12 +691,21 @@ RCT_EXPORT_METHOD(writeDescriptor:(double)descriptorIdentifier
 
 // Mark: Background mode -----------------------------------------------------------------------------------------------
 
+#ifdef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(enableBackgroundMode:(JS::NativeBlePlx::BackgroundModeOptions &)options
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    // iOS background BLE is configured through UIBackgroundModes and restoration.
+    resolve(@YES);
+}
+#else
 RCT_EXPORT_METHOD(enableBackgroundMode:(NSDictionary*)options
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
     // iOS background BLE is configured through UIBackgroundModes and restoration.
     resolve(@YES);
 }
+#endif
 
 RCT_EXPORT_METHOD(disableBackgroundMode:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
@@ -625,12 +713,21 @@ RCT_EXPORT_METHOD(disableBackgroundMode:(RCTPromiseResolveBlock)resolve
     resolve(@YES);
 }
 
+#ifdef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(updateBackgroundNotification:(JS::NativeBlePlx::BackgroundModeOptions &)options
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    // iOS does not expose Android-style foreground service notifications.
+    resolve(@YES);
+}
+#else
 RCT_EXPORT_METHOD(updateBackgroundNotification:(NSDictionary*)options
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
     // iOS does not expose Android-style foreground service notifications.
     resolve(@YES);
 }
+#endif
 
 RCT_EXPORT_METHOD(isBackgroundModeEnabled:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
