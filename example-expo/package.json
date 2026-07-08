@@ -29,7 +29,6 @@
     "typescript": "~6.0.3",
     "@babel/preset-env": "^7.20.0",
     "@babel/runtime": "^7.20.0",
-    "@react-native/eslint-config": "0.86.0",
     "@types/react-native-base64": "^0.2.0",
     "@react-native/metro-config": "0.86.0",
     "babel-plugin-module-resolver": "^5.0.0",

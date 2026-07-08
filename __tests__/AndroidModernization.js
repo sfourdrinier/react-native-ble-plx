@@ -85,4 +85,14 @@ describe('Android modernization defaults', () => {
     expect(safePromise).toContain('code == null')
     expect(safePromise).toContain('message == null')
   })
+
+  test('keeps custom GATT refresh operation typed for javac', () => {
+    const refreshGattOperation = read('android/src/main/java/com/bleplx/adapter/utils/RefreshGattCustomOperation.java')
+
+    expect(refreshGattOperation).toContain('Observable.amb(')
+    expect(refreshGattOperation).toContain('Arrays.asList(')
+    expect(refreshGattOperation).not.toContain('Observable.ambArray(')
+    expect(refreshGattOperation).toContain('rxBleGattCallback.<Boolean>observeDisconnect()')
+    expect(refreshGattOperation).not.toContain('@noinspection unchecked')
+  })
 })

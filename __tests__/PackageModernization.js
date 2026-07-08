@@ -69,11 +69,19 @@ describe('package modernization targets', () => {
         }
       }
     })
+    expect(rootPackage['react-native-builder-bob'].targets).toContainEqual([
+      'typescript',
+      {
+        project: 'tsconfig.build.json',
+        tsc: './node_modules/.bin/tsc'
+      }
+    ])
   })
 
   test('CI verifies the same Expo CNG Android build path used locally', () => {
     expect(ciWorkflow).toContain('node-version: 20.19.4')
     expect(ciWorkflow).toContain('java-version: 21')
+    expect(ciWorkflow).toContain('NODE_OPTIONS: --max-old-space-size=8192')
     expect(ciWorkflow).toContain('actions/checkout@v7.0.0')
     expect(ciWorkflow).toContain('actions/setup-node@v6.4.0')
     expect(ciWorkflow).toContain('actions/setup-java@v5.5.0')
@@ -83,6 +91,14 @@ describe('package modernization targets', () => {
     expect(ciWorkflow).toContain('pnpm lint')
     expect(ciWorkflow).toContain('pnpm prepack')
     expect(ciWorkflow).toContain('pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json')
+    expect(ciWorkflow).toContain(`- name: Install Expo example dependencies
+        run: pnpm --dir example-expo install --no-frozen-lockfile
+
+      - name: Build package artifacts
+        run: pnpm prepack
+
+      - name: Typecheck Expo example
+        run: pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json`)
     expect(ciWorkflow).toContain('npx expo-doctor')
     expect(ciWorkflow).toContain('npx expo prebuild --clean --no-install')
     expect(ciWorkflow).toContain('./gradlew :app:assembleDebug --no-daemon --console=plain')
@@ -114,6 +130,7 @@ describe('package modernization targets', () => {
     expect(releaseDoc).toContain('pnpm test:plugin')
     expect(releaseDoc).toContain('pnpm lint')
     expect(releaseDoc).toContain('pnpm prepack')
+    expect(releaseDoc).toContain('pnpm --dir example-expo install --no-frozen-lockfile')
     expect(releaseDoc).toContain('pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json')
     expect(releaseDoc).toContain('npx expo-doctor')
     expect(releaseDoc).toContain('npx expo prebuild --clean --no-install')
@@ -128,6 +145,12 @@ describe('package modernization targets', () => {
     expect(releaseVerifyScript).toContain('pnpm test:plugin')
     expect(releaseVerifyScript).toContain('pnpm lint')
     expect(releaseVerifyScript).toContain('pnpm prepack')
+    expect(releaseVerifyScript).toContain('export NODE_OPTIONS')
+    expect(releaseVerifyScript).toContain('--max-old-space-size=8192')
+    expect(releaseVerifyScript).toContain('rm -rf "$ROOT_DIR/example-expo/node_modules/.pnpm/@sfourdrinier+react-native-ble-plx@file+.."*')
+    expect(releaseVerifyScript).toContain('rm -rf "$ROOT_DIR/example-expo/node_modules/@sfourdrinier/react-native-ble-plx"')
+    expect(releaseVerifyScript).toContain('pnpm --dir example-expo install --no-frozen-lockfile')
+    expect(releaseVerifyScript).not.toContain('pnpm --dir example-expo install --no-frozen-lockfile --force')
     expect(releaseVerifyScript).toContain('pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json')
     expect(releaseVerifyScript).toContain('npx expo-doctor')
     expect(releaseVerifyScript).toContain('npx expo prebuild --clean --no-install')
@@ -139,13 +162,14 @@ describe('package modernization targets', () => {
     for (const pkg of [examplePackage, exampleExpoPackage]) {
       expect(pkg.dependencies.react).toBe('19.2.3')
       expect(pkg.dependencies['react-native']).toBe('0.86.0')
-      expect(pkg.devDependencies['@react-native/eslint-config']).toBe('0.86.0')
       expect(pkg.devDependencies['@react-native/babel-preset']).toBe('0.86.0')
       expect(pkg.devDependencies['@react-native/metro-config']).toBe('0.86.0')
       expect(pkg.devDependencies['@react-native/typescript-config']).toBe('0.86.0')
       expect(pkg.devDependencies['@types/react']).toBe('^19.2.2')
       expect(pkg.devDependencies).not.toHaveProperty('metro-react-native-babel-preset')
     }
+    expect(examplePackage.devDependencies['@react-native/eslint-config']).toBe('0.86.0')
+    expect(exampleExpoPackage.devDependencies).not.toHaveProperty('@react-native/eslint-config')
     expect(exampleExpoPackage.dependencies.expo).toBe('^57.0.4')
     expect(exampleExpoPackage.dependencies['@react-navigation/native']).toBe('^7.3.8')
     expect(exampleExpoPackage.dependencies['@react-navigation/native-stack']).toBe('^7.17.10')
@@ -154,8 +178,13 @@ describe('package modernization targets', () => {
     expect(exampleExpoPackage.dependencies['react-native-safe-area-context']).toBe('~5.7.0')
     expect(exampleExpoPackage.dependencies['react-native-screens']).toBe('4.25.2')
     expect(exampleExpoPackage.devDependencies.typescript).toBe('~6.0.3')
+    expect(exampleExpoPackage.devDependencies).not.toHaveProperty('eslint')
+    expect(exampleExpoPackage.devDependencies).not.toHaveProperty('prettier')
     expect(examplePackage.dependencies['@sfourdrinier/react-native-ble-plx']).toBe('file:..')
     expect(exampleExpoPackage.dependencies['@sfourdrinier/react-native-ble-plx']).toBe('file:..')
+    expect(examplePackage.devDependencies['@react-native-community/cli']).toBe('^20.0.0')
+    expect(examplePackage.devDependencies['@react-native-community/cli-platform-android']).toBe('^20.0.0')
+    expect(examplePackage.devDependencies['@react-native-community/cli-platform-ios']).toBe('^20.0.0')
     expect(examplePackage.dependencies).not.toHaveProperty('react-native-ble-plx')
     expect(exampleExpoPackage.dependencies).not.toHaveProperty('react-native-ble-plx')
     expect(exampleImports).toContain("from '@sfourdrinier/react-native-ble-plx'")

@@ -56,6 +56,7 @@ pnpm test:package
 pnpm test:plugin
 pnpm lint
 pnpm prepack
+pnpm --dir example-expo install --no-frozen-lockfile
 pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json
 ```
 
@@ -70,7 +71,7 @@ cd android
 npm pack --dry-run
 ```
 
-`pnpm verify:release` moves generated native projects out of the source tree after Android validation. Confirm they are not staged before committing:
+`pnpm verify:release` sets `NODE_OPTIONS=--max-old-space-size=8192` when no heap setting exists, refreshes the local `file:..` package copy inside the Expo example before installing dependencies, and moves generated native projects out of the source tree after Android validation. Confirm generated output is not staged before committing:
 
 ```bash
 git status --short
@@ -93,7 +94,6 @@ Confirm the dry-run output includes the expected package files:
 - `lib`
 - `android`
 - `ios`
-- `cpp`
 - `plugin/build`
 - `app.plugin.js`
 - `react-native-ble-plx.podspec`
@@ -118,6 +118,7 @@ The CI release gate must include:
 - `pnpm test:plugin`
 - `pnpm lint`
 - `pnpm prepack`
+- `pnpm --dir example-expo install --no-frozen-lockfile`
 - `pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json`
 - `npx expo-doctor`
 - `npx expo prebuild --clean --no-install`

@@ -29,10 +29,19 @@ if [[ -z "${ANDROID_SDK_ROOT:-}" && -n "${ANDROID_HOME:-}" ]]; then
   export ANDROID_SDK_ROOT="$ANDROID_HOME"
 fi
 
+if [[ -z "${NODE_OPTIONS:-}" ]]; then
+  export NODE_OPTIONS="--max-old-space-size=8192"
+elif [[ "$NODE_OPTIONS" != *"--max-old-space-size"* ]]; then
+  export NODE_OPTIONS="$NODE_OPTIONS --max-old-space-size=8192"
+fi
+
 pnpm test:package
 pnpm test:plugin
 pnpm lint
 pnpm prepack
+rm -rf "$ROOT_DIR/example-expo/node_modules/.pnpm/@sfourdrinier+react-native-ble-plx@file+.."*
+rm -rf "$ROOT_DIR/example-expo/node_modules/@sfourdrinier/react-native-ble-plx"
+pnpm --dir example-expo install --no-frozen-lockfile
 pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json
 
 (
