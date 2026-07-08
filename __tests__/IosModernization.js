@@ -3,6 +3,9 @@ const path = require('path')
 
 const podspec = fs.readFileSync(path.join(__dirname, '..', 'react-native-ble-plx.podspec'), 'utf8')
 const iosHeader = fs.readFileSync(path.join(__dirname, '..', 'ios/BlePlx.h'), 'utf8')
+const iosImplementationPath = path.join(__dirname, '..', 'ios/BlePlx.mm')
+const iosImplementation = fs.readFileSync(iosImplementationPath, 'utf8')
+const iosXcodeProject = fs.readFileSync(path.join(__dirname, '..', 'ios/BlePlx.xcodeproj/project.pbxproj'), 'utf8')
 const iosTurboModulePath = path.join(__dirname, '..', 'ios/BlePlxTurboModule.mm')
 const iosTurboModule = fs.existsSync(iosTurboModulePath) ? fs.readFileSync(iosTurboModulePath, 'utf8') : ''
 
@@ -20,8 +23,67 @@ describe('iOS modernization defaults', () => {
     expect(iosHeader).toContain('#import <BlePlxSpec/BlePlxSpec.h>')
     expect(iosHeader).toContain('@interface BlePlx : RCTEventEmitter <NativeBlePlxSpec>')
     expect(fs.existsSync(iosTurboModulePath)).toBe(true)
+    expect(fs.existsSync(iosImplementationPath)).toBe(true)
+    expect(iosXcodeProject).toContain('BlePlx.mm')
+    expect(iosXcodeProject).toContain('sourcecode.cpp.objcpp')
+    expect(iosXcodeProject).toContain('IPHONEOS_DEPLOYMENT_TARGET = 16.4;')
+    expect(iosXcodeProject).toContain('CLANG_CXX_LANGUAGE_STANDARD = "c++20";')
+    expect(iosXcodeProject).toContain('SWIFT_VERSION = 5.0;')
+    expect(iosXcodeProject).not.toContain('path = BlePlx.m;')
+    expect(iosXcodeProject).not.toContain('IPHONEOS_DEPLOYMENT_TARGET = 12.0;')
+    expect(iosXcodeProject).not.toContain('IPHONEOS_DEPLOYMENT_TARGET = 8.0;')
     expect(iosTurboModule).toContain('#ifdef RCT_NEW_ARCH_ENABLED')
     expect(iosTurboModule).toContain('NativeBlePlxSpecJSI')
     expect(iosTurboModule).toContain('getTurboModule:')
+  })
+
+  test('implements the generated RN 0.86 iOS TurboModule promise selectors', () => {
+    const requiredSelectors = [
+      'checkRestorationStatus:(RCTPromiseResolveBlock)resolve',
+      'destroyClient:(RCTPromiseResolveBlock)resolve',
+      'state:(RCTPromiseResolveBlock)resolve',
+      'startDeviceScan:(NSArray*)filteredUUIDs',
+      'options:(NSDictionary*)options',
+      'stopDeviceScan:(RCTPromiseResolveBlock)resolve',
+      'requestConnectionPriorityForDevice:(NSString*)deviceIdentifier',
+      'connectionPriority:(double)connectionPriority',
+      'requestMTUForDevice:(NSString*)deviceIdentifier',
+      'mtu:(double)mtu',
+      'devices:(NSArray<NSString*>*)deviceIdentifiers',
+      'connectedDevices:(NSArray<NSString*>*)serviceUUIDs',
+      'connectToDevice:(NSString*)deviceIdentifier',
+      'cancelDeviceConnection:(NSString*)deviceIdentifier',
+      'isDeviceConnected:(NSString*)deviceIdentifier',
+      'discoverAllServicesAndCharacteristicsForDevice:(NSString*)deviceIdentifier',
+      'characteristicsForService:(double)serviceIdentifier',
+      'descriptorsForCharacteristic:(double)characteristicIdentifier',
+      'readCharacteristic:(double)characteristicIdentifier',
+      'writeCharacteristic:(double)characteristicIdentifier',
+      'monitorCharacteristicForDevice:(NSString*)deviceIdentifier',
+      'subscriptionType:(NSString*)subscriptionType',
+      'readDescriptor:(double)descriptorIdentifier',
+      'writeDescriptor:(double)descriptorIdentifier',
+      'enableBackgroundMode:(NSDictionary*)options',
+      'disableBackgroundMode:(RCTPromiseResolveBlock)resolve',
+      'updateBackgroundNotification:(NSDictionary*)options',
+      'isBackgroundModeEnabled:(RCTPromiseResolveBlock)resolve',
+      'cancelTransaction:(NSString*)transactionId',
+      'setLogLevel:(NSString*)logLevel',
+      'logLevel:(RCTPromiseResolveBlock)resolve',
+      'getConstants',
+      'facebook::react::typedConstants<JS::NativeBlePlx::Constants>',
+      '[BleEvent scanEvent]',
+      '[BleEvent disconnectionEvent]'
+    ]
+
+    for (const selector of requiredSelectors) {
+      expect(iosImplementation).toContain(selector)
+    }
+
+    expect(iosImplementation).not.toContain('resolver:')
+    expect(iosImplementation).not.toContain('rejecter:')
+    expect(iosImplementation).not.toContain('transactionID:')
+    expect(iosImplementation).not.toContain('destroyClient) {')
+    expect(iosImplementation).not.toContain('stopDeviceScan) {')
   })
 })

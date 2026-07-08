@@ -34,6 +34,7 @@ Update release metadata:
    - Expo CNG example workflow.
    - Android min SDK 24 and compile/target SDK 36.
    - iOS deployment target 16.4.
+   - Xcode 16.1+ for iOS builds.
    - Removal of programmatic Android Bluetooth adapter toggle APIs.
    - Removal of legacy `ConnectionQueue` and `ReconnectionManager` public exports.
    - Background reconnect and promise rejection fixes.

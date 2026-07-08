@@ -25,6 +25,12 @@ const nativeBlePlxSpec = fs.existsSync(nativeBlePlxSpecPath) ? fs.readFileSync(n
 const bleModule = fs.readFileSync(path.join(__dirname, '..', 'src/BleModule.ts'), 'utf8')
 const connectionManager = fs.readFileSync(path.join(__dirname, '..', 'src/ConnectionManager.ts'), 'utf8')
 const connectionQueue = fs.readFileSync(path.join(__dirname, '..', 'src/ConnectionQueue.ts'), 'utf8')
+const exampleYarnLock = fs.readFileSync(path.join(__dirname, '..', 'example/yarn.lock'), 'utf8')
+const exampleAndroidBuild = fs.readFileSync(path.join(__dirname, '..', 'example/android/build.gradle'), 'utf8')
+const exampleIosProject = fs.readFileSync(
+  path.join(__dirname, '..', 'example/ios/BlePlxExample.xcodeproj/project.pbxproj'),
+  'utf8'
+)
 const exampleImports = [
   ...fs
     .readdirSync(path.join(__dirname, '..', 'example/src'), { recursive: true })
@@ -156,10 +162,34 @@ describe('package modernization targets', () => {
     expect(exampleImports).not.toContain("from 'react-native-ble-plx'")
   })
 
+  test('non-Expo example lockfile and native project floors match React Native 0.86', () => {
+    expect(exampleYarnLock).toContain('react-native@0.86.0:')
+    expect(exampleYarnLock).toContain('react@19.2.3:')
+    expect(exampleYarnLock).toContain('"@sfourdrinier/react-native-ble-plx@file:..":')
+    expect(exampleYarnLock).not.toContain('react-native@0.77.0:')
+    expect(exampleYarnLock).not.toContain('React (0.77.0)')
+    expect(exampleYarnLock).not.toContain('react@18.3.1:')
+    expect(fs.existsSync(path.join(__dirname, '..', 'example/ios/Podfile.lock'))).toBe(false)
+
+    expect(exampleAndroidBuild).toContain('buildToolsVersion = "36.0.0"')
+    expect(exampleAndroidBuild).toContain('compileSdkVersion = 36')
+    expect(exampleAndroidBuild).toContain('targetSdkVersion = 36')
+    expect(exampleAndroidBuild).toContain('ndkVersion = "27.1.12297006"')
+    expect(exampleAndroidBuild).toContain('kotlinVersion = "2.1.20"')
+    expect(exampleAndroidBuild).not.toContain('compileSdkVersion = 35')
+    expect(exampleAndroidBuild).not.toContain('targetSdkVersion = 34')
+
+    expect(exampleIosProject).toContain('IPHONEOS_DEPLOYMENT_TARGET = 16.4;')
+    expect(exampleIosProject).not.toContain('IPHONEOS_DEPLOYMENT_TARGET = 13.4;')
+  })
+
   test('README documents the SDK 57 compatibility floor', () => {
     expect(readme).toContain('React Native **0.86.0+**')
     expect(readme).toContain('Expo SDK **57+**')
     expect(readme).toContain('Node.js **20.19.4+**')
+    expect(readme).toContain('Xcode **16.1+**')
+    expect(readme).toContain('Android min SDK **24**, compile/target SDK **36**')
+    expect(readme).toContain('iOS deployment target **16.4**')
     expect(readme).not.toContain('Expo SDK **54+**')
     expect(readme).not.toContain('React Native **0.81.4+**')
   })
@@ -196,6 +226,7 @@ describe('package modernization targets', () => {
     expect(bleModule).toContain('export const BleModule: BleModuleInterface = {')
     expect(bleModule).toContain('...NativeBlePlx')
     expect(bleModule).toContain('...NativeBlePlxConstants')
+    expect(bleModule).not.toContain('as unknown as BleModuleInterface')
     expect(bleModule).not.toContain('NativeModules.BlePlx')
   })
 

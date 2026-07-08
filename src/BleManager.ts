@@ -951,15 +951,13 @@ export class BleManager {
   ): Subscription {
     const filledTransactionId = transactionId || this._nextUniqueID()
 
-    const promise = isIOS
-      ? BleModule.monitorCharacteristicForDevice(deviceIdentifier, serviceUUID, characteristicUUID, filledTransactionId)
-      : BleModule.monitorCharacteristicForDevice(
-          deviceIdentifier,
-          serviceUUID,
-          characteristicUUID,
-          filledTransactionId,
-          subscriptionType ?? null
-        )
+    const promise = BleModule.monitorCharacteristicForDevice(
+      deviceIdentifier,
+      serviceUUID,
+      characteristicUUID,
+      filledTransactionId,
+      isIOS ? null : (subscriptionType ?? null)
+    )
 
     return this._handleMonitorCharacteristic(promise, filledTransactionId, listener)
   }
@@ -985,14 +983,12 @@ export class BleManager {
     subscriptionType?: CharacteristicSubscriptionType | null
   ): Subscription {
     const filledTransactionId = transactionId || this._nextUniqueID()
-    const promise = isIOS
-      ? BleModule.monitorCharacteristicForService(serviceIdentifier, characteristicUUID, filledTransactionId)
-      : BleModule.monitorCharacteristicForService(
-          serviceIdentifier,
-          characteristicUUID,
-          filledTransactionId,
-          subscriptionType ?? null
-        )
+    const promise = BleModule.monitorCharacteristicForService(
+      serviceIdentifier,
+      characteristicUUID,
+      filledTransactionId,
+      isIOS ? null : (subscriptionType ?? null)
+    )
 
     return this._handleMonitorCharacteristic(promise, filledTransactionId, listener)
   }
@@ -1017,9 +1013,11 @@ export class BleManager {
     subscriptionType?: CharacteristicSubscriptionType | null
   ): Subscription {
     const filledTransactionId = transactionId || this._nextUniqueID()
-    const promise = isIOS
-      ? BleModule.monitorCharacteristic(characteristicIdentifier, filledTransactionId)
-      : BleModule.monitorCharacteristic(characteristicIdentifier, filledTransactionId, subscriptionType ?? null)
+    const promise = BleModule.monitorCharacteristic(
+      characteristicIdentifier,
+      filledTransactionId,
+      isIOS ? null : (subscriptionType ?? null)
+    )
 
     return this._handleMonitorCharacteristic(promise, filledTransactionId, listener)
   }

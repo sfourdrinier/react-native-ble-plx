@@ -253,14 +253,15 @@ export class ConnectionManager {
   enableAutoReconnect(deviceId: DeviceId, options?: ConnectionOptionsWithRetry, callbacks?: ConnectionCallbacks): void {
     // If already exists, update settings
     let state = this._devices.get(deviceId)
+    const existingReconnectOptions = state?.reconnectOptions
 
     const reconnectOptions: ResolvedConnectionOptions = {
-      maxRetries: options?.maxRetries ?? 5,
-      initialDelayMs: options?.initialDelayMs ?? 1000,
-      maxDelayMs: options?.maxDelayMs ?? 30000,
-      backoffMultiplier: options?.backoffMultiplier ?? 2,
-      timeoutMs: options?.timeoutMs ?? 30000,
-      connectionOptions: options?.connectionOptions
+      maxRetries: options?.maxRetries ?? existingReconnectOptions?.maxRetries ?? 5,
+      initialDelayMs: options?.initialDelayMs ?? existingReconnectOptions?.initialDelayMs ?? 1000,
+      maxDelayMs: options?.maxDelayMs ?? existingReconnectOptions?.maxDelayMs ?? 30000,
+      backoffMultiplier: options?.backoffMultiplier ?? existingReconnectOptions?.backoffMultiplier ?? 2,
+      timeoutMs: options?.timeoutMs ?? existingReconnectOptions?.timeoutMs ?? 30000,
+      connectionOptions: options?.connectionOptions ?? existingReconnectOptions?.connectionOptions
     }
 
     if (state) {

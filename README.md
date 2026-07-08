@@ -59,6 +59,7 @@ It does NOT support:
 - React Native **0.86.0+**
 - Expo SDK **57+**
 - Node.js **20.19.4+**
+- Xcode **16.1+** for iOS builds
 - Android min SDK **24**, compile/target SDK **36**
 - iOS deployment target **16.4**
 - React Native New Architecture / TurboModules
@@ -537,7 +538,7 @@ await manager.disableBackgroundMode();
 | **`enableBackgroundMode()` API** | ✅ No-op (graceful) | ✅ Required | Same API, platform-appropriate behavior |
 | **`disableBackgroundMode()` API** | ✅ No-op (graceful) | ✅ Stops service | Same API, platform-appropriate behavior |
 | **`updateBackgroundNotification()` API** | ✅ No-op (graceful) | ✅ Updates notification | iOS doesn't show notification |
-| **`isBackgroundModeEnabled()` API** | ✅ Returns false | ✅ Returns true/false | Consistent return type |
+| **`isBackgroundModeEnabled()` API** | ✅ Returns true when configured | ✅ Returns true/false | Consistent return type |
 | **Connection Management** | ✅ ConnectionManager | ✅ ConnectionManager | **100% API parity** |
 | **Auto-reconnection** | ✅ Full support | ✅ Full support | **100% feature parity** |
 | **Retry Logic** | ✅ Full support | ✅ Full support | **100% feature parity** |

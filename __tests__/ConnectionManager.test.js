@@ -271,6 +271,27 @@ describe('ConnectionManager', () => {
     await flushMicrotasks().catch(() => {});
   });
 
+  test('auto-reconnect partial updates preserve previously configured reconnect options', async () => {
+    mgr.enableAutoReconnect('d1', {
+      maxRetries: 1,
+      initialDelayMs: 0,
+      timeoutMs: 0,
+      connectionOptions: { autoConnect: true },
+    });
+
+    mgr.enableAutoReconnect('d1', { maxRetries: 2 });
+
+    ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'background disconnect'));
+    jest.runOnlyPendingTimers();
+    await flushMicrotasks();
+
+    expect(ble.connectToDevice).toHaveBeenCalledWith('d1', { autoConnect: true });
+
+    const reconnect = ble._connectCalls[ble._connectCalls.length - 1];
+    reconnect.deferred.reject(createBleError(BleErrorCode.DeviceDisconnected, 'cleanup'));
+    await flushMicrotasks().catch(() => {});
+  });
+
   test('zero-delay auto-reconnect starts on a microtask without waiting for timers', async () => {
     mgr.enableAutoReconnect('d1', { maxRetries: 1, initialDelayMs: 0, timeoutMs: 0 });
 

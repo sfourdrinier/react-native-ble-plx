@@ -1,6 +1,84 @@
 import type { TurboModule } from 'react-native'
 import { TurboModuleRegistry } from 'react-native'
 
+type DeviceId = string
+type Identifier = number
+type UUID = string
+type Base64 = string
+type TransactionId = string
+type ConnectionPriority = number
+type CharacteristicSubscriptionType = 'notification' | 'indication'
+type NativeState = 'Unknown' | 'Resetting' | 'Unsupported' | 'Unauthorized' | 'PoweredOff' | 'PoweredOn'
+type NativeLogLevel = 'None' | 'Verbose' | 'Debug' | 'Info' | 'Warning' | 'Error'
+
+type ScanOptions = {
+  allowDuplicates?: boolean
+  scanMode?: number
+  callbackType?: number
+  legacyScan?: boolean
+}
+
+type ConnectionOptions = {
+  autoConnect?: boolean
+  requestMTU?: number
+  refreshGatt?: 'OnConnected'
+  timeout?: number
+}
+
+type BackgroundModeOptions = {
+  notificationTitle?: string
+  notificationText?: string
+}
+
+type NativeDevice = {
+  id: DeviceId
+  name: string | null
+  rssi: number | null
+  mtu: number
+  manufacturerData: Base64 | null
+  rawScanRecord: Base64
+  serviceData: { [uuid: string]: Base64 } | null
+  serviceUUIDs: Array<UUID> | null
+  localName: string | null
+  txPowerLevel: number | null
+  solicitedServiceUUIDs: Array<UUID> | null
+  isConnectable: boolean | null
+  overflowServiceUUIDs: Array<UUID> | null
+}
+
+type NativeService = {
+  id: Identifier
+  uuid: UUID
+  deviceID: DeviceId
+  isPrimary: boolean
+}
+
+type NativeCharacteristic = {
+  id: Identifier
+  uuid: UUID
+  serviceID: Identifier
+  serviceUUID: UUID
+  deviceID: DeviceId
+  isReadable: boolean
+  isWritableWithResponse: boolean
+  isWritableWithoutResponse: boolean
+  isNotifiable: boolean
+  isNotifying: boolean
+  isIndicatable: boolean
+  value: Base64 | null
+}
+
+type NativeDescriptor = {
+  id: Identifier
+  uuid: UUID
+  characteristicID: Identifier
+  characteristicUUID: UUID
+  serviceID: Identifier
+  serviceUUID: UUID
+  deviceID: DeviceId
+  value: Base64 | null
+}
+
 export type NativeBlePlxConstants = {
   ScanEvent: string
   ReadEvent: string
@@ -26,144 +104,151 @@ export interface Spec extends TurboModule {
   checkRestorationStatus(): Promise<RestorationStatus>
   destroyClient(): Promise<void>
 
-  state(): Promise<string>
+  state(): Promise<NativeState>
 
-  startDeviceScan(filteredUUIDs: Array<string> | null, options: Object | null): Promise<void>
+  startDeviceScan(filteredUUIDs: Array<UUID> | null, options: ScanOptions | null): Promise<void>
   stopDeviceScan(): Promise<void>
 
   requestConnectionPriorityForDevice(
-    deviceIdentifier: string,
-    connectionPriority: number,
-    transactionId: string
-  ): Promise<Object>
-  readRSSIForDevice(deviceIdentifier: string, transactionId: string): Promise<Object>
-  requestMTUForDevice(deviceIdentifier: string, mtu: number, transactionId: string): Promise<Object>
+    deviceIdentifier: DeviceId,
+    connectionPriority: ConnectionPriority,
+    transactionId: TransactionId
+  ): Promise<NativeDevice>
+  readRSSIForDevice(deviceIdentifier: DeviceId, transactionId: TransactionId): Promise<NativeDevice>
+  requestMTUForDevice(deviceIdentifier: DeviceId, mtu: number, transactionId: TransactionId): Promise<NativeDevice>
 
-  devices(deviceIdentifiers: Array<string>): Promise<Array<Object>>
-  connectedDevices(serviceUUIDs: Array<string>): Promise<Array<Object>>
+  devices(deviceIdentifiers: Array<DeviceId>): Promise<Array<NativeDevice>>
+  connectedDevices(serviceUUIDs: Array<UUID>): Promise<Array<NativeDevice>>
 
-  connectToDevice(deviceIdentifier: string, options: Object | null): Promise<Object>
-  cancelDeviceConnection(deviceIdentifier: string): Promise<Object>
-  isDeviceConnected(deviceIdentifier: string): Promise<boolean>
+  connectToDevice(deviceIdentifier: DeviceId, options: ConnectionOptions | null): Promise<NativeDevice>
+  cancelDeviceConnection(deviceIdentifier: DeviceId): Promise<NativeDevice>
+  isDeviceConnected(deviceIdentifier: DeviceId): Promise<boolean>
 
-  discoverAllServicesAndCharacteristicsForDevice(deviceIdentifier: string, transactionId: string): Promise<Object>
+  discoverAllServicesAndCharacteristicsForDevice(
+    deviceIdentifier: DeviceId,
+    transactionId: TransactionId
+  ): Promise<NativeDevice>
 
-  servicesForDevice(deviceIdentifier: string): Promise<Array<Object>>
-  characteristicsForDevice(deviceIdentifier: string, serviceUUID: string): Promise<Array<Object>>
-  characteristicsForService(serviceIdentifier: number): Promise<Array<Object>>
+  servicesForDevice(deviceIdentifier: DeviceId): Promise<Array<NativeService>>
+  characteristicsForDevice(deviceIdentifier: DeviceId, serviceUUID: UUID): Promise<Array<NativeCharacteristic>>
+  characteristicsForService(serviceIdentifier: Identifier): Promise<Array<NativeCharacteristic>>
   descriptorsForDevice(
-    deviceIdentifier: string,
-    serviceUUID: string,
-    characteristicUUID: string
-  ): Promise<Array<Object>>
-  descriptorsForService(serviceIdentifier: number, characteristicUUID: string): Promise<Array<Object>>
-  descriptorsForCharacteristic(characteristicIdentifier: number): Promise<Array<Object>>
+    deviceIdentifier: DeviceId,
+    serviceUUID: UUID,
+    characteristicUUID: UUID
+  ): Promise<Array<NativeDescriptor>>
+  descriptorsForService(serviceIdentifier: Identifier, characteristicUUID: UUID): Promise<Array<NativeDescriptor>>
+  descriptorsForCharacteristic(characteristicIdentifier: Identifier): Promise<Array<NativeDescriptor>>
 
   readCharacteristicForDevice(
-    deviceIdentifier: string,
-    serviceUUID: string,
-    characteristicUUID: string,
-    transactionId: string
-  ): Promise<Object>
+    deviceIdentifier: DeviceId,
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    transactionId: TransactionId
+  ): Promise<NativeCharacteristic>
   readCharacteristicForService(
-    serviceIdentifier: number,
-    characteristicUUID: string,
-    transactionId: string
-  ): Promise<Object>
-  readCharacteristic(characteristicIdentifier: number, transactionId: string): Promise<Object>
+    serviceIdentifier: Identifier,
+    characteristicUUID: UUID,
+    transactionId: TransactionId
+  ): Promise<NativeCharacteristic>
+  readCharacteristic(characteristicIdentifier: Identifier, transactionId: TransactionId): Promise<NativeCharacteristic>
 
   writeCharacteristicForDevice(
-    deviceIdentifier: string,
-    serviceUUID: string,
-    characteristicUUID: string,
-    valueBase64: string,
+    deviceIdentifier: DeviceId,
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    valueBase64: Base64,
     withResponse: boolean,
-    transactionId: string
-  ): Promise<Object>
+    transactionId: TransactionId
+  ): Promise<NativeCharacteristic>
   writeCharacteristicForService(
-    serviceIdentifier: number,
-    characteristicUUID: string,
-    valueBase64: string,
+    serviceIdentifier: Identifier,
+    characteristicUUID: UUID,
+    valueBase64: Base64,
     withResponse: boolean,
-    transactionId: string
-  ): Promise<Object>
+    transactionId: TransactionId
+  ): Promise<NativeCharacteristic>
   writeCharacteristic(
-    characteristicIdentifier: number,
-    valueBase64: string,
+    characteristicIdentifier: Identifier,
+    valueBase64: Base64,
     withResponse: boolean,
-    transactionId: string
-  ): Promise<Object>
+    transactionId: TransactionId
+  ): Promise<NativeCharacteristic>
 
   monitorCharacteristicForDevice(
-    deviceIdentifier: string,
-    serviceUUID: string,
-    characteristicUUID: string,
-    transactionId: string,
-    subscriptionType: string | null
+    deviceIdentifier: DeviceId,
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    transactionId: TransactionId,
+    subscriptionType: CharacteristicSubscriptionType | null
   ): Promise<void>
   monitorCharacteristicForService(
-    serviceIdentifier: number,
-    characteristicUUID: string,
-    transactionId: string,
-    subscriptionType: string | null
+    serviceIdentifier: Identifier,
+    characteristicUUID: UUID,
+    transactionId: TransactionId,
+    subscriptionType: CharacteristicSubscriptionType | null
   ): Promise<void>
   monitorCharacteristic(
-    characteristicIdentifier: number,
-    transactionId: string,
-    subscriptionType: string | null
+    characteristicIdentifier: Identifier,
+    transactionId: TransactionId,
+    subscriptionType: CharacteristicSubscriptionType | null
   ): Promise<void>
 
   readDescriptorForDevice(
-    deviceIdentifier: string,
-    serviceUUID: string,
-    characteristicUUID: string,
-    descriptorUUID: string,
-    transactionId: string
-  ): Promise<Object>
+    deviceIdentifier: DeviceId,
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    descriptorUUID: UUID,
+    transactionId: TransactionId
+  ): Promise<NativeDescriptor>
   readDescriptorForService(
-    serviceIdentifier: number,
-    characteristicUUID: string,
-    descriptorUUID: string,
-    transactionId: string
-  ): Promise<Object>
+    serviceIdentifier: Identifier,
+    characteristicUUID: UUID,
+    descriptorUUID: UUID,
+    transactionId: TransactionId
+  ): Promise<NativeDescriptor>
   readDescriptorForCharacteristic(
-    characteristicIdentifier: number,
-    descriptorUUID: string,
-    transactionId: string
-  ): Promise<Object>
-  readDescriptor(descriptorIdentifier: number, transactionId: string): Promise<Object>
+    characteristicIdentifier: Identifier,
+    descriptorUUID: UUID,
+    transactionId: TransactionId
+  ): Promise<NativeDescriptor>
+  readDescriptor(descriptorIdentifier: Identifier, transactionId: TransactionId): Promise<NativeDescriptor>
 
   writeDescriptorForDevice(
-    deviceIdentifier: string,
-    serviceUUID: string,
-    characteristicUUID: string,
-    descriptorUUID: string,
-    valueBase64: string,
-    transactionId: string
-  ): Promise<Object>
+    deviceIdentifier: DeviceId,
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    descriptorUUID: UUID,
+    valueBase64: Base64,
+    transactionId: TransactionId
+  ): Promise<NativeDescriptor>
   writeDescriptorForService(
-    serviceIdentifier: number,
-    characteristicUUID: string,
-    descriptorUUID: string,
-    valueBase64: string,
-    transactionId: string
-  ): Promise<Object>
+    serviceIdentifier: Identifier,
+    characteristicUUID: UUID,
+    descriptorUUID: UUID,
+    valueBase64: Base64,
+    transactionId: TransactionId
+  ): Promise<NativeDescriptor>
   writeDescriptorForCharacteristic(
-    characteristicIdentifier: number,
-    descriptorUUID: string,
-    valueBase64: string,
-    transactionId: string
-  ): Promise<Object>
-  writeDescriptor(descriptorIdentifier: number, valueBase64: string, transactionId: string): Promise<Object>
+    characteristicIdentifier: Identifier,
+    descriptorUUID: UUID,
+    valueBase64: Base64,
+    transactionId: TransactionId
+  ): Promise<NativeDescriptor>
+  writeDescriptor(
+    descriptorIdentifier: Identifier,
+    valueBase64: Base64,
+    transactionId: TransactionId
+  ): Promise<NativeDescriptor>
 
-  enableBackgroundMode(options: Object | null): Promise<boolean>
+  enableBackgroundMode(options: BackgroundModeOptions | null): Promise<boolean>
   disableBackgroundMode(): Promise<boolean>
-  updateBackgroundNotification(options: Object | null): Promise<boolean>
+  updateBackgroundNotification(options: BackgroundModeOptions | null): Promise<boolean>
   isBackgroundModeEnabled(): Promise<boolean>
 
-  cancelTransaction(transactionId: string): Promise<void>
-  setLogLevel(logLevel: string): Promise<string | void>
-  logLevel(): Promise<string>
+  cancelTransaction(transactionId: TransactionId): Promise<void>
+  setLogLevel(logLevel: NativeLogLevel): Promise<NativeLogLevel | void>
+  logLevel(): Promise<NativeLogLevel>
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('BlePlx')

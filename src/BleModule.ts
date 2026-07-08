@@ -608,12 +608,6 @@ export interface BleModuleInterface {
     deviceIdentifier: DeviceId,
     serviceUUID: UUID,
     characteristicUUID: UUID,
-    transactionId: TransactionId
-  ): Promise<void>
-  monitorCharacteristicForDevice(
-    deviceIdentifier: DeviceId,
-    serviceUUID: UUID,
-    characteristicUUID: UUID,
     transactionId: TransactionId,
     subscriptionType: CharacteristicSubscriptionType | null
   ): Promise<void>
@@ -631,11 +625,6 @@ export interface BleModuleInterface {
   monitorCharacteristicForService(
     serviceIdentifier: Identifier,
     characteristicUUID: UUID,
-    transactionId: TransactionId
-  ): Promise<void>
-  monitorCharacteristicForService(
-    serviceIdentifier: Identifier,
-    characteristicUUID: UUID,
     transactionId: TransactionId,
     subscriptionType: CharacteristicSubscriptionType | null
   ): Promise<void>
@@ -649,7 +638,6 @@ export interface BleModuleInterface {
    * @returns {Promise<void>} Value which is returned when monitoring was cancelled or resulted in error
    * @private
    */
-  monitorCharacteristic(characteristicIdentifier: Identifier, transactionId: TransactionId): Promise<void>
   monitorCharacteristic(
     characteristicIdentifier: Identifier,
     transactionId: TransactionId,
@@ -904,6 +892,6 @@ const NativeBlePlxConstants = NativeBlePlx.getConstants()
 export const BleModule: BleModuleInterface = {
   ...NativeBlePlx,
   ...NativeBlePlxConstants
-} as unknown as BleModuleInterface
+}
 
 export const EventEmitter = NativeEventEmitter
