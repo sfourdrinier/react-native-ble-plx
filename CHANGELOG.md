@@ -2,6 +2,39 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.8.0] - 2026-07-08
+
+### Added
+
+- React Native 0.86 TurboModule/codegen integration for Android and iOS.
+- Expo SDK 57 CNG example workflow with generated native projects kept out of source control.
+- RN 0.86 / Expo 57 release verification script covering package tests, plugin tests, lint/typecheck, prepack, Expo Doctor, CNG prebuild, and Android assemble.
+- Android and iOS modernization regression tests for platform floors, codegen shape, package metadata, CI ordering, and example configuration.
+
+### Changed
+
+- Raised the supported floor to React Native 0.86, Expo SDK 57, Node 20.19.4+, Android min SDK 24, Android compile/target SDK 36, Android build tools 36.0.0, and iOS deployment target 16.4.
+- Migrated Android registration to `BaseReactPackage` and the modern `react-android` artifact.
+- Migrated iOS source to ObjC++ and generated TurboModule selectors, including typed option structs for scan, connect, and background-mode calls.
+- Converted the Expo example from checked-in native projects to a CNG source workflow using `pnpm`.
+- Updated the non-Expo example to RN 0.86-compatible native dependencies and iOS/Android project settings.
+- Updated package entrypoints to built `lib` outputs and upgraded `react-native-builder-bob` for current package builds.
+- Treated the RN 0.86 TurboModule/Fabric runtime as the default platform posture and removed stale architecture opt-out signals from examples/build logic.
+
+### Fixed
+
+- Fixed reconnect option updates so already scheduled retries use the latest active reconnect options.
+- Fixed Android promise rejection fallbacks so null error messages surface `Unknown error` instead of an empty message.
+- Fixed Expo CI ordering so the local `file:..` dependency is installed after package declarations/artifacts are generated.
+- Fixed iOS generated selector coverage for promise methods and codegen option objects.
+- Fixed Android custom GATT refresh operation typing for modern javac.
+
+### Removed
+
+- Removed checked-in generated `example-expo/android`, `example-expo/ios`, and example Podfile lock outputs.
+- Removed obsolete programmatic Android Bluetooth adapter toggle APIs that are blocked for normal Android 13+ apps.
+- Removed legacy `ConnectionQueue` and `ReconnectionManager` public exports in favor of `ConnectionManager`.
+
 ## [3.5.2] - 2025-11-20
 
 ### Added

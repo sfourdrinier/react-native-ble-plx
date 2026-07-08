@@ -82,7 +82,7 @@ For older React Native versions, use the upstream [dotintent/react-native-ble-pl
 
 ## Version History
 
-**3.8.0 (planned)**
+**3.8.0 (This Fork)**
 
 - Modernized for Expo SDK 57 and React Native 0.86.
 - Uses the generated RN 0.86 TurboModule spec.

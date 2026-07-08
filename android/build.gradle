@@ -82,10 +82,8 @@ dependencies {
   implementation "com.polidea.rxandroidble2:rxandroidble:1.17.2"
 }
 
-if (isNewArchitectureEnabled()) {
-  react {
-    jsRootDir = file("../src/")
-    libraryName = "BlePlx"
-    codegenJavaPackageName = "com.bleplx"
-  }
+react {
+  jsRootDir = file("../src/")
+  libraryName = "BlePlx"
+  codegenJavaPackageName = "com.bleplx"
 }
