@@ -1,28 +1,45 @@
 package com.bleplx;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
-import com.facebook.react.ReactPackage;
+import com.facebook.react.BaseReactPackage;
 import com.facebook.react.bridge.NativeModule;
 import com.facebook.react.bridge.ReactApplicationContext;
-import com.facebook.react.uimanager.ViewManager;
+import com.facebook.react.module.model.ReactModuleInfo;
+import com.facebook.react.module.model.ReactModuleInfoProvider;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
-public class BlePlxPackage implements ReactPackage {
-  @NonNull
+public class BlePlxPackage extends BaseReactPackage {
+  @Nullable
   @Override
-  public List<NativeModule> createNativeModules(@NonNull ReactApplicationContext reactContext) {
-    List<NativeModule> modules = new ArrayList<>();
-    modules.add(new BlePlxModule(reactContext));
-    return modules;
+  public NativeModule getModule(String name, ReactApplicationContext reactContext) {
+    if (BlePlxModule.NAME.equals(name)) {
+      return new BlePlxModule(reactContext);
+    }
+
+    return null;
   }
 
   @NonNull
   @Override
-  public List<ViewManager> createViewManagers(@NonNull ReactApplicationContext reactContext) {
-    return Collections.emptyList();
+  public ReactModuleInfoProvider getReactModuleInfoProvider() {
+    return () -> {
+      final Map<String, ReactModuleInfo> moduleInfos = new HashMap<>();
+      moduleInfos.put(
+        BlePlxModule.NAME,
+        new ReactModuleInfo(
+          BlePlxModule.NAME,
+          BlePlxModule.class.getName(),
+          false,
+          false,
+          false,
+          true
+        )
+      );
+      return moduleInfos;
+    };
   }
 }

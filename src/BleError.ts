@@ -72,7 +72,7 @@ export function parseBleError(errorMessage: string, errorMessageMapping: BleErro
   try {
     const nativeBleError = JSON.parse(errorMessage)
     bleError = new BleError(nativeBleError, errorMapping)
-  } catch (parseError) {
+  } catch (_parseError) {
     bleError = new BleError(errorMessage, errorMapping)
   }
   return bleError

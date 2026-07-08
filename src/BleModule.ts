@@ -1,4 +1,5 @@
-import { NativeModules, NativeEventEmitter } from 'react-native'
+import { NativeEventEmitter } from 'react-native'
+import NativeBlePlx from './NativeBlePlx'
 import { State, LogLevel, ConnectionPriority } from './TypeDefinition'
 import type {
   DeviceId,
@@ -293,24 +294,6 @@ export interface BleModuleInterface {
   destroyClient(): Promise<void>
 
   // Monitoring state
-
-  /**
-   * Enable Bluetooth. This function blocks until BLE is in PoweredOn state. [Android only]
-   *
-   * @param {TransactionId} transactionId Transaction handle used to cancel operation
-   * @returns {Promise<void>} Promise completes when state transition was successful.
-   * @private
-   */
-  enable(transactionId: TransactionId): Promise<void>
-
-  /**
-   * Disable Bluetooth. This function blocks until BLE is in PoweredOff state. [Android only]
-   *
-   * @param {TransactionId} transactionId Transaction handle used to cancel operation
-   * @returns {Promise<void>} Promise completes when state transition was successful.
-   * @private
-   */
-  disable(transactionId: TransactionId): Promise<void>
 
   /**
    * Current state of BLE device.
@@ -625,12 +608,6 @@ export interface BleModuleInterface {
     deviceIdentifier: DeviceId,
     serviceUUID: UUID,
     characteristicUUID: UUID,
-    transactionId: TransactionId
-  ): Promise<void>
-  monitorCharacteristicForDevice(
-    deviceIdentifier: DeviceId,
-    serviceUUID: UUID,
-    characteristicUUID: UUID,
     transactionId: TransactionId,
     subscriptionType: CharacteristicSubscriptionType | null
   ): Promise<void>
@@ -648,11 +625,6 @@ export interface BleModuleInterface {
   monitorCharacteristicForService(
     serviceIdentifier: Identifier,
     characteristicUUID: UUID,
-    transactionId: TransactionId
-  ): Promise<void>
-  monitorCharacteristicForService(
-    serviceIdentifier: Identifier,
-    characteristicUUID: UUID,
     transactionId: TransactionId,
     subscriptionType: CharacteristicSubscriptionType | null
   ): Promise<void>
@@ -666,7 +638,6 @@ export interface BleModuleInterface {
    * @returns {Promise<void>} Value which is returned when monitoring was cancelled or resulted in error
    * @private
    */
-  monitorCharacteristic(characteristicIdentifier: Identifier, transactionId: TransactionId): Promise<void>
   monitorCharacteristic(
     characteristicIdentifier: Identifier,
     transactionId: TransactionId,
@@ -916,7 +887,11 @@ export interface BleModuleInterface {
  *
  * @private
  */
-// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-export const BleModule: BleModuleInterface = NativeModules.BlePlx
+const NativeBlePlxConstants = NativeBlePlx.getConstants()
+
+export const BleModule: BleModuleInterface = {
+  ...NativeBlePlx,
+  ...NativeBlePlxConstants
+}
 
 export const EventEmitter = NativeEventEmitter

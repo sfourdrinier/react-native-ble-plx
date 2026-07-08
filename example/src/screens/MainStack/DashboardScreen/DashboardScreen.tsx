@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { FlatList } from 'react-native'
-import { Device } from 'react-native-ble-plx'
+import { Device } from '@sfourdrinier/react-native-ble-plx'
 import { AppButton, AppText, ScreenDefaultContainer } from '../../../components/atoms'
 import type { MainStackParamList } from '../../../navigation/navigators'
 import { BLEService } from '../../../services'

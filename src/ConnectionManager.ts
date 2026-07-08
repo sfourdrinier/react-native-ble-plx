@@ -74,19 +74,26 @@ export interface ConnectionCallbacks {
   onDisconnect?: (deviceId: DeviceId, error: BleError | null) => void
 }
 
+type ResolvedConnectionOptions = {
+  connectionOptions?: ConnectionOptions
+  maxRetries: number
+  initialDelayMs: number
+  maxDelayMs: number
+  backoffMultiplier: number
+  timeoutMs: number
+}
+
+const ignoreConnectionCancellationError = () => {
+  // Native cancellation can reject if the connection already ended.
+}
+
 /**
  * Internal state for a device connection
  */
 interface DeviceConnectionState {
   deviceId: DeviceId
-  options: {
-    connectionOptions?: ConnectionOptions
-    maxRetries: number
-    initialDelayMs: number
-    maxDelayMs: number
-    backoffMultiplier: number
-    timeoutMs: number
-  }
+  options: ResolvedConnectionOptions
+  reconnectOptions?: ResolvedConnectionOptions
   isConnecting: boolean
   retryCount: number
   timeoutId?: ReturnType<typeof setTimeout>
@@ -208,7 +215,7 @@ export class ConnectionManager {
         this._cancelState(existing)
       }
 
-      const connectionOptions = {
+      const connectionOptions: ResolvedConnectionOptions = {
         maxRetries: options?.maxRetries ?? 3,
         initialDelayMs: options?.initialDelayMs ?? 1000,
         maxDelayMs: options?.maxDelayMs ?? 30000,
@@ -220,6 +227,7 @@ export class ConnectionManager {
       const state: DeviceConnectionState = {
         deviceId,
         options: connectionOptions,
+        reconnectOptions: existing?.reconnectOptions,
         isConnecting: false,
         retryCount: 0,
         autoReconnect: existing?.autoReconnect ?? false, // Preserve autoReconnect flag if it exists
@@ -245,35 +253,28 @@ export class ConnectionManager {
   enableAutoReconnect(deviceId: DeviceId, options?: ConnectionOptionsWithRetry, callbacks?: ConnectionCallbacks): void {
     // If already exists, update settings
     let state = this._devices.get(deviceId)
+    const existingReconnectOptions = state?.reconnectOptions
+
+    const reconnectOptions: ResolvedConnectionOptions = {
+      maxRetries: options?.maxRetries ?? existingReconnectOptions?.maxRetries ?? 5,
+      initialDelayMs: options?.initialDelayMs ?? existingReconnectOptions?.initialDelayMs ?? 1000,
+      maxDelayMs: options?.maxDelayMs ?? existingReconnectOptions?.maxDelayMs ?? 30000,
+      backoffMultiplier: options?.backoffMultiplier ?? existingReconnectOptions?.backoffMultiplier ?? 2,
+      timeoutMs: options?.timeoutMs ?? existingReconnectOptions?.timeoutMs ?? 30000,
+      connectionOptions: options?.connectionOptions ?? existingReconnectOptions?.connectionOptions
+    }
 
     if (state) {
       // Update existing state
       state.autoReconnect = true
       state.callbacks = callbacks
-      if (options) {
-        state.options = {
-          maxRetries: options.maxRetries ?? state.options.maxRetries,
-          initialDelayMs: options.initialDelayMs ?? state.options.initialDelayMs,
-          maxDelayMs: options.maxDelayMs ?? state.options.maxDelayMs,
-          backoffMultiplier: options.backoffMultiplier ?? state.options.backoffMultiplier,
-          timeoutMs: options.timeoutMs ?? state.options.timeoutMs,
-          connectionOptions: options.connectionOptions ?? state.options.connectionOptions
-        }
-      }
+      state.reconnectOptions = reconnectOptions
+      state.options = { ...reconnectOptions }
     } else {
-      // Create new state
-      const connectionOptions = {
-        maxRetries: options?.maxRetries ?? 5,
-        initialDelayMs: options?.initialDelayMs ?? 1000,
-        maxDelayMs: options?.maxDelayMs ?? 30000,
-        backoffMultiplier: options?.backoffMultiplier ?? 2,
-        timeoutMs: options?.timeoutMs ?? 30000,
-        connectionOptions: options?.connectionOptions
-      }
-
       state = {
         deviceId,
-        options: connectionOptions,
+        options: reconnectOptions,
+        reconnectOptions,
         isConnecting: false,
         retryCount: 0,
         autoReconnect: true,
@@ -446,9 +447,7 @@ export class ConnectionManager {
     }
 
     if (state.isConnecting) {
-      this._manager.cancelDeviceConnection(state.deviceId).catch(() => {
-        // Ignore errors when cancelling
-      })
+      this._manager.cancelDeviceConnection(state.deviceId).catch(ignoreConnectionCancellationError)
     }
   }
 
@@ -464,6 +463,10 @@ export class ConnectionManager {
     // Don't start if a retry is already scheduled
     if (state.timeoutId) {
       return
+    }
+
+    if (state.reconnectOptions) {
+      state.options = { ...state.reconnectOptions }
     }
 
     state.retryCount = 0
@@ -482,6 +485,15 @@ export class ConnectionManager {
     if (state.timeoutId) {
       clearTimeout(state.timeoutId)
       state.timeoutId = undefined
+    }
+
+    if (delay === 0) {
+      Promise.resolve().then(() => {
+        if (!state.cancelled) {
+          this._attemptConnection(state)
+        }
+      })
+      return
     }
 
     state.timeoutId = setTimeout(() => {
@@ -541,9 +553,7 @@ export class ConnectionManager {
         )
 
         // Cancel the connection attempt
-        this._manager.cancelDeviceConnection(state.deviceId).catch(() => {
-          // Ignore errors
-        })
+        this._manager.cancelDeviceConnection(state.deviceId).catch(ignoreConnectionCancellationError)
       }, timeoutMs)
     }
 
@@ -571,7 +581,7 @@ export class ConnectionManager {
       const currentState = this._devices.get(state.deviceId)
       if (!currentState || currentState !== state || currentState.cancelled) {
         // State was cancelled during connection - disconnect immediately
-        await this._manager.cancelDeviceConnection(state.deviceId).catch(() => {})
+        await this._manager.cancelDeviceConnection(state.deviceId).catch(ignoreConnectionCancellationError)
 
         // Check again after the disconnect await
         if (state.attemptId !== myAttemptId) {
@@ -691,7 +701,7 @@ export class ConnectionManager {
 
       // Cancel native connection if in progress
       if (state.isConnecting) {
-        this._manager.cancelDeviceConnection(state.deviceId).catch(() => {})
+        this._manager.cancelDeviceConnection(state.deviceId).catch(ignoreConnectionCancellationError)
       }
     }
 

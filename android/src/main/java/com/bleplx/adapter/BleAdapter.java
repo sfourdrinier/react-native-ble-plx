@@ -12,16 +12,6 @@ public interface BleAdapter {
 
   void destroyClient();
 
-  void enable(
-    String transactionId,
-    OnSuccessCallback<Void> onSuccessCallback,
-    OnErrorCallback onErrorCallback);
-
-  void disable(
-    String transactionId,
-    OnSuccessCallback<Void> onSuccessCallback,
-    OnErrorCallback onErrorCallback);
-
   String getCurrentState();
 
   void startDeviceScan(

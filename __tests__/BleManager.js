@@ -139,16 +139,6 @@ test('BleModule calls destroy function when destroyed', () => {
   expect(Native.BleModule.destroyClient).toBeCalled()
 })
 
-test('BleModule calls enable function when enabled', async () => {
-  expect(await bleManager.enable('tid')).toBe(bleManager)
-  expect(Native.BleModule.enable).toBeCalledWith('tid')
-})
-
-test('BleModule calls disable function when disabled', async () => {
-  expect(await bleManager.disable('tid')).toBe(bleManager)
-  expect(Native.BleModule.disable).toBeCalledWith('tid')
-})
-
 test('BleModule calls setLogLevel function when logLevel is modified', () => {
   bleManager.setLogLevel('Debug')
   expect(Native.BleModule.setLogLevel).toBeCalledWith('Debug')
@@ -178,6 +168,17 @@ test('BleModule two emitted state changes are registered by BleManager', () => {
   Native.BleModule.emit(Native.BleModule.StateChangeEvent, 'PoweredOn')
   Native.BleModule.emit(Native.BleModule.StateChangeEvent, 'PoweredOff')
   expect(newStateCallback.mock.calls).toEqual([['PoweredOn'], ['PoweredOff']])
+})
+
+test('BleManager ignores rejected current state fetch when registering state listener', async () => {
+  const newStateCallback = jest.fn()
+  Native.BleModule.state = jest.fn().mockRejectedValueOnce(new Error('state unavailable'))
+
+  bleManager.onStateChange(newStateCallback, true)
+
+  await Promise.resolve()
+
+  expect(newStateCallback).not.toBeCalled()
 })
 
 test('When BleManager cancelTransaction is called it should call BleModule cancelTransaction', () => {
@@ -408,7 +409,7 @@ test('BleManager properly monitors characteristic value', async () => {
   subscription.remove()
   expect(listener).toHaveBeenCalledTimes(2)
   expect(Native.BleModule.cancelTransaction).toBeCalledWith('x')
-  expect(Native.BleModule.monitorCharacteristicForDevice).toBeCalledWith('id', 'aaaa', 'bbbb', 'x')
+  expect(Native.BleModule.monitorCharacteristicForDevice).toBeCalledWith('id', 'aaaa', 'bbbb', 'x', null)
 })
 
 test('BleManager properly handles errors while monitoring characteristic values', async () => {

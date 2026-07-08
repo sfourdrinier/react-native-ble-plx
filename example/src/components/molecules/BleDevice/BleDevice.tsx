@@ -1,5 +1,5 @@
 import React from 'react'
-import { Device } from 'react-native-ble-plx'
+import { Device } from '@sfourdrinier/react-native-ble-plx'
 import { Container } from './BleDevice.styled'
 import { DeviceProperty } from './DeviceProperty/DeviceProperty'
 

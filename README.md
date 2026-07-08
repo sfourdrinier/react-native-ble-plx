@@ -7,7 +7,7 @@
   />
 </h1>
 
-> **Fork Notice**: This library is forked from [dotintent/react-native-ble-plx](https://github.com/dotintent/react-native-ble-plx) because the official library does not support Expo SDK 54+ and React Native 0.81+. We've updated it to work with modern React Native and converted it from Flow to TypeScript.
+> **Fork Notice**: This library is forked from [dotintent/react-native-ble-plx](https://github.com/dotintent/react-native-ble-plx) for Expo SDK 57+ and React Native 0.86+. It is TypeScript-first, uses the RN 0.86 TurboModule/Fabric runtime, and is built for Expo CNG/dev-client apps.
 >
 > **Looking for maintainers!** We're looking for volunteers to help maintain this fork. If you're interested, please open an issue or submit a PR.
 
@@ -26,104 +26,109 @@ It supports:
 - [reading RSSI](https://github.com/dotintent/react-native-ble-plx/wiki/RSSI-Reading)
 - [negotiating MTU](https://github.com/dotintent/react-native-ble-plx/wiki/MTU-Negotiation)
 - [background mode on iOS](<https://github.com/dotintent/react-native-ble-plx/wiki/Background-mode-(iOS)>)
-- **NEW: background mode on Android** (foreground service)
-- **NEW: automatic reconnection** with exponential backoff
-- **NEW: connection queue** with retry logic
-- turning the device's Bluetooth adapter on
+- Android background mode via foreground service
+- `ConnectionManager` retry, timeout, and auto-reconnect helpers
 
 It does NOT support:
 
 - bluetooth classic devices.
 - communicating between phones using BLE (Peripheral support)
+- programmatically enabling/disabling the Android Bluetooth adapter. Android 13+ / target SDK 33+ blocks that for normal apps; observe state and prompt the user to enable Bluetooth in system UI instead.
 - [bonding peripherals](https://github.com/dotintent/react-native-ble-plx/wiki/Device-Bonding)
 - [beacons](https://github.com/dotintent/react-native-ble-plx/wiki/=-FAQ:-Beacons)
 
 ## Table of Contents
 
 1. [Compatibility](#compatibility)
-2. [Recent Changes](#recent-changes)
-3. [Documentation & Support](#documentation--support)
-4. [Configuration & Installation](#configuration--installation)
-5. [iOS BLE State Restoration](#ios-ble-state-restoration-optional)
-6. [Android Background Mode](#android-background-mode-new)
-7. [Reliability Features](#reliability-features-new)
-8. [Troubleshooting](#troubleshooting)
-9. [Releasing](#releasing)
-10. [Contributions](#contributions)
+2. [Current Branch Status](#current-branch-status)
+3. [Version History](#version-history)
+4. [Documentation & Support](#documentation--support)
+5. [Configuration & Installation](#configuration--installation)
+6. [iOS BLE State Restoration](#ios-ble-state-restoration-optional)
+7. [Android Background Mode](#android-background-mode)
+8. [Reliability Features](#reliability-features)
+9. [Troubleshooting](#troubleshooting)
+10. [Releasing](#releasing)
+11. [Contributions](#contributions)
 
 ## Compatibility
 
-> **Note**: This is a fork of `dotintent/react-native-ble-plx` maintained at `@sfourdrinier/react-native-ble-plx`. It has been converted from Flow to TypeScript and updated for modern React Native.
+> **Note**: This is a fork of `dotintent/react-native-ble-plx` maintained at `@sfourdrinier/react-native-ble-plx`.
 
-**Minimum Requirements (v3.5.0+):**
-- React Native **0.81.4+**
-- Expo SDK **54+**
-- Node.js **18+**
+**Minimum Requirements (v3.8.0+):**
+- React Native **0.86.0+**
+- Expo SDK **57+**
+- Node.js **20.19.4+**
+- Xcode **16.1+** for iOS builds
+- Android min SDK **24**, compile/target SDK **36**
+- iOS deployment target **16.4**
+- RN 0.86 TurboModules/Fabric runtime
 
 | React Native | Expo SDK | This Fork |
 | ------------ | -------- | --------- |
-| 0.81.4+      | 54+      | :white_check_mark: |
-| < 0.81       | < 54     | :x: Not supported |
+| 0.86.0+      | 57+      | :white_check_mark: |
+| < 0.86       | < 57     | :x: Not supported |
 
 For older React Native versions, use the upstream [dotintent/react-native-ble-plx](https://github.com/dotintent/react-native-ble-plx) library.
 
-## Recent Changes
+## Current Branch Status
+
+- Requires RN 0.86 / Expo SDK 57 and uses the generated TurboModule spec (`NativeBlePlxSpec`).
+- Android registers through `BaseReactPackage` and depends on `react-android`.
+- The Expo example is CNG-first: `example-expo/android` and `example-expo/ios` are generated, not checked in.
+- The Expo config plugin handles BLE permissions, iOS background modes/restoration, Android foreground service metadata, and native debug flags.
+- Public reliability APIs are consolidated on `ConnectionManager`. Legacy `ConnectionQueue` and `ReconnectionManager` exports were removed.
+- Programmatic Android Bluetooth adapter toggling was removed because it is blocked for normal apps targeting Android 13+.
+
+## Version History
+
+**3.8.0 (planned)**
+
+- Modernized for Expo SDK 57 and React Native 0.86.
+- Uses the generated RN 0.86 TurboModule spec.
+- Moves the Expo example to CNG: generated native projects are not checked in.
+- Updates Android defaults to min SDK 24 and compile/target SDK 36.
+- Updates iOS deployment target to 16.4.
+- Removes obsolete programmatic Android Bluetooth adapter toggle APIs.
+- Removes legacy `ConnectionQueue` and `ReconnectionManager` package exports; use `ConnectionManager`.
 
 **3.7.7 (This Fork)**
 
-- **Connection Manager**: NEW unified `ConnectionManager` with retry logic, timeout support, and automatic reconnection
-- **Critical Bug Fixes** (4 Stop-Ship Issues Resolved):
-  - ✅ Fixed promise coalescing hang when multiple callers connect to same device
-  - ✅ Fixed memory leak in destroy() for auto-reconnect subscriptions
-  - ✅ Fixed connection storms from repeated disconnect events
-  - ✅ **Fixed race condition** where cancel() + auto-reconnect could still trigger retries (attemptId pattern)
-  - Fixed foreground service crash on null intent restart (Android)
-  - Fixed ReconnectionManager race condition (callbacks after disable)
-  - Fixed ConnectionQueue blocking all devices during retry delays
-  - Added proper error normalization to BleError
-- **Android 12+ Compatibility** (Production-Critical):
-  - ✅ Fixed STOP service crash (now uses `stopService()` instead of `startService()`)
-  - ✅ Added foreground state check before starting service (prevents `ForegroundServiceStartNotAllowedException`)
-  - ✅ Safe UPDATE notification handling with try-catch
-  - ✅ Verified Android 14 (API 34) compliance with `FOREGROUND_SERVICE_CONNECTED_DEVICE`
-- **Improvements**:
-  - Connection timeout support (prevents hangs)
-  - Concurrent connections to different devices
-  - Comprehensive test suite (8 tests covering all critical bugs)
-  - Production-grade error handling and cleanup
-- **Deprecated**: `ConnectionQueue` and `ReconnectionManager` (use `ConnectionManager` instead)
+- Added the unified `ConnectionManager` with retry logic, timeout support, and automatic reconnection.
+- Fixed promise coalescing when multiple callers connect to the same device.
+- Fixed auto-reconnect cleanup, repeated disconnect storms, and cancel/retry races.
+- Fixed Android foreground service null-intent restart handling.
+- Added production-grade error normalization and connection cleanup improvements.
 
 **3.7.6 (This Fork)**
 
-- Refactored iOS BLE restoration to work standalone without external dependencies
-- Removed BleRestoration pod dependency, added bundled fallback registry
-- Improved Expo config plugin to use autolinking config
+- Refactored iOS BLE restoration to work standalone without external dependencies.
+- Removed the external BleRestoration pod dependency and added a bundled fallback registry.
+- Improved the Expo config plugin to use autolinking config.
 
 **3.7.0 (This Fork)**
 
-- **Android Background Mode**: Added foreground service support for reliable background BLE operations
-- **Connection Queue**: `ConnectionQueue` class with automatic retry and exponential backoff
-- **Reconnection Manager**: `ReconnectionManager` class for automatic reconnection on unexpected disconnects
-- **New Types**: Added `BackgroundModeOptions` and `ReconnectionOptions` types
-- Expo config plugin now supports `androidEnableForegroundService` option
+- Added Android foreground service support for background BLE operations.
+- Added early reliability helpers for retry and automatic reconnection.
+- Added `BackgroundModeOptions` and `ReconnectionOptions` types.
+- Added the Expo config plugin `androidEnableForegroundService` option.
 
 **3.5.x (This Fork)**
 
-- Converted from Flow to TypeScript
-- Updated for React Native 0.81.4 and Expo SDK 54
-- Added iOS BLE state restoration support (optional)
-- Fixed TypeScript errors from Flow-to-TS conversion
-- Dropped support for React Native < 0.81 and Expo < 54
+- Converted the fork from Flow to TypeScript.
+- Updated the fork for React Native 0.81.4 and Expo SDK 54.
+- Added optional iOS BLE state restoration support.
+- Fixed TypeScript errors from the Flow-to-TypeScript conversion.
+- Dropped support for React Native versions older than 0.81 and Expo SDK versions older than 54.
 
 **3.2.0 (Upstream)**
 
-- Added Android Instance checking before calling its method, an error will be visible on the RN side
-- Added information related to Android 14 to the documentation.
-- Changed destroyClient, cancelTransaction, setLogLevel, startDeviceScan, stopDeviceScan calls to promises to allow error reporting if it occurs.
-- Fixed one of the functions calls that clean up the BLE instance after it is destroyed.
+- Added Android instance checks before native method calls.
+- Added Android 14 documentation.
+- Changed selected native calls to promises so errors can be reported to JS.
+- Fixed cleanup behavior after the BLE instance is destroyed.
 
-[Current version changes](CHANGELOG.md)
-[All previous changes](CHANGELOG-pre-3.0.0.md)
+See [CHANGELOG.md](CHANGELOG.md) and [CHANGELOG-pre-3.0.0.md](CHANGELOG-pre-3.0.0.md) for full release history.
 
 ## Documentation & Support
 
@@ -137,7 +142,7 @@ Contact us at [intent](https://withintent.com/contact-us/?utm_source=github&utm_
 
 ## Configuration & Installation
 
-### Expo SDK 54+
+### Expo SDK 57+
 
 > This package cannot be used in the "Expo Go" app because [it requires custom native code](https://docs.expo.io/workflow/customizing/).
 > First install the package with yarn, npm, or [`npx expo install`](https://docs.expo.io/workflow/expo-cli/#expo-install).
@@ -163,6 +168,8 @@ And install it directly into your device with `npx expo run:android`.
 
 You can find more details in the ["Adding custom native code"](https://docs.expo.io/workflow/customizing/) guide.
 
+The `example-expo` app uses Expo Continuous Native Generation (CNG): its `android/` and `ios/` projects are intentionally not checked in. Regenerate native projects from `app.json` with `npx expo prebuild --clean` or use `npx expo run:android` / `npx expo run:ios`, which prebuild as needed.
+
 ## API
 
 The plugin provides props for extra customization. Every time you change the props or plugins, you'll need to rebuild (and `prebuild`) the native app. If no extra properties are added, defaults will be used.
@@ -175,9 +182,9 @@ The plugin provides props for extra customization. Every time you change the pro
 - `bluetoothAlwaysPermission` (_string | false_): Sets the iOS `NSBluetoothAlwaysUsageDescription` permission message to the `Info.plist`. Setting `false` will skip adding the permission. Defaults to `Allow $(PRODUCT_NAME) to connect to bluetooth devices`.
 - `iosEnableRestoration` (_boolean_): Opt-in to the iOS BLE state restoration subspec (disabled by default). When true, the Podfile will include `react-native-ble-plx/Restoration` and the adapter will register with a restoration registry if present.
 - `iosRestorationIdentifier` (_string_): Custom CBCentralManager restoration identifier. Written to `Info.plist` as `BlePlxRestoreIdentifier` and passed to `BleManager` for state restoration. Defaults to `com.reactnativebleplx.restore`.
-- `androidEnableForegroundService` (_boolean_): **NEW** Enable Android foreground service for background BLE operations. Adds necessary permissions (`FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`) and service declaration to `AndroidManifest.xml`. Default `false`.
+- `androidEnableForegroundService` (_boolean_): Enable Android foreground service for background BLE operations. Adds necessary permissions (`FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`) and service declaration to `AndroidManifest.xml`. Default `false`.
 
-> Expo SDK 48 supports iOS 13+ which means `NSBluetoothPeripheralUsageDescription` is fully deprecated. It is no longer setup in `@config-plugins/react-native-ble-plx@5.0.0` and greater.
+Expo SDK 57 targets modern iOS versions. The plugin writes `NSBluetoothAlwaysUsageDescription` and does not add the removed `NSBluetoothPeripheralUsageDescription` key.
 
 #### Example
 
@@ -231,13 +238,13 @@ const manager = new BleManager({
 ### Android (Manual Setup)
 
 1. Install the package: `pnpm add @sfourdrinier/react-native-ble-plx` (or `npm install --save @sfourdrinier/react-native-ble-plx`)
-1. In top level `build.gradle` make sure that min SDK version is at least 23:
+1. In top level `build.gradle` make sure that min SDK version is at least 24:
 
    ```groovy
    buildscript {
        ext {
            ...
-           minSdkVersion = 23
+           minSdkVersion = 24
            ...
    ```
 
@@ -395,7 +402,7 @@ public final class BleRestorationRegistry: NSObject {
 
 This ensures that when iOS restores the app, each device is reconnected by the appropriate SDK.
 
-## Android Background Mode (NEW)
+## Android Background Mode
 
 ### ⚠️ Android 12+ Requirements (CRITICAL)
 
@@ -465,7 +472,7 @@ If using the Expo config plugin with `androidEnableForegroundService: true`, the
 
 | Android Version | Min SDK | Target SDK | Requirements |
 |----------------|---------|------------|--------------|
-| Android 14+ (API 34+) | 24 | 34 | `FOREGROUND_SERVICE_CONNECTED_DEVICE` permission + service type |
+| Android 14+ (API 34+) | 24 | 36 | `FOREGROUND_SERVICE_CONNECTED_DEVICE` permission + service type |
 | Android 12-13 (API 31-33) | 24 | 31+ | Foreground state check required |
 | Android 8-11 (API 26-30) | 24 | 26+ | Standard foreground service |
 | Android < 8 (API < 26) | 24 | - | No foreground service needed |
@@ -531,7 +538,7 @@ await manager.disableBackgroundMode();
 | **`enableBackgroundMode()` API** | ✅ No-op (graceful) | ✅ Required | Same API, platform-appropriate behavior |
 | **`disableBackgroundMode()` API** | ✅ No-op (graceful) | ✅ Stops service | Same API, platform-appropriate behavior |
 | **`updateBackgroundNotification()` API** | ✅ No-op (graceful) | ✅ Updates notification | iOS doesn't show notification |
-| **`isBackgroundModeEnabled()` API** | ✅ Returns false | ✅ Returns true/false | Consistent return type |
+| **`isBackgroundModeEnabled()` API** | ✅ Returns true when configured | ✅ Returns true/false | Consistent return type |
 | **Connection Management** | ✅ ConnectionManager | ✅ ConnectionManager | **100% API parity** |
 | **Auto-reconnection** | ✅ Full support | ✅ Full support | **100% feature parity** |
 | **Retry Logic** | ✅ Full support | ✅ Full support | **100% feature parity** |
@@ -555,7 +562,7 @@ await connectionManager.connect(deviceId, {
 
 > **✅ Platform Parity Guarantee**: All ConnectionManager features, retry logic, auto-reconnection, and timeout support work identically on iOS and Android. Only background mode setup differs due to platform requirements.
 
-## Reliability Features (NEW)
+## Reliability Features
 
 ### ConnectionManager (Recommended)
 
@@ -618,35 +625,9 @@ connectionManager.disableAutoReconnect('AA:BB:CC:DD:EE:FF');
 
 ---
 
-### Migration Guide: ConnectionQueue + ReconnectionManager → ConnectionManager
+### Migration Guide: Use ConnectionManager
 
-If you're using the deprecated `ConnectionQueue` and `ReconnectionManager` classes, here's how to migrate to the unified `ConnectionManager`:
-
-#### Before (Separate Managers - Deprecated)
-
-```typescript
-import { BleManager, ConnectionQueue, ReconnectionManager } from '@sfourdrinier/react-native-ble-plx';
-
-const bleManager = new BleManager();
-const queue = new ConnectionQueue(bleManager);
-const reconnectionManager = new ReconnectionManager(bleManager);
-
-// Connect with retry
-const device = await queue.connect(deviceId, {
-  maxRetries: 5,
-  initialDelayMs: 1000
-});
-
-// Enable auto-reconnect
-reconnectionManager.enableAutoReconnect(deviceId, {
-  maxRetries: 10
-}, {
-  onReconnect: (device) => console.log('Reconnected'),
-  onReconnectFailed: (id, error) => console.log('Failed')
-});
-```
-
-#### After (Unified Manager - Recommended)
+Older versions exposed separate queue and reconnection helpers. Modern versions expose one supported reliability API: `ConnectionManager`.
 
 ```typescript
 import { BleManager, ConnectionManager } from '@sfourdrinier/react-native-ble-plx';
@@ -658,7 +639,7 @@ const connectionManager = new ConnectionManager(bleManager);
 connectionManager.enableAutoReconnect(deviceId, {
   maxRetries: 10,
   initialDelayMs: 2000,
-  timeoutMs: 15000  // NEW: connection timeout support
+  timeoutMs: 15000
 }, {
   onConnect: (device) => console.log('Connected'),  // Fires on initial connect AND reconnects
   onDisconnect: (deviceId, error) => console.log('Disconnected'),
@@ -670,101 +651,6 @@ const device = await connectionManager.connect(deviceId, {
   maxRetries: 5,
   timeoutMs: 15000
 });
-```
-
-#### Key Benefits of Migration
-
-| Feature | Old (Queue + Reconnection) | New (ConnectionManager) |
-|---------|---------------------------|------------------------|
-| **State Management** | Two competing retry engines | Single state machine per device |
-| **Connection Timeout** | ❌ Not supported | ✅ Configurable `timeoutMs` |
-| **Race Conditions** | ⚠️ Possible bugs | ✅ Fixed with attemptId pattern |
-| **Memory Leaks** | ⚠️ destroy() leaked subscriptions | ✅ Fixed |
-| **Connection Storms** | ⚠️ Repeated disconnects caused storms | ✅ Fixed with guards |
-| **Concurrent Connections** | ⚠️ Queue blocked all devices | ✅ Per-device isolation |
-| **Event Callbacks** | Split between two managers | Unified callbacks |
-| **Code Complexity** | Manage 2 instances | Single instance |
-
----
-
-### ConnectionQueue (Deprecated)
-
-> **⚠️ Deprecated**: Use `ConnectionManager` instead for unified connection management.
-
-Manage connection attempts with automatic retry logic and queue management:
-
-```typescript
-import { BleManager, ConnectionQueue } from '@sfourdrinier/react-native-ble-plx';
-
-const manager = new BleManager();
-const queue = new ConnectionQueue(manager);
-
-// Connect with automatic retry on failure
-const device = await queue.connect('AA:BB:CC:DD:EE:FF', {
-  maxRetries: 5,
-  initialDelayMs: 1000,
-  maxDelayMs: 30000,
-  backoffMultiplier: 2,
-  connectionOptions: { timeout: 10000 }
-});
-
-// Cancel a pending connection
-queue.cancel('AA:BB:CC:DD:EE:FF');
-
-// Cancel all pending connections
-queue.cancelAll();
-
-// Check queue status
-console.log('Pending connections:', queue.pendingCount);
-console.log('Is device pending:', queue.isPending('AA:BB:CC:DD:EE:FF'));
-```
-
-### ReconnectionManager (Deprecated)
-
-> **⚠️ Deprecated**: Use `ConnectionManager` instead for unified connection management.
-
-Automatically reconnect when devices disconnect unexpectedly:
-
-```typescript
-import { BleManager, ReconnectionManager } from '@sfourdrinier/react-native-ble-plx';
-
-const manager = new BleManager();
-const reconnectionManager = new ReconnectionManager(manager);
-
-// Enable auto-reconnect for a device
-reconnectionManager.enableAutoReconnect('AA:BB:CC:DD:EE:FF', {
-  maxRetries: 10,
-  initialDelayMs: 1000,
-  maxDelayMs: 60000,
-  backoffMultiplier: 1.5
-}, {
-  onReconnect: (device) => {
-    console.log('Reconnected to', device.id);
-  },
-  onReconnectFailed: (deviceId, error) => {
-    console.log('Failed to reconnect to', deviceId, error);
-  }
-});
-
-// Set global callbacks for all devices
-reconnectionManager.setGlobalCallbacks({
-  onReconnect: (device) => console.log('Any device reconnected:', device.id),
-  onReconnectFailed: (deviceId) => console.log('Any device failed:', deviceId),
-  onReconnecting: (deviceId, attempt, max) => {
-    console.log(`Reconnecting ${deviceId}: attempt ${attempt}/${max}`);
-  }
-});
-
-// Check status
-console.log('Is enabled:', reconnectionManager.isEnabled('AA:BB:CC:DD:EE:FF'));
-console.log('Is reconnecting:', reconnectionManager.isReconnecting('AA:BB:CC:DD:EE:FF'));
-console.log('Retry count:', reconnectionManager.getRetryCount('AA:BB:CC:DD:EE:FF'));
-
-// Disable auto-reconnect
-reconnectionManager.disableAutoReconnect('AA:BB:CC:DD:EE:FF');
-
-// Or disable all
-reconnectionManager.disableAll();
 ```
 
 ### Combining Features for Reliable Background Sync
@@ -821,46 +707,9 @@ async function startReliableSync(deviceId: string) {
 
 ## Releasing
 
-To publish a new version of the package:
+Read [RELEASE.md](RELEASE.md) before preparing or publishing a release. It is the authoritative release procedure for this fork, including local verification, npm publishing, tagging, and GitHub release steps.
 
-1. **Ensure all tests pass:**
-   ```bash
-   pnpm test:package
-   pnpm test:plugin
-   ```
-
-2. **Commit your changes** with a conventional commit message:
-   ```bash
-   git add .
-   git commit -m "fix: description of fix"
-   git push origin master
-   ```
-
-3. **Bump version** in `package.json` (follow semver):
-   ```bash
-   # Edit package.json to update version
-   git add package.json
-   git commit -m "chore: release X.Y.Z"
-   git push origin master
-   ```
-
-4. **Create and push git tag:**
-   ```bash
-   git tag vX.Y.Z -m "Release vX.Y.Z"
-   git push origin vX.Y.Z
-   ```
-
-5. **Build and publish:**
-   ```bash
-   pnpm run prepack
-   pnpm publish --access public --no-git-checks
-   ```
-
-**Commit message conventions:**
-- `fix:` - Bug fixes (patch version)
-- `feat:` - New features (minor version)
-- `chore:` - Maintenance tasks
-- `docs:` - Documentation updates
+Keep `RELEASE.md` updated whenever the release gate, package contents, or publishing process changes.
 
 ## Contributions
 

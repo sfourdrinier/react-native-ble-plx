@@ -3,14 +3,12 @@ package com.bleplx.adapter;
 import static com.bleplx.adapter.utils.Constants.BluetoothState;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothGattCharacteristic;
 import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothManager;
 import android.content.Context;
-import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.ParcelUuid;
@@ -35,7 +33,6 @@ import com.bleplx.adapter.utils.ServiceFactory;
 import com.bleplx.adapter.utils.UUIDConverter;
 import com.bleplx.adapter.utils.mapper.RxBleDeviceToDeviceMapper;
 import com.bleplx.adapter.utils.mapper.RxScanResultToScanResultMapper;
-import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.polidea.rxandroidble2.NotificationSetupMode;
 import com.polidea.rxandroidble2.RxBleAdapterStateObservable;
 import com.polidea.rxandroidble2.RxBleClient;
@@ -57,9 +54,7 @@ import io.reactivex.disposables.Disposable;
 import io.reactivex.functions.Action;
 import io.reactivex.schedulers.Schedulers;
 
-public class BleModule extends ReactContextBaseJavaModule implements BleAdapter {
-  public static final String NAME = "Ble";
-
+public class BleModule implements BleAdapter {
   private final ErrorConverter errorConverter = new ErrorConverter();
 
   @Nullable
@@ -100,12 +95,6 @@ public class BleModule extends ReactContextBaseJavaModule implements BleAdapter 
   private final ServiceFactory serviceFactory = new ServiceFactory();
 
   private int currentLogLevel = RxBleLog.NONE;
-
-  @Override
-  @NonNull
-  public String getName() {
-    return NAME;
-  }
 
   public BleModule(Context context) {
     this.context = context;
@@ -152,29 +141,6 @@ public class BleModule extends ReactContextBaseJavaModule implements BleAdapter 
 
     rxBleClient = null;
     IdGenerator.clear();
-  }
-
-
-  @Override
-  public void enable(final String transactionId,
-                     final OnSuccessCallback<Void> onSuccessCallback,
-                     final OnErrorCallback onErrorCallback) {
-    changeAdapterState(
-      RxBleAdapterStateObservable.BleAdapterState.STATE_ON,
-      transactionId,
-      onSuccessCallback,
-      onErrorCallback);
-  }
-
-  @Override
-  public void disable(final String transactionId,
-                      final OnSuccessCallback<Void> onSuccessCallback,
-                      final OnErrorCallback onErrorCallback) {
-    changeAdapterState(
-      RxBleAdapterStateObservable.BleAdapterState.STATE_OFF,
-      transactionId,
-      onSuccessCallback,
-      onErrorCallback);
   }
 
   @BluetoothState
@@ -1082,80 +1048,6 @@ public class BleModule extends ReactContextBaseJavaModule implements BleAdapter 
     }
   }
 
-  @SuppressLint("MissingPermission")
-  private void changeAdapterState(final RxBleAdapterStateObservable.BleAdapterState desiredAdapterState,
-                                  final String transactionId,
-                                  final OnSuccessCallback<Void> onSuccessCallback,
-                                  final OnErrorCallback onErrorCallback) {
-    if (bluetoothManager == null) {
-      onErrorCallback.onError(new BleError(BleErrorCode.BluetoothStateChangeFailed, "BluetoothManager is null", null));
-      return;
-    }
-
-    final SafeExecutor<Void> safeExecutor = new SafeExecutor<>(onSuccessCallback, onErrorCallback);
-
-    final Disposable subscription = new RxBleAdapterStateObservable(context)
-      .takeUntil(actualAdapterState -> desiredAdapterState == actualAdapterState)
-      .firstOrError()
-      .doOnDispose(() -> {
-        safeExecutor.error(BleErrorUtils.cancelled());
-        pendingTransactions.removeSubscription(transactionId);
-      })
-      .subscribe(state -> {
-        safeExecutor.success(null);
-        pendingTransactions.removeSubscription(transactionId);
-      }, error -> {
-        safeExecutor.error(errorConverter.toError(error));
-        pendingTransactions.removeSubscription(transactionId);
-      });
-
-
-    boolean desiredAndInitialStateAreSame = false;
-    try {
-      if (desiredAdapterState == RxBleAdapterStateObservable.BleAdapterState.STATE_ON) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-          if (context instanceof Activity) {
-            ((Activity) context).startActivityForResult(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE), 1);
-            desiredAndInitialStateAreSame = true;
-          }
-        } else {
-          desiredAndInitialStateAreSame = !bluetoothAdapter.enable();
-        }
-      } else {
-        desiredAndInitialStateAreSame = !bluetoothAdapter.disable();
-      }
-    } catch (SecurityException e) {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        onErrorCallback.onError(new BleError(
-          BleErrorCode.BluetoothUnauthorized,
-          "Method requires BLUETOOTH_CONNECT permission",
-          null)
-        );
-      } else {
-        onErrorCallback.onError(new BleError(
-          BleErrorCode.BluetoothUnauthorized,
-          "Method requires BLUETOOTH_ADMIN permission",
-          null)
-        );
-      }
-    } catch (Exception e) {
-      onErrorCallback.onError(new BleError(
-        BleErrorCode.BluetoothStateChangeFailed,
-        String.format("Couldn't set bluetooth adapter state because of: %s", e.getMessage() != null ? e.getMessage() : "unknown error"),
-        null)
-      );
-    }
-    if (desiredAndInitialStateAreSame) {
-      subscription.dispose();
-      onErrorCallback.onError(new BleError(
-        BleErrorCode.BluetoothStateChangeFailed,
-        String.format("Couldn't set bluetooth adapter state to %s", desiredAdapterState.toString()),
-        null));
-    } else {
-      pendingTransactions.replaceSubscription(transactionId, subscription);
-    }
-  }
-
   @BluetoothState
   private String mapNativeAdapterStateToLocalBluetoothState(int adapterState) {
     switch (adapterState) {
@@ -1603,10 +1495,5 @@ public class BleModule extends ReactContextBaseJavaModule implements BleAdapter 
         discoveredDescriptors.remove(key);
       }
     }
-  }
-
-  @Override
-  public void invalidate() {
-    clearActiveConnections();
   }
 }

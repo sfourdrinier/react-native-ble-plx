@@ -41,9 +41,6 @@ export interface ReconnectionCallbacks {
 /**
  * ReconnectionManager automatically handles reconnection when devices disconnect unexpectedly.
  *
- * @deprecated Use ConnectionManager instead for unified connection management
- * with both retry logic and auto-reconnection support.
- *
  * Features:
  * - Automatic reconnection with exponential backoff
  * - Configurable retry limits and delays
@@ -243,7 +240,7 @@ export class ReconnectionManager {
     state.timeoutId = setTimeout(async () => {
       try {
         await this._attemptReconnection(deviceId)
-      } catch (error) {
+      } catch (_error) {
         // Error handling is done in _attemptReconnection
       }
     }, delay)

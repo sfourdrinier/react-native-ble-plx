@@ -1,13 +1,12 @@
 import React, { useState, type Dispatch } from 'react'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
-import { Device, type Base64 } from 'react-native-ble-plx'
+import { Device, type Base64 } from '@sfourdrinier/react-native-ble-plx'
 import { Platform, ScrollView } from 'react-native'
 import base64 from 'react-native-base64'
 import type { TestStateType } from '../../../types'
 import { BLEService } from '../../../services'
 import type { MainStackParamList } from '../../../navigation/navigators'
 import { AppButton, AppTextInput, ScreenDefaultContainer, TestStateDisplay } from '../../../components/atoms'
-import { wait } from '../../../utils/wait'
 import {
   currentTimeCharacteristic,
   currentTimeCharacteristicTimeTriggerDescriptor,
@@ -83,9 +82,6 @@ export function DevicenRFTestScreen(_props: DevicenRFTestScreenProps) {
     useState<TestStateType>('WAITING')
   const [testDeviceDisconnectState, setTestDeviceDisconnectState] = useState<TestStateType>('WAITING')
 
-  const [testEnableState, setTestEnableState] = useState<TestStateType>('WAITING')
-  const [testDisableState, setTestDisableState] = useState<TestStateType>('WAITING')
-
   const onStartHandler = async () => {
     setTestDeviceConnectedState('WAITING')
     setTestDiscoverServicesAndCharacteristicsFoundState('WAITING')
@@ -104,8 +100,6 @@ export function DevicenRFTestScreen(_props: DevicenRFTestScreenProps) {
     setTestRequestMTUForDeviceState('WAITING')
     setTestCancelTransactionState('WAITING')
     setTestReadRSSIForDeviceState('WAITING')
-    setTestEnableState('WAITING')
-    setTestDisableState('WAITING')
     setTestGetDevicesState('WAITING')
     setTestMonitorCurrentTimeCharacteristicForDevice('WAITING')
     setTestDeviceDisconnectState('WAITING')
@@ -152,7 +146,6 @@ export function DevicenRFTestScreen(_props: DevicenRFTestScreenProps) {
         .then(startTestMonitorCurrentTimeCharacteristicForDevice)
         .then(disconnectDevice)
         .then(startCancelDeviceConnection)
-        .then(startDisableEnableTest)
         .catch(error => console.error(error.message))
     }
   }
@@ -520,57 +513,6 @@ export function DevicenRFTestScreen(_props: DevicenRFTestScreenProps) {
 
   const startGetState = () => runTest(getState, setTestBTStateState, 'startGetState')
 
-  const startDisableEnableTest = () =>
-    // eslint-disable-next-line no-async-promise-executor
-    new Promise<void>(async (resolve, reject) => {
-      startTestInfo('startDisableEnableTest')
-      setTestEnableState('IN_PROGRESS')
-      setTestDisableState('IN_PROGRESS')
-      if (parseInt(Platform.Version.toString(), 10) >= 33 || Platform.OS === 'ios') {
-        setTestEnableState('DONE')
-        setTestDisableState('DONE')
-        resolve()
-        return
-      }
-      const initialState = await BLEService.getState()
-      if (initialState === 'PoweredOff') {
-        await BLEService.enable()
-        wait(1000)
-      }
-      await BLEService.disable()
-      while (true) {
-        const expectedPoweredOffState = await BLEService.getState()
-        if (expectedPoweredOffState === 'Resetting') {
-          wait(1000)
-          continue
-        }
-        if (expectedPoweredOffState !== 'PoweredOff') {
-          reject(new Error('BT disable error'))
-          setTestDisableState('ERROR')
-          return
-        }
-        break
-      }
-      setTestDisableState('DONE')
-      await BLEService.enable()
-      while (true) {
-        const expectedPoweredOnState = await BLEService.getState()
-        if (expectedPoweredOnState === 'Resetting') {
-          wait(1000)
-          continue
-        }
-        if (expectedPoweredOnState !== 'PoweredOn') {
-          reject(new Error('BT enable error'))
-          setTestEnableState('ERROR')
-          return
-        }
-        break
-      }
-      setTestEnableState('DONE')
-      console.info('success')
-      resolve()
-    })
-
   const onDeviceDisconnected = () => {
     if (testOnDeviceDisconnectState === 'DONE') {
       return
@@ -686,8 +628,6 @@ export function DevicenRFTestScreen(_props: DevicenRFTestScreenProps) {
         <TestStateDisplay label="Device disconnect" state={testDeviceDisconnectState} />
         <TestStateDisplay label="On device disconnect state" state={testOnDeviceDisconnectState} />
         <TestStateDisplay label="Cancel device connection" state={testStartCancelDeviceConnectionState} />
-        <TestStateDisplay label="BT enable" state={testEnableState} />
-        <TestStateDisplay label="BT disable" state={testDisableState} />
       </ScrollView>
     </ScreenDefaultContainer>
   )

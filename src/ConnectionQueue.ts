@@ -3,6 +3,10 @@ import { BleError, BleErrorCode, BleErrorCodeMessage } from './BleError'
 import type { BleManager } from './BleManager'
 import type { DeviceId, ConnectionOptions } from './TypeDefinition'
 
+const ignoreConnectionCancellationError = () => {
+  // Native cancellation can reject if the connection already ended.
+}
+
 /**
  * Connection attempt state
  */
@@ -54,9 +58,6 @@ export interface QueuedConnectionOptions {
 /**
  * ConnectionQueue manages connection attempts with automatic retry logic
  * and queue management to prevent connection storms.
- *
- * @deprecated Use ConnectionManager instead for unified connection management
- * with both retry logic and auto-reconnection support.
  *
  * Features:
  * - Queues connection attempts to prevent multiple simultaneous connections
@@ -166,9 +167,7 @@ export class ConnectionQueue {
 
     // If this was actively connecting, try to disconnect
     if (attempt.isConnecting) {
-      this._manager.cancelDeviceConnection(deviceId).catch(() => {
-        // Ignore errors when cancelling
-      })
+      this._manager.cancelDeviceConnection(deviceId).catch(ignoreConnectionCancellationError)
     }
 
     // Process queue to start next pending connection
@@ -234,7 +233,7 @@ export class ConnectionQueue {
 
       if (attempt.cancelled) {
         // Connection succeeded but was cancelled, disconnect
-        await this._manager.cancelDeviceConnection(attempt.deviceId).catch(() => {})
+        await this._manager.cancelDeviceConnection(attempt.deviceId).catch(ignoreConnectionCancellationError)
         this._queue.delete(attempt.deviceId)
         return
       }

@@ -166,10 +166,10 @@ public final class BlePlxRestorationAdapter: NSObject {
     }
   }
 
-  // MARK: - Explicit Registration (Called from BlePlx.m)
+  // MARK: - Explicit Registration (Called from BlePlx.mm)
 
   /// Explicit registration with the restoration registry.
-  /// This is called from BlePlx.m during its +initialize phase.
+  /// This is called from BlePlx.mm during its +initialize phase.
   ///
   /// Uses priority-based registry resolution:
   ///   1. BleRestorationRegistry (host app's implementation)
