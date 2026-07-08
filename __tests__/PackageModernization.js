@@ -23,6 +23,8 @@ const githubConfig = fs
 const nativeBlePlxSpecPath = path.join(__dirname, '..', 'src/NativeBlePlx.ts')
 const nativeBlePlxSpec = fs.existsSync(nativeBlePlxSpecPath) ? fs.readFileSync(nativeBlePlxSpecPath, 'utf8') : ''
 const bleModule = fs.readFileSync(path.join(__dirname, '..', 'src/BleModule.ts'), 'utf8')
+const connectionManager = fs.readFileSync(path.join(__dirname, '..', 'src/ConnectionManager.ts'), 'utf8')
+const connectionQueue = fs.readFileSync(path.join(__dirname, '..', 'src/ConnectionQueue.ts'), 'utf8')
 const exampleImports = [
   ...fs
     .readdirSync(path.join(__dirname, '..', 'example/src'), { recursive: true })
@@ -228,5 +230,12 @@ describe('package modernization targets', () => {
     expect(plugin).not.toContain('bluetoothPeripheralPermission')
     expect(plugin).not.toContain('NSBluetoothPeripheralUsageDescription')
     expect(plugin).not.toContain('WarningAggregator')
+  })
+
+  test('connection cleanup documents intentionally ignored native cancellation errors', () => {
+    for (const source of [connectionManager, connectionQueue]) {
+      expect(source).toContain('ignoreConnectionCancellationError')
+      expect(source).not.toContain('.catch(() => {})')
+    }
   })
 })

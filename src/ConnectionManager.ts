@@ -83,6 +83,10 @@ type ResolvedConnectionOptions = {
   timeoutMs: number
 }
 
+const ignoreConnectionCancellationError = () => {
+  // Native cancellation can reject if the connection already ended.
+}
+
 /**
  * Internal state for a device connection
  */
@@ -441,9 +445,7 @@ export class ConnectionManager {
     }
 
     if (state.isConnecting) {
-      this._manager.cancelDeviceConnection(state.deviceId).catch(() => {
-        // Ignore errors when cancelling
-      })
+      this._manager.cancelDeviceConnection(state.deviceId).catch(ignoreConnectionCancellationError)
     }
   }
 
@@ -549,9 +551,7 @@ export class ConnectionManager {
         )
 
         // Cancel the connection attempt
-        this._manager.cancelDeviceConnection(state.deviceId).catch(() => {
-          // Ignore errors
-        })
+        this._manager.cancelDeviceConnection(state.deviceId).catch(ignoreConnectionCancellationError)
       }, timeoutMs)
     }
 
@@ -579,7 +579,7 @@ export class ConnectionManager {
       const currentState = this._devices.get(state.deviceId)
       if (!currentState || currentState !== state || currentState.cancelled) {
         // State was cancelled during connection - disconnect immediately
-        await this._manager.cancelDeviceConnection(state.deviceId).catch(() => {})
+        await this._manager.cancelDeviceConnection(state.deviceId).catch(ignoreConnectionCancellationError)
 
         // Check again after the disconnect await
         if (state.attemptId !== myAttemptId) {
@@ -699,7 +699,7 @@ export class ConnectionManager {
 
       // Cancel native connection if in progress
       if (state.isConnecting) {
-        this._manager.cancelDeviceConnection(state.deviceId).catch(() => {})
+        this._manager.cancelDeviceConnection(state.deviceId).catch(ignoreConnectionCancellationError)
       }
     }
 
