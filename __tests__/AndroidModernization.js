@@ -86,6 +86,7 @@ describe('Android modernization defaults', () => {
 
     expect(errorDefaults).toContain('public static final String CODE')
     expect(errorDefaults).toContain('public static final String MESSAGE')
+    expect(errorDefaults).toContain('public static final String MESSAGE = "Unknown error"')
     expect(safePromise).toContain('ErrorDefaults.CODE')
     expect(safePromise).toContain('ErrorDefaults.MESSAGE')
     expect(safePromise).toContain('code == null')
