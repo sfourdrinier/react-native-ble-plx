@@ -707,46 +707,9 @@ async function startReliableSync(deviceId: string) {
 
 ## Releasing
 
-To publish a new version of the package:
+Read [RELEASE.md](RELEASE.md) before preparing or publishing a release. It is the authoritative release procedure for this fork, including local verification, npm publishing, tagging, and GitHub release steps.
 
-1. **Ensure all tests pass:**
-   ```bash
-   pnpm test:package
-   pnpm test:plugin
-   ```
-
-2. **Commit your changes** with a conventional commit message:
-   ```bash
-   git add .
-   git commit -m "fix: description of fix"
-   git push origin master
-   ```
-
-3. **Bump version** in `package.json` (follow semver):
-   ```bash
-   # Edit package.json to update version
-   git add package.json
-   git commit -m "chore: release X.Y.Z"
-   git push origin master
-   ```
-
-4. **Create and push git tag:**
-   ```bash
-   git tag vX.Y.Z -m "Release vX.Y.Z"
-   git push origin vX.Y.Z
-   ```
-
-5. **Build and publish:**
-   ```bash
-   pnpm run prepack
-   pnpm publish --access public --no-git-checks
-   ```
-
-**Commit message conventions:**
-- `fix:` - Bug fixes (patch version)
-- `feat:` - New features (minor version)
-- `chore:` - Maintenance tasks
-- `docs:` - Documentation updates
+Keep `RELEASE.md` updated whenever the release gate, package contents, or publishing process changes.
 
 ## Contributions
 
