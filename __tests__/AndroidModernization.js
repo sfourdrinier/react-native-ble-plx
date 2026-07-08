@@ -55,6 +55,9 @@ describe('Android modernization defaults', () => {
 
     expect(buildGradle).toContain('apply plugin: "com.facebook.react"')
     expect(buildGradle).toContain('buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", "true"')
+    expect(buildGradle).toContain('react {')
+    expect(buildGradle).toContain('codegenJavaPackageName = "com.bleplx"')
+    expect(buildGradle).not.toContain('isNewArchitectureEnabled')
     expect(buildGradle).not.toContain('newArchEnabled')
     expect(exampleGradleProperties).not.toContain('newArchEnabled')
     expect(mainApplication).toContain('override val isNewArchEnabled: Boolean = true')
