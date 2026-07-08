@@ -16,8 +16,8 @@
     "react-native": "0.86.0",
     "react-native-base64": "^0.2.1",
     "@sfourdrinier/react-native-ble-plx": "file:..",
-    "react-native-safe-area-context": "^5.1.0",
-    "react-native-screens": "^4.5.0",
+    "react-native-safe-area-context": "5.7.0",
+    "react-native-screens": "4.25.2",
     "react-native-toast-message": "^2.1.6",
     "styled-components": "^6.0.7"
   },

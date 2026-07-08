@@ -2,7 +2,7 @@
 
 This fork publishes as `@sfourdrinier/react-native-ble-plx`.
 
-The next planned release is `3.8.0`, which is the Expo SDK 57 / React Native 0.86 modernization release. It is New Architecture-only, uses the generated TurboModule spec, and treats the Expo example as CNG source: `example-expo/android` and `example-expo/ios` are generated locally and must not be committed.
+The next planned release is `3.8.0`, which is the Expo SDK 57 / React Native 0.86 modernization release. It uses the RN 0.86 TurboModule/Fabric runtime, uses the generated TurboModule spec, and treats the Expo example as CNG source: `example-expo/android` and `example-expo/ios` are generated locally and must not be committed.
 
 ## 1. Merge The Modernization PR
 
@@ -30,7 +30,7 @@ Update release metadata:
 2. Update `README.md` Version History so `3.8.0` is no longer marked planned.
 3. Add a `3.8.0` entry to `CHANGELOG.md` with the user-facing changes:
    - Expo SDK 57 and React Native 0.86 floor.
-   - React Native New Architecture / TurboModule migration.
+   - RN 0.86 TurboModule/Fabric migration.
    - Expo CNG example workflow.
    - Android min SDK 24 and compile/target SDK 36.
    - iOS deployment target 16.4.

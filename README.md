@@ -7,7 +7,7 @@
   />
 </h1>
 
-> **Fork Notice**: This library is forked from [dotintent/react-native-ble-plx](https://github.com/dotintent/react-native-ble-plx) for Expo SDK 57+ and React Native 0.86+. It is TypeScript-first, New Architecture-only, and built for Expo CNG/dev-client apps.
+> **Fork Notice**: This library is forked from [dotintent/react-native-ble-plx](https://github.com/dotintent/react-native-ble-plx) for Expo SDK 57+ and React Native 0.86+. It is TypeScript-first, uses the RN 0.86 TurboModule/Fabric runtime, and is built for Expo CNG/dev-client apps.
 >
 > **Looking for maintainers!** We're looking for volunteers to help maintain this fork. If you're interested, please open an issue or submit a PR.
 
@@ -62,7 +62,7 @@ It does NOT support:
 - Xcode **16.1+** for iOS builds
 - Android min SDK **24**, compile/target SDK **36**
 - iOS deployment target **16.4**
-- React Native New Architecture / TurboModules
+- RN 0.86 TurboModules/Fabric runtime
 
 | React Native | Expo SDK | This Fork |
 | ------------ | -------- | --------- |
@@ -85,7 +85,7 @@ For older React Native versions, use the upstream [dotintent/react-native-ble-pl
 **3.8.0 (planned)**
 
 - Modernized for Expo SDK 57 and React Native 0.86.
-- Requires React Native New Architecture and uses the generated TurboModule spec.
+- Uses the generated RN 0.86 TurboModule spec.
 - Moves the Expo example to CNG: generated native projects are not checked in.
 - Updates Android defaults to min SDK 24 and compile/target SDK 36.
 - Updates iOS deployment target to 16.4.

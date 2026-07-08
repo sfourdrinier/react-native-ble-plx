@@ -269,6 +269,7 @@ export class ConnectionManager {
       state.autoReconnect = true
       state.callbacks = callbacks
       state.reconnectOptions = reconnectOptions
+      state.options = { ...reconnectOptions }
     } else {
       state = {
         deviceId,

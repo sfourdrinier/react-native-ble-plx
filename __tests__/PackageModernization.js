@@ -91,11 +91,11 @@ describe('package modernization targets', () => {
     expect(ciWorkflow).toContain('pnpm lint')
     expect(ciWorkflow).toContain('pnpm prepack')
     expect(ciWorkflow).toContain('pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json')
-    expect(ciWorkflow).toContain(`- name: Install Expo example dependencies
-        run: pnpm --dir example-expo install --no-frozen-lockfile
-
-      - name: Build package artifacts
+    expect(ciWorkflow).toContain(`- name: Build package artifacts
         run: pnpm prepack
+
+      - name: Install Expo example dependencies
+        run: pnpm --dir example-expo install --no-frozen-lockfile
 
       - name: Typecheck Expo example
         run: pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json`)
@@ -145,6 +145,9 @@ describe('package modernization targets', () => {
     expect(releaseVerifyScript).toContain('pnpm test:plugin')
     expect(releaseVerifyScript).toContain('pnpm lint')
     expect(releaseVerifyScript).toContain('pnpm prepack')
+    expect(ciWorkflow).toMatch(
+      /Build package artifacts[\s\S]*pnpm prepack[\s\S]*Install Expo example dependencies[\s\S]*pnpm --dir example-expo install --no-frozen-lockfile/
+    )
     expect(releaseVerifyScript).toContain('export NODE_OPTIONS')
     expect(releaseVerifyScript).toContain('--max-old-space-size=8192')
     expect(releaseVerifyScript).toContain('rm -rf "$ROOT_DIR/example-expo/node_modules/.pnpm/@sfourdrinier+react-native-ble-plx@file+.."*')

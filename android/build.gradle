@@ -9,26 +9,10 @@ buildscript {
   }
 }
 
-def isNewArchitectureEnabled() {
-  if (!rootProject.hasProperty("newArchEnabled")) {
-    return true
-  }
-
-  if (rootProject.getProperty("newArchEnabled") == "false") {
-    logger.warn("[react-native-ble-plx] newArchEnabled=false is ignored because react-native-ble-plx requires React Native 0.86+.")
-  }
-
-  return true
-}
-
 apply plugin: "com.android.library"
-
+apply plugin: "com.facebook.react"
 
 def appProject = rootProject.allprojects.find { it.plugins.hasPlugin('com.android.application') }
-
-if (isNewArchitectureEnabled()) {
-  apply plugin: "com.facebook.react"
-}
 
 def getExtOrDefault(name) {
   return rootProject.ext.has(name) ? rootProject.ext.get(name) : project.properties["BlePlx_" + name]
@@ -67,7 +51,7 @@ android {
   defaultConfig {
     minSdkVersion getExtOrIntegerDefault("minSdkVersion")
     targetSdkVersion getExtOrIntegerDefault("targetSdkVersion")
-    buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString()
+    buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", "true"
   }
   buildTypes {
     release {

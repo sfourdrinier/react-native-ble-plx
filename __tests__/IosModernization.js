@@ -6,12 +6,14 @@ const iosHeader = fs.readFileSync(path.join(__dirname, '..', 'ios/BlePlx.h'), 'u
 const iosImplementationPath = path.join(__dirname, '..', 'ios/BlePlx.mm')
 const iosImplementation = fs.readFileSync(iosImplementationPath, 'utf8')
 const iosXcodeProject = fs.readFileSync(path.join(__dirname, '..', 'ios/BlePlx.xcodeproj/project.pbxproj'), 'utf8')
+const examplePodfile = fs.readFileSync(path.join(__dirname, '..', 'example/ios/Podfile'), 'utf8')
 const iosTurboModulePath = path.join(__dirname, '..', 'ios/BlePlxTurboModule.mm')
 const iosTurboModule = fs.existsSync(iosTurboModulePath) ? fs.readFileSync(iosTurboModulePath, 'utf8') : ''
 
 describe('iOS modernization defaults', () => {
   test('uses the Expo SDK 57 iOS deployment target floor', () => {
     expect(podspec).toContain('s.platforms    = { :ios => "16.4" }')
+    expect(examplePodfile).toContain("platform :ios, '16.4'")
   })
 
   test('points CocoaPods source metadata at this fork', () => {
@@ -19,7 +21,7 @@ describe('iOS modernization defaults', () => {
     expect(podspec).not.toContain('https://github.com/dotintent/react-native-ble-plx.git')
   })
 
-  test('conforms to the generated TurboModule spec on the New Architecture', () => {
+  test('conforms to the generated RN 0.86 TurboModule spec', () => {
     expect(iosHeader).toContain('#import <BlePlxSpec/BlePlxSpec.h>')
     expect(iosHeader).toContain('@interface BlePlx : RCTEventEmitter <NativeBlePlxSpec>')
     expect(fs.existsSync(iosTurboModulePath)).toBe(true)

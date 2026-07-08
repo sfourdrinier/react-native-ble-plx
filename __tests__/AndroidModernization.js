@@ -48,12 +48,18 @@ describe('Android modernization defaults', () => {
     expect(adapterJava).not.toContain('bluetoothAdapter.disable()')
   })
 
-  test('treats missing newArchEnabled as enabled for React Native 0.82+', () => {
+  test('does not expose newArchEnabled as an architecture switch', () => {
     const buildGradle = read('android/build.gradle')
+    const exampleGradleProperties = read('example/android/gradle.properties')
+    const mainApplication = read('example/android/app/src/main/java/com/bleplxexample/MainApplication.kt')
 
-    expect(buildGradle).toContain('if (!rootProject.hasProperty("newArchEnabled")) {')
-    expect(buildGradle).toContain('return true')
-    expect(buildGradle).toContain('newArchEnabled=false is ignored')
+    expect(buildGradle).toContain('apply plugin: "com.facebook.react"')
+    expect(buildGradle).toContain('buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", "true"')
+    expect(buildGradle).not.toContain('newArchEnabled')
+    expect(exampleGradleProperties).not.toContain('newArchEnabled')
+    expect(mainApplication).toContain('override val isNewArchEnabled: Boolean = true')
+    expect(mainApplication).toContain('load()')
+    expect(mainApplication).not.toContain('BuildConfig.IS_NEW_ARCHITECTURE_ENABLED')
   })
 
   test('README documents the Android API floors used by the library', () => {

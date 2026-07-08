@@ -8,11 +8,30 @@ const compat = new FlatCompat({
   allConfig: js.configs.all
 })
 
+const removeUnavailableReactNativeRules = (config) => {
+  if (!config.rules) {
+    return config
+  }
+
+  const rules = { ...config.rules }
+  delete rules['@react-native/no-deep-imports']
+  for (const ruleName of Object.keys(rules)) {
+    if (ruleName.startsWith('jest/')) {
+      delete rules[ruleName]
+    }
+  }
+
+  return {
+    ...config,
+    rules
+  }
+}
+
 module.exports = [
   {
     ignores: ['**/node_modules/**', 'docs/**', 'plugin/build/**', 'lib/**']
   },
-  ...compat.extends('@react-native', 'prettier'),
+  ...compat.extends('@react-native', 'prettier').map(removeUnavailableReactNativeRules),
   ...compat
     .config({
       extends: [
