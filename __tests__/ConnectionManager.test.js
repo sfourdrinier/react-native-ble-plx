@@ -20,10 +20,10 @@ const createMockBleManager = () => {
   const connectCalls = [];
 
   return {
-    connectToDevice: jest.fn((deviceId) => {
+    connectToDevice: jest.fn((deviceId, options) => {
       const d = createDeferred();
       pending.set(deviceId, d);
-      connectCalls.push({ deviceId, deferred: d });
+      connectCalls.push({ deviceId, options, deferred: d });
       return d.promise;
     }),
 
@@ -245,5 +245,42 @@ describe('ConnectionManager', () => {
       ble._connectCalls[0].deferred.reject(createBleError(BleErrorCode.DeviceDisconnected, 'cleanup'));
       await flushMicrotasks().catch(() => {});
     }
+  });
+
+  test('auto-reconnect preserves reconnect-specific connection options after an explicit connect', async () => {
+    mgr.enableAutoReconnect('d1', {
+      maxRetries: 1,
+      initialDelayMs: 0,
+      timeoutMs: 0,
+      connectionOptions: { autoConnect: true },
+    });
+
+    const p = mgr.connect('d1', { timeoutMs: 0 });
+    ble._resolveConnect('d1', createDevice('d1'));
+    await expect(p).resolves.toMatchObject({ id: 'd1' });
+
+    ble.connectToDevice.mockClear();
+    ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'background disconnect'));
+    jest.runOnlyPendingTimers();
+    await flushMicrotasks();
+
+    expect(ble.connectToDevice).toHaveBeenCalledWith('d1', { autoConnect: true });
+
+    const reconnect = ble._connectCalls[ble._connectCalls.length - 1];
+    reconnect.deferred.reject(createBleError(BleErrorCode.DeviceDisconnected, 'cleanup'));
+    await flushMicrotasks().catch(() => {});
+  });
+
+  test('zero-delay auto-reconnect starts on a microtask without waiting for timers', async () => {
+    mgr.enableAutoReconnect('d1', { maxRetries: 1, initialDelayMs: 0, timeoutMs: 0 });
+
+    ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'background disconnect'));
+    await flushMicrotasks();
+
+    expect(ble.connectToDevice).toHaveBeenCalledTimes(1);
+
+    const reconnect = ble._connectCalls[ble._connectCalls.length - 1];
+    reconnect.deferred.reject(createBleError(BleErrorCode.DeviceDisconnected, 'cleanup'));
+    await flushMicrotasks().catch(() => {});
   });
 });

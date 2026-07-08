@@ -6,6 +6,15 @@ const fs = require('fs')
 const path = require('path')
 
 const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8')
+const nvmrc = fs.readFileSync(path.join(__dirname, '..', '.nvmrc'), 'utf8').trim()
+const ciWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github/workflows/ci.yml'), 'utf8')
+const dependabotPath = path.join(__dirname, '..', '.github/dependabot.yml')
+const dependabot = fs.existsSync(dependabotPath) ? fs.readFileSync(dependabotPath, 'utf8') : ''
+const githubConfig = fs
+  .readdirSync(path.join(__dirname, '..', '.github'), { recursive: true })
+  .filter((filePath) => filePath.endsWith('.yml') || filePath.endsWith('.yaml'))
+  .map((filePath) => fs.readFileSync(path.join(__dirname, '..', '.github', filePath), 'utf8'))
+  .join('\n')
 const nativeBlePlxSpecPath = path.join(__dirname, '..', 'src/NativeBlePlx.ts')
 const nativeBlePlxSpec = fs.existsSync(nativeBlePlxSpecPath) ? fs.readFileSync(nativeBlePlxSpecPath, 'utf8') : ''
 const bleModule = fs.readFileSync(path.join(__dirname, '..', 'src/BleModule.ts'), 'utf8')
@@ -22,6 +31,7 @@ const exampleImports = [
 
 describe('package modernization targets', () => {
   test('root package requires the React Native and Node versions used by Expo SDK 57', () => {
+    expect(nvmrc).toBe('20.19.4')
     expect(rootPackage.peerDependencies['react-native']).toBe('>=0.86.0')
     expect(rootPackage.engines.node).toBe('^20.19.4 || ^22.13.0 || ^24.3.0 || >=25.0.0')
     expect(rootPackage.devDependencies.expo).toBe('^57.0.4')
@@ -46,6 +56,38 @@ describe('package modernization targets', () => {
         }
       }
     })
+  })
+
+  test('CI verifies the same Expo CNG Android build path used locally', () => {
+    expect(ciWorkflow).toContain('node-version: 20.19.4')
+    expect(ciWorkflow).toContain('java-version: 21')
+    expect(ciWorkflow).toContain('actions/checkout@v7.0.0')
+    expect(ciWorkflow).toContain('actions/setup-node@v6.4.0')
+    expect(ciWorkflow).toContain('actions/setup-java@v5.5.0')
+    expect(ciWorkflow).toContain('android-actions/setup-android@v4.0.1')
+    expect(ciWorkflow).toContain('pnpm test:package')
+    expect(ciWorkflow).toContain('pnpm test:plugin')
+    expect(ciWorkflow).toContain('pnpm lint')
+    expect(ciWorkflow).toContain('pnpm prepack')
+    expect(ciWorkflow).toContain('pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json')
+    expect(ciWorkflow).toContain('npx expo-doctor')
+    expect(ciWorkflow).toContain('npx expo prebuild --clean --no-install')
+    expect(ciWorkflow).toContain('./gradlew :app:assembleDebug --no-daemon --console=plain')
+    expect(ciWorkflow).not.toContain("react_native_version: '0.77.0'")
+    expect(ciWorkflow).not.toContain("react_native_version: '0.76.6'")
+    expect(githubConfig).not.toContain('actions/setup-node@v3')
+    expect(githubConfig).not.toContain('actions/cache@v3')
+    expect(githubConfig).not.toContain('actions/checkout@v3')
+    expect(githubConfig).not.toContain('actions/setup-java@v3')
+  })
+
+  test('Dependabot keeps GitHub Actions and package ecosystems current', () => {
+    expect(fs.existsSync(dependabotPath)).toBe(true)
+    expect(dependabot).toContain('package-ecosystem: "github-actions"')
+    expect(dependabot).toContain('package-ecosystem: "npm"')
+    expect(dependabot).toContain('directory: "/"')
+    expect(dependabot).toContain('directory: "/example-expo"')
+    expect(dependabot).toContain('schedule:')
   })
 
   test('example apps use Expo SDK 57 and React Native 0.86 defaults', () => {

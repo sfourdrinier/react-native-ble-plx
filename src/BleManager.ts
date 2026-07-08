@@ -293,11 +293,16 @@ export class BleManager {
 
     if (emitCurrentState) {
       let cancelled = false
-      this._callPromise(this.state()).then(currentState => {
-        if (!cancelled) {
-          listener(currentState)
+      this._callPromise(this.state()).then(
+        currentState => {
+          if (!cancelled) {
+            listener(currentState)
+          }
+        },
+        () => {
+          // Ignore state fetch failures while registering the listener; future state events still arrive.
         }
-      })
+      )
 
       wrappedSubscription = {
         remove: () => {

@@ -74,19 +74,22 @@ export interface ConnectionCallbacks {
   onDisconnect?: (deviceId: DeviceId, error: BleError | null) => void
 }
 
+type ResolvedConnectionOptions = {
+  connectionOptions?: ConnectionOptions
+  maxRetries: number
+  initialDelayMs: number
+  maxDelayMs: number
+  backoffMultiplier: number
+  timeoutMs: number
+}
+
 /**
  * Internal state for a device connection
  */
 interface DeviceConnectionState {
   deviceId: DeviceId
-  options: {
-    connectionOptions?: ConnectionOptions
-    maxRetries: number
-    initialDelayMs: number
-    maxDelayMs: number
-    backoffMultiplier: number
-    timeoutMs: number
-  }
+  options: ResolvedConnectionOptions
+  reconnectOptions?: ResolvedConnectionOptions
   isConnecting: boolean
   retryCount: number
   timeoutId?: ReturnType<typeof setTimeout>
@@ -208,7 +211,7 @@ export class ConnectionManager {
         this._cancelState(existing)
       }
 
-      const connectionOptions = {
+      const connectionOptions: ResolvedConnectionOptions = {
         maxRetries: options?.maxRetries ?? 3,
         initialDelayMs: options?.initialDelayMs ?? 1000,
         maxDelayMs: options?.maxDelayMs ?? 30000,
@@ -220,6 +223,7 @@ export class ConnectionManager {
       const state: DeviceConnectionState = {
         deviceId,
         options: connectionOptions,
+        reconnectOptions: existing?.reconnectOptions,
         isConnecting: false,
         retryCount: 0,
         autoReconnect: existing?.autoReconnect ?? false, // Preserve autoReconnect flag if it exists
@@ -246,34 +250,25 @@ export class ConnectionManager {
     // If already exists, update settings
     let state = this._devices.get(deviceId)
 
+    const reconnectOptions: ResolvedConnectionOptions = {
+      maxRetries: options?.maxRetries ?? 5,
+      initialDelayMs: options?.initialDelayMs ?? 1000,
+      maxDelayMs: options?.maxDelayMs ?? 30000,
+      backoffMultiplier: options?.backoffMultiplier ?? 2,
+      timeoutMs: options?.timeoutMs ?? 30000,
+      connectionOptions: options?.connectionOptions
+    }
+
     if (state) {
       // Update existing state
       state.autoReconnect = true
       state.callbacks = callbacks
-      if (options) {
-        state.options = {
-          maxRetries: options.maxRetries ?? state.options.maxRetries,
-          initialDelayMs: options.initialDelayMs ?? state.options.initialDelayMs,
-          maxDelayMs: options.maxDelayMs ?? state.options.maxDelayMs,
-          backoffMultiplier: options.backoffMultiplier ?? state.options.backoffMultiplier,
-          timeoutMs: options.timeoutMs ?? state.options.timeoutMs,
-          connectionOptions: options.connectionOptions ?? state.options.connectionOptions
-        }
-      }
+      state.reconnectOptions = reconnectOptions
     } else {
-      // Create new state
-      const connectionOptions = {
-        maxRetries: options?.maxRetries ?? 5,
-        initialDelayMs: options?.initialDelayMs ?? 1000,
-        maxDelayMs: options?.maxDelayMs ?? 30000,
-        backoffMultiplier: options?.backoffMultiplier ?? 2,
-        timeoutMs: options?.timeoutMs ?? 30000,
-        connectionOptions: options?.connectionOptions
-      }
-
       state = {
         deviceId,
-        options: connectionOptions,
+        options: reconnectOptions,
+        reconnectOptions,
         isConnecting: false,
         retryCount: 0,
         autoReconnect: true,
@@ -466,6 +461,10 @@ export class ConnectionManager {
       return
     }
 
+    if (state.reconnectOptions) {
+      state.options = { ...state.reconnectOptions }
+    }
+
     state.retryCount = 0
     this._scheduleConnection(state, 0)
   }
@@ -482,6 +481,15 @@ export class ConnectionManager {
     if (state.timeoutId) {
       clearTimeout(state.timeoutId)
       state.timeoutId = undefined
+    }
+
+    if (delay === 0) {
+      Promise.resolve().then(() => {
+        if (!state.cancelled) {
+          this._attemptConnection(state)
+        }
+      })
+      return
     }
 
     state.timeoutId = setTimeout(() => {

@@ -170,6 +170,17 @@ test('BleModule two emitted state changes are registered by BleManager', () => {
   expect(newStateCallback.mock.calls).toEqual([['PoweredOn'], ['PoweredOff']])
 })
 
+test('BleManager ignores rejected current state fetch when registering state listener', async () => {
+  const newStateCallback = jest.fn()
+  Native.BleModule.state = jest.fn().mockRejectedValueOnce(new Error('state unavailable'))
+
+  bleManager.onStateChange(newStateCallback, true)
+
+  await Promise.resolve()
+
+  expect(newStateCallback).not.toBeCalled()
+})
+
 test('When BleManager cancelTransaction is called it should call BleModule cancelTransaction', () => {
   bleManager.cancelTransaction('id')
   expect(Native.BleModule.cancelTransaction).toBeCalledWith('id')

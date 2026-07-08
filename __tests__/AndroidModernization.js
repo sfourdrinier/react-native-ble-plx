@@ -73,4 +73,16 @@ describe('Android modernization defaults', () => {
     expect(safePromise).not.toContain('@Deprecated')
     expect(safePromise).not.toContain('public void reject(String message)')
   })
+
+  test('keeps Android promise rejection paths null-safe', () => {
+    const safePromise = read('android/src/main/java/com/bleplx/utils/SafePromise.java')
+    const errorDefaults = read('android/src/main/java/com/bleplx/utils/ErrorDefaults.java')
+
+    expect(errorDefaults).toContain('public static final String CODE')
+    expect(errorDefaults).toContain('public static final String MESSAGE')
+    expect(safePromise).toContain('ErrorDefaults.CODE')
+    expect(safePromise).toContain('ErrorDefaults.MESSAGE')
+    expect(safePromise).toContain('code == null')
+    expect(safePromise).toContain('message == null')
+  })
 })
