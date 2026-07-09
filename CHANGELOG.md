@@ -2,6 +2,16 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- Fixed lefthook pre-commit so lint runs without `@{push}` (broken on new branches).
+
+### Removed
+
+- Dropped obsolete DefinitelyTyped `@types/react-native@0.70`. React Native 0.86 ships its own TypeScript types; use those (and `@react-native/typescript-config`) instead.
+
 ## [3.8.1] - 2026-07-09
 
 ### Added
