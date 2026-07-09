@@ -13,6 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Fixed package `docs` script to build HTML API docs from `lib/module` (after `prepack`) so documentation.js can parse compiled JS from TypeScript sources; removed broken `documentation lint index.js` from `lint`.
 - Included `docs/` in the published package so npm README relative links resolve (excluding agent-only `docs/superpowers`).
+- Stopped publishing generated `docs/index.html` and `docs/assets` on npm (documentation.js mangles TypeScript enum members in HTML output).
+- Documented `ConnectionManager` `maxRetries` as total connection attempts (including the first), matching the implementation.
 - Expo example identifiers now use the `com.sfourdrinier.bleplxexample` namespace.
 - Expo example `.gitignore` ignores generated CNG `android/` and `ios/` trees.
 - Fixed lefthook pre-commit so lint runs without `@{push}` (broken on new branches).

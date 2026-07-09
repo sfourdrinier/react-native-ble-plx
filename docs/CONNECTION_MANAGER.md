@@ -42,13 +42,13 @@ const device = await connections.connect(deviceId, {
 
 | Option | Default | Meaning |
 | ------ | ------- | ------- |
-| `maxRetries` | `3` | Attempts after the first try (see implementation for exact attempt counting) |
-| `initialDelayMs` | `1000` | Delay before the first retry |
+| `maxRetries` | `3` | **Total** connection attempts, including the first try. `1` = one attempt (no retries); `3` = up to three attempts. |
+| `initialDelayMs` | `1000` | Delay before the first retry after a failed attempt |
 | `maxDelayMs` | `30000` | Cap for exponential backoff |
 | `backoffMultiplier` | `2` | Multiplier applied between retries |
-| `timeoutMs` | `30000` | Per-attempt / connection timeout; `0` disables |
+| `timeoutMs` | `30000` | Per-attempt connection timeout; `0` disables |
 
-Exact retry accounting is covered by `__tests__/ConnectionManager.test.js`. Prefer that test file when behavior detail matters.
+`ConnectionManager` increments an attempt counter before each connect and stops when that count reaches `maxRetries`. See `__tests__/ConnectionManager.test.js` for examples (`maxRetries: 1` is used for single-attempt cases).
 
 ## Auto-reconnect
 

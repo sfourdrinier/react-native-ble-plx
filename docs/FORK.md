@@ -47,6 +47,11 @@ This repo is developed and released with **pnpm**.
 - `example/` — bare React Native sample
 - `example-expo/` — Expo CNG sample (`android/` / `ios/` are generated, not committed)
 
+## API reference notes
+
+- Prefer TypeScript types from the package (`lib/typescript`) and the markdown guides under `docs/`.
+- `pnpm docs` can generate a local HTML tree via `documentation.js`, but TypeScript enums compile to patterns that tool mishandles (duplicate anchors, missing member names). Generated `docs/index.html` / `docs/assets` are **not** published on npm for that reason.
+
 ## Related docs
 
 - [Getting started](./GETTING_STARTED.md)
