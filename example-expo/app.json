@@ -8,14 +8,14 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.withintent.bleplxexample"
+      "bundleIdentifier": "com.sfourdrinier.bleplxexample"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.withintent.bleplxexample"
+      "package": "com.sfourdrinier.bleplxexample"
     },
     "plugins": [
       [
@@ -24,7 +24,7 @@
           "isBackgroundEnabled": true,
           "modes": ["central"],
           "iosEnableRestoration": true,
-          "iosRestorationIdentifier": "com.withintent.bleplxexample.restore",
+          "iosRestorationIdentifier": "com.sfourdrinier.bleplxexample.restore",
           "androidEnableForegroundService": true
         }
       ]

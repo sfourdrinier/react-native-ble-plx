@@ -24,7 +24,10 @@ const nativeBlePlxSpecPath = path.join(__dirname, '..', 'src/NativeBlePlx.ts')
 const nativeBlePlxSpec = fs.existsSync(nativeBlePlxSpecPath) ? fs.readFileSync(nativeBlePlxSpecPath, 'utf8') : ''
 const bleModule = fs.readFileSync(path.join(__dirname, '..', 'src/BleModule.ts'), 'utf8')
 const connectionManager = fs.readFileSync(path.join(__dirname, '..', 'src/ConnectionManager.ts'), 'utf8')
-const connectionQueue = fs.readFileSync(path.join(__dirname, '..', 'src/ConnectionQueue.ts'), 'utf8')
+const connectionQueuePath = path.join(__dirname, '..', 'src/ConnectionQueue.ts')
+const reconnectionManagerPath = path.join(__dirname, '..', 'src/ReconnectionManager.ts')
+const gettingStartedDoc = fs.readFileSync(path.join(__dirname, '..', 'docs/GETTING_STARTED.md'), 'utf8')
+const exampleExpoGitignore = fs.readFileSync(path.join(__dirname, '..', 'example-expo/.gitignore'), 'utf8')
 const exampleYarnLock = fs.readFileSync(path.join(__dirname, '..', 'example/yarn.lock'), 'utf8')
 const exampleAndroidBuild = fs.readFileSync(path.join(__dirname, '..', 'example/android/build.gradle'), 'utf8')
 const exampleIosProject = fs.readFileSync(
@@ -232,8 +235,9 @@ describe('package modernization targets', () => {
   test('Expo example enables the BLE config plugin with SDK 57 background defaults', () => {
     expect(fs.existsSync(path.join(__dirname, '..', 'example-expo/pnpm-lock.yaml'))).toBe(true)
     expect(fs.existsSync(path.join(__dirname, '..', 'example-expo/yarn.lock'))).toBe(false)
-    expect(fs.existsSync(path.join(__dirname, '..', 'example-expo/android'))).toBe(false)
-    expect(fs.existsSync(path.join(__dirname, '..', 'example-expo/ios'))).toBe(false)
+    // CNG: generated native trees may exist locally after prebuild, but must not be committed
+    expect(exampleExpoGitignore).toMatch(/^\s*android\/?\s*$/m)
+    expect(exampleExpoGitignore).toMatch(/^\s*ios\/?\s*$/m)
     expect(exampleExpoApp.expo).not.toHaveProperty('splash')
     expect(exampleExpoApp.expo.plugins).toContainEqual([
       '@sfourdrinier/react-native-ble-plx',
@@ -241,7 +245,7 @@ describe('package modernization targets', () => {
         isBackgroundEnabled: true,
         modes: ['central'],
         iosEnableRestoration: true,
-        iosRestorationIdentifier: 'com.withintent.bleplxexample.restore',
+        iosRestorationIdentifier: 'com.sfourdrinier.bleplxexample.restore',
         androidEnableForegroundService: true
       }
     ])
@@ -271,15 +275,69 @@ describe('package modernization targets', () => {
     expect(packageEntrypoint).not.toContain('@deprecated')
     expect(packageEntrypoint).not.toContain('ConnectionQueue')
     expect(packageEntrypoint).not.toContain('ReconnectionManager')
+    expect(packageEntrypoint).not.toContain('ReconnectionOptions')
+    expect(packageEntrypoint).toContain('ConnectionManager')
     const bleManager = fs.readFileSync(path.join(__dirname, '..', 'src/BleManager.ts'), 'utf8')
     const nativeSpec = fs.readFileSync(path.join(__dirname, '..', 'src/NativeBlePlx.ts'), 'utf8')
+    const typeDefinitions = fs.readFileSync(path.join(__dirname, '..', 'src/TypeDefinition.ts'), 'utf8')
 
     expect(bleManager).not.toContain('async enable(')
     expect(bleManager).not.toContain('async disable(')
     expect(nativeSpec).not.toContain('enable(transactionId')
     expect(nativeSpec).not.toContain('disable(transactionId')
+    expect(typeDefinitions).not.toContain('export interface ReconnectionOptions')
     expect(readme).not.toContain('ConnectionQueue (Deprecated)')
     expect(readme).not.toContain('ReconnectionManager (Deprecated)')
+  })
+
+  test('removes unexported legacy ConnectionQueue and ReconnectionManager modules', () => {
+    expect(fs.existsSync(connectionQueuePath)).toBe(false)
+    expect(fs.existsSync(reconnectionManagerPath)).toBe(false)
+    expect(fs.existsSync(path.join(__dirname, 'ConnectionQueue.js'))).toBe(false)
+    expect(fs.existsSync(path.join(__dirname, 'ReconnectionManager.js'))).toBe(false)
+  })
+
+  test('owns documentation and support for this fork', () => {
+    const requiredDocs = [
+      'docs/FORK.md',
+      'docs/CONNECTION_MANAGER.md',
+      'docs/EXPO_PLUGIN.md',
+      'docs/TVOS.md',
+      'docs/GETTING_STARTED.md'
+    ]
+    for (const relativePath of requiredDocs) {
+      expect(fs.existsSync(path.join(__dirname, '..', relativePath))).toBe(true)
+    }
+
+    expect(readme).toContain('## Documentation & Support')
+    expect(readme).toContain('docs/FORK.md')
+    expect(readme).toContain('docs/CONNECTION_MANAGER.md')
+    expect(readme).toContain('docs/EXPO_PLUGIN.md')
+    expect(readme).toContain('docs/TVOS.md')
+    expect(readme).toContain('docs/GETTING_STARTED.md')
+    expect(readme).toContain('https://github.com/sfourdrinier/react-native-ble-plx/issues')
+    expect(readme).not.toContain('withintent.com')
+    expect(readme).not.toContain('dotintent.github.io/react-native-ble-plx')
+    expect(readme).not.toContain('github.com/dotintent/react-native-ble-plx/blob/master/INTRO.md')
+    expect(readme).not.toContain('We can help you!')
+    expect(readme).not.toContain('Contact us at [intent]')
+
+    // Relative README links must resolve for npm consumers (package includes docs/)
+    expect(rootPackage.files).toContain('docs')
+    expect(rootPackage.files).toContain('!docs/superpowers')
+
+    expect(gettingStartedDoc).toContain('@sfourdrinier/react-native-ble-plx')
+    expect(gettingStartedDoc).toMatch(/EXPO_PLUGIN\.md/)
+    expect(gettingStartedDoc).toContain('const requestBluetoothPermission')
+    expect(gettingStartedDoc).not.toContain('github.com/dotintent/react-native-ble-plx?tab=readme-ov-file#expo-sdk-43')
+    expect(gettingStartedDoc).not.toContain('withintent.com')
+
+    // documentation.js does not extract TS class JSDoc reliably; build from bob's JS output.
+    expect(rootPackage.scripts.docs).toContain('lib/module/index.js')
+    expect(rootPackage.scripts.docs).toContain('prepack')
+    expect(rootPackage.scripts.docs).not.toContain('src/index.js')
+    expect(rootPackage.scripts.docs).not.toContain('src/index.ts')
+    expect(rootPackage.scripts.lint).not.toContain('documentation lint index.js')
   })
 
   test('example apps do not call removed Bluetooth adapter toggle APIs', () => {
@@ -299,9 +357,7 @@ describe('package modernization targets', () => {
   })
 
   test('connection cleanup documents intentionally ignored native cancellation errors', () => {
-    for (const source of [connectionManager, connectionQueue]) {
-      expect(source).toContain('ignoreConnectionCancellationError')
-      expect(source).not.toContain('.catch(() => {})')
-    }
+    expect(connectionManager).toContain('ignoreConnectionCancellationError')
+    expect(connectionManager).not.toContain('.catch(() => {})')
   })
 })
