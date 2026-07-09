@@ -12,7 +12,7 @@ const iosTurboModule = fs.existsSync(iosTurboModulePath) ? fs.readFileSync(iosTu
 
 describe('iOS modernization defaults', () => {
   test('uses the Expo SDK 57 iOS deployment target floor', () => {
-    expect(podspec).toContain('s.platforms    = { :ios => "16.4" }')
+    expect(podspec).toContain('s.platforms    = { :ios => "16.4", :tvos => "16.4" }')
     expect(examplePodfile).toContain("platform :ios, '16.4'")
   })
 

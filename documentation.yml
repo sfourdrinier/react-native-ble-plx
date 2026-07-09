@@ -1,6 +1,14 @@
 toc:
   - name: Getting started
     file: ./docs/GETTING_STARTED.md
+  - name: Fork notes
+    file: ./docs/FORK.md
+  - name: ConnectionManager guide
+    file: ./docs/CONNECTION_MANAGER.md
+  - name: Expo config plugin
+    file: ./docs/EXPO_PLUGIN.md
+  - name: tvOS / Apple TV
+    file: ./docs/TVOS.md
   - name: Tutorials
     file: ./docs/TUTORIALS.md
   - name: Main Classes
@@ -12,6 +20,7 @@ toc:
   - Service
   - Characteristic
   - Descriptor
+  - ConnectionManager
   - name: Utils
     description: |
       Utility functions and classes.

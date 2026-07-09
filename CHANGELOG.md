@@ -2,6 +2,25 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- Fork-owned documentation set under `docs/` (`FORK`, `CONNECTION_MANAGER`, `EXPO_PLUGIN`, `TVOS`) and a rewritten Getting Started guide.
+- README documentation and support section owned by this repository (GitHub Issues).
+
+### Changed
+
+- Fixed package `docs` script to build HTML API docs from `lib/module` (after `prepack`) so documentation.js can parse compiled JS from TypeScript sources; removed broken `documentation lint index.js` from `lint`.
+- Included `docs/` in the published package so npm README relative links resolve (excluding agent-only `docs/superpowers`).
+- Expo example identifiers now use the `com.sfourdrinier.bleplxexample` namespace.
+- Expo example `.gitignore` ignores generated CNG `android/` and `ios/` trees.
+
+### Removed
+
+- Deleted unexported legacy `ConnectionQueue` and `ReconnectionManager` modules and their unit tests. Use `ConnectionManager` only.
+- Removed leftover public type export `ReconnectionOptions` (only described the deleted reconnection helper; use `ConnectionOptionsWithRetry` / `AutoReconnectOptions` on `ConnectionManager`).
+
 ## [3.8.1] - 2026-07-09
 
 ### Added

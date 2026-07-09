@@ -17,25 +17,23 @@
 
 It supports:
 
-- [observing device's Bluetooth adapter state](https://github.com/dotintent/react-native-ble-plx/wiki/Bluetooth-Adapter-State)
-- [scanning BLE devices](https://github.com/dotintent/react-native-ble-plx/wiki/Bluetooth-Scanning)
-- [making connections to peripherals](https://github.com/dotintent/react-native-ble-plx/wiki/Device-Connecting)
-- [discovering services/characteristics](https://github.com/dotintent/react-native-ble-plx/wiki/Device-Service-Discovery)
-- [reading](https://github.com/dotintent/react-native-ble-plx/wiki/Characteristic-Reading)/[writing](https://github.com/dotintent/react-native-ble-plx/wiki/Characteristic-Writing) characteristics
-- [observing characteristic notifications/indications](https://github.com/dotintent/react-native-ble-plx/wiki/Characteristic-Notifying)
-- [reading RSSI](https://github.com/dotintent/react-native-ble-plx/wiki/RSSI-Reading)
-- [negotiating MTU](https://github.com/dotintent/react-native-ble-plx/wiki/MTU-Negotiation)
-- [background mode on iOS](<https://github.com/dotintent/react-native-ble-plx/wiki/Background-mode-(iOS)>)
+- Observing the device Bluetooth adapter state
+- Scanning BLE peripherals
+- Connecting to peripherals and discovering services/characteristics
+- Reading, writing, and monitoring characteristics (notifications/indications)
+- Reading RSSI and negotiating MTU
+- Background mode on iOS (including optional state restoration)
 - Android background mode via foreground service
-- `ConnectionManager` retry, timeout, and auto-reconnect helpers
+- [`ConnectionManager`](docs/CONNECTION_MANAGER.md) retry, timeout, and auto-reconnect helpers
+- Apple TV / tvOS as a BLE central (see [tvOS notes](docs/TVOS.md))
 
 It does NOT support:
 
-- bluetooth classic devices.
-- communicating between phones using BLE (Peripheral support)
-- programmatically enabling/disabling the Android Bluetooth adapter. Android 13+ / target SDK 33+ blocks that for normal apps; observe state and prompt the user to enable Bluetooth in system UI instead.
-- [bonding peripherals](https://github.com/dotintent/react-native-ble-plx/wiki/Device-Bonding)
-- [beacons](https://github.com/dotintent/react-native-ble-plx/wiki/=-FAQ:-Beacons)
+- Bluetooth Classic devices
+- Phone-as-peripheral (advertising / GATT server so other phones connect *to* this phone)
+- Programmatic enable/disable of the Android Bluetooth adapter (blocked for normal apps on Android 13+ / target SDK 33+; observe state and prompt the user in system UI)
+- Explicit OS bonding/pairing APIs (`createBond`-style control); pairing is OS-managed when a characteristic requires encryption
+- Beacon ranging / iBeacon / Eddystone SDKs (you may still see advertising packets during a normal scan)
 
 ## Table of Contents
 
@@ -77,7 +75,8 @@ For older React Native versions, use the upstream [dotintent/react-native-ble-pl
 - Android registers through `BaseReactPackage` and depends on `react-android`.
 - The Expo example is CNG-first: `example-expo/android` and `example-expo/ios` are generated, not checked in.
 - The Expo config plugin handles BLE permissions, iOS background modes/restoration, Android foreground service metadata, and native debug flags.
-- Public reliability APIs are consolidated on `ConnectionManager`. Legacy `ConnectionQueue` and `ReconnectionManager` exports were removed.
+- Public reliability APIs are consolidated on `ConnectionManager`. Legacy `ConnectionQueue` and `ReconnectionManager` modules are removed (use `ConnectionManager` only).
+- Documentation and support are owned in this repository (`docs/` + GitHub Issues).
 - Programmatic Android Bluetooth adapter toggling was removed because it is blocked for normal apps targeting Android 13+.
 
 ## Version History
@@ -132,13 +131,21 @@ See [CHANGELOG.md](CHANGELOG.md) and [CHANGELOG-pre-3.0.0.md](CHANGELOG-pre-3.0.
 
 ## Documentation & Support
 
-Interested in React Native project involving Bluetooth Low Energy? [We can help you!](https://withintent.com/?utm_source=github&utm_medium=github&utm_campaign=external_traffic)
+This fork is independently maintained. **Documentation and support live in this repository.**
 
-[Documentation can be found here](https://dotintent.github.io/react-native-ble-plx/).
+| Doc | Description |
+| --- | ----------- |
+| [Getting started](docs/GETTING_STARTED.md) | BLE basics with this library |
+| [Fork notes](docs/FORK.md) | What changed vs upstream, floors, and roadmap posture |
+| [ConnectionManager](docs/CONNECTION_MANAGER.md) | Retry, timeout, and auto-reconnect |
+| [Expo config plugin](docs/EXPO_PLUGIN.md) | Plugin options and CNG notes |
+| [tvOS / Apple TV](docs/TVOS.md) | Apple TV support and limits |
+| [Tutorials](docs/TUTORIALS.md) | Extra usage patterns |
+| [Release process](RELEASE.md) | How releases are verified and published |
 
-[Quick introduction can be found here](https://github.com/dotintent/react-native-ble-plx/blob/master/INTRO.md)
+**Support:** open an issue on [sfourdrinier/react-native-ble-plx](https://github.com/sfourdrinier/react-native-ble-plx/issues).
 
-Contact us at [intent](https://withintent.com/contact-us/?utm_source=github&utm_medium=github&utm_campaign=external_traffic).
+Historical upstream origin (API concepts may lag this fork): [dotintent/react-native-ble-plx](https://github.com/dotintent/react-native-ble-plx).
 
 ## Configuration & Installation
 
@@ -566,7 +573,7 @@ await connectionManager.connect(deviceId, {
 
 ### ConnectionManager (Recommended)
 
-**Unified connection management** with retry logic, timeout support, and automatic reconnection - all in one manager:
+**Unified connection management** with retry logic, timeout support, and automatic reconnection — all in one manager. Full guide: [docs/CONNECTION_MANAGER.md](docs/CONNECTION_MANAGER.md).
 
 ```typescript
 import { BleManager, ConnectionManager } from '@sfourdrinier/react-native-ble-plx';

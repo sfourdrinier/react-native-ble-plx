@@ -1,29 +1,45 @@
-<h1 align="center" >
-  <a href="https://github.com/dotintent/react-native-ble-plx"><img style="max-height: 300px;" alt="react-native-ble-plx" src="logo.png" /></a>
-</h1>
+# Getting started
 
-This guide is an introduction to BLE stack and APIs exported by this library. For further information you can refer to
+This guide introduces the BLE stack and APIs exported by **`@sfourdrinier/react-native-ble-plx`**.
 
-- tutorials and API reference available in this documentation,
-- [GitHub wiki](https://github.com/dotintent/react-native-ble-plx/wiki),
-- example app available in the repository.
+For more detail:
+
+- [Fork notes](./FORK.md) — platforms, floors, and what this fork owns
+- [Expo config plugin](./EXPO_PLUGIN.md) — plugin options and CNG
+- [ConnectionManager](./CONNECTION_MANAGER.md) — retries and auto-reconnect
+- [tvOS](./TVOS.md) — Apple TV notes
+- [Tutorials](./TUTORIALS.md)
+- Example apps in this repository (`example/`, `example-expo/`)
 
 ### Install and prepare package
 
-In the case of Expo, you will need to prepare a plugin config, detailed information can be found here: https://github.com/dotintent/react-native-ble-plx?tab=readme-ov-file#expo-sdk-43
-In the case of react native CLI you need to configure two environments:
+```bash
+pnpm add @sfourdrinier/react-native-ble-plx
+# or: npm install @sfourdrinier/react-native-ble-plx
+```
 
-- [iOS](https://github.com/dotintent/react-native-ble-plx?tab=readme-ov-file#ios-example-setup)
-- [Android](https://github.com/dotintent/react-native-ble-plx?tab=readme-ov-file#android-example-setup)
+**Expo (SDK 57+):** add the config plugin and rebuild native code. Full options: [EXPO_PLUGIN.md](./EXPO_PLUGIN.md). Minimal config:
+
+```json
+{
+  "expo": {
+    "plugins": ["@sfourdrinier/react-native-ble-plx"]
+  }
+}
+```
+
+This package cannot run in Expo Go (custom native code is required).
+
+**React Native CLI:** see the root [README](../README.md) sections for manual iOS and Android setup.
 
 ### Creating BLE Manager
 
-First step is to create BleManager instance which is an entry point to all available APIs. Make sure to create it after application started its execution. We can keep it as a static reference by either creating our own abstraction (ex.1) or by simply creating a new instance (ex.2).
+First step is to create a `BleManager` instance, the entry point to all APIs. Create it after the app has started. You can keep a static reference via your own abstraction (ex.1) or a simple module export (ex.2).
 
 #### Ex.1
 
 ```ts
-import { BleManager } from 'react-native-ble-plx'
+import { BleManager } from '@sfourdrinier/react-native-ble-plx'
 
 // create your own singleton class
 class BLEServiceInstance {
@@ -40,25 +56,29 @@ export const BLEService = new BLEServiceInstance()
 #### Ex.2
 
 ```ts
-import { BleManager } from 'react-native-ble-plx'
+import { BleManager } from '@sfourdrinier/react-native-ble-plx'
 
 export const manager = new BleManager()
 ```
 
-When you don't need any BLE functionality you can destroy created instance by calling `manager.destroy()` function. You can then recreate `BleManager` later on.
+When you don't need BLE functionality you can destroy the instance with `manager.destroy()`. You can recreate `BleManager` later.
+
+> Note: `BleManager` is a singleton. Constructing again returns the existing instance until `destroy()` is called.
 
 ### Ask for permissions
 
-Check if you requested following permissions
+On Android, request the permissions your target SDK requires, typically including:
 
-- PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-- PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN (necessary for api 31+ )
-- PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT (necessary for api 31+ )
+- `PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION` (older Android / scan rules)
+- `PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN` (API 31+)
+- `PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT` (API 31+)
 
-eg.
+Example:
 
 ```js
-requestBluetoothPermission = async () => {
+import { PermissionsAndroid, Platform } from 'react-native'
+
+const requestBluetoothPermission = async () => {
   if (Platform.OS === 'ios') {
     return true
   }
@@ -84,13 +104,12 @@ requestBluetoothPermission = async () => {
     }
   }
 
-  this.showErrorToast('Permission have not been granted')
-
+  console.warn('Bluetooth permissions have not been granted')
   return false
 }
 ```
 
-With `neverForLocation` flag active, you can remove `ACCESS_FINE_LOCATION` permissions ask e.g.:
+With the plugin `neverForLocation` flag (and matching manifest flags), you can omit the location permission request on modern Android — test carefully:
 
 ```js
 const result = await PermissionsAndroid.requestMultiple([
@@ -106,8 +125,7 @@ return (
 
 ### Waiting for Powered On state
 
-When iOS application launches BLE stack is not immediately available and we need to check its status.
-To detect current state and following state changes we can use `onStateChange()` function:
+On iOS the BLE stack is not always immediately available at launch. Use `onStateChange()`:
 
 ```js
 React.useEffect(() => {
@@ -123,8 +141,7 @@ React.useEffect(() => {
 
 ### Scanning devices
 
-Devices needs to be scanned first to be able to connect to them. There is a simple function
-which allows only one callback to be registered to handle detected devices:
+Devices must be scanned before connecting. Only one scan callback may be registered at a time:
 
 ```js
 function scanAndConnect() {
@@ -146,21 +163,15 @@ function scanAndConnect() {
 }
 ```
 
-It is worth to note that scanning function may emit one device multiple times. However
-when device is connected it won't broadcast and needs to be disconnected from central
-to be scanned again. Only one scanning listener can be registered.
+Scanning may emit the same device multiple times. A connected peripheral typically stops advertising until it disconnects.
 
-#### Bluetooth 5 Advertisements in Android
+#### Bluetooth 5 advertisements on Android
 
-To see devices that use Bluetooth 5 Advertising Extension you have to set the `legacyScan` variable to `false` in {@link #scanoptions|Scan options} when you are starting {@link #blemanagerstartdevicescan|BleManager.startDeviceScan()},
+To see devices that use Bluetooth 5 Advertising Extensions, set `legacyScan: false` in scan options when calling `BleManager.startDeviceScan()`.
 
 ### Connecting and discovering services and characteristics
 
-Once device is scanned it is in disconnected state. We need to connect to it and discover
-all services and characteristics it contains. Services may be understood
-as containers grouping characteristics based on their meaning. Characteristic is a
-container for a value which can be read, written and monitored based on available
-capabilities. For example connection may look like this:
+After scan, the peripheral is still disconnected. Connect, then discover services and characteristics before interacting with values:
 
 ```js
 device
@@ -176,18 +187,20 @@ device
   })
 ```
 
-Discovery of services and characteristics is required to be executed once per connection\*.
-It can be a long process depending on number of characteristics and services available.
+For production connect/retry/reconnect flows, prefer [`ConnectionManager`](./CONNECTION_MANAGER.md).
 
-\* Extremely rarely, when peripheral's service/characteristic set can change during a connection
-an additional service discovery may be needed.
+Discovery is required once per connection (except rare firmware cases where the GATT table changes mid-connection).
 
 ### Read, write and monitor values
 
-After successful discovery of services you can call
+After successful discovery you can call methods such as:
 
-- {@link #blemanagerreadcharacteristicfordevice|BleManager.readCharacteristicForDevice()},
-- {@link #blemanagerwritecharacteristicwithresponsefordevice|BleManager.writeCharacteristicWithResponseForDevice()},
-- {@link #blemanagermonitorcharacteristicfordevice|BleManager.monitorCharacteristicForDevice()}
+- `BleManager.readCharacteristicForDevice()`
+- `BleManager.writeCharacteristicWithResponseForDevice()`
+- `BleManager.monitorCharacteristicForDevice()`
 
-and other functions which are described in detail in documentation. You can also check our _example app_ which is available in the repository.
+See TypeScript types in `src/` and the example apps for fuller usage.
+
+### Support
+
+Questions and bugs: [GitHub Issues](https://github.com/sfourdrinier/react-native-ble-plx/issues).

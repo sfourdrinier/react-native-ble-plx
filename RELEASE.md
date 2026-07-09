@@ -36,7 +36,7 @@ Update release metadata:
    - iOS deployment target 16.4.
    - Xcode 16.1+ for iOS builds.
    - Removal of programmatic Android Bluetooth adapter toggle APIs.
-   - Removal of legacy `ConnectionQueue` and `ReconnectionManager` public exports.
+   - Removal of legacy `ConnectionQueue` and `ReconnectionManager` (public exports and source modules). Use `ConnectionManager` only.
    - Background reconnect and promise rejection fixes.
 
 Do not run `pnpm docs` as a release requirement unless documentation generation has been intentionally restored and reviewed. The current release gate is source, package, Expo CNG, and native build validation.

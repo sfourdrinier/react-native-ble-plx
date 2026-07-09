@@ -1,8 +1,9 @@
 pre-commit:
   parallel: true
   commands:
+    # Use staged files only. @{push} fails on new branches with no upstream
+    # and with push.default=simple when the local branch name differs from remote.
     lint:
-      files: git diff --name-only @{push}
       glob: '*.{js,ts,jsx,tsx}'
       run: pnpm lint
 commit-msg:
