@@ -272,14 +272,17 @@ describe('package modernization targets', () => {
     expect(packageEntrypoint).not.toContain('@deprecated')
     expect(packageEntrypoint).not.toContain('ConnectionQueue')
     expect(packageEntrypoint).not.toContain('ReconnectionManager')
+    expect(packageEntrypoint).not.toContain('ReconnectionOptions')
     expect(packageEntrypoint).toContain('ConnectionManager')
     const bleManager = fs.readFileSync(path.join(__dirname, '..', 'src/BleManager.ts'), 'utf8')
     const nativeSpec = fs.readFileSync(path.join(__dirname, '..', 'src/NativeBlePlx.ts'), 'utf8')
+    const typeDefinitions = fs.readFileSync(path.join(__dirname, '..', 'src/TypeDefinition.ts'), 'utf8')
 
     expect(bleManager).not.toContain('async enable(')
     expect(bleManager).not.toContain('async disable(')
     expect(nativeSpec).not.toContain('enable(transactionId')
     expect(nativeSpec).not.toContain('disable(transactionId')
+    expect(typeDefinitions).not.toContain('export interface ReconnectionOptions')
     expect(readme).not.toContain('ConnectionQueue (Deprecated)')
     expect(readme).not.toContain('ReconnectionManager (Deprecated)')
   })
@@ -316,13 +319,21 @@ describe('package modernization targets', () => {
     expect(readme).not.toContain('We can help you!')
     expect(readme).not.toContain('Contact us at [intent]')
 
+    // Relative README links must resolve for npm consumers (package includes docs/)
+    expect(rootPackage.files).toContain('docs')
+    expect(rootPackage.files).toContain('!docs/superpowers')
+
     expect(gettingStartedDoc).toContain('@sfourdrinier/react-native-ble-plx')
     expect(gettingStartedDoc).toMatch(/EXPO_PLUGIN\.md/)
+    expect(gettingStartedDoc).toContain('const requestBluetoothPermission')
     expect(gettingStartedDoc).not.toContain('github.com/dotintent/react-native-ble-plx?tab=readme-ov-file#expo-sdk-43')
     expect(gettingStartedDoc).not.toContain('withintent.com')
 
-    expect(rootPackage.scripts.docs).toContain('src/index.ts')
+    // documentation.js does not extract TS class JSDoc reliably; build from bob's JS output.
+    expect(rootPackage.scripts.docs).toContain('lib/module/index.js')
+    expect(rootPackage.scripts.docs).toContain('prepack')
     expect(rootPackage.scripts.docs).not.toContain('src/index.js')
+    expect(rootPackage.scripts.docs).not.toContain('src/index.ts')
     expect(rootPackage.scripts.lint).not.toContain('documentation lint index.js')
   })
 

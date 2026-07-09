@@ -36,6 +36,7 @@ Older RN/Expo versions should stay on upstream or an older fork tag.
 
 - Programmatic Android Bluetooth adapter enable/disable (blocked for normal apps on modern Android)
 - Public exports of legacy `ConnectionQueue` and `ReconnectionManager` (use `ConnectionManager` only; the source modules were removed)
+- Leftover `ReconnectionOptions` type export (use `ConnectionOptionsWithRetry` / `AutoReconnectOptions` from `ConnectionManager`)
 
 ## Package manager
 

@@ -76,7 +76,9 @@ On Android, request the permissions your target SDK requires, typically includin
 Example:
 
 ```js
-requestBluetoothPermission = async () => {
+import { PermissionsAndroid, Platform } from 'react-native'
+
+const requestBluetoothPermission = async () => {
   if (Platform.OS === 'ios') {
     return true
   }
@@ -102,8 +104,7 @@ requestBluetoothPermission = async () => {
     }
   }
 
-  this.showErrorToast('Permission have not been granted')
-
+  console.warn('Bluetooth permissions have not been granted')
   return false
 }
 ```

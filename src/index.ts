@@ -21,6 +21,5 @@ export type {
   ConnectionOptions,
   BleManagerOptions,
   BleRestoredState,
-  BackgroundModeOptions,
-  ReconnectionOptions
+  BackgroundModeOptions
 } from './TypeDefinition'
