@@ -112,8 +112,9 @@ interface DeviceConnectionState {
 /**
  * ConnectionManager unifies connection queuing, retry logic, and automatic reconnection.
  *
- * This manager replaces both ConnectionQueue and ReconnectionManager with a single,
- * unified state machine per device that prevents conflicts and connection storms.
+ * This manager is the single supported reliability API (older ConnectionQueue /
+ * ReconnectionManager helpers were removed). It keeps a unified state machine per
+ * device to prevent conflicts and connection storms.
  *
  * Features:
  * - Single connection state per device (no competing retry engines)

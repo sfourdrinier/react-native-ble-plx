@@ -2,6 +2,23 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- Fork-owned documentation set under `docs/` (`FORK`, `CONNECTION_MANAGER`, `EXPO_PLUGIN`, `TVOS`) and a rewritten Getting Started guide.
+- README documentation and support section owned by this repository (GitHub Issues).
+
+### Changed
+
+- Fixed package `docs` script to build from `src/index.ts` and removed the broken `documentation lint index.js` step from `lint`.
+- Expo example identifiers now use the `com.sfourdrinier.bleplxexample` namespace.
+- Expo example `.gitignore` ignores generated CNG `android/` and `ios/` trees.
+
+### Removed
+
+- Deleted unexported legacy `ConnectionQueue` and `ReconnectionManager` modules and their unit tests. Use `ConnectionManager` only.
+
 ## [3.8.1] - 2026-07-09
 
 ### Added
