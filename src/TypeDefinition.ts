@@ -332,5 +332,3 @@ export interface BackgroundModeOptions {
    */
   notificationText?: string
 }
-
-
