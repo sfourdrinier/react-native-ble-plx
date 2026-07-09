@@ -2,6 +2,22 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.8.1] - 2026-07-09
+
+### Added
+
+- Added Apple TV / tvOS support for the iOS pod by vendoring MultiplatformBleAdapter 0.2.0 into the BlePlx module.
+- Added tvOS CoreBluetooth central support while preserving the existing iOS module surface.
+
+### Changed
+
+- Merged the vendored BLE adapter sources into the pod's own module so the native module provider can be found at runtime on tvOS.
+- Guarded iOS state restoration code with `#if os(iOS)` because CoreBluetooth restoration is not available on tvOS.
+
+### Fixed
+
+- Fixed the 3.8.0 tvOS crash where the runtime could not find the `BlePlx` module provider.
+
 ## [3.8.0] - 2026-07-08
 
 ### Added
