@@ -11,19 +11,24 @@ Pod::Spec.new do |s|
   s.license      = package["license"]
   s.authors      = package["author"]
 
-  s.platforms    = { :ios => "16.4" }
+  s.platforms    = { :ios => "16.4", :tvos => "16.4" }
   s.source       = { :git => "https://github.com/sfourdrinier/react-native-ble-plx.git", :tag => "#{s.version}" }
 
-  s.source_files = "ios/**/*.{h,m,mm}"
+  # MultiplatformBleAdapter (0.2.0) is vendored under ios/vendor and compiled into this
+  # pod's own Swift module (module_name "BlePlx", matching the "BlePlx-Swift.h" import in
+  # BlePlx.mm) instead of being an external, iOS-only pod dependency. This lets BLE build
+  # for both iOS and tvOS. CoreBluetooth central (scan/connect/GATT) is available on tvOS;
+  # only state restoration is not, and is guarded with #if os(iOS).
+  s.module_name  = "BlePlx"
+  s.source_files = "ios/*.{h,m,mm}", "ios/vendor/MultiplatformBleAdapter/**/*.swift"
   s.resource_bundles = { 'BlePlx' => ['ios/PrivacyInfo.xcprivacy'] }
-  s.dependency "MultiplatformBleAdapter", "0.2.0"
   s.compiler_flags = "-DMULTIPLATFORM_BLE_ADAPTER -fmodules -fcxx-modules"
 
-  # Optional iOS BLE restoration support (off by default).
-  # Enable via the Expo config plugin: `iosEnableRestoration: true`
-  # This subspec includes a bundled BleRestorationRegistry so it works standalone.
-  # For advanced multi-adapter routing, host apps can include their own registry.
+  # Optional BLE state restoration support (off by default). iOS-only: CoreBluetooth
+  # state restoration APIs are API_UNAVAILABLE(tvos). The iOS-only platform on this
+  # subspec keeps it out of the tvOS build.
   s.subspec "Restoration" do |ss|
+    ss.platforms = { :ios => "16.4" }
     ss.source_files = "ios/Restoration/**/*.{h,m,mm,swift}"
     # No external dependency - BleRestorationRegistry is now bundled
   end

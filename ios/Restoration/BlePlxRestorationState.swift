@@ -1,5 +1,6 @@
 import Foundation
-import MultiplatformBleAdapter
+// MultiplatformBleAdapter is vendored into this pod's own module, so BleClientManager
+// is available in-module without an external import.
 
 @objc(BlePlxRestorationState)
 public final class BlePlxRestorationState: NSObject {

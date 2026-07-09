@@ -16,7 +16,8 @@
 
 import Foundation
 import CoreBluetooth
-import MultiplatformBleAdapter
+// MultiplatformBleAdapter is vendored into this pod's own module, so BleClientManager
+// is available in-module without an external import.
 
 /// Restoration adapter for react-native-ble-plx that handles iOS BLE state restoration.
 ///
