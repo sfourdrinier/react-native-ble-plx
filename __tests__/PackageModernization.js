@@ -53,6 +53,9 @@ describe('package modernization targets', () => {
     expect(rootPackage.devDependencies.expo).toBe('^57.0.4')
     expect(rootPackage.devDependencies.react).toBe('19.2.3')
     expect(rootPackage.devDependencies['react-native']).toBe('0.86.0')
+    // RN 0.86+ ships TypeScript types; DefinitelyTyped @types/react-native is obsolete and harmful.
+    expect(rootPackage.devDependencies).not.toHaveProperty('@types/react-native')
+    expect(rootPackage.devDependencies['@react-native/typescript-config']).toBe('0.86.0')
     expect(rootPackage.devDependencies.eslint).toBe('^9.39.1')
     expect(rootPackage.devDependencies['@react-navigation/native']).toBe('^7.3.8')
     expect(rootPackage.devDependencies['@react-navigation/native-stack']).toBe('^7.17.10')

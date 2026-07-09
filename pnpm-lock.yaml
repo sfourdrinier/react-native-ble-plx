@@ -65,9 +65,6 @@ importers:
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.6
-      '@types/react-native':
-        specifier: 0.70.0
-        version: 0.70.0
       '@types/react-native-base64':
         specifier: ^0.2.2
         version: 0.2.2
@@ -2496,9 +2493,6 @@ packages:
 
   '@types/react-native-base64@0.2.2':
     resolution: {integrity: sha512-obr+/L9Jaxdr+xCVS/IQcYgreg5xtnui4Wqw/G1acBUtW2CnqVJj6lK6F/5F3+5d2oZEo5xDDLqy8GVn2HbEmw==}
-
-  '@types/react-native@0.70.0':
-    resolution: {integrity: sha512-yBN7qJDfs0Vwr34NyfW1SWzalHQoYtpUWf0t4UJY9C5ft58BRr46+r92I0v+l3QX4VNsSRMHVAAWqLLCbIkM+g==}
 
   '@types/react@19.2.6':
     resolution: {integrity: sha512-p/jUvulfgU7oKtj6Xpk8cA2Y1xKTtICGpJYeJXz2YVO2UcvjQgeRMLDGfDeqeRW2Ta+0QNFwcc8X3GH8SxZz6w==}
@@ -10161,7 +10155,7 @@ snapshots:
       '@types/node': 20.5.1
       chalk: 4.1.2
       cosmiconfig: 8.3.6(typescript@5.8.3)
-      cosmiconfig-typescript-loader: 4.4.0(@types/node@20.5.1)(cosmiconfig@8.3.6(typescript@5.8.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.8.3))(typescript@5.8.3)
+      cosmiconfig-typescript-loader: 4.4.0(@types/node@20.5.1)(cosmiconfig@8.3.6(typescript@5.8.3))(ts-node@10.9.2(@types/node@20.5.1)(typescript@5.8.3))(typescript@5.8.3)
       lodash.isplainobject: 4.0.6
       lodash.merge: 4.6.2
       lodash.uniq: 4.5.0
@@ -11593,10 +11587,6 @@ snapshots:
 
   '@types/react-native-base64@0.2.2': {}
 
-  '@types/react-native@0.70.0':
-    dependencies:
-      '@types/react': 19.2.6
-
   '@types/react@19.2.6':
     dependencies:
       csstype: 3.2.3
@@ -12932,7 +12922,7 @@ snapshots:
 
   core-util-is@1.0.3: {}
 
-  cosmiconfig-typescript-loader@4.4.0(@types/node@20.5.1)(cosmiconfig@8.3.6(typescript@5.8.3))(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.8.3))(typescript@5.8.3):
+  cosmiconfig-typescript-loader@4.4.0(@types/node@20.5.1)(cosmiconfig@8.3.6(typescript@5.8.3))(ts-node@10.9.2(@types/node@20.5.1)(typescript@5.8.3))(typescript@5.8.3):
     dependencies:
       '@types/node': 20.5.1
       cosmiconfig: 8.3.6(typescript@5.8.3)

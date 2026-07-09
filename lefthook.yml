@@ -1,7 +1,7 @@
 pre-commit:
   parallel: true
   commands:
-    # Use staged files only. @{push} fails on new branches with no upstream
+    # Use full package lint. @{push} fails on new branches with no upstream
     # and with push.default=simple when the local branch name differs from remote.
     lint:
       glob: '*.{js,ts,jsx,tsx}'
