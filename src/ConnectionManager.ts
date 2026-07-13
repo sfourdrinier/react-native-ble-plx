@@ -13,7 +13,9 @@ export interface ConnectionOptionsWithRetry {
   connectionOptions?: ConnectionOptions
 
   /**
-   * Maximum number of retry attempts (default: 3)
+   * Maximum number of connection attempts, including the first try (default: 3).
+   * Example: `maxRetries: 1` means a single attempt with no retries;
+   * `maxRetries: 3` means up to three total attempts.
    */
   maxRetries?: number
 

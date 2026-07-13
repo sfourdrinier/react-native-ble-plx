@@ -19,6 +19,8 @@
     "app.plugin.js",
     "*.podspec",
     "!docs/superpowers",
+    "!docs/index.html",
+    "!docs/assets",
     "!lib/typescript/example",
     "!lib/typescript/example-expo",
     "!ios/build",

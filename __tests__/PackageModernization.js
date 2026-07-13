@@ -27,6 +27,7 @@ const connectionManager = fs.readFileSync(path.join(__dirname, '..', 'src/Connec
 const connectionQueuePath = path.join(__dirname, '..', 'src/ConnectionQueue.ts')
 const reconnectionManagerPath = path.join(__dirname, '..', 'src/ReconnectionManager.ts')
 const gettingStartedDoc = fs.readFileSync(path.join(__dirname, '..', 'docs/GETTING_STARTED.md'), 'utf8')
+const connectionManagerDoc = fs.readFileSync(path.join(__dirname, '..', 'docs/CONNECTION_MANAGER.md'), 'utf8')
 const exampleExpoGitignore = fs.readFileSync(path.join(__dirname, '..', 'example-expo/.gitignore'), 'utf8')
 const exampleYarnLock = fs.readFileSync(path.join(__dirname, '..', 'example/yarn.lock'), 'utf8')
 const exampleAndroidBuild = fs.readFileSync(path.join(__dirname, '..', 'example/android/build.gradle'), 'utf8')
@@ -322,15 +323,23 @@ describe('package modernization targets', () => {
     expect(readme).not.toContain('We can help you!')
     expect(readme).not.toContain('Contact us at [intent]')
 
-    // Relative README links must resolve for npm consumers (package includes docs/)
+    // Relative README links must resolve for npm consumers (package includes markdown docs/)
     expect(rootPackage.files).toContain('docs')
     expect(rootPackage.files).toContain('!docs/superpowers')
+    // Generated HTML API output is not published: documentation.js mishandles TS enum members.
+    expect(rootPackage.files).toContain('!docs/index.html')
+    expect(rootPackage.files).toContain('!docs/assets')
 
     expect(gettingStartedDoc).toContain('@sfourdrinier/react-native-ble-plx')
     expect(gettingStartedDoc).toMatch(/EXPO_PLUGIN\.md/)
     expect(gettingStartedDoc).toContain('const requestBluetoothPermission')
     expect(gettingStartedDoc).not.toContain('github.com/dotintent/react-native-ble-plx?tab=readme-ov-file#expo-sdk-43')
     expect(gettingStartedDoc).not.toContain('withintent.com')
+
+    // maxRetries is total attempts including the first (not "retries after first only")
+    expect(connectionManagerDoc).toMatch(/Total.*connection attempts|total connection attempts/i)
+    expect(connectionManagerDoc).not.toContain('Attempts after the first try')
+    expect(connectionManager).toMatch(/including the first try/i)
 
     // documentation.js does not extract TS class JSDoc reliably; build from bob's JS output.
     expect(rootPackage.scripts.docs).toContain('lib/module/index.js')
