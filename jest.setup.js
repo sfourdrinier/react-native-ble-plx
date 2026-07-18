@@ -8,6 +8,12 @@ const nativeBlePlx = {
   })
 }
 
+Object.defineProperty(nativeBlePlx, 'createClient', {
+  configurable: true,
+  enumerable: false,
+  value: jest.fn()
+})
+
 jest.mock('./src/NativeBlePlx', () => ({
   __esModule: true,
   default: nativeBlePlx

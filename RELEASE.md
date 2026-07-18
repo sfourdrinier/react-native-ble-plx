@@ -2,7 +2,11 @@
 
 This fork publishes as `@sfourdrinier/react-native-ble-plx`.
 
-The next planned release is `3.8.0`, which is the Expo SDK 57 / React Native 0.86 modernization release. It uses the RN 0.86 TurboModule/Fabric runtime, uses the generated TurboModule spec, and treats the Expo example as CNG source: `example-expo/android` and `example-expo/ios` are generated locally and must not be committed.
+The current release target is `3.8.2`, a React Native 0.86 TurboModule bridge fix. It preserves non-enumerable generated native methods such as `createClient` when constructing the JavaScript BLE module bridge.
+
+Before publishing `3.8.2`, run `pnpm verify:release`, inspect `npm pack --dry-run`, then publish the package with `pnpm publish --access public --no-git-checks`. Verify the registry reports `3.8.2` and tag the exact published commit as `v3.8.2`.
+
+The historical `3.8.0` modernization procedure is retained below for its full SDK 57 / React Native 0.86 migration record.
 
 ## 1. Merge The Modernization PR
 
@@ -71,7 +75,7 @@ cd android
 npm pack --dry-run
 ```
 
-`pnpm verify:release` sets `NODE_OPTIONS=--max-old-space-size=8192` when no heap setting exists, refreshes the local `file:..` package copy inside the Expo example before installing dependencies, and moves generated native projects out of the source tree after Android validation. Confirm generated output is not staged before committing:
+`pnpm verify:release` sets `NODE_OPTIONS=--max-old-space-size=8192` when no heap setting exists, refreshes the local `link:..` package inside the Expo example before installing dependencies, and moves generated native projects out of the source tree after Android validation. Confirm generated output is not staged before committing:
 
 ```bash
 git status --short
