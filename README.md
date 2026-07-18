@@ -81,6 +81,10 @@ For older React Native versions, use the upstream [dotintent/react-native-ble-pl
 
 ## Version History
 
+**3.8.2 (This Fork)**
+
+- Fixes the React Native 0.86 TurboModule bridge so non-enumerable native BLE methods, including `createClient`, remain callable at runtime.
+
 **3.8.0 (This Fork)**
 
 - Modernized for Expo SDK 57 and React Native 0.86.
@@ -137,6 +141,7 @@ This fork is independently maintained. **Documentation and support live in this 
 | --- | ----------- |
 | [Getting started](docs/GETTING_STARTED.md) | BLE basics with this library |
 | [Fork notes](docs/FORK.md) | What changed vs upstream, floors, and roadmap posture |
+| [Roadmap](ROADMAP.md) | Phased plan: reliability, features, native ownership, multiplatform |
 | [ConnectionManager](docs/CONNECTION_MANAGER.md) | Retry, timeout, and auto-reconnect |
 | [Expo config plugin](docs/EXPO_PLUGIN.md) | Plugin options and CNG notes |
 | [tvOS / Apple TV](docs/TVOS.md) | Apple TV support and limits |

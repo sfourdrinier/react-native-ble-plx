@@ -4,6 +4,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.8.2] - 2026-07-17
+
+### Fixed
+
+- Preserved non-enumerable React Native 0.86 TurboModule methods when constructing the JavaScript BLE module bridge, restoring calls such as `createClient`.
+
 ### Added
 
 - Fork-owned documentation set under `docs/` (`FORK`, `CONNECTION_MANAGER`, `EXPO_PLUGIN`, `TVOS`) and a rewritten Getting Started guide.

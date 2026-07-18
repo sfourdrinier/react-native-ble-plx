@@ -889,9 +889,9 @@ export interface BleModuleInterface {
  */
 const NativeBlePlxConstants = NativeBlePlx.getConstants()
 
-export const BleModule: BleModuleInterface = {
-  ...NativeBlePlx,
-  ...NativeBlePlxConstants
-}
+// TurboModule methods are non-enumerable in React Native 0.86. A prototype
+// retains those methods while constants stay directly available to consumers.
+export const BleModule: BleModuleInterface = Object.create(NativeBlePlx)
+Object.assign(BleModule, NativeBlePlxConstants)
 
 export const EventEmitter = NativeEventEmitter

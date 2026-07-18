@@ -263,9 +263,9 @@ describe('package modernization targets', () => {
 
     expect(bleModule).toContain("import NativeBlePlx from './NativeBlePlx'")
     expect(bleModule).toContain('const NativeBlePlxConstants = NativeBlePlx.getConstants()')
-    expect(bleModule).toContain('export const BleModule: BleModuleInterface = {')
-    expect(bleModule).toContain('...NativeBlePlx')
-    expect(bleModule).toContain('...NativeBlePlxConstants')
+    expect(bleModule).toContain('export const BleModule: BleModuleInterface = Object.create(NativeBlePlx)')
+    expect(bleModule).toContain('Object.assign(BleModule, NativeBlePlxConstants)')
+    expect(bleModule).not.toContain('...NativeBlePlx')
     expect(bleModule).not.toContain('as unknown as BleModuleInterface')
     expect(bleModule).not.toContain('NativeModules.BlePlx')
   })
