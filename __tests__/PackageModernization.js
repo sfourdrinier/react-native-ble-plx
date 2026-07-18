@@ -126,11 +126,11 @@ describe('package modernization targets', () => {
     expect(dependabot).toContain('schedule:')
   })
 
-  test('release documentation matches the 3.8.0 Expo SDK 57 process', () => {
+  test('release documentation is a reusable Expo SDK 57 release process', () => {
     expect(rootPackage.scripts['verify:release']).toBe('bash scripts/verify-release.sh')
     expect(fs.existsSync(releaseVerifyScriptPath)).toBe(true)
     expect(releaseDoc).toContain('pnpm verify:release')
-    expect(releaseDoc).toContain('3.8.0')
+    expect(releaseDoc).toContain('Current released version: `3.8.3`')
     expect(releaseDoc).toContain('Expo SDK 57')
     expect(releaseDoc).toContain('React Native 0.86')
     expect(releaseDoc).toContain('pnpm test:package')
@@ -143,8 +143,12 @@ describe('package modernization targets', () => {
     expect(releaseDoc).toContain('npx expo prebuild --clean --no-install')
     expect(releaseDoc).toContain('./gradlew :app:assembleDebug --no-daemon --console=plain')
     expect(releaseDoc).toContain('npm pack --dry-run')
-    expect(releaseDoc).toContain('pnpm publish --access public --no-git-checks')
-    expect(releaseDoc).toContain('v3.8.0')
+    expect(releaseDoc).toContain('npm publish --access public')
+    expect(releaseDoc).toContain('v<version>')
+    expect(releaseDoc).toContain('file:..')
+    expect(releaseDoc).toContain('ROADMAP.md')
+    expect(releaseDoc).toContain('gitHead')
+    expect(releaseDoc).toContain('cannot be reused')
     expect(releaseDoc).toContain('example-expo/android')
     expect(releaseDoc).toContain('example-expo/ios')
     expect(releaseDoc).not.toContain('Generate new documentation via `pnpm run docs`')
