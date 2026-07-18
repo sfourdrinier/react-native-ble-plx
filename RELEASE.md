@@ -2,58 +2,57 @@
 
 This fork publishes as `@sfourdrinier/react-native-ble-plx`.
 
-The current release target is `3.8.3`. It packages the roadmap referenced by the npm README and aligns the CocoaPods source tag with the `v3.8.3` GitHub release tag.
+## Current Release
 
-Before publishing `3.8.3`, run `pnpm verify:release`, inspect `npm pack --dry-run`, then publish the package with `pnpm publish --access public --no-git-checks`. Verify the registry reports `3.8.3` and tag the exact published commit as `v3.8.3`.
+Current released version: `3.8.3`.
 
-The historical `3.8.0` modernization procedure is retained below for its full SDK 57 / React Native 0.86 migration record.
+- npm package: `@sfourdrinier/react-native-ble-plx@3.8.3`
+- Git tag: `v3.8.3`
+- Source commit: `3e875afc841cf7f11c4727c2ba9460566634ea53`
+- GitHub release: `v3.8.3`
 
-## 1. Merge The Modernization PR
+3.8.3 includes the root roadmap in the npm package and makes the CocoaPods source tag use the same `v<version>` convention as GitHub releases.
 
-1. Confirm the modernization PR targets `master` and CI is green.
-2. Review the diff for generated native output. `example-expo/android` and `example-expo/ios` must not be present in the source diff.
-3. Merge the PR to `master`.
-4. Pull a fresh local `master`:
+## Release Rules
+
+- Release from a clean, merged `master` commit. The npm package `gitHead`, Git tag, and GitHub release must all identify that exact commit.
+- Pick a new SemVer version before creating the release branch. npm package versions are immutable: once a version is published, it cannot be reused, even after unpublishing.
+- Keep the support floor aligned with React Native 0.86+ and Expo SDK 57+.
+- Do not commit generated `example-expo/android` or `example-expo/ios` directories, native build products, or validation-only lockfile churn.
+- Do not make `pnpm docs` a release prerequisite. The supported gate is source tests, package tests, Expo CNG validation, native Android assembly, and package inspection.
+
+## 1. Prepare The Release Branch
+
+Start from current `master` and replace `<version>` below with the new, unpublished version:
 
 ```bash
 git checkout master
 git pull --ff-only origin master
+git status --short
+git checkout -b release/<version>
 ```
 
-## 2. Prepare The 3.8.0 Release Commit
+Update every applicable release surface:
 
-Create a release branch from fresh `master`:
+1. `package.json`: set `version` to `<version>`.
+2. `CHANGELOG.md`: add a dated `<version>` section with only user-visible Added, Changed, Fixed, Removed, or Security entries.
+3. `README.md`: update Version History when the release changes user-facing behavior, installation, compatibility, or package contents.
+4. `ROADMAP.md`: update its package version only when that "at writing" value is meant to describe the release being prepared.
+5. `RELEASE.md`: move the Current Release record only after npm publication, the tag, and the GitHub release all succeed.
+6. Keep `react-native-ble-plx.podspec` sourced from `v#{s.version}`. Do not hard-code a release number in the podspec.
+7. Keep root documentation linked from the README in the npm `files` allowlist. In particular, `ROADMAP.md` must remain included while `README.md` and `docs/FORK.md` link to it.
 
-```bash
-git checkout -b release/3.8.0
-```
+The Expo example must use `file:..` for the local package. Its peer dependencies then resolve from `example-expo`, avoiding duplicate React or React Native resolution during standalone example installs.
 
-Update release metadata:
+## 2. Run The Release Gate
 
-1. Bump `package.json` from `3.7.10` to `3.8.0`.
-2. Update `README.md` Version History so `3.8.0` is no longer marked planned.
-3. Add a `3.8.0` entry to `CHANGELOG.md` with the user-facing changes:
-   - Expo SDK 57 and React Native 0.86 floor.
-   - RN 0.86 TurboModule/Fabric migration.
-   - Expo CNG example workflow.
-   - Android min SDK 24 and compile/target SDK 36.
-   - iOS deployment target 16.4.
-   - Xcode 16.1+ for iOS builds.
-   - Removal of programmatic Android Bluetooth adapter toggle APIs.
-   - Removal of legacy `ConnectionQueue` and `ReconnectionManager` (public exports and source modules). Use `ConnectionManager` only.
-   - Background reconnect and promise rejection fixes.
-
-Do not run `pnpm docs` as a release requirement unless documentation generation has been intentionally restored and reviewed. The current release gate is source, package, Expo CNG, and native build validation.
-
-## 3. Run Local Release Checks
-
-From the repo root, run the automated release gate:
+From the repository root, run:
 
 ```bash
 pnpm verify:release
 ```
 
-That script runs:
+The gate runs the following in order:
 
 ```bash
 pnpm test:package
@@ -64,7 +63,7 @@ pnpm --dir example-expo install --no-frozen-lockfile
 pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json
 ```
 
-Then validate Expo CNG:
+It then runs Expo Doctor, a clean Expo CNG prebuild, Android assembly, and `npm pack --dry-run`:
 
 ```bash
 cd example-expo
@@ -72,108 +71,100 @@ npx expo-doctor
 npx expo prebuild --clean --no-install
 cd android
 ./gradlew :app:assembleDebug --no-daemon --console=plain
-npm pack --dry-run
 ```
 
-`pnpm verify:release` sets `NODE_OPTIONS=--max-old-space-size=8192` when no heap setting exists, refreshes the local `link:..` package inside the Expo example before installing dependencies, and moves generated native projects out of the source tree after Android validation. Confirm generated output is not staged before committing:
+The verifier sets `NODE_OPTIONS=--max-old-space-size=8192` when needed, refreshes the local `file:..` package before installing the Expo example, and moves generated native projects out of the source tree after validation. Inspect the working tree after it finishes. Restore validation-only lockfile changes unless they are an intentional, reviewed dependency update.
 
 ```bash
 git status --short
 ```
 
-If `example-expo/android` or `example-expo/ios` exists after the script exits, move or delete those generated directories before committing the release prep.
+## 3. Inspect The npm Artifact
 
-## 4. Verify The npm Package
-
-Build the package and inspect the publish contents without publishing:
+Run the package build and inspect the exact publication allowlist:
 
 ```bash
 pnpm prepack
 npm pack --dry-run
 ```
 
-Confirm the dry-run output includes the expected package files:
+Confirm the dry run includes at least:
 
+- `README.md`
+- `ROADMAP.md`
 - `src`
 - `lib`
 - `android`
 - `ios`
+- `docs`
 - `plugin/build`
 - `app.plugin.js`
 - `react-native-ble-plx.podspec`
 
-Confirm it does not include generated app outputs such as `example-expo/android`, `example-expo/ios`, native build directories, or test fixtures.
+Confirm it excludes generated Expo projects, native build directories, test fixtures, and agent-only documentation.
 
-## 5. Commit And Merge The Release Prep
+## 4. Review, Commit, And Merge
 
-Commit the release prep:
+Review the full diff and ensure the release tests pass. Then commit and push the release branch:
 
 ```bash
 git add -A
-git commit -m "chore: release 3.8.0"
-git push origin release/3.8.0
+git commit -m "chore: release <version>"
+git push -u origin release/<version>
 ```
 
-Open a PR into `master`, wait for CI to pass, then merge it.
-
-The CI release gate must include:
-
-- `pnpm test:package`
-- `pnpm test:plugin`
-- `pnpm lint`
-- `pnpm prepack`
-- `pnpm --dir example-expo install --no-frozen-lockfile`
-- `pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json`
-- `npx expo-doctor`
-- `npx expo prebuild --clean --no-install`
-- `./gradlew :app:assembleDebug --no-daemon --console=plain`
-
-## 6. Publish 3.8.0 To npm
-
-Pull fresh `master` after the release prep PR merges:
+Open a pull request into `master`. Resolve all review comments, confirm the release gate is green, merge the PR, then pull the exact merge commit locally:
 
 ```bash
 git checkout master
 git pull --ff-only origin master
 git status --short
+git rev-parse HEAD
 ```
 
-Confirm npm auth and current registry state:
+## 5. Publish To npm
+
+Confirm authentication and that the target version is not already published:
 
 ```bash
 npm whoami
-npm view @sfourdrinier/react-native-ble-plx version
+npm view @sfourdrinier/react-native-ble-plx@<version> version
 ```
 
-Publish the scoped public package:
+The second command must report that `<version>` does not exist. Never unpublish in an attempt to reuse a version: npm versions cannot be reused.
+
+Publish with npm after the package dry run has passed:
 
 ```bash
-pnpm publish --access public --no-git-checks
+npm publish --access public
 ```
 
-Then verify npm shows `3.8.0`:
+Use `npm publish` for this fork. It uses the same npm packer validated by the dry run; do not substitute `pnpm publish` without first validating its packaging behavior.
+
+Verify registry provenance immediately after publishing:
 
 ```bash
-npm view @sfourdrinier/react-native-ble-plx version
+npm view @sfourdrinier/react-native-ble-plx@<version> version gitHead dist.tarball dist.integrity --json
 ```
 
-## 7. Tag And Create The GitHub Release
+The returned `version` must equal `<version>` and `gitHead` must equal the merged `master` commit from `git rev-parse HEAD`.
 
-Create and push the tag from the exact commit that was published:
+## 6. Tag And Create The GitHub Release
+
+Create an annotated tag on the same commit recorded by npm, push it, and create the GitHub release with the matching changelog notes:
 
 ```bash
-git tag v3.8.0
-git push origin v3.8.0
+git tag -a v<version> -m "v<version>" HEAD
+git push origin v<version>
+gh release create v<version> --title "v<version>" --notes "<release notes from CHANGELOG.md>"
 ```
 
-Create the GitHub release for `v3.8.0` and copy the `3.8.0` notes from `CHANGELOG.md`.
+Verify the release and final repository state:
 
-After the release is live:
+```bash
+gh release view v<version>
+git ls-remote --tags origin v<version>
+git status --short
+```
 
-1. Comment on fixed issues and PRs with the released version.
-2. Close issues fixed by `3.8.0`.
-3. Confirm the README install command points to `@sfourdrinier/react-native-ble-plx`.
-
-## 8. Future Improvement
-
-For later releases, prefer npm trusted publishing with provenance from GitHub Actions. That would make npm publishing fully reproducible from CI and remove dependence on a local npm token. Until that workflow exists, the local npm publish step above is the source of truth.
+The release is complete only when npm, `v<version>`, the GitHub release, and `master` all point to the same source commit.
