@@ -18,6 +18,7 @@ describe('iOS modernization defaults', () => {
 
   test('points CocoaPods source metadata at this fork', () => {
     expect(podspec).toContain('https://github.com/sfourdrinier/react-native-ble-plx.git')
+    expect(podspec).toContain(':tag => "v#{s.version}"')
     expect(podspec).not.toContain('https://github.com/dotintent/react-native-ble-plx.git')
   })
 

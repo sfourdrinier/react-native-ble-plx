@@ -12,7 +12,7 @@ Pod::Spec.new do |s|
   s.authors      = package["author"]
 
   s.platforms    = { :ios => "16.4", :tvos => "16.4" }
-  s.source       = { :git => "https://github.com/sfourdrinier/react-native-ble-plx.git", :tag => "#{s.version}" }
+  s.source       = { :git => "https://github.com/sfourdrinier/react-native-ble-plx.git", :tag => "v#{s.version}" }
 
   # MultiplatformBleAdapter (0.2.0) is vendored under ios/vendor and compiled into this
   # pod's own Swift module (module_name "BlePlx", matching the "BlePlx-Swift.h" import in

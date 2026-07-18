@@ -81,6 +81,11 @@ For older React Native versions, use the upstream [dotintent/react-native-ble-pl
 
 ## Version History
 
+**3.8.3 (This Fork)**
+
+- Publishes the roadmap referenced by the README and fork documentation.
+- Aligns the CocoaPods source tag with the `v3.8.3` GitHub release tag.
+
 **3.8.2 (This Fork)**
 
 - Fixes the React Native 0.86 TurboModule bridge so non-enumerable native BLE methods, including `createClient`, remain callable at runtime.
