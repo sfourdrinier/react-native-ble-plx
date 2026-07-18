@@ -300,6 +300,7 @@ describe('package modernization targets', () => {
 
   test('owns documentation and support for this fork', () => {
     const requiredDocs = [
+      'ROADMAP.md',
       'docs/FORK.md',
       'docs/CONNECTION_MANAGER.md',
       'docs/EXPO_PLUGIN.md',
@@ -316,6 +317,7 @@ describe('package modernization targets', () => {
     expect(readme).toContain('docs/EXPO_PLUGIN.md')
     expect(readme).toContain('docs/TVOS.md')
     expect(readme).toContain('docs/GETTING_STARTED.md')
+    expect(readme).toContain('ROADMAP.md')
     expect(readme).toContain('https://github.com/sfourdrinier/react-native-ble-plx/issues')
     expect(readme).not.toContain('withintent.com')
     expect(readme).not.toContain('dotintent.github.io/react-native-ble-plx')
@@ -325,6 +327,7 @@ describe('package modernization targets', () => {
 
     // Relative README links must resolve for npm consumers (package includes markdown docs/)
     expect(rootPackage.files).toContain('docs')
+    expect(rootPackage.files).toContain('ROADMAP.md')
     expect(rootPackage.files).toContain('!docs/superpowers')
     // Generated HTML API output is not published: documentation.js mishandles TS enum members.
     expect(rootPackage.files).toContain('!docs/index.html')

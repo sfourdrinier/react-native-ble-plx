@@ -2,9 +2,9 @@
 
 This fork publishes as `@sfourdrinier/react-native-ble-plx`.
 
-The current release target is `3.8.2`, a React Native 0.86 TurboModule bridge fix. It preserves non-enumerable generated native methods such as `createClient` when constructing the JavaScript BLE module bridge.
+The current release target is `3.8.3`. It packages the roadmap referenced by the npm README and aligns the CocoaPods source tag with the `v3.8.3` GitHub release tag.
 
-Before publishing `3.8.2`, run `pnpm verify:release`, inspect `npm pack --dry-run`, then publish the package with `pnpm publish --access public --no-git-checks`. Verify the registry reports `3.8.2` and tag the exact published commit as `v3.8.2`.
+Before publishing `3.8.3`, run `pnpm verify:release`, inspect `npm pack --dry-run`, then publish the package with `pnpm publish --access public --no-git-checks`. Verify the registry reports `3.8.3` and tag the exact published commit as `v3.8.3`.
 
 The historical `3.8.0` modernization procedure is retained below for its full SDK 57 / React Native 0.86 migration record.
 

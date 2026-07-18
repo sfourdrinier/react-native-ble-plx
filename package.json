@@ -1,6 +1,6 @@
 {
   "name": "@sfourdrinier/react-native-ble-plx",
-  "version": "3.8.2",
+  "version": "3.8.3",
   "description": "React Native Bluetooth Low Energy library",
   "packageManager": "pnpm@10.14.0",
   "main": "lib/commonjs/index.js",
@@ -15,6 +15,7 @@
     "ios",
     "cpp",
     "docs",
+    "ROADMAP.md",
     "plugin/build",
     "app.plugin.js",
     "*.podspec",

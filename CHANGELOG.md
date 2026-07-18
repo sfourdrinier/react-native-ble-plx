@@ -4,6 +4,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.8.3] - 2026-07-18
+
+### Fixed
+
+- Aligned the CocoaPods source tag with GitHub releases (`v3.8.3`), so CocoaPods resolves the exact published release tag.
+- Included the root roadmap in the npm package, so the README and fork documentation links resolve for installed consumers.
+
 ## [3.8.2] - 2026-07-17
 
 ### Fixed
