@@ -191,7 +191,7 @@ describe('package modernization targets', () => {
     expect(exampleExpoPackage.devDependencies).not.toHaveProperty('eslint')
     expect(exampleExpoPackage.devDependencies).not.toHaveProperty('prettier')
     expect(examplePackage.dependencies['@sfourdrinier/react-native-ble-plx']).toBe('file:..')
-    expect(exampleExpoPackage.dependencies['@sfourdrinier/react-native-ble-plx']).toBe('link:..')
+    expect(exampleExpoPackage.dependencies['@sfourdrinier/react-native-ble-plx']).toBe('file:..')
     expect(examplePackage.devDependencies['@react-native-community/cli']).toBe('^20.0.0')
     expect(examplePackage.devDependencies['@react-native-community/cli-platform-android']).toBe('^20.0.0')
     expect(examplePackage.devDependencies['@react-native-community/cli-platform-ios']).toBe('^20.0.0')
