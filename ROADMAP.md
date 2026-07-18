@@ -634,3 +634,85 @@ Existing guides (`docs/CONNECTION_MANAGER.md`, `docs/EXPO_PLUGIN.md`, `docs/GETT
 | **5** | **Multiplatform doctrine in production:** Web → macOS → Windows → Linux; matrix + `supports()`; Nitro only if still needed |
 
 This fork already leads on Expo/RN packaging and connection helpers. The roadmap is how it leads on **background reliability**, **feature depth**, **owned native code**, and eventually **honest multiplatform BLE** (Web, macOS, Windows, Linux)—without losing the production edge that made the fork necessary.
+
+---
+
+## Comparative landscape (succinct)
+
+Snapshot of alternatives as of mid‑2026. Feature marks are directional (what the ecosystem typically offers), not a guarantee of every release. **This fork** = `@sfourdrinier/react-native-ble-plx` today; **roadmap** = where this doc is driving.
+
+### Packages at a glance
+
+| Package | Runtime | Native stack (typical) | Positioning |
+| ------- | ------- | ---------------------- | ----------- |
+| **This fork** | RN / Expo | TurboModule; Java + RxAndroidBle; vendored MBA/Swift | Modern RN floors + reliability layer (`ConnectionManager`, FGS, restore, tvOS) |
+| **dotintent/react-native-ble-plx** (upstream) | RN | Same lineage (older floors) | Historical default; weak modern RN/Expo maintenance |
+| **react-native-ble-manager** | RN | Thin OS API pass-through | Simple central; **bonding** and connected/bonded lists |
+| **react-native-ble-nitro** | RN + Nitro | Swift / Kotlin + JSI (Nitro) | Modern native + binary ergonomics + Expo plugin |
+| **flutter_blue_plus** | Flutter | Per-OS federated plugins | Cross-platform feature/DX bar (mobile + desktop + web matrices) |
+| **Web Bluetooth** (browser API) | Web only | `navigator.bluetooth` | Interactive central in Chromium; not a RN package |
+| **munim-bluetooth** (and similar niche libs) | RN (varies) | Often Android-heavy custom native | Peripheral, L2CAP, Classic RFCOMM, advanced Android—specialist, not the default stack |
+
+### Feature matrix (central BLE)
+
+Legend: **Y** = yes / strong · **P** = partial / planned / OS-limited · **N** = no / not a focus · **R** = on this roadmap
+
+| Capability | This fork (now) | Upstream plx | ble-manager | ble-nitro | flutter_blue_plus | Web Bluetooth |
+| ---------- | --------------- | ------------ | ----------- | --------- | ----------------- | ------------- |
+| Scan / connect / GATT R/W / notify | Y | Y | Y | Y | Y | Y (chooser model) |
+| Typed object API (Device/Service/Char) | Y | Y | P (event-ish) | Y | Y | P (lower-level) |
+| `Uint8Array` / bytes-first API | N → **R** | N (Base64) | P (arrays vary) | Y | Y (lists) | Y |
+| Android bonding APIs | N → **R** | N | **Y** | P/N* | Y (Android) | N |
+| Connection priority / MTU helpers | Y | Y | Y | Y | Y | N / P |
+| Retry / auto-reconnect policy layer | **Y** (`ConnectionManager`) | N | N (app-built) | P (`findAndConnect`) | P (app patterns) | N |
+| iOS state restoration | Y | P | P | Y | P | N |
+| Android background (FGS) | Y | N/P | P (app) | P (modes/plugin) | P (external) | N |
+| Expo config plugin | Y | P/older | P | Y | n/a | n/a |
+| RN New Arch / modern floors | Y (0.86+) | Lagging | Varies | Y (Nitro) | n/a | n/a |
+| Services-changed / OTA-safe rediscover | N → **R** | N | N | P/N | **Y** | P |
+| Multi-device op queues | N → **R** | N | N | P/N | **Y** | N |
+| L2CAP CoC | N → **R** | N | N | N | P/N | N |
+| Preferred PHY (Android) | N → **R** | N | N | N | **Y** | N |
+| Peripheral / GATT server | N (low **R**) | N | N | P (plugin modes) | Separate packages | N |
+| Web / macOS / Windows / Linux | N → **R** | N | N | N | **Y** (matrix) | Web only |
+| High-rate path (JSI/Nitro) | TurboModule | Bridge/TM | Varies | **Y** | n/a | n/a |
+| Failure / “common problems” DX | Improving | Wiki-era | Docs site | Good README | **Excellent** | MDN-level |
+
+\*ble-nitro surface evolves quickly; treat bonding/L2CAP as verify-at-release, not assumed.
+
+### What each does well / poorly
+
+| Package | Does well | Does not / weak |
+| ------- | --------- | --------------- |
+| **This fork** | Expo 57 / RN 0.86 packaging; `ConnectionManager`; iOS restore; Android FGS; tvOS; TS-first; intentional deprecations | Bonding; bytes API; aging Rx/MBA core; multiplatform; L2CAP/PHY; services-changed |
+| **Upstream plx** | Familiar API; large historical install base | Modern RN/Expo cadence; reliability helpers; multiplatform |
+| **ble-manager** | Bonding; bonded/connected lists; thin & predictable OS mapping | Deep reliability helpers; rich typed model; “batteries included” reconnect/background productization |
+| **ble-nitro** | Nitro performance; Swift/Kotlin ownership; `ArrayBuffer`; Expo plugin; modern feel | Ecosystem depth vs plx; background as a *product* still younger; multiplatform not the pitch |
+| **flutter_blue_plus** | Widest platform matrix; bond/PHY/queues/long-write patterns; docs for real failures | Not React Native—reference bar only |
+| **Web Bluetooth** | Zero native install in Chromium apps; same mental model for web tools you already use | Continuous scan UX; background; bonding; Safari/Firefox gaps; mobile parity |
+| **Niche (e.g. munim-bluetooth)** | Peripheral, L2CAP, Classic, advanced Android | Default cross-platform RN choice; iOS/Expo completeness varies |
+
+### How this roadmap responds
+
+| Competitor pressure | Our answer in this doc |
+| ------------------- | ---------------------- |
+| ble-manager bonding | Phase 1 bonding APIs |
+| ble-nitro modernity / bytes / JSI feel | Phase 1 bytes; Phase 3 Path B or C; don’t lose on Expo/reliability |
+| flutter multiplatform + matrix honesty | Phase 5 federated backends + `supports()` + `PLATFORMS.md` |
+| flutter services-reset / queues / long write | Phase 2 |
+| flutter PHY / bulk transport | Phase 4 L2CAP + Android PHY |
+| “Background just works” (all libs weak) | **Pillar 1**—differentiate on restore + FGS + ConnectionManager + docs/tests |
+| Web Bluetooth in your other products | Phase 5 Web backend, chooser model, shared TS API |
+
+### Choosing a stack (rule of thumb)
+
+| Need | Prefer |
+| ---- | ------ |
+| Production Expo/RN health/wearable with reconnect + background | **This fork** (and this roadmap) |
+| Minimal glue + explicit Android bonds, accept app-owned reliability | **ble-manager** |
+| Max native throughput / Nitro-first greenfield | **ble-nitro** (or this fork after Path C) |
+| Flutter app | **flutter_blue_plus** |
+| Browser-only tool | **Web Bluetooth** (later: this fork’s web backend) |
+| Peripheral + L2CAP + Classic on Android now | Niche specialist libs—not our Phase 1 |
+
+This comparison should be revisited when major competitors release; keep the public matrix in `docs/PLATFORMS.md` once multiplatform ships.
