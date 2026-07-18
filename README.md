@@ -141,6 +141,7 @@ This fork is independently maintained. **Documentation and support live in this 
 | --- | ----------- |
 | [Getting started](docs/GETTING_STARTED.md) | BLE basics with this library |
 | [Fork notes](docs/FORK.md) | What changed vs upstream, floors, and roadmap posture |
+| [Roadmap](ROADMAP.md) | Phased plan: reliability, features, native ownership, multiplatform |
 | [ConnectionManager](docs/CONNECTION_MANAGER.md) | Retry, timeout, and auto-reconnect |
 | [Expo config plugin](docs/EXPO_PLUGIN.md) | Plugin options and CNG notes |
 | [tvOS / Apple TV](docs/TVOS.md) | Apple TV support and limits |
