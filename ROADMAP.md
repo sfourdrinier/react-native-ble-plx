@@ -7,6 +7,8 @@
 
 This roadmap describes how this fork becomes the most modern, reliable, and feature-complete Bluetooth Low Energy library for React Native—and, over time, a multiplatform BLE client (mobile, web, desktop, Linux). It is intentional product planning, not a release schedule. Priorities can shift when real app needs (especially production background reliability) demand it.
 
+**For the ambitious 4.x release train** (alpha → GA → multi-host preview including Electron native main process), see **[ROADMAP.4.0.md](./ROADMAP.4.0.md)**.
+
 ---
 
 ## Vision
@@ -20,7 +22,7 @@ Make `@sfourdrinier/react-native-ble-plx` the default BLE stack for serious Reac
 | **1. Background reliability first** | Best-in-class central background behavior on iOS and Android: restoration, foreground service, kill/relaunch, Doze, permissions, and reconnect policy—documented and tested as a product surface, not an afterthought. Multiplatform hosts define background honestly (usually “not mobile FGS/restore”). |
 | **2. Modern React Native platform** | Stay aligned with current RN / Expo floors (TurboModules/Fabric, CNG, config plugin). Do not drag deprecated shims or obsolete native stacks forward. |
 | **3. Feature completeness (central)** | Close gaps vs `react-native-ble-manager`, `react-native-ble-nitro`, and the Flutter feature bar (`flutter_blue_plus`): bonding, binary ergonomics, services-changed, queues, L2CAP, PHY, and strong DX. |
-| **4. Owned native core** | Stop depending on aging Polidea-era adapters as the long-term foundation. Choose a rewrite path (Kotlin + pure CoreBluetooth Swift, or Nitro Modules) and own it. |
+| **4. Owned native core** | Replace the aging Polidea-era adapters with pure Kotlin Android GATT + pure Swift/CoreBluetooth. Use the official TurboModule/Codegen stack for React Native; Nitro is benchmark-gated contingency only. |
 | **5. Multiplatform via federated backends** | Web Bluetooth, macOS, Windows, and Linux as first-class targets after mobile central excellence—**one TypeScript API family**, N platform backends, **capability matrices** instead of fake parity. |
 
 ---
@@ -168,23 +170,28 @@ This section is the technical playbook for Web, macOS, Windows, and Linux. It is
 | --------- | -------- |
 | **One API family** | Same conceptual types (`Device`, `Characteristic`, errors); platform modules implement a shared internal interface |
 | **N backends** | Each OS has its own stack; no “one adapter to rule them all” |
-| **Feature detection first** | `supports('bond' \| 'l2cap' \| 'backgroundRestore' \| …)` (name TBD); docs link to matrix |
-| **Explicit unsupported** | Prefer typed errors / rejected promises with clear codes over silent no-ops |
+| **Feature detection first** | `supports(capability: BleCapability): boolean` is synchronous, side-effect-free, and non-throwing; docs link each capability to the matrix |
+| **Explicit unsupported** | Promise operations reject with `BleErrorCode.OperationNotSupported`; listener/subscription APIs deliver the same typed error once through their existing error channel; never silently no-op |
 | **Host vs radio** | Separate “BLE backend” from “app host” (Expo, RN bare, RN-web, RN-macos, RN-windows, Electron, Node) |
-| **Bytes everywhere** | `Uint8Array` / `ArrayBuffer` as the cross-platform value type (Phase 1 enables multiplatform) |
+| **Bytes internally and in new APIs** | `Uint8Array` is the cross-platform native value type. Existing Base64 methods remain unchanged through 4.x; new code uses explicit parallel byte methods. |
 | **Mobile remains the quality bar** | Desktop/web ship when core central is solid; they do not redefine the library’s reliability story |
 
-### Package and module shape (decide with an ADR)
+`supports()` reports whether the active host/backend implements a capability on the current platform/OS. It does not report Bluetooth power, permission, connection state, or whether a particular peripheral implements the feature. Runtime capability strings unknown to the installed library return `false`; ordinary operational failures keep their specific error codes rather than being mislabeled unsupported. `BleCapability`, the implementation, tests, and `docs/PLATFORMS.md` must remain synchronized.
 
-Either shape is valid; pick one and document it:
+### Package and module shape (public decision locked)
 
-| Shape | Pros | Cons |
-| ----- | ---- | ---- |
-| **Monorepo / single package with platform entrypoints** (`react-native`, `browser`, optional native desktop) | Simple consumer install | Heavier package; careful `exports` / Metro / bundler config |
-| **Federated packages** (`@sfourdrinier/react-native-ble-plx`, `…-web`, `…-windows`, …) + shared types | Clear deps per host; smaller installs | Version alignment discipline |
-| **Shared `ble-plx-core` types + thin platform packages** | Cleanest long-term for many backends | More repo structure up front |
+Consumers install and version only `@sfourdrinier/react-native-ble-plx`.
 
-**How to choose:** optimize for Expo/RN mobile consumers first (must not break), then Web second, then desktop. Prefer package `exports` that tree-shake native code out of web bundles.
+| Entry | Role |
+| ----- | ---- |
+| Package root | Existing React Native mobile entry; unchanged in 4.0 |
+| `/web` | Explicit Web Bluetooth entry |
+| `/electron` | Explicit Electron main-process entry |
+| `/node` | Explicit optional headless Node entry |
+
+The explicit subpaths are the guaranteed 4.0 contract. Later 4.x releases may make the root select React Native, browser, or Node automatically through standardized package export conditions after Expo/Metro, browser bundler, Node, Electron, Jest, and TypeScript resolution tests pass. Explicit subpaths remain permanent deterministic escape hatches. Electron keeps `/electron` as canonical because an Electron main process otherwise resolves like Node.
+
+The repository may use internal workspaces and platform-specific binary artifacts to keep responsibilities and installation size under control, but they do not become separately installed or independently versioned public products. Native artifacts are selected automatically and pinned to the parent package version. Runtime host detection and silent fallback to a different BLE backend are forbidden.
 
 ### Internal backend interface (design rule)
 
@@ -197,7 +204,7 @@ All platforms implement the same **internal** contract approximately:
 - Read / write (with/without response) / monitor
 - Optional: MTU, RSSI, bond, L2CAP, PHY, system-connected devices
 
-Public `BleManager` stays stable; backends plug in. This is what makes Path B/C mobile rewrites and later Web/desktop coherent.
+Public `BleManager` stays stable; backends plug in. This is what makes the locked Kotlin/Swift mobile rewrite and later Web/desktop backends coherent.
 
 ### Capability matrix (canonical; keep in docs as platforms ship)
 
@@ -223,21 +230,21 @@ Rough expected support for **central** once a platform is declared supported. Up
 
 1. **Mobile excellence** (Phases 1–3, background pillar)—foundation for everything  
 2. **Web Bluetooth**—highest shared-product value if you already use Web Bluetooth elsewhere; pure TS backend  
-3. **macOS**—highest code reuse if iOS is pure CoreBluetooth Swift (Path B)  
+3. **macOS**—highest code reuse through the shared pure Swift/CoreBluetooth implementation
 4. **Windows**—full separate backend (WinRT); large product surface  
 5. **Linux**—full separate backend (BlueZ); strong for pro/IoT/dev gateways; higher environment variance  
 
 Do not start multiplatform backends on top of MultiplatformBleAdapter / RxAndroidBle as the long-term story—**own mobile native first** (Phase 3), or accept throwaway adapters.
 
-### Nitro / JSI vs multiplatform (honest split)
+### TurboModule baseline and Nitro escalation (honest split)
 
-| Technology | Helps |
-| ---------- | ----- |
-| **Nitro / JSI (Path C)** | High-rate notify paths on **React Native native hosts** (iOS/Android, possibly RN-macos/windows if wired) |
-| **Does not unlock** | Web Bluetooth (browser JS), BlueZ, or WinRT by itself |
-| **TurboModules (Path B)** | Perfectly valid mobile boundary; multiplatform still needs N backends |
+| Technology | Role |
+| ---------- | ---- |
+| **Official TurboModule/Codegen** | **Locked React Native binding** for the owned Kotlin/Swift radio cores; lowest long-term dependency and migration burden |
+| **Nitro** | Excluded from the default architecture; may be evaluated only if profiling proves the optimized TurboModule boundary is the dominant bottleneck and the pre-registered gate in `ROADMAP.4.0.md` is met |
+| **Neither binding unlocks** | Web Bluetooth, Electron/Node, BlueZ, or WinRT; those remain separate host/backend work |
 
-**Rule:** Choose Path B vs C for **mobile performance and maintainability**. Treat multiplatform as **backend count + matrix**, not as a reason alone to adopt Nitro.
+**Rule:** Optimize and profile the official TurboModule path first. Nitro can replace only the thin React Native host adapter after explicit benchmark evidence; it never becomes a parallel radio core or a prerequisite for multiplatform.
 
 ---
 
@@ -251,9 +258,9 @@ Do not start multiplatform backends on top of MultiplatformBleAdapter / RxAndroi
 
 | Topic | Best practice |
 | ----- | ------------- |
-| Device selection | Map `requestDevice({ filters, optionalServices })` to a first-class API; do **not** fake continuous `startDeviceScan` UX |
+| Device selection | First-class `requestDevice(options): Promise<Device>`; chooser requires a user gesture and returns one selected, not-yet-connected library `Device` |
 | Reconnect | Use `getDevices()` / permitted devices where available; document user-gesture requirements |
-| Scan API mapping | Either: (a) Web-specific `requestDevice`, or (b) `startDeviceScan` that clearly means “browser chooser / filtered request,” never silent phone-style scanning |
+| Scan API mapping | `startDeviceScan` keeps continuous-scan semantics and reports `OperationNotSupported` once through its listener on Web; it never opens a chooser |
 | Binary values | `DataView` / `Uint8Array` from characteristic values; align with Phase 1 bytes API |
 | Optional services | Must be listed up front for Web—design API so apps pass UUIDs once and mobile ignores the restriction |
 | Permissions / security | User gesture for device request; no background BLE; tab lifecycle = connection death |
@@ -267,13 +274,15 @@ Do not start multiplatform backends on top of MultiplatformBleAdapter / RxAndroi
 - Use Web Bluetooth inside Electron as a substitute for a real Windows/macOS backend (possible hack, wrong long-term)  
 - Ship Web by wrapping a random third-party lib without owning the error model  
 
-**Exit bar for “Web supported”:** core central documented; chooser-based connect path; R/W/notify; capability matrix row green for core; example for Expo web / RN web or plain bundler.
+`DeviceRequestOptions` mirrors the browser's filters, exclusion filters, optional services, optional manufacturer data, and `acceptAllDevices`. Exactly one of non-empty filters or `acceptAllDevices: true` is required; service access is limited to services declared during selection. `supports('deviceChooser')` is true and `supports('continuousScan')` is false. The separate Web Bluetooth Scanning proposal is not part of the 4.0 contract.
+
+**Exit bar for “Web supported”:** core central documented; user-gesture chooser path; selected-device wrapper followed by explicit connect; R/W/notify; capability matrix row green for core; distinct chooser/security/GATT error mappings; example for Expo web / RN web or plain bundler.
 
 ---
 
 #### macOS
 
-**Stack:** **CoreBluetooth** (same family as iOS). Best implementation: **shared Darwin/Swift code** with iOS after Path B (or shared with Path C Darwin).
+**Stack:** **CoreBluetooth** (same family as iOS). Best implementation: **shared Darwin/Swift code** with the locked owned iOS core.
 
 **How to do it well**
 
@@ -381,12 +390,12 @@ Phases are sequential in intent. Some Phase 1 items can ship independently. Phas
 
 | Item | Priority | Risk | Notes |
 | ---- | -------- | ---- | ----- |
-| Public `ArrayBuffer` / `Uint8Array` API for char/descriptor R/W and notifies | **P0** | Med | Deprecate Base64; required for Web/desktop sanity |
+| Explicit parallel `Uint8Array` methods for characteristic/descriptor reads, writes, and notifications | **P0** | Med | Preserve every existing Base64 signature and `.value` type; no encoding switch or union-valued legacy types |
 | Android bonding: `createBond` / `removeBond` / bond state | **P0** | Med | Document iOS pairing as OS-driven; no fake parity |
 | Richer scan filters (name/prefix, RSSI floor, manufacturer company ID) | **P0** | Low | Build on existing scan fields |
 | `findAndConnect` / reconnect-by-id (scan optional) | **P0** | Med | Align with ConnectionManager; avoid scan/connect races |
 | Runtime permission helpers (Android 12+, location caveats) | **P0** | Low | First-class API, not README-only |
-| Capability / `supports()` design sketch (even if only mobile values) | **P1** | Low | Unblocks honest multiplatform later |
+| Non-throwing `supports()` + typed `OperationNotSupported` failures (even if only mobile values) | **P1** | Low | Unblocks honest multiplatform; no silent unsupported success |
 | Interim RxAndroidBle bump (e.g. toward 1.19.x) | **P1** | Low | **Path A interim only**—does not replace Phase 3 |
 | Background docs baseline (`BACKGROUND.md` skeleton + matrix) | **P0** | Low | Start the pillar documentation immediately |
 
@@ -412,59 +421,38 @@ Phases are sequential in intent. Some Phase 1 items can ship independently. Phas
 
 ---
 
-### Phase 3 — Native ownership (Path B vs Path C)
+### Phase 3 — Native ownership (architecture locked)
 
-**Goal:** Replace aging Java/RxAndroidBle + MultiplatformBleAdapter as the long-term core. Path A (dependency bumps only) is **not** the destination. This phase **enables** clean macOS sharing and stops multiplatform from forking a dead stack.
+**Goal:** Replace aging Java/RxAndroidBle + MultiplatformBleAdapter with pure Kotlin Android GATT + pure Swift/CoreBluetooth, exposed to React Native by the official TurboModule/Codegen stack. This phase **enables** clean macOS sharing and stops multiplatform from forking a dead stack.
 
 #### Interim Path A (optional, short-lived)
 
 - Bump RxAndroidBle, fix critical bugs, keep MBA.
 - **Use only** to ship Phase 1–2 without blocking apps.
-- Must not delay the B/C decision indefinitely.
+- Must not delay the owned Kotlin/Swift cutover.
 - **Do not** build Windows/Linux/Web production backends against Path A internals.
 
-#### Path B — Kotlin + pure CoreBluetooth Swift
+#### Locked destination — Kotlin + pure CoreBluetooth Swift + TurboModule
 
-Rewrite native implementations without RxAndroidBle / RxBluetoothKit / MBA as runtime dependencies.
+Rewrite native implementations without RxAndroidBle / RxBluetoothKit / MBA as runtime dependencies. Radio cores remain host-independent; React Native is a thin official TurboModule adapter.
 
-| Pros | Cons |
-| ---- | ---- |
-| Full ownership of GATT central path | Large rewrite; long validation cycle |
-| Familiar RN TurboModule boundary can stay | Does not by itself solve multiplatform desktop/web |
-| Matches “modern Android/iOS code” (Kotlin/Swift) | Performance still bound by TurboModule/JSI bridge design |
-| **macOS can share Darwin/Swift CoreBluetooth** | Dual implementation cost (two mobile platforms, one API) |
-| Easier incremental port of existing API semantics | Web/Win/Linux still separate backends |
+| Layer | Choice |
+| ----- | ------ |
+| Android radio | Pure Kotlin over Android GATT; no React Native imports |
+| Apple radio | Pure Swift/CoreBluetooth shared across iOS, tvOS, and macOS where lifecycle semantics allow |
+| React Native host | Official Turbo Native Module + Codegen; binding/lifecycle only |
+| Values | Byte-native internally; Base64 at the compatibility edge only |
+| Web/Electron/Win/Linux | Separate host/backend implementations of the shared contract |
 
-**Best when:** You want ownership and clarity without adopting a second native-module framework; multiplatform web/desktop use separate backends; macOS reuse is a priority.
+#### Nitro contingency — benchmark gate only
 
-#### Path C — Nitro Modules (JSI) rewrite
+Nitro is not a 4.x dependency, parallel core, or planned migration. It may be reconsidered only as an alternative React Native host adapter after the official path is fully optimized and profiling proves that the TurboModule boundary is the dominant remaining bottleneck.
 
-Rebuild on [Nitro Modules](https://nitro.margelo.com/) (or equivalent high-performance JSI native modules), similar in spirit to `react-native-ble-nitro`.
+Before any Nitro prototype, an ADR must pre-register the representative wearable workload, devices, payload rates/sizes, metrics, numeric thresholds, and acceptable regressions. The prototype must clear those thresholds without weakening compatibility, background behavior, memory/startup, Expo CNG, or build reliability. It must also justify the permanent Nitro/Nitrogen, C++, fbjni/CMake, and Swift-C++ maintenance cost.
 
-| Pros | Cons |
-| ---- | ---- |
-| Zero/low bridge overhead for high-rate notifications | New stack dependency (`react-native-nitro-modules`); ecosystem risk |
-| Strong “modern RN” positioning | Larger migration for consumers if API shape shifts |
-| May simplify shared C++ types / codegen story | **Does not** automatically give Web/macOS/Windows/Linux |
-| Aligns with high-throughput wearables | Competes in the same niche as ble-nitro; must differentiate on reliability + API depth |
-| May help RN desktop hosts if Nitro is wired there | Web remains pure JS regardless |
+The complete six-condition escalation gate is canonical in [ROADMAP.4.0.md](./ROADMAP.4.0.md#nitro-escalation-gate). Until it is met and explicitly approved, TurboModule is the sole React Native binding.
 
-**Best when:** High-rate notify/write workloads need JSI; you accept Nitro as a long-term RN platform bet; you want maximum **mobile** performance before multiplatform.
-
-#### Decision framework
-
-Choose **B** or **C** using these criteria (score explicitly when deciding):
-
-1. **Background reliability:** Which path makes restore/FGS correctness easier to prove and maintain?
-2. **API stability:** Can we preserve BleManager / Device / Characteristic semantics for existing apps?
-3. **Throughput:** Are product apps CPU/bridge bound on notify paths?
-4. **Team / maintenance:** Kotlin+Swift only vs Nitro+codegen toolchain.
-5. **Multiplatform:** Path B optimizes **macOS sharing**; Path C optimizes **RN native performance**. Neither replaces Web/Win/Linux backends.
-6. **Time to production quality:** Which path reaches “better than today” sooner without a long dual-stack period?
-
-**Recommendation posture:** Prefer **one** mobile destination. Avoid a permanent dual native core. If Phase 1–2 pressure is high, use Path A interim, then commit to B or C with a cutover plan and compatibility layer.
-
-**Exit criteria:** Written ADR for B or C; prototype of scan/connect/notify/read/write on both iOS and Android; background restore/FGS smoke tests green; deprecation plan for old native tree; note impact on macOS sharing.
+**Exit criteria:** Architecture/cutover ADR; owned scan/connect/notify/read/write paths on iOS and Android; public API parity tests; background restore/FGS smoke tests green; old native tree removed from the default path; shared Darwin boundary ready for macOS.
 
 ---
 
@@ -485,13 +473,13 @@ Choose **B** or **C** using these criteria (score explicitly when deciding):
 
 ### Phase 5 — Multiplatform backends
 
-**Goal:** Ship Web Bluetooth, macOS, Windows, and Linux under the multiplatform doctrine. Re-evaluate Nitro only if Path B was chosen and RN hosts still need JSI performance.
+**Goal:** Ship Web Bluetooth, macOS, Windows, and Linux under the multiplatform doctrine. The official TurboModule remains the React Native binding unless the 4.x Nitro escalation gate is proven.
 
 Implement using the **Platform playbooks** and **capability matrix** above—not ad-hoc ports.
 
 | Item | Priority | Notes |
 | ---- | -------- | ----- |
-| Shared backend interface + `supports()` in public API | **P0** | Foundation for all hosts |
+| Shared backend interface + non-throwing `supports()` and typed unsupported-operation failures | **P0** | Foundation for all hosts |
 | Published platform × feature matrix doc | **P0** | Living document; CI can snapshot critical rows later |
 | **Web Bluetooth** backend | **P1** | Chooser-based device selection; core central; Chromium-first |
 | **macOS** CoreBluetooth backend | **P1** | Prefer shared Darwin code with iOS post–Phase 3 |
@@ -499,12 +487,12 @@ Implement using the **Platform playbooks** and **capability matrix** above—not
 | **Linux** BlueZ backend | **P1** | Separate implementation; permissions/distro docs mandatory |
 | ConnectionManager behavior per host lifecycle | **P1** | Mobile vs tab vs desktop session documented |
 | Examples per declared platform | **P1** | Minimal but runnable |
-| Nitro / JSI mid-life adoption (only if still on TurboModules and needed) | **P2** | Performance/hot paths; not a multiplatform unlock |
-| Package shape ADR (mono vs federated) | **P0** | Before publishing multiple hosts |
+| Nitro host-adapter evaluation (only if the pre-registered escalation gate is met) | **P2** | Performance contingency; not a second radio core or multiplatform unlock |
+| Single-package exports ADR + resolver matrix | **P0** | Before publishing the first non-mobile entrypoint |
 
-**Suggested implementation sequence within the phase:** shared interface + matrix → Web → macOS → Windows → Linux (adjust if a product need elevates Linux earlier).
+**Locked implementation sequence within the phase:** shared interface + matrix → Web → macOS/CoreBluetooth Electron preview → Windows/WinRT Electron preview → Linux/BlueZ Electron preview. All three desktop previews remain in the 4.0.0 scope; sequencing controls implementation order, not release scope.
 
-**Exit criteria:** Matrix published; core central green on each declared platform; no false background claims; at least one example or host recipe per platform; errors map into shared `BleError` model.
+**Exit criteria:** Matrix published; each macOS, Windows, and Linux Electron backend installs/loads on a declared architecture and passes a reference-device scan/connect/discover/read/write/monitor vertical slice; no false background claims; at least one example or host recipe per platform; errors map into the shared `BleError` model.
 
 ---
 
@@ -514,9 +502,9 @@ Implement using the **Platform playbooks** and **capability matrix** above—not
 
 | # | Item | Phase |
 | - | ---- | ----- |
-| A1 | `ArrayBuffer` / `Uint8Array` public binary API (Base64 deprecate) | 1 |
+| A1 | Parallel `Uint8Array` methods; Base64 methods unchanged through 4.x | 1 |
 | A2 | Android bonding + bond state APIs | 1 |
-| A3 | Native stack ownership (Path B or C; Path A interim only) | 3 (+1 interim) |
+| A3 | Pure Kotlin/Swift native ownership + official TurboModule adapter (Path A interim only) | 3 (+1 interim) |
 | A4 | React hooks + modern DX (permissions, findAndConnect, filters) | 1–2 |
 | A5 | Services Changed / services reset | 2 |
 | A6 | Multi-device operation queues | 2 |
@@ -542,7 +530,7 @@ Implement using the **Platform playbooks** and **capability matrix** above—not
 | C-Classic | Bluetooth Classic | **Out of scope** |
 | C-LE Audio | LE Audio / LC3 as library focus | **Out of scope** (OS audio routing, not this GATT client) |
 | C-Beacon | iBeacon / Eddystone SDKs | **Out of scope** (may still see adv data while scanning) |
-| C-Nitro | Nitro/JSI | **Evaluate** in Phase 3 (Path C) or Phase 5 if Path B chosen; not a Web/BlueZ unlock |
+| C-Nitro | Nitro | **Not planned by default**; evaluate only if the `ROADMAP.4.0.md` benchmark escalation gate is met; never a Web/BlueZ unlock |
 
 ---
 
@@ -568,9 +556,9 @@ Implement using the **Platform playbooks** and **capability matrix** above—not
 | **Adoption friction** | New apps need no Base64 ceremony; bonding without switching libraries |
 | **Parity (mobile)** | Public comparison table vs ble-manager / ble-nitro / flutter_blue_plus stays current |
 | **Stability** | ConnectionManager under disconnect storms remains correct; no regression in reconnect coalescing |
-| **Modernity** | Native core is owned (B or C); dependency on MBA/RxAndroidBle removed or strictly interim |
+| **Modernity** | Native core is owned Kotlin/Swift behind the official TurboModule binding; dependency on MBA/RxAndroidBle removed or strictly interim |
 | **Multiplatform** | Web + macOS + Windows + Linux each have a matrix row and core central path when declared supported; `supports()` matches docs |
-| **Honesty** | No silent no-ops for unsupported advanced APIs; Web scan/connect model is explicit |
+| **Honesty** | `supports()` matches the matrix; unsupported operations surface `OperationNotSupported` through their existing error channel; Web scan/connect model is explicit |
 | **DX** | Hooks + permission helpers + background guide are the default mobile onboarding path |
 
 ---
@@ -579,16 +567,12 @@ Implement using the **Platform playbooks** and **capability matrix** above—not
 
 | Decision | Options | When |
 | -------- | ------- | ---- |
-| Native destination | **Path B** (Kotlin + pure Swift CoreBluetooth) vs **Path C** (Nitro Modules) | End of Phase 2 / start of Phase 3 |
 | Path A interim duration | How long to keep RxAndroidBle + MBA while shipping Tier A | Phase 1 kickoff |
-| Nitro if Path B wins | Never / only hot paths / full later migration | Phase 5 re-evaluation |
 | Peripheral elevation | Stay P3 vs product-driven P1 | Only with a concrete app requirement |
-| Package shape for multiplatform | Single package with exports vs federated `*-web` / `*-windows` / … | Before first non-mobile publish |
 | Desktop host strategy | RN-macos / RN-windows vs Electron/Node addons vs both | Phase 5 design ADR |
-| Web scan API shape | Distinct `requestDevice` vs overloaded `startDeviceScan` with documented chooser semantics | Web backend design |
 | Linux host priority | Node/IoT first vs RN-linux first | Phase 5 when Linux starts |
 
-Record B vs C and multiplatform package/host choices as short ADRs under `docs/` when made.
+The Kotlin/Swift + TurboModule destination and one-public-package contract are locked by `ROADMAP.4.0.md`; record their implementation boundaries, cutover, resolver matrix, and Nitro escalation gate in ADRs. Record remaining host-specific choices when made.
 
 ---
 
@@ -600,8 +584,8 @@ Record B vs C and multiplatform package/host choices as short ADRs under `docs/`
 | `docs/BACKGROUND.md` (planned) | Mobile background reliability bible |
 | `docs/PLATFORMS.md` (planned) | Living capability matrix + per-OS notes (Web/macOS/Windows/Linux/iOS/Android/tvOS) |
 | `docs/MIGRATION_*.md` (as needed) | Base64 → bytes; native cutover |
-| ADR for Path B/C (planned) | Mobile native architecture decision |
-| ADR for multiplatform package/host (planned) | Exports vs federated packages; desktop hosts |
+| ADR for owned Kotlin/Swift + TurboModule boundaries (planned) | Mobile native architecture, cutover, and Nitro escalation gate |
+| ADR for single-package host exports (planned) | Explicit subpaths, future automatic conditions, resolver matrix, desktop binary artifacts |
 | Support matrix (planned) | Same content as `PLATFORMS.md` or embedded there |
 
 Existing guides (`docs/CONNECTION_MANAGER.md`, `docs/EXPO_PLUGIN.md`, `docs/GETTING_STARTED.md`, `docs/TVOS.md`) remain day-to-day references and should gain background, bonding, and capability sections as APIs land.
@@ -613,7 +597,7 @@ Existing guides (`docs/CONNECTION_MANAGER.md`, `docs/EXPO_PLUGIN.md`, `docs/GETT
 1. **Background first (mobile):** No phase ships a “happy path only” if it weakens restore, FGS, or reconnect.
 2. **Test-first for behavior:** Especially ConnectionManager, bonding, and queue semantics.
 3. **Deprecate before delete:** Base64 and interim native paths get migration windows.
-4. **Honest platform matrices:** Prefer “unsupported on this platform” over silent no-ops.
+4. **Honest platform matrices:** `supports()` never throws; operations that cannot run on the active backend fail with typed `OperationNotSupported` rather than silently succeeding.
 5. **Federated multiplatform:** One TS API, N backends, feature detection—not fake full parity.
 6. **Phase 3 before deep desktop:** Do not entangle Windows/Linux with MBA/RxAndroidBle internals.
 7. **pnpm + current floors:** Stay on the RN 0.86 / Expo 57 modernization floor unless the project explicitly raises it.
@@ -629,9 +613,9 @@ Existing guides (`docs/CONNECTION_MANAGER.md`, `docs/EXPO_PLUGIN.md`, `docs/GETT
 | ----- | ----- |
 | **1** | Bytes, bonding, scan/reconnect DX, permissions, background docs, capability API sketch; optional RxAndroidBle bump |
 | **2** | Services reset, queues, long write, hooks, events, **background hardening** |
-| **3** | Own the native core — **Path B or Path C** (Path A interim only); unlock clean macOS sharing |
+| **3** | Own the native core — pure Kotlin/Swift + official TurboModule (Path A interim only); unlock clean macOS sharing |
 | **4** | L2CAP, Android PHY; peripheral later / lower |
-| **5** | **Multiplatform doctrine in production:** Web → macOS → Windows → Linux; matrix + `supports()`; Nitro only if still needed |
+| **5** | **Multiplatform doctrine in production:** Web → macOS → Windows → Linux; matrix + `supports()`; Nitro only through the benchmark escalation gate |
 
 This fork already leads on Expo/RN packaging and connection helpers. The roadmap is how it leads on **background reliability**, **feature depth**, **owned native code**, and eventually **honest multiplatform BLE** (Web, macOS, Windows, Linux)—without losing the production edge that made the fork necessary.
 
@@ -697,7 +681,7 @@ Legend: **Y** = yes / strong · **P** = partial / planned / OS-limited · **N** 
 | Competitor pressure | Our answer in this doc |
 | ------------------- | ---------------------- |
 | ble-manager bonding | Phase 1 bonding APIs |
-| ble-nitro modernity / bytes / JSI feel | Phase 1 bytes; Phase 3 Path B or C; don’t lose on Expo/reliability |
+| ble-nitro modernity / bytes / JSI feel | Phase 1 bytes + Phase 3 owned Kotlin/Swift/TurboModule; use measurements, not framework fashion, to decide whether another binding is ever needed |
 | flutter multiplatform + matrix honesty | Phase 5 federated backends + `supports()` + `PLATFORMS.md` |
 | flutter services-reset / queues / long write | Phase 2 |
 | flutter PHY / bulk transport | Phase 4 L2CAP + Android PHY |
@@ -710,7 +694,7 @@ Legend: **Y** = yes / strong · **P** = partial / planned / OS-limited · **N** 
 | ---- | ------ |
 | Production Expo/RN health/wearable with reconnect + background | **This fork** (and this roadmap) |
 | Minimal glue + explicit Android bonds, accept app-owned reliability | **ble-manager** |
-| Max native throughput / Nitro-first greenfield | **ble-nitro** (or this fork after Path C) |
+| Nitro-first greenfield where maximum binding throughput outweighs dependency cost | **ble-nitro**; this fork stays TurboModule-first unless its benchmark gate is met |
 | Flutter app | **flutter_blue_plus** |
 | Browser-only tool | **Web Bluetooth** (later: this fork’s web backend) |
 | Peripheral + L2CAP + Classic on Android now | Niche specialist libs—not our Phase 1 |

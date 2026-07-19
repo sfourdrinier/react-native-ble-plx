@@ -56,6 +56,7 @@ This repo is developed and released with **pnpm**.
 
 - [Getting started](./GETTING_STARTED.md)
 - [Roadmap](../ROADMAP.md)
+- [Roadmap 4.0](../ROADMAP.4.0.md)
 - [ConnectionManager](./CONNECTION_MANAGER.md)
 - [Expo plugin](./EXPO_PLUGIN.md)
 - [tvOS](./TVOS.md)

@@ -16,6 +16,7 @@
     "cpp",
     "docs",
     "ROADMAP.md",
+    "ROADMAP.4.0.md",
     "plugin/build",
     "app.plugin.js",
     "*.podspec",
