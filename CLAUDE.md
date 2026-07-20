@@ -33,9 +33,8 @@ This project uses **pnpm**, not npm or yarn. All package manager commands should
 Follow the authoritative process in `RELEASE.md` (summarized):
 1. Prepare a `release/<version>` branch, update changelog/version surfaces, run `pnpm verify:release`
 2. Open a PR into `master`, merge when green
-3. On the merge commit: `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`
-4. GitHub Actions workflow `publish.yml` publishes via npm Trusted Publishing (OIDC) with provenance — do not `npm publish` from a laptop for normal releases
-5. Create the GitHub release with `gh release create` after the publish job succeeds
+3. On the merge commit: `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z` (tags stay manual)
+4. GitHub Actions workflow `publish.yml` publishes via npm Trusted Publishing (OIDC) with provenance, then creates the GitHub Release from `CHANGELOG.md` — do not `npm publish` from a laptop for normal releases
 
 ## Architecture Overview
 

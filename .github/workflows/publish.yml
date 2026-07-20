@@ -11,8 +11,9 @@
 #    Allowed actions:   npm publish
 #    https://www.npmjs.com/package/@sfourdrinier/react-native-ble-plx/access
 #
-# Release flow: merge release PR → tag vX.Y.Z on master → push tag → approve
-# environment if required → this workflow publishes. See RELEASE.md.
+# Release flow: merge release PR → manually tag vX.Y.Z on master → push tag →
+# approve npm environment if required → this workflow publishes to npm with
+# provenance, then creates the GitHub Release. Tags stay manual. See RELEASE.md.
 
 name: Publish to npm
 
@@ -22,8 +23,8 @@ on:
       - 'v*.*.*'
 
 permissions:
-  contents: read
-  id-token: write
+  contents: write # GitHub Release after successful publish
+  id-token: write # npm Trusted Publishing (OIDC)
 
 jobs:
   publish:
@@ -97,18 +98,64 @@ jobs:
           fi
           echo "Publishing ${PKG} from tag ${GITHUB_REF_NAME}"
 
-      - name: Guard — version must not already exist on npm
+      # Soft check so a re-run after npm success can still create the GitHub Release.
+      - name: Check whether version is already on npm
+        id: npm_status
         run: |
           set -euo pipefail
           VER="$(node -p "require('./package.json').version")"
           if npm view "@sfourdrinier/react-native-ble-plx@${VER}" version >/dev/null 2>&1; then
-            echo "@sfourdrinier/react-native-ble-plx@${VER} is already published"
-            exit 1
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+            echo "Version ${VER} is already on npm — will skip publish and continue to GitHub Release"
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+            echo "Version ${VER} is not on npm yet"
           fi
-          echo "Version ${VER} is not on npm yet"
 
       # Do NOT set NODE_AUTH_TOKEN at all (even to empty). Empty token prevents
       # OIDC and yields ENEEDAUTH. Dummy token from setup-node yields 404.
       # Trusted Publishing uses GitHub OIDC automatically with id-token: write.
       - name: Publish to npm (OIDC + provenance)
+        if: steps.npm_status.outputs.already_published != 'true'
         run: npm publish --provenance --access public
+
+      # Tags remain manual. After npm succeeds, create the GitHub Release from
+      # CHANGELOG.md notes so the Releases page matches the published package.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "GitHub Release ${TAG} already exists — skipping"
+            exit 0
+          fi
+
+          NOTES_FILE="$(mktemp)"
+          {
+            echo "## ${TAG}"
+            echo
+            BODY="$(awk -v ver="${VER}" '
+              $0 ~ ("^## \\[" ver "\\]") { p = 1; next }
+              p && $0 ~ /^## \[/ { exit }
+              p { print }
+            ' CHANGELOG.md)"
+            if [ -n "${BODY}" ]; then
+              printf '%s\n' "${BODY}"
+            else
+              echo "See CHANGELOG.md for ${TAG} details."
+            fi
+            echo
+            echo "npm: \`@sfourdrinier/react-native-ble-plx@${VER}\` (published with provenance)"
+          } > "${NOTES_FILE}"
+
+          gh release create "${TAG}" \
+            --title "${TAG}" \
+            --notes-file "${NOTES_FILE}" \
+            --verify-tag
+
+          echo "Created GitHub Release ${TAG}"
+          rm -f "${NOTES_FILE}"

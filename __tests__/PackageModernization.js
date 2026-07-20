@@ -143,6 +143,13 @@ describe('package modernization targets', () => {
     expect(publishWorkflow).toContain('pnpm prepack')
     expect(publishWorkflow).toContain('npm pack --dry-run')
     expect(publishWorkflow).toContain('npm publish --provenance --access public')
+    expect(publishWorkflow).toContain('Create GitHub Release')
+    expect(publishWorkflow).toContain('gh release create')
+    expect(publishWorkflow).toContain('contents: write')
+    expect(publishWorkflow).toContain('CHANGELOG.md')
+    // Tags stay manual; only GitHub Release is automated after publish
+    expect(publishWorkflow).not.toContain('git tag -a')
+    expect(publishWorkflow).not.toContain('git push origin')
     // Never set NODE_AUTH_TOKEN for OIDC (empty string → ENEEDAUTH; dummy → 404)
     expect(publishWorkflow).not.toMatch(/NODE_AUTH_TOKEN:/)
     expect(publishWorkflow).not.toContain('NPM_TOKEN')
@@ -152,6 +159,8 @@ describe('package modernization targets', () => {
     expect(releaseDoc).toContain('publish.yml')
     expect(releaseDoc).toContain('dist.attestations')
     expect(releaseDoc).toContain('git tag -a v<version>')
+    expect(releaseDoc).toContain('GitHub Release is **automatic**')
+    expect(releaseDoc).toContain('Git tags stay **manual**')
   })
 
   test('Dependabot keeps GitHub Actions and package ecosystems current', () => {

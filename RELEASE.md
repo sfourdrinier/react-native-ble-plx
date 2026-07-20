@@ -173,13 +173,17 @@ The workflow:
 - Runs package tests, plugin tests, lint, and `prepack`
 - Runs `npm pack --dry-run`
 - Asserts `package.json` version equals the tag (without the `v` prefix)
-- Asserts the version is not already published
-- Runs `npm publish --provenance --access public` via OIDC (no long-lived npm token)
+- Publishes with `npm publish --provenance --access public` via OIDC (skips if that version is already on npm)
+- Creates the **GitHub Release** for `v<version>` from the matching `CHANGELOG.md` section (skips if the release already exists)
 
-## 6. Verify Registry Provenance
+Git tags stay **manual**. The GitHub Release is **automatic** after a successful publish path.
+
+## 6. Verify Registry Provenance And GitHub Release
 
 ```bash
 npm view @sfourdrinier/react-native-ble-plx@<version> version gitHead dist.tarball dist.integrity dist.attestations --json
+gh release view v<version>
+git ls-remote --tags origin v<version>
 ```
 
 Confirm:
@@ -187,24 +191,13 @@ Confirm:
 - `version` equals `<version>`
 - `gitHead` equals the tagged merge commit from `git rev-parse HEAD`
 - `dist.attestations` is present (provenance from the GitHub Actions publish)
+- GitHub Release `v<version>` exists with notes from `CHANGELOG.md`
 
 Consumers can also run `npm audit signatures` in a project that depends on the package.
 
-## 7. Create The GitHub Release
+## 7. Record The Release Locally
 
-```bash
-gh release create v<version> --title "v<version>" --notes "<release notes from CHANGELOG.md>"
-```
-
-Verify the release and final repository state:
-
-```bash
-gh release view v<version>
-git ls-remote --tags origin v<version>
-git status --short
-```
-
-Update the **Current Release** section at the top of this file with the new version, tag, commit SHA, and GitHub release.
+Update the **Current Release** section at the top of this file with the new version, tag, commit SHA, GitHub release, and provenance note.
 
 The release is complete only when npm (with provenance), `v<version>`, the GitHub release, and `master` all point to the same source commit.
 
