@@ -141,7 +141,7 @@ describe('package modernization targets', () => {
     expect(publishWorkflow).toContain('pnpm prepack')
     expect(publishWorkflow).toContain('npm pack --dry-run')
     expect(publishWorkflow).toContain('npm publish --provenance --access public')
-    # setup-node dummy token must be cleared so OIDC is used (not a real secret)
+    // setup-node dummy token must be cleared so OIDC is used (not a real secret)
     expect(publishWorkflow).toContain("NODE_AUTH_TOKEN: ''")
     expect(publishWorkflow).not.toContain('NPM_TOKEN')
     expect(publishWorkflow).not.toContain('secrets.NPM_TOKEN')
