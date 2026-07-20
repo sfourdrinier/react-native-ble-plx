@@ -35,23 +35,35 @@ jobs:
       - name: Checkout tag
         uses: actions/checkout@v7.0.0
 
+      # Trusted publishing: Node ≥22.14.0, npm ≥11.5.1
+      # (https://docs.npmjs.com/trusted-publishers).
+      # Do NOT set registry-url here: actions/setup-node writes
+      # //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN} which breaks OIDC
+      # (empty token → ENEEDAUTH; dummy token → 404). See:
+      # https://github.com/actions/setup-node/issues/1551
+      # https://github.com/npm/documentation/issues/1960
       - name: Setup Node.js
         uses: actions/setup-node@v6.4.0
         with:
-          # Trusted publishing requires Node ≥22.14.0 and npm ≥11.5.1
-          # (https://docs.npmjs.com/trusted-publishers). Node 24 LTS ships npm 11.x
-          # (e.g. nodejs.org dist: v24.18.0 → npm 11.16.0). Do not use npm@latest
-          # blindly — as of research, npm@12 requires Node ^22.22.2 || ^24.15.0+.
           node-version: 24
-          registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
       - name: Ensure npm supports trusted publishing
         run: |
-          # Pin the npm 11 line (not @latest / 12.x) so engines stay compatible.
+          # Pin npm 11.x (docs floor 11.5.1). Avoid npm@latest (12.x engines differ).
+          # Node 24 LTS currently ships npm 11.x (e.g. v24.18.0 → 11.16.0).
           npm install -g 'npm@^11.5.1'
           node --version
           npm --version
+          # Prove OIDC env is present (GitHub always sets these on GHA).
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || {
+            echo "ACTIONS_ID_TOKEN_REQUEST_URL missing — OIDC will not work"
+            exit 1
+          }
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" || {
+            echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN missing — OIDC will not work"
+            exit 1
+          }
 
       - name: Enable pnpm
         run: corepack enable
@@ -95,11 +107,8 @@ jobs:
           fi
           echo "Version ${VER} is not on npm yet"
 
-      # actions/setup-node with registry-url injects a dummy NODE_AUTH_TOKEN.
-      # That dummy token makes npm try token auth first and fail OIDC trusted
-      # publishing with a misleading 404. Clear it so publish uses OIDC only.
-      # See https://github.com/orgs/community/discussions/176761
+      # Do NOT set NODE_AUTH_TOKEN at all (even to empty). Empty token prevents
+      # OIDC and yields ENEEDAUTH. Dummy token from setup-node yields 404.
+      # Trusted Publishing uses GitHub OIDC automatically with id-token: write.
       - name: Publish to npm (OIDC + provenance)
-        env:
-          NODE_AUTH_TOKEN: ''
         run: npm publish --provenance --access public
