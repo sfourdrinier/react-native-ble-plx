@@ -4,16 +4,15 @@ This fork publishes as `@sfourdrinier/react-native-ble-plx`.
 
 ## Current Release
 
-Current released version: `3.8.3`.
+Current released version: `3.8.4`.
 
-- npm package: `@sfourdrinier/react-native-ble-plx@3.8.3`
-- Git tag: `v3.8.3`
-- Source commit: `3e875afc841cf7f11c4727c2ba9460566634ea53`
-- GitHub release: `v3.8.3`
+- npm package: `@sfourdrinier/react-native-ble-plx@3.8.4`
+- Git tag: `v3.8.4`
+- Source commit: `cf56e876c043258b632aa13daac718fb6a7e5ae5`
+- GitHub release: `v3.8.4`
+- Provenance: yes (`dist.attestations` with SLSA provenance v1)
 
-3.8.3 includes the root roadmap in the npm package and makes the CocoaPods source tag use the same `v<version>` convention as GitHub releases.
-
-From **3.8.4** onward, packages are published from GitHub Actions with [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) (OIDC) and [provenance attestations](https://docs.npmjs.com/generating-provenance-statements/). Older versions stay as published; provenance is not retroactive.
+3.8.4 publishes from GitHub Actions with [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) (OIDC) and [provenance attestations](https://docs.npmjs.com/generating-provenance-statements/). Older versions stay as published; provenance is not retroactive.
 
 ## Release Rules
 

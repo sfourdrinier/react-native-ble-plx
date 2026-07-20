@@ -167,7 +167,7 @@ describe('package modernization targets', () => {
     expect(rootPackage.scripts['verify:release']).toBe('bash scripts/verify-release.sh')
     expect(fs.existsSync(releaseVerifyScriptPath)).toBe(true)
     expect(releaseDoc).toContain('pnpm verify:release')
-    expect(releaseDoc).toContain('Current released version: `3.8.3`')
+    expect(releaseDoc).toContain('Current released version: `3.8.4`')
     expect(releaseDoc).toContain('Expo SDK 57')
     expect(releaseDoc).toContain('React Native 0.86')
     expect(releaseDoc).toContain('pnpm test:package')
