@@ -81,6 +81,10 @@ For older React Native versions, use the upstream [dotintent/react-native-ble-pl
 
 ## Version History
 
+**3.8.4 (This Fork)**
+
+- Publishes from GitHub Actions with npm Trusted Publishing (OIDC) and provenance attestations (tag `vX.Y.Z` triggers CI publish).
+
 **3.8.3 (This Fork)**
 
 - Publishes the roadmap referenced by the README and fork documentation.
@@ -725,7 +729,7 @@ async function startReliableSync(deviceId: string) {
 
 ## Releasing
 
-Read [RELEASE.md](RELEASE.md) before preparing or publishing a release. It is the authoritative release procedure for this fork, including local verification, npm publishing, tagging, and GitHub release steps.
+Read [RELEASE.md](RELEASE.md) before preparing or publishing a release. It is the authoritative release procedure for this fork, including local verification, tag-triggered CI publish with npm provenance, and GitHub release steps.
 
 Keep `RELEASE.md` updated whenever the release gate, package contents, or publishing process changes.
 
