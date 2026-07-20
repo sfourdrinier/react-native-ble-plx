@@ -729,7 +729,7 @@ async function startReliableSync(deviceId: string) {
 
 ## Releasing
 
-Read [RELEASE.md](RELEASE.md) before preparing or publishing a release. It is the authoritative release procedure for this fork, including local verification, tag-triggered CI publish with npm provenance, and GitHub release steps.
+Read [RELEASE.md](RELEASE.md) before preparing or publishing a release. It is the authoritative procedure for this fork: shared release gate, preferred CI publish (OIDC + provenance + GitHub Release), and optional laptop npm/`gh release` path.
 
 Keep `RELEASE.md` updated whenever the release gate, package contents, or publishing process changes.
 
