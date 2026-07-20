@@ -38,14 +38,18 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6.4.0
         with:
-          # npm 11.5.1+ required for trusted publishing; npm@latest (12+) needs Node ≥22.22.2
+          # Trusted publishing requires Node ≥22.14.0 and npm ≥11.5.1
+          # (https://docs.npmjs.com/trusted-publishers). Node 24 LTS ships npm 11.x
+          # (e.g. nodejs.org dist: v24.18.0 → npm 11.16.0). Do not use npm@latest
+          # blindly — as of research, npm@12 requires Node ^22.22.2 || ^24.15.0+.
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
       - name: Ensure npm supports trusted publishing
         run: |
-          npm install -g npm@11
+          # Pin the npm 11 line (not @latest / 12.x) so engines stay compatible.
+          npm install -g 'npm@^11.5.1'
           node --version
           npm --version
 
@@ -91,5 +95,11 @@ jobs:
           fi
           echo "Version ${VER} is not on npm yet"
 
+      # actions/setup-node with registry-url injects a dummy NODE_AUTH_TOKEN.
+      # That dummy token makes npm try token auth first and fail OIDC trusted
+      # publishing with a misleading 404. Clear it so publish uses OIDC only.
+      # See https://github.com/orgs/community/discussions/176761
       - name: Publish to npm (OIDC + provenance)
+        env:
+          NODE_AUTH_TOKEN: ''
         run: npm publish --provenance --access public
