@@ -60,7 +60,15 @@ describe('package modernization targets', () => {
     expect(rootPackage.devDependencies.eslint).toBe('^9.39.1')
     expect(rootPackage.devDependencies['@react-navigation/native']).toBe('^7.3.8')
     expect(rootPackage.devDependencies['@react-navigation/native-stack']).toBe('^7.17.10')
-    expect(rootPackage.repository).toBe('https://github.com/sfourdrinier/react-native-ble-plx.git')
+    expect(rootPackage.repository).toEqual({
+      type: 'git',
+      url: 'git+https://github.com/sfourdrinier/react-native-ble-plx.git'
+    })
+    expect(rootPackage.publishConfig).toEqual({
+      registry: 'https://registry.npmjs.org/',
+      access: 'public',
+      provenance: true
+    })
     expect(rootPackage.bugs.url).toBe('https://github.com/sfourdrinier/react-native-ble-plx/issues')
     expect(rootPackage.homepage).toBe('https://github.com/sfourdrinier/react-native-ble-plx#readme')
     expect(rootPackage.codegenConfig).toEqual({
@@ -117,6 +125,29 @@ describe('package modernization targets', () => {
     expect(githubConfig).not.toContain('actions/setup-java@v3')
   })
 
+  test('publish workflow uses tag-triggered OIDC trusted publishing with provenance', () => {
+    const publishWorkflowPath = path.join(__dirname, '..', '.github/workflows/publish.yml')
+    expect(fs.existsSync(publishWorkflowPath)).toBe(true)
+    const publishWorkflow = fs.readFileSync(publishWorkflowPath, 'utf8')
+    expect(publishWorkflow).toContain("tags:\n      - 'v*.*.*'")
+    expect(publishWorkflow).toContain('id-token: write')
+    expect(publishWorkflow).toContain('environment: npm')
+    expect(publishWorkflow).toContain('node-version: 22.16.0')
+    expect(publishWorkflow).toContain('package-manager-cache: false')
+    expect(publishWorkflow).toContain('pnpm test:package')
+    expect(publishWorkflow).toContain('pnpm test:plugin')
+    expect(publishWorkflow).toContain('pnpm lint')
+    expect(publishWorkflow).toContain('pnpm prepack')
+    expect(publishWorkflow).toContain('npm pack --dry-run')
+    expect(publishWorkflow).toContain('npm publish --provenance --access public')
+    expect(publishWorkflow).not.toContain('NPM_TOKEN')
+    expect(publishWorkflow).not.toContain('NODE_AUTH_TOKEN')
+    expect(releaseDoc).toContain('Trusted Publishing')
+    expect(releaseDoc).toContain('publish.yml')
+    expect(releaseDoc).toContain('dist.attestations')
+    expect(releaseDoc).toContain('git tag -a v<version>')
+  })
+
   test('Dependabot keeps GitHub Actions and package ecosystems current', () => {
     expect(fs.existsSync(dependabotPath)).toBe(true)
     expect(dependabot).toContain('package-ecosystem: "github-actions"')
@@ -143,7 +174,7 @@ describe('package modernization targets', () => {
     expect(releaseDoc).toContain('npx expo prebuild --clean --no-install')
     expect(releaseDoc).toContain('./gradlew :app:assembleDebug --no-daemon --console=plain')
     expect(releaseDoc).toContain('npm pack --dry-run')
-    expect(releaseDoc).toContain('npm publish --access public')
+    expect(releaseDoc).toContain('npm publish --provenance --access public')
     expect(releaseDoc).toContain('v<version>')
     expect(releaseDoc).toContain('file:..')
     expect(releaseDoc).toContain('ROADMAP.md')
@@ -184,11 +215,11 @@ describe('package modernization targets', () => {
     }
     expect(examplePackage.devDependencies['@react-native/eslint-config']).toBe('0.86.0')
     expect(exampleExpoPackage.devDependencies).not.toHaveProperty('@react-native/eslint-config')
-    expect(exampleExpoPackage.dependencies.expo).toBe('^57.0.4')
+    expect(exampleExpoPackage.dependencies.expo).toBe('^57.0.7')
     expect(exampleExpoPackage.dependencies['@react-navigation/native']).toBe('^7.3.8')
     expect(exampleExpoPackage.dependencies['@react-navigation/native-stack']).toBe('^7.17.10')
-    expect(exampleExpoPackage.dependencies['expo-status-bar']).toBe('~57.0.0')
-    expect(exampleExpoPackage.dependencies['expo-system-ui']).toBe('~57.0.0')
+    expect(exampleExpoPackage.dependencies['expo-status-bar']).toBe('~57.0.1')
+    expect(exampleExpoPackage.dependencies['expo-system-ui']).toBe('~57.0.1')
     expect(exampleExpoPackage.dependencies['react-native-safe-area-context']).toBe('~5.7.0')
     expect(exampleExpoPackage.dependencies['react-native-screens']).toBe('4.25.2')
     expect(exampleExpoPackage.devDependencies.typescript).toBe('~6.0.3')

@@ -30,13 +30,12 @@ This project uses **pnpm**, not npm or yarn. All package manager commands should
 - `pnpm bootstrap` - Install dependencies for all workspaces
 
 ### Publishing
-Follow the release process documented in README.md:
-1. Ensure tests pass: `pnpm test:package && pnpm test:plugin`
-2. Commit changes with conventional commit messages
-3. Bump version in `package.json`
-4. Build: `pnpm run prepack`
-5. Publish: `pnpm publish --access public --no-git-checks`
-6. Tag release: `git tag vX.Y.Z && git push origin vX.Y.Z`
+Follow the authoritative process in `RELEASE.md` (summarized):
+1. Prepare a `release/<version>` branch, update changelog/version surfaces, run `pnpm verify:release`
+2. Open a PR into `master`, merge when green
+3. On the merge commit: `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`
+4. GitHub Actions workflow `publish.yml` publishes via npm Trusted Publishing (OIDC) with provenance — do not `npm publish` from a laptop for normal releases
+5. Create the GitHub release with `gh release create` after the publish job succeeds
 
 ## Architecture Overview
 

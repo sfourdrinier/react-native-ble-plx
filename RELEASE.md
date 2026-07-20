@@ -13,6 +13,8 @@ Current released version: `3.8.3`.
 
 3.8.3 includes the root roadmap in the npm package and makes the CocoaPods source tag use the same `v<version>` convention as GitHub releases.
 
+From **3.8.4** onward, packages are published from GitHub Actions with [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) (OIDC) and [provenance attestations](https://docs.npmjs.com/generating-provenance-statements/). Older versions stay as published; provenance is not retroactive.
+
 ## Release Rules
 
 - Release from a clean, merged `master` commit. The npm package `gitHead`, Git tag, and GitHub release must all identify that exact commit.
@@ -20,6 +22,26 @@ Current released version: `3.8.3`.
 - Keep the support floor aligned with React Native 0.86+ and Expo SDK 57+.
 - Do not commit generated `example-expo/android` or `example-expo/ios` directories, native build products, or validation-only lockfile churn.
 - Do not make `pnpm docs` a release prerequisite. The supported gate is source tests, package tests, Expo CNG validation, native Android assembly, and package inspection.
+- **Do not publish from a laptop for normal releases.** Push an annotated `v<version>` tag; `.github/workflows/publish.yml` publishes via OIDC.
+- Never unpublish in an attempt to reuse a version.
+
+## One-time setup (CI provenance)
+
+These steps are already done when this document is current. Revisit only if the workflow filename, environment name, or package ownership changes.
+
+1. **GitHub Environment** named `npm` on `sfourdrinier/react-native-ble-plx` (recommended: required reviewers so every publish needs human approval).
+2. **npm Trusted Publisher** on the package access page:  
+   https://www.npmjs.com/package/@sfourdrinier/react-native-ble-plx/access
+
+   | Field | Value |
+   |--------|--------|
+   | Organization or user | `sfourdrinier` |
+   | Repository | `react-native-ble-plx` |
+   | Workflow filename | `publish.yml` |
+   | Environment name | `npm` |
+   | Allowed actions | `npm publish` |
+
+3. After the **first** successful CI publish, optionally set package **Publishing access** to require 2FA and **disallow tokens**, then revoke any old automation tokens. Do not disable tokens until CI publish has been proven.
 
 ## 1. Prepare The Release Branch
 
@@ -122,40 +144,56 @@ git status --short
 git rev-parse HEAD
 ```
 
-## 5. Publish To npm
-
-Confirm authentication and that the target version is not already published:
+Confirm the target version is not already on npm:
 
 ```bash
-npm whoami
 npm view @sfourdrinier/react-native-ble-plx@<version> version
 ```
 
-The second command must report that `<version>` does not exist. Never unpublish in an attempt to reuse a version: npm versions cannot be reused.
+That command must fail or report that the version does not exist.
 
-Publish with npm after the package dry run has passed:
+## 5. Tag To Trigger CI Publish
 
-```bash
-npm publish --access public
-```
-
-Use `npm publish` for this fork. It uses the same npm packer validated by the dry run; do not substitute `pnpm publish` without first validating its packaging behavior.
-
-Verify registry provenance immediately after publishing:
-
-```bash
-npm view @sfourdrinier/react-native-ble-plx@<version> version gitHead dist.tarball dist.integrity --json
-```
-
-The returned `version` must equal `<version>` and `gitHead` must equal the merged `master` commit from `git rev-parse HEAD`.
-
-## 6. Tag And Create The GitHub Release
-
-Create an annotated tag on the same commit recorded by npm, push it, and create the GitHub release with the matching changelog notes:
+Create an annotated tag on the merged `master` commit and push **only the tag**. Pushing `v<version>` starts `.github/workflows/publish.yml`.
 
 ```bash
 git tag -a v<version> -m "v<version>" HEAD
 git push origin v<version>
+```
+
+Then:
+
+1. Open the Actions run for **Publish to npm** on that tag.
+2. If the `npm` environment requires reviewers, approve the deployment.
+3. Wait for the job to finish successfully.
+
+The workflow:
+
+- Checks out the tag
+- Installs dependencies with pnpm
+- Runs package tests, plugin tests, lint, and `prepack`
+- Runs `npm pack --dry-run`
+- Asserts `package.json` version equals the tag (without the `v` prefix)
+- Asserts the version is not already published
+- Runs `npm publish --provenance --access public` via OIDC (no long-lived npm token)
+
+## 6. Verify Registry Provenance
+
+```bash
+npm view @sfourdrinier/react-native-ble-plx@<version> version gitHead dist.tarball dist.integrity dist.attestations --json
+```
+
+Confirm:
+
+- `version` equals `<version>`
+- `gitHead` equals the tagged merge commit from `git rev-parse HEAD`
+- `dist.attestations` is present (provenance from the GitHub Actions publish)
+
+Consumers can also run `npm audit signatures` in a project that depends on the package.
+
+## 7. Create The GitHub Release
+
+```bash
 gh release create v<version> --title "v<version>" --notes "<release notes from CHANGELOG.md>"
 ```
 
@@ -167,4 +205,17 @@ git ls-remote --tags origin v<version>
 git status --short
 ```
 
-The release is complete only when npm, `v<version>`, the GitHub release, and `master` all point to the same source commit.
+Update the **Current Release** section at the top of this file with the new version, tag, commit SHA, and GitHub release.
+
+The release is complete only when npm (with provenance), `v<version>`, the GitHub release, and `master` all point to the same source commit.
+
+## Break-glass: local publish (emergency only)
+
+Use only if GitHub Actions or Trusted Publishing is unavailable and a security or production fix cannot wait.
+
+1. Prefer fixing CI first.
+2. If you must publish locally, use `npm publish --access public` from a clean checkout of the intended commit (still use `npm`, not `pnpm publish`).
+3. That package will **not** have provenance attestations.
+4. Document the exception in the GitHub release notes and restore CI publishing before the next normal release.
+
+Do not re-enable long-lived automation tokens as the default path once Trusted Publishing works.

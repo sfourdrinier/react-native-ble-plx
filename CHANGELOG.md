@@ -4,6 +4,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.8.4] - 2026-07-19
+
+### Added
+
+- Publish releases from GitHub Actions with npm Trusted Publishing (OIDC) and provenance attestations. Pushing an annotated `vX.Y.Z` tag runs `.github/workflows/publish.yml`; normal releases no longer use laptop `npm publish`.
+
+### Changed
+
+- Release procedure documents the tag-first CI publish flow, GitHub Environment `npm` approval gate, and post-publish provenance verification.
+- Package `publishConfig` enables public access and provenance; `repository` uses the structured form expected by npm provenance matching.
+- Bumped the Expo example to `expo@~57.0.7`, `expo-status-bar@~57.0.1`, and `expo-system-ui@~57.0.1` so Expo Doctor passes on the current SDK 57 patch line.
+
 ## [3.8.3] - 2026-07-18
 
 ### Fixed
