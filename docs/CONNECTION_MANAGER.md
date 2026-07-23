@@ -100,7 +100,7 @@ const device = await connections.attemptConnectOnce(deviceId, {
   timeoutMs: 15000,
   connectionOptions: {
     /* native options */
-  }
+  },
   // maxRetries is forced to 1 (single attempt); prefer omitting it
 })
 ```
@@ -110,7 +110,7 @@ const device = await connections.attemptConnectOnce(deviceId, {
 | Call | While auto-reconnect enabled | While `attemptConnectOnce` in flight |
 | ---- | ---------------------------- | ------------------------------------ |
 | `attemptConnectOnce` | Rejects `OperationStartFailed` | Coalesces with other gated calls |
-| `attemptConnectOnce` while multi-retry `connect` in flight | — | Rejects `OperationStartFailed` (strict: does not join multi-retry) |
+| `attemptConnectOnce` while non-gated `connect` in flight | — | Rejects `OperationStartFailed` (strict: does not join any non-gated in-flight connect) |
 | `enableAutoReconnect` | Updates options | **Throws** `OperationStartFailed` (use try/catch) |
 | `connect` | Allowed (existing behavior) | Coalesces onto gated flight (single attempt already started; does **not** re-arm multi-retry) |
 

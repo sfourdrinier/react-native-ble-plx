@@ -223,7 +223,7 @@ export class ConnectionManager {
 
     const existing = this._devices.get(deviceId)
 
-    // D1: gated must not join a non-gated multi-retry in-flight connect
+    // D1: gated must not join any non-gated in-flight connect (strict coalesce)
     if (mode.gated && existing && existing.pendingPromise && !existing.cancelled && !existing.gatedAttempt) {
       return Promise.reject(
         new BleError(

@@ -56,7 +56,7 @@ class BLEServiceInstance {
 
   createNewManager = () => {
     // Must destroy previous instance before new options take effect
-    void this.manager.destroy().then(() => {
+    void this.manager.destroy().finally(() => {
       this.manager = new BleManager(
         Platform.OS === 'ios'
           ? { restoreStateIdentifier: 'com.intent.BlePlxExample.restore' }
