@@ -129,34 +129,20 @@ public final class BlePlxRestorationAdapter: NSObject {
       restoreIdentifierKey: restorationIdentifier
     )
 
-    // Buffer a JS-shaped RestoreStateEvent payload so createClient can replay it after
-    // JS attaches listeners. The adapter runs before BleManager exists, so any native
-    // RestoreStateEvent from BleClientManager init would be dropped (no delegate yet).
-    let connectedPeripherals: [[AnyHashable: Any]] = peripherals.map { peripheral in
-      [
-        "id": peripheral.identifier.uuidString,
-        "name": peripheral.name as Any,
-        "rssi": NSNull(),
-        "mtu": 23,
-        "manufacturerData": NSNull(),
-        "serviceData": NSNull(),
-        "serviceUUIDs": NSNull(),
-        "localName": NSNull(),
-        "txPowerLevel": NSNull(),
-        "solicitedServiceUUIDs": NSNull(),
-        "isConnectable": NSNull(),
-        "overflowServiceUUIDs": NSNull(),
-        "rawScanRecord": NSNull()
-      ]
-    }
-    let restorePayload: [AnyHashable: Any] = [
-      "connectedPeripherals": connectedPeripherals
-    ]
+    let deviceIds = peripherals.map { $0.identifier.uuidString }
+
+    // Populate the native connection cache *before* buffering the JS restore payload.
+    // Otherwise getRestoredState()/restoreStateFunction can hand Devices to JS while
+    // isDeviceConnected/discovery still miss them (connectToDevice only fills the cache
+    // on async success).
+    manager.seedRestoredPeripherals(withIdentifiers: deviceIds)
+
+    // Payload mirrors the native cache after seed (not the raw CB restore list).
+    let restorePayload = manager.currentRestoreStatePayload()
     BlePlxRestorationState.storeRestoredManager(manager, restoreStatePayload: restorePayload)
 
-    // Register device routes and reconnect
-    for peripheral in peripherals {
-      let deviceId = peripheral.identifier.uuidString
+    // Register device routes and reconnect (fills cache for any not yet adopted).
+    for deviceId in deviceIds {
       registerDeviceRoute(deviceId: deviceId)
 
       // Kick off reconnect in the background. We don't care about resolve/reject here

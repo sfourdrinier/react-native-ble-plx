@@ -487,6 +487,16 @@ describe('ConnectionManager', () => {
       });
     });
 
+    test('enableAutoReconnect throws after destroy', async () => {
+      const p = mgr.connect('d1', { timeoutMs: 0 });
+      mgr.destroy();
+      await expect(p).rejects.toMatchObject({ errorCode: BleErrorCode.OperationCancelled });
+      expect(() => mgr.enableAutoReconnect('d1', { maxRetries: 1, timeoutMs: 0 })).toThrow(
+        expect.objectContaining({ errorCode: BleErrorCode.OperationCancelled })
+      );
+      expect(mgr.isAutoReconnectEnabled('d1')).toBe(false);
+    });
+
     test('onConnect may enableAutoReconnect after gated native success', async () => {
       mgr.setGlobalCallbacks({
         onConnect: device => {

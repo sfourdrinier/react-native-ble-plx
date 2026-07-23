@@ -338,6 +338,19 @@ export class ConnectionManager {
    * @throws {BleError} OperationStartFailed if attemptConnectOnce is in flight for this device
    */
   enableAutoReconnect(deviceId: DeviceId, options?: ConnectionOptionsWithRetry, callbacks?: ConnectionCallbacks): void {
+    if (this._destroying) {
+      throw new BleError(
+        {
+          errorCode: BleErrorCode.OperationCancelled,
+          attErrorCode: null,
+          iosErrorCode: null,
+          androidErrorCode: null,
+          reason: DESTROY_CANCEL_REASON
+        },
+        BleErrorCodeMessage
+      )
+    }
+
     const existingForGuard = this._devices.get(deviceId)
     // In-flight means native connect still active (isConnecting). After native settles,
     // onConnect may call enableAutoReconnect before pendingPromise is cleared — that must succeed.

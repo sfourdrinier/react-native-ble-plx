@@ -186,33 +186,66 @@ public class BleClientManager : NSObject {
 
         // When state is to be restored update all caches.
         restoredState.peripherals.forEach { peripheral in
-            connectedPeripherals[peripheral.identifier] = peripheral
-
-            _ = manager.rx_state.skip(1).take(1).flatMap { [weak self] state -> Observable<Peripheral> in
-                    if let self = self {
-                        return self.manager.monitorDisconnection(for: peripheral)
-                    } else {
-                        return Observable.error(BleError.init(errorCode: BleErrorCode.BluetoothManagerDestroyed))
-                    }
-                }
-                .take(1)
-                .subscribe(
-                    onNext: { [weak self] peripheral in
-                        self?.onPeripheralDisconnected(peripheral)
-                    },
-                    onError: { [weak self] error in
-                        self?.onPeripheralDisconnected(peripheral)
-                    })
-
-            peripheral.services?.forEach { service in
-                discoveredServices[service.jsIdentifier] = service
-                service.characteristics?.forEach { characteristic in
-                    discoveredCharacteristics[characteristic.jsIdentifier] = characteristic
-                }
-            }
+            adoptRestoredPeripheral(peripheral)
         }
 
         dispatchEvent(BleEvent.restoreStateEvent, value: restoredState.asJSObject)
+    }
+
+    /// Put a restored `Peripheral` into the native cache and watch for disconnects.
+    private func adoptRestoredPeripheral(_ peripheral: Peripheral) {
+        connectedPeripherals[peripheral.identifier] = peripheral
+
+        _ = manager.rx_state.skip(1).take(1).flatMap { [weak self] _ -> Observable<Peripheral> in
+                if let self = self {
+                    return self.manager.monitorDisconnection(for: peripheral)
+                } else {
+                    return Observable.error(BleError.init(errorCode: BleErrorCode.BluetoothManagerDestroyed))
+                }
+            }
+            .take(1)
+            .subscribe(
+                onNext: { [weak self] disconnected in
+                    self?.onPeripheralDisconnected(disconnected)
+                },
+                onError: { [weak self] _ in
+                    self?.onPeripheralDisconnected(peripheral)
+                })
+
+        peripheral.services?.forEach { service in
+            discoveredServices[service.jsIdentifier] = service
+            service.characteristics?.forEach { characteristic in
+                discoveredCharacteristics[characteristic.jsIdentifier] = characteristic
+            }
+        }
+    }
+
+    /// Seed `connectedPeripherals` from CoreBluetooth restore identifiers so
+    /// `isDeviceConnected` / discovery work as soon as JS receives restore replay.
+    /// Uses synchronous `retrievePeripherals` (.just). Safe to call before connect loops.
+    @objc
+    public func seedRestoredPeripherals(withIdentifiers identifiers: [String]) {
+        let uuids = identifiers.compactMap { UUID(uuidString: $0) }
+        guard !uuids.isEmpty else { return }
+
+        _ = manager.retrievePeripherals(withIdentifiers: uuids)
+            .take(1)
+            .subscribe(onNext: { [weak self] peripherals in
+                guard let self = self else { return }
+                for peripheral in peripherals {
+                    // Only adopt peripherals CoreBluetooth still considers connected /
+                    // known; connectToDevice remains responsible for re-establishing links.
+                    self.adoptRestoredPeripheral(peripheral)
+                }
+            })
+    }
+
+    /// JS-shaped RestoreStateEvent body from the current native connection cache.
+    @objc
+    public func currentRestoreStatePayload() -> [AnyHashable: Any] {
+        return [
+            "connectedPeripherals": Array(connectedPeripherals.values).map { $0.asJSObject() }
+        ]
     }
 #endif
 
