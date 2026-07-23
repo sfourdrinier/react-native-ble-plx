@@ -309,15 +309,10 @@ jobs:
             exit 1
           fi
           # Prefer an app scheme (contains example); skip CocoaPods aggregate schemes.
+          # One-line python keeps this valid YAML (multi-line -c '...' breaks the block scalar).
           SCHEME=$(
             xcodebuild -list -workspace "$WORKSPACE" -json \
-              | python3 -c '
-import json, sys
-data = json.load(sys.stdin)
-schemes = data.get("workspace", {}).get("schemes") or data.get("project", {}).get("schemes") or []
-preferred = [s for s in schemes if "example" in s.lower() and "pod" not in s.lower()]
-print((preferred or schemes)[0] if schemes else "")
-'
+              | python3 -c "import json,sys; d=json.load(sys.stdin); s=(d.get('workspace') or d.get('project') or {}).get('schemes') or []; p=[x for x in s if 'example' in x.lower() and 'pod' not in x.lower()]; print((p or s)[0] if s else '')"
           )
           if [[ -z "$SCHEME" ]]; then
             echo "error: could not resolve xcode scheme from $WORKSPACE" >&2

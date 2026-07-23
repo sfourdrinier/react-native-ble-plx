@@ -51,7 +51,8 @@ describe('package modernization targets', () => {
     expect(nvmrc).toBe('20.19.4')
     expect(rootPackage.peerDependencies['react-native']).toBe('>=0.86.0')
     expect(rootPackage.engines.node).toBe('^20.19.4 || ^22.13.0 || ^24.3.0 || >=25.0.0')
-    expect(rootPackage.devDependencies.expo).toBe('^57.0.4')
+    // SDK 57 floor — allow patch/minor within 57 without re-pinning every expo-doctor update
+    expect(rootPackage.devDependencies.expo).toMatch(/^[\^~]?57\./)
     expect(rootPackage.devDependencies.react).toBe('19.2.3')
     expect(rootPackage.devDependencies['react-native']).toBe('0.86.0')
     // RN 0.86+ ships TypeScript types; DefinitelyTyped @types/react-native is obsolete and harmful.
@@ -275,14 +276,15 @@ describe('package modernization targets', () => {
     }
     expect(examplePackage.devDependencies['@react-native/eslint-config']).toBe('0.86.0')
     expect(exampleExpoPackage.devDependencies).not.toHaveProperty('@react-native/eslint-config')
-    expect(exampleExpoPackage.dependencies.expo).toBe('^57.0.7')
-    expect(exampleExpoPackage.dependencies['@react-navigation/native']).toBe('^7.3.8')
-    expect(exampleExpoPackage.dependencies['@react-navigation/native-stack']).toBe('^7.17.10')
-    expect(exampleExpoPackage.dependencies['expo-status-bar']).toBe('~57.0.1')
-    expect(exampleExpoPackage.dependencies['expo-system-ui']).toBe('~57.0.1')
-    expect(exampleExpoPackage.dependencies['react-native-safe-area-context']).toBe('~5.7.0')
-    expect(exampleExpoPackage.dependencies['react-native-screens']).toBe('4.25.2')
-    expect(exampleExpoPackage.devDependencies.typescript).toBe('~6.0.3')
+    // Expo SDK 57 floor only — expo-doctor pins move on patch lines; do not assert exact patches.
+    expect(exampleExpoPackage.dependencies.expo).toMatch(/^[\^~]?57\./)
+    expect(exampleExpoPackage.dependencies['@react-navigation/native']).toMatch(/^[\^~]?7\./)
+    expect(exampleExpoPackage.dependencies['@react-navigation/native-stack']).toMatch(/^[\^~]?7\./)
+    expect(exampleExpoPackage.dependencies['expo-status-bar']).toMatch(/^[\^~]?57\./)
+    expect(exampleExpoPackage.dependencies['expo-system-ui']).toMatch(/^[\^~]?57\./)
+    expect(exampleExpoPackage.dependencies['react-native-safe-area-context']).toMatch(/^[\^~]?5\./)
+    expect(exampleExpoPackage.dependencies['react-native-screens']).toMatch(/^[\^~]?4\.(2[6-9]|[3-9])/)
+    expect(exampleExpoPackage.devDependencies.typescript).toMatch(/^[\^~]?6\./)
     expect(exampleExpoPackage.devDependencies).not.toHaveProperty('eslint')
     expect(exampleExpoPackage.devDependencies).not.toHaveProperty('prettier')
     expect(examplePackage.dependencies['@sfourdrinier/react-native-ble-plx']).toBe('file:..')
