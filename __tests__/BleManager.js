@@ -221,6 +221,39 @@ test('getRestoredState after destroy returns null immediately', async () => {
   await expect(dead.getRestoredState()).resolves.toBeNull()
 })
 
+test('Android-style sync RestoreStateEvent inside createClient is buffered', async () => {
+  await bleManager.destroy()
+  BleManager.sharedInstance = null
+  restoreStateFunction.mockClear()
+
+  Native.BleModule.createClient = jest.fn(restoreId => {
+    // Mirror Android: emit null synchronously during createClient when identifier set
+    if (restoreId) {
+      Native.BleModule.emit(Native.BleModule.RestoreStateEvent, null)
+    }
+  })
+
+  const mgr = new BleManager({
+    restoreStateIdentifier: 'android-sync',
+    restoreStateFunction
+  })
+
+  expect(Native.BleModule.createClient).toHaveBeenCalledWith('android-sync')
+  expect(restoreStateFunction).toHaveBeenCalledWith(null)
+  await expect(mgr.getRestoredState()).resolves.toBeNull()
+
+  await mgr.destroy()
+  BleManager.sharedInstance = null
+})
+
+test('getRestoredState waiters resolve null even if destroyClient rejects', async () => {
+  Native.BleModule.destroyClient = jest.fn().mockRejectedValueOnce(new Error('native destroy failed'))
+  const pending = bleManager.getRestoredState()
+  await expect(bleManager.destroy()).rejects.toBeTruthy()
+  BleManager.sharedInstance = null
+  await expect(pending).resolves.toBeNull()
+})
+
 test('BleModule calls destroy function when destroyed', () => {
   bleManager.destroy()
   expect(Native.BleModule.createClient).toBeCalled()

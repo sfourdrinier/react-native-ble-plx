@@ -171,31 +171,31 @@ export class BleManager {
    * {@link #bleerrorcodebluetoothmanagerdestroyed|BluetoothManagerDestroyed} error code.
    */
   async destroy(): Promise<void> {
-    const response = await this._callPromise(BleModule.destroyClient())
+    try {
+      const response = await this._callPromise(BleModule.destroyClient())
+      return response
+    } finally {
+      // Always tear down even if destroyClient rejects (waiters must not hang)
+      if (this._scanEventSubscription != null) {
+        this._scanEventSubscription.remove()
+        this._scanEventSubscription = null
+      }
+      this._destroySubscriptions()
 
-    // Unsubscribe from any subscriptions
-    if (this._scanEventSubscription != null) {
-      this._scanEventSubscription.remove()
-      this._scanEventSubscription = null
+      if (BleManager.sharedInstance) {
+        BleManager.sharedInstance = null
+      }
+
+      // Null buffer first, then drain restore waiters (post-destroy null ≠ OS empty restore)
+      this._restoredState = null
+      const restoreWaiters = this._restoreStateWaiters
+      this._restoreStateWaiters = []
+      for (const resolve of restoreWaiters) {
+        resolve(null)
+      }
+
+      this._destroyPromises()
     }
-    this._destroySubscriptions()
-
-    if (BleManager.sharedInstance) {
-      BleManager.sharedInstance = null
-    }
-
-    // Null buffer first, then drain restore waiters (post-destroy null ≠ OS empty restore)
-    this._restoredState = null
-    const restoreWaiters = this._restoreStateWaiters
-    this._restoreStateWaiters = []
-    for (const resolve of restoreWaiters) {
-      resolve(null)
-    }
-
-    // Destroy all promises
-    this._destroyPromises()
-
-    return response
   }
 
   /**

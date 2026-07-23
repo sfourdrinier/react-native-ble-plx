@@ -110,14 +110,10 @@ describe('ConnectionManager', () => {
   });
 
   afterEach(async () => {
-    // Flush any pending microtasks before cleanup
     await flushMicrotasks();
-
-    // Destroy manager (cleanup without rejecting promises)
-    if (mgr) {
-      mgr.destroy();
-    }
-
+    // Do not call destroy() here: it rejects in-flight connects (correct for production)
+    // and Jest treats unawaited rejections as fatal. beforeEach builds a fresh manager.
+    // Tests that need destroy must await the resulting promise rejections themselves.
     jest.clearAllTimers();
     jest.useRealTimers();
   });
@@ -376,8 +372,8 @@ describe('ConnectionManager', () => {
       expect(ble.connectToDevice).not.toHaveBeenCalled();
     });
 
-    test('enableAutoReconnect throws while gated attempt is in flight', () => {
-      void mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+    test('enableAutoReconnect throws while gated attempt is in flight', async () => {
+      const p = mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
       try {
         mgr.enableAutoReconnect('d1');
         throw new Error('expected enableAutoReconnect to throw');
@@ -386,6 +382,8 @@ describe('ConnectionManager', () => {
         expect(e.errorCode).toBe(BleErrorCode.OperationStartFailed);
         expect(e.reason).toMatch(/attemptConnectOnce|gated/i);
       }
+      ble._resolveConnect('d1', createDevice('d1'));
+      await expect(p).resolves.toMatchObject({ id: 'd1' });
     });
 
     test('enableAutoReconnect still throws if connect joined a gated flight', async () => {
@@ -462,5 +460,61 @@ describe('ConnectionManager', () => {
       expect(() => mgr.enableAutoReconnect('d1', { maxRetries: 1, timeoutMs: 0 })).not.toThrow();
       expect(mgr.isAutoReconnectEnabled('d1')).toBe(true);
     });
+
+    test('destroy settles in-flight attemptConnectOnce with OperationCancelled', async () => {
+      const p = mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+      mgr.destroy();
+      await expect(p).rejects.toMatchObject({ errorCode: BleErrorCode.OperationCancelled });
+    });
+
+    test('onConnect may enableAutoReconnect after gated native success', async () => {
+      mgr.setGlobalCallbacks({
+        onConnect: device => {
+          mgr.enableAutoReconnect(device.id, { maxRetries: 1, timeoutMs: 0 });
+        },
+      });
+      const p = mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+      ble._resolveConnect('d1', createDevice('d1'));
+      await expect(p).resolves.toMatchObject({ id: 'd1' });
+      expect(mgr.isAutoReconnectEnabled('d1')).toBe(true);
+    });
+  });
+
+  test('cancel mid-connect with auto-reconnect still allows later disconnect re-arm', async () => {
+    mgr.enableAutoReconnect('d1', { maxRetries: 1, initialDelayMs: 0, timeoutMs: 0 });
+    const p = mgr.connect('d1', { timeoutMs: 0 });
+    mgr.cancel('d1');
+    await expect(p).rejects.toMatchObject({ errorCode: BleErrorCode.OperationCancelled });
+    expect(mgr.isConnecting('d1')).toBe(false);
+
+    ble.connectToDevice.mockClear();
+    ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'later'));
+    await flushMicrotasks();
+    expect(ble.connectToDevice).toHaveBeenCalledTimes(1);
+    if (ble._connectCalls.length > 0) {
+      ble._connectCalls[ble._connectCalls.length - 1].deferred.reject(
+        createBleError(BleErrorCode.DeviceDisconnected, 'cleanup')
+      );
+      await flushMicrotasks().catch(() => {});
+    }
+  });
+
+  test('replace auto-reconnect in-flight: stale resolve must not cancel the newer connect', async () => {
+    // Auto-reconnect starts _attemptConnection without pendingPromise → explicit connect replaces
+    mgr.enableAutoReconnect('d1', { maxRetries: 1, initialDelayMs: 0, timeoutMs: 0 });
+    ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'drop'));
+    await flushMicrotasks();
+    expect(ble.connectToDevice).toHaveBeenCalledTimes(1);
+    const staleDeferred = ble._connectCalls[0].deferred;
+
+    const p2 = mgr.connect('d1', { maxRetries: 1, timeoutMs: 0 });
+    expect(ble.connectToDevice).toHaveBeenCalledTimes(2);
+
+    // Stale auto-reconnect deferred resolves after replace — must not cancel second attempt
+    staleDeferred.resolve(createDevice('d1'));
+    await flushMicrotasks();
+
+    ble._resolveConnect('d1', createDevice('d1'));
+    await expect(p2).resolves.toMatchObject({ id: 'd1' });
   });
 });

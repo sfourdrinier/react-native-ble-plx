@@ -319,7 +319,14 @@ export class ConnectionManager {
    */
   enableAutoReconnect(deviceId: DeviceId, options?: ConnectionOptionsWithRetry, callbacks?: ConnectionCallbacks): void {
     const existingForGuard = this._devices.get(deviceId)
-    if (existingForGuard?.gatedAttempt && existingForGuard.pendingPromise && !existingForGuard.cancelled) {
+    // In-flight means native connect still active (isConnecting). After native settles,
+    // onConnect may call enableAutoReconnect before pendingPromise is cleared — that must succeed.
+    if (
+      existingForGuard?.gatedAttempt &&
+      existingForGuard.isConnecting &&
+      existingForGuard.pendingPromise &&
+      !existingForGuard.cancelled
+    ) {
       throw new BleError(
         {
           errorCode: BleErrorCode.OperationStartFailed,
@@ -423,9 +430,7 @@ export class ConnectionManager {
       return false
     }
 
-    // Increment attemptId to invalidate any in-flight async attempts
-    state.attemptId++
-
+    // attemptId invalidation + isConnecting clear + native cancel happen in _cancelState
     this._cancelState(state)
 
     // Only reject promise and call callbacks if there was actually a pending connection
@@ -513,6 +518,10 @@ export class ConnectionManager {
    */
   private _cancelState(state: DeviceConnectionState): void {
     state.cancelled = true
+    const wasConnecting = state.isConnecting
+    // Clear connecting so auto-reconnect is not permanently stuck after cancel/replace
+    // (stale _attemptConnection returns early on attemptId mismatch without clearing the flag).
+    state.isConnecting = false
 
     if (state.timeoutId) {
       clearTimeout(state.timeoutId)
@@ -529,7 +538,11 @@ export class ConnectionManager {
       state.disconnectSubscription = undefined
     }
 
-    if (state.isConnecting) {
+    // Invalidate in-flight async generation so stale success paths no-op without
+    // cancelDeviceConnection on a newer attempt for the same deviceId.
+    state.attemptId++
+
+    if (wasConnecting) {
       this._manager.cancelDeviceConnection(state.deviceId).catch(ignoreConnectionCancellationError)
     }
   }
@@ -765,9 +778,14 @@ export class ConnectionManager {
    * Destroy the manager and cancel all pending connections.
    */
   destroy(): void {
-    // Force remove ALL subscriptions before clearing (prevents leaks)
+    // Settle in-flight connect/attemptConnectOnce promises so host code does not hang
+    const deviceIds = Array.from(this._devices.keys())
+    for (const deviceId of deviceIds) {
+      this.cancel(deviceId)
+    }
+
+    // Force remove any remaining subscriptions (auto devices after cancel keep map entries)
     for (const state of this._devices.values()) {
-      // Cancel timers
       state.cancelled = true
       if (state.timeoutId) {
         clearTimeout(state.timeoutId)
@@ -775,20 +793,12 @@ export class ConnectionManager {
       if (state.connectionTimeoutId) {
         clearTimeout(state.connectionTimeoutId)
       }
-
-      // Remove subscriptions
       if (state.disconnectSubscription) {
         state.disconnectSubscription.remove()
         state.disconnectSubscription = undefined
       }
-
-      // Cancel native connection if in progress
-      if (state.isConnecting) {
-        this._manager.cancelDeviceConnection(state.deviceId).catch(ignoreConnectionCancellationError)
-      }
     }
 
-    // Clear all state (don't call cancelAll to avoid unnecessary promise rejections during cleanup)
     this._devices.clear()
     this._globalCallbacks = {}
   }
