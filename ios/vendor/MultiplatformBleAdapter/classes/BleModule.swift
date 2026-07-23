@@ -185,18 +185,27 @@ public class BleClientManager : NSObject {
         }
 
         // When state is to be restored update all caches.
+        // Defer disconnect monitor until a state transition — same as historical MBA path
+        // during willRestoreState (central may still be settling).
         restoredState.peripherals.forEach { peripheral in
-            adoptRestoredPeripheral(peripheral)
+            adoptRestoredPeripheral(peripheral, monitorDisconnectImmediately: false)
         }
 
         dispatchEvent(BleEvent.restoreStateEvent, value: restoredState.asJSObject)
     }
 
     /// Put a restored `Peripheral` into the native cache and watch for disconnects.
-    private func adoptRestoredPeripheral(_ peripheral: Peripheral) {
+    /// - Parameter monitorDisconnectImmediately: When true (seed after powered-on), attach
+    ///   `monitorDisconnection` now. When false (willRestoreState), wait for one state change
+    ///   first so we do not race the restoring central.
+    private func adoptRestoredPeripheral(_ peripheral: Peripheral, monitorDisconnectImmediately: Bool) {
         connectedPeripherals[peripheral.identifier] = peripheral
 
-        _ = manager.rx_state.skip(1).take(1).flatMap { [weak self] _ -> Observable<Peripheral> in
+        let disconnectMonitor: Observable<Peripheral>
+        if monitorDisconnectImmediately {
+            disconnectMonitor = manager.monitorDisconnection(for: peripheral).take(1)
+        } else {
+            disconnectMonitor = manager.rx_state.skip(1).take(1).flatMap { [weak self] _ -> Observable<Peripheral> in
                 if let self = self {
                     return self.manager.monitorDisconnection(for: peripheral)
                 } else {
@@ -204,13 +213,16 @@ public class BleClientManager : NSObject {
                 }
             }
             .take(1)
-            .subscribe(
-                onNext: { [weak self] disconnected in
-                    self?.onPeripheralDisconnected(disconnected)
-                },
-                onError: { [weak self] _ in
-                    self?.onPeripheralDisconnected(peripheral)
-                })
+        }
+
+        _ = disconnectMonitor.subscribe(
+            onNext: { [weak self] disconnected in
+                self?.onPeripheralDisconnected(disconnected)
+            },
+            onError: { [weak self] _ in
+                self?.onPeripheralDisconnected(peripheral)
+            }
+        )
 
         peripheral.services?.forEach { service in
             discoveredServices[service.jsIdentifier] = service
@@ -236,12 +248,13 @@ public class BleClientManager : NSObject {
                     for peripheral in peripherals {
                         // Avoid double-adopting (double disconnect monitors).
                         if self.connectedPeripherals[peripheral.identifier] == nil {
-                            self.adoptRestoredPeripheral(peripheral)
+                            // Seed only runs after powered-on gate — attach monitors immediately.
+                            self.adoptRestoredPeripheral(peripheral, monitorDisconnectImmediately: true)
                         }
                     }
                 },
                 onError: { _ in
-                    // Central not powered on yet — cache stays empty; connect loop will fill it.
+                    // Central not powered on yet — cache stays empty.
                 }
             )
     }

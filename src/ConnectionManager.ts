@@ -322,7 +322,11 @@ export class ConnectionManager {
         retryCount: 0,
         autoReconnect: mode.gated ? false : (existing?.autoReconnect ?? false),
         callbacks: existing?.callbacks,
+        // Keep the same disconnect subscription for non-gated replace — also inherit
+        // suppressNextAutoReconnect so a cancel-induced disconnect from the old attempt
+        // does not re-arm auto on top of the replacement connect.
         disconnectSubscription: mode.gated ? undefined : existing?.disconnectSubscription,
+        suppressNextAutoReconnect: mode.gated ? false : (existing?.suppressNextAutoReconnect ?? false),
         cancelled: false,
         attemptId: existing ? existing.attemptId + 1 : 0,
         gatedAttempt: mode.gated,

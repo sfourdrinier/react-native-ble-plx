@@ -92,6 +92,7 @@ jobs:
               - 'package.json'
               - 'pnpm-lock.yaml'
               - '.github/workflows/ci.yml'
+              - '.github/actions/**'
             apple:
               - 'ios/**'
               - 'example/ios/**'

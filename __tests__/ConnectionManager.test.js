@@ -524,6 +524,21 @@ describe('ConnectionManager', () => {
     expect(ble.connectToDevice).not.toHaveBeenCalled();
   });
 
+  test('replace in-flight auto connect inherits suppressNextAutoReconnect', async () => {
+    mgr.enableAutoReconnect('d1', { maxRetries: 1, initialDelayMs: 0, timeoutMs: 0 });
+    const first = mgr.connect('d1', { timeoutMs: 0 });
+    // Replace while first is connecting — cancel sets suppress on old state; new state must inherit it.
+    const second = mgr.connect('d1', { timeoutMs: 0 });
+    await expect(first).rejects.toMatchObject({ errorCode: BleErrorCode.OperationCancelled });
+    ble.connectToDevice.mockClear();
+    // Cancel-induced disconnect from first attempt must not start a third connect under auto.
+    ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'from-cancel-replace'));
+    await flushMicrotasks();
+    expect(ble.connectToDevice).not.toHaveBeenCalled();
+    ble._resolveConnect('d1', createDevice('d1'));
+    await expect(second).resolves.toMatchObject({ id: 'd1' });
+  });
+
   test('cancel mid-connect with auto-reconnect still allows later disconnect re-arm', async () => {
     mgr.enableAutoReconnect('d1', { maxRetries: 1, initialDelayMs: 0, timeoutMs: 0 });
     const p = mgr.connect('d1', { timeoutMs: 0 });

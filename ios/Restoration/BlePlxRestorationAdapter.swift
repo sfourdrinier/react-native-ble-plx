@@ -116,11 +116,11 @@ public final class BlePlxRestorationAdapter: NSObject {
     central: CBCentralManager,
     willRestoreState dict: [String: Any]
   ) {
-    guard let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral],
-          !peripherals.isEmpty else {
-      BlePlxDebugLogging.log("[BlePlxRestorationAdapter] No peripherals to restore")
-      return
-    }
+    // Empty peripheral list is still a valid restore wake (scan options / no links).
+    // Always store manager + payload so createClient can replay and getRestoredState settles
+    // (empty array ≠ hang until destroy).
+    let peripherals =
+      (dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral]) ?? []
 
     BlePlxDebugLogging.log(
       "[BlePlxRestorationAdapter] Reporting \(peripherals.count) restored peripheral(s) (no reconnect — D5 host policy)"
@@ -142,6 +142,8 @@ public final class BlePlxRestorationAdapter: NSObject {
       "connectedPeripherals": peripherals.map { Self.jsDeviceDictionary(from: $0) }
     ]
     BlePlxRestorationState.storeRestoredManager(manager, restoreStatePayload: restorePayload)
+
+    guard !deviceIds.isEmpty else { return }
 
     // Best-effort native cache fill so isDeviceConnected can reflect OS-live links when
     // the central is already powered on. May no-op if still .unknown — that is fine.
