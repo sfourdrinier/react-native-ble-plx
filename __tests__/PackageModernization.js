@@ -29,7 +29,7 @@ const reconnectionManagerPath = path.join(__dirname, '..', 'src/ReconnectionMana
 const gettingStartedDoc = fs.readFileSync(path.join(__dirname, '..', 'docs/GETTING_STARTED.md'), 'utf8')
 const connectionManagerDoc = fs.readFileSync(path.join(__dirname, '..', 'docs/CONNECTION_MANAGER.md'), 'utf8')
 const exampleExpoGitignore = fs.readFileSync(path.join(__dirname, '..', 'example-expo/.gitignore'), 'utf8')
-const exampleYarnLock = fs.readFileSync(path.join(__dirname, '..', 'example/yarn.lock'), 'utf8')
+const rootGitignore = fs.readFileSync(path.join(__dirname, '..', '.gitignore'), 'utf8')
 const exampleAndroidBuild = fs.readFileSync(path.join(__dirname, '..', 'example/android/build.gradle'), 'utf8')
 const exampleIosProject = fs.readFileSync(
   path.join(__dirname, '..', 'example/ios/BlePlxExample.xcodeproj/project.pbxproj'),
@@ -143,7 +143,10 @@ describe('package modernization targets', () => {
   })
 
   test('CI builds iOS examples and checks tvOS library on macOS runners (#20)', () => {
-    expect(ciWorkflow).toContain('runs-on: macos-15')
+    // Latest GA image + stable Xcode matching local (26.6). macos-15 tops out at 26.3 / defaults 16.4.
+    expect(ciWorkflow).toContain('runs-on: macos-26')
+    expect(ciWorkflow).not.toContain('runs-on: macos-15')
+    expect(ciWorkflow).toContain('Xcode_26.6.app')
     expect(ciWorkflow).toContain('ios-example:')
     expect(ciWorkflow).toContain('ios-expo:')
     expect(ciWorkflow).toContain('tvos-library:')
@@ -331,13 +334,14 @@ describe('package modernization targets', () => {
   })
 
   test('non-Expo example lockfile and native project floors match React Native 0.86', () => {
-    // Lockfile may resolve any 0.86.x / 19.2.x patch — only the minor line is fixed.
-    expect(exampleYarnLock).toMatch(/react-native@0\.86\.\d+:/)
-    expect(exampleYarnLock).toMatch(/react@19\.2\.\d+:/)
-    expect(exampleYarnLock).toContain('"@sfourdrinier/react-native-ble-plx@file:..":')
-    expect(exampleYarnLock).not.toContain('react-native@0.77.0:')
-    expect(exampleYarnLock).not.toContain('React (0.77.0)')
-    expect(exampleYarnLock).not.toContain('react@18.3.1:')
+    // Bootstrap/CI install via pnpm; stale Yarn lock removed (Codex late review on #28).
+    expect(fs.existsSync(path.join(__dirname, '..', 'example/yarn.lock'))).toBe(false)
+    expect(rootGitignore).toMatch(/^\s*example\/yarn\.lock\s*$/m)
+    expect(rootGitignore).toMatch(/^\s*example\/pnpm-lock\.yaml\s*$/m)
+    // Floors live in package.json (ranges); no committed example lock to pin patches.
+    expect(rangeAllowsMinorLine(examplePackage.dependencies.react, 19, 2)).toBe(true)
+    expect(rangeAllowsMinorLine(examplePackage.dependencies['react-native'], 0, 86)).toBe(true)
+    expect(examplePackage.dependencies['@sfourdrinier/react-native-ble-plx']).toBe('file:..')
     expect(fs.existsSync(path.join(__dirname, '..', 'example/ios/Podfile.lock'))).toBe(false)
 
     expect(exampleAndroidBuild).toContain('buildToolsVersion = "36.0.0"')
