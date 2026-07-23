@@ -11,12 +11,24 @@ CI already runs package checks and Expo CNG **Android** builds on Ubuntu. There 
 
 ## Goals
 
-1. On every `push` / `pull_request` to `master`, prove **iOS compiles and links** for:
+1. Prove **iOS compiles and links** for:
    - Non-Expo `example` (`BlePlxExample`)
    - Expo CNG `example-expo` (generated native project after prebuild)
 2. Force **New Architecture** (`RCT_NEW_ARCH_ENABLED=1`) for pod install and xcodebuild.
 3. Add a **tvOS library-level** check (podspec contract + vendor native compile for `appletvsimulator`), not a full RN-tvOS app.
 4. Independent job failures (parallel macOS jobs).
+5. **Minimize macOS cost:** Apple jobs do **not** run on every PR commit.
+
+## When jobs run (cost policy)
+
+| Job | Default PR push | PR + label `ci:apple` | Push to `master` | `workflow_dispatch` |
+| --- | --- | --- | --- | --- |
+| `package` | Yes | Yes (also on label event) | Yes | Yes |
+| `expo-cng-android` | Only if Android-related paths changed | Same path filter | Path filter | Always |
+| `ios-example` / `ios-expo` / `tvos-library` | **No** | **Yes** | Only if Apple-related paths changed | Always |
+
+- **Concurrency:** one active run per PR/branch; newer commits cancel older runs.
+- **Docs-only** changes on master skip Android/Apple when path filters do not match.
 
 ## Non-goals
 

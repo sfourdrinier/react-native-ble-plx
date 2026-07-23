@@ -1,5 +1,14 @@
 name: CI
 
+# Cost policy (#20):
+# - package: every PR/master push (cheap Ubuntu)
+# - expo-cng-android: only when Android/native-related paths change (or manual)
+# - Apple (macOS): NOT on every PR commit. Runs on:
+#     • push to master when Apple-related paths change
+#     • pull_request with label `ci:apple` (opt-in before merge)
+#     • workflow_dispatch (manual)
+# Superseded runs for the same PR/branch are cancelled.
+
 on:
   push:
     branches:
@@ -7,10 +16,21 @@ on:
   pull_request:
     branches:
       - master
+    types: [opened, reopened, synchronize, ready_for_review, labeled]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  # Skip whole-matrix noise when someone applies an unrelated label.
   package:
     name: Package checks
+    if: |
+      github.event_name != 'pull_request' ||
+      github.event.action != 'labeled' ||
+      github.event.label.name == 'ci:apple'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -39,8 +59,59 @@ jobs:
       - name: Build package artifacts
         run: pnpm prepack
 
+  changes:
+    name: Detect path changes
+    if: |
+      github.event_name != 'pull_request' ||
+      github.event.action != 'labeled' ||
+      github.event.label.name == 'ci:apple'
+    runs-on: ubuntu-latest
+    outputs:
+      android: ${{ steps.filter.outputs.android }}
+      apple: ${{ steps.filter.outputs.apple }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
+      - name: Filter paths
+        uses: dorny/paths-filter@v3.0.2
+        id: filter
+        with:
+          filters: |
+            android:
+              - 'android/**'
+              - 'plugin/**'
+              - 'example/android/**'
+              - 'example-expo/**'
+              - 'app.plugin.js'
+              - 'src/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/ci.yml'
+            apple:
+              - 'ios/**'
+              - 'example/ios/**'
+              - 'example/**/Gemfile'
+              - 'example-expo/**'
+              - 'plugin/**'
+              - 'app.plugin.js'
+              - 'react-native-ble-plx.podspec'
+              - 'src/**'
+              - 'scripts/ci/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/ci.yml'
+
   expo-cng-android:
     name: Expo CNG Android build
+    needs: changes
+    if: |
+      always() &&
+      needs.changes.result == 'success' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        needs.changes.outputs.android == 'true'
+      )
     runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: --max-old-space-size=8192
@@ -91,9 +162,26 @@ jobs:
 
   # --- Apple compile checks (#20) ---
   # Compile/link only. No simulator boot, no BLE runtime (see #14).
+  # Expensive: gated by master path changes, `ci:apple` label, or manual run.
 
   ios-example:
     name: iOS example (BlePlxExample)
+    needs: changes
+    if: |
+      always() &&
+      needs.changes.result == 'success' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'pull_request' &&
+          contains(join(github.event.pull_request.labels.*.name, ','), 'ci:apple')
+        ) ||
+        (
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/master' &&
+          needs.changes.outputs.apple == 'true'
+        )
+      )
     runs-on: macos-15
     timeout-minutes: 60
     env:
@@ -146,6 +234,22 @@ jobs:
 
   ios-expo:
     name: iOS Expo CNG example
+    needs: changes
+    if: |
+      always() &&
+      needs.changes.result == 'success' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'pull_request' &&
+          contains(join(github.event.pull_request.labels.*.name, ','), 'ci:apple')
+        ) ||
+        (
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/master' &&
+          needs.changes.outputs.apple == 'true'
+        )
+      )
     runs-on: macos-15
     timeout-minutes: 75
     env:
@@ -228,6 +332,22 @@ print((preferred or schemes)[0] if schemes else "")
 
   tvos-library:
     name: tvOS library compile check
+    needs: changes
+    if: |
+      always() &&
+      needs.changes.result == 'success' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'pull_request' &&
+          contains(join(github.event.pull_request.labels.*.name, ','), 'ci:apple')
+        ) ||
+        (
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/master' &&
+          needs.changes.outputs.apple == 'true'
+        )
+      )
     runs-on: macos-15
     timeout-minutes: 30
     steps:

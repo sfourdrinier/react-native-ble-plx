@@ -140,6 +140,27 @@ describe('package modernization targets', () => {
     expect(fs.existsSync(path.join(__dirname, '..', 'scripts/ci/check-tvos-library.sh'))).toBe(true)
   })
 
+  test('CI cancels superseded runs for the same PR or branch', () => {
+    expect(ciWorkflow).toMatch(/concurrency:\s*\n\s*group:/)
+    expect(ciWorkflow).toContain('cancel-in-progress: true')
+    expect(ciWorkflow).toContain('github.event.pull_request.number || github.ref')
+  })
+
+  test('CI keeps expensive Apple jobs off default PR commits (label / master / manual)', () => {
+    expect(ciWorkflow).toContain('workflow_dispatch:')
+    expect(ciWorkflow).toContain('types: [opened, reopened, synchronize, ready_for_review, labeled]')
+    expect(ciWorkflow).toContain("ci:apple")
+    expect(ciWorkflow).toContain('dorny/paths-filter@v3.0.2')
+    expect(ciWorkflow).toContain('needs.changes.outputs.apple')
+    expect(ciWorkflow).toContain('needs.changes.outputs.android')
+    // Apple jobs require opt-in label on PRs — not every synchronize.
+    expect(ciWorkflow).toMatch(
+      /pull_request' &&\s*\n\s*contains\(join\(github\.event\.pull_request\.labels/
+    )
+    expect(ciWorkflow).toContain("github.ref == 'refs/heads/master'")
+    expect(ciWorkflow).toContain("github.event_name == 'workflow_dispatch'")
+  })
+
   test('publish workflow uses tag-triggered OIDC trusted publishing with provenance', () => {
     const publishWorkflowPath = path.join(__dirname, '..', '.github/workflows/publish.yml')
     expect(fs.existsSync(publishWorkflowPath)).toBe(true)
