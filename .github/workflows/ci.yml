@@ -180,6 +180,12 @@ jobs:
   # --- Apple compile checks (#20) ---
   # Compile/link only. No simulator boot, no BLE runtime (see #14).
   # Expensive: gated by master path changes, `ci:apple` label, or manual run.
+  #
+  # Runner/tooling (GitHub runner-images, 2026-07):
+  # - runs-on: macos-26 (Tahoe) — latest GA image; arm64 by default
+  # - Xcode 26.6 preferred (matches local / latest stable on image)
+  # - macos-15 defaults to Xcode 16.4 and only has up to 26.3 — too old for
+  #   Expo SDK 57 expo-modules-jsi (swift-tools-version 6.2)
 
   ios-example:
     name: iOS example (BlePlxExample)
@@ -199,13 +205,34 @@ jobs:
           needs.changes.outputs.apple == 'true'
         )
       )
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 60
     env:
       RCT_NEW_ARCH_ENABLED: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.0
+
+      - name: Select Xcode 26.6
+        run: |
+          set -euo pipefail
+          for candidate in \
+            /Applications/Xcode_26.6.app \
+            /Applications/Xcode_26.5.app \
+            /Applications/Xcode_26.4.1.app \
+            /Applications/Xcode_26.4.app
+          do
+            if [[ -d "$candidate" ]]; then
+              sudo xcode-select -s "$candidate"
+              echo "Selected $candidate"
+              xcodebuild -version
+              swift --version
+              exit 0
+            fi
+          done
+          echo "error: no Xcode 26.4+ app found on runner" >&2
+          ls /Applications/Xcode*.app 2>/dev/null || true
+          exit 1
 
       - name: Setup Node.js
         uses: actions/setup-node@v6.4.0
@@ -267,7 +294,7 @@ jobs:
           needs.changes.outputs.apple == 'true'
         )
       )
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 75
     env:
       RCT_NEW_ARCH_ENABLED: '1'
@@ -276,18 +303,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.0
 
-      # Expo SDK 57 expo-modules-jsi / macros Package.swift use swift-tools-version 6.2.
-      # macos-15 default is Xcode 16.4 (Swift 6.1) → ExpoModulesJSI SPM resolve fails
-      # with: package 'apple' is using Swift tools version 6.2.0 but installed is 6.1.0
-      # (master push after #28: https://github.com/sfourdrinier/react-native-ble-plx/actions/runs/30034953568).
-      - name: Select Xcode 26 (Swift 6.2)
+      # Expo SDK 57 needs Swift 6.2+ (expo-modules-jsi Package.swift). Xcode 26.6 matches local.
+      - name: Select Xcode 26.6
         run: |
           set -euo pipefail
           for candidate in \
-            /Applications/Xcode_26.3.app \
-            /Applications/Xcode_26.2.app \
-            /Applications/Xcode_26.1.1.app \
-            /Applications/Xcode_26.0.1.app
+            /Applications/Xcode_26.6.app \
+            /Applications/Xcode_26.5.app \
+            /Applications/Xcode_26.4.1.app \
+            /Applications/Xcode_26.4.app
           do
             if [[ -d "$candidate" ]]; then
               sudo xcode-select -s "$candidate"
@@ -297,7 +321,7 @@ jobs:
               exit 0
             fi
           done
-          echo "error: no Xcode 26.x app found (need Swift 6.2 for ExpoModulesJSI)" >&2
+          echo "error: no Xcode 26.4+ app found (need Swift 6.2 for ExpoModulesJSI)" >&2
           ls /Applications/Xcode*.app 2>/dev/null || true
           exit 1
 
@@ -390,14 +414,32 @@ jobs:
           needs.changes.outputs.apple == 'true'
         )
       )
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.0
 
-      - name: Select Xcode
-        run: xcodebuild -version
+      - name: Select Xcode 26.6
+        run: |
+          set -euo pipefail
+          for candidate in \
+            /Applications/Xcode_26.6.app \
+            /Applications/Xcode_26.5.app \
+            /Applications/Xcode_26.4.1.app \
+            /Applications/Xcode_26.4.app
+          do
+            if [[ -d "$candidate" ]]; then
+              sudo xcode-select -s "$candidate"
+              echo "Selected $candidate"
+              xcodebuild -version
+              swift --version
+              exit 0
+            fi
+          done
+          echo "error: no Xcode 26.4+ app found on runner" >&2
+          ls /Applications/Xcode*.app 2>/dev/null || true
+          exit 1
 
       - name: Check tvOS library (podspec + vendor Swift)
         run: bash scripts/ci/check-tvos-library.sh
