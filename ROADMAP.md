@@ -101,8 +101,10 @@ This is the non-negotiable pillar on **mobile**. Feature work must not regress b
 ### Library integration
 
 - `ConnectionManager` is the **supported** path for retry + auto-reconnect in background scenarios.
+- `ConnectionManager` gains an **externally gated** mode: a host/app policy layer (e.g. an app-level device-session authority) decides *whether and when* to attempt reconnection; `ConnectionManager` executes single race-hardened attempts on demand and reports outcomes. Auto mode remains the default for apps without their own policy layer. Additive option — no behavior change for existing callers.
 - Native disconnect events must remain ordered and coalesced under storms.
 - Subscriptions (notifications) must have a documented resume path after restore / process death.
+- iOS restoration ships a **first-class `onRestoredState` handoff**: restored peripherals delivered to the app as library `Device` objects (plus a documented resume-streams recipe), so apps can re-adopt restored connections into their own session layer without touching native code.
 - Expo plugin remains the single configuration surface for FGS metadata, iOS modes, and restoration flags.
 
 ### Documentation deliverables (background)
@@ -415,9 +417,13 @@ Phases are sequential in intent. Some Phase 1 items can ship independently. Phas
 | React hooks layer (`useBluetoothState`, `useScan`, `useDevice`, …) | **P1** | Low | Thin layer over BleManager / ConnectionManager |
 | Global events bus (connection, MTU, bond, services reset) | **P1** | Med | Multi-device telemetry and UIs |
 | Background hardening pass | **P0** | Med | Restore + FGS race fixes, disconnect storms, kill tests, ConnectionManager integration |
+| `ConnectionManager` externally gated mode (host-owned reconnect policy; CM executes attempts) | **P1** | Low | Additive option + outcome reporting; enables app-level session authorities without forking retry logic |
+| First-class `onRestoredState` handoff (restored peripherals as `Device[]` + resume-streams recipe) | **P1** | Med | Completes the iOS restoration pillar as public API; documented in BACKGROUND.md |
 | Example app: background + multi-device scenarios | **P1** | Low | Proof, not just prose |
 
 **Exit criteria:** OTA/services-reset is first-class; multi-device concurrency is documented and default-safe; background matrix is filled for mobile central; hooks are optional but polished.
+
+**Stable-line delivery note (3.9.0):** the externally-gated `ConnectionManager` mode and the `onRestoredState` handoff are additive public API and ship on the stable line as a **3.9.0 minor** ahead of the 4.x train — tracked in [#27](https://github.com/sfourdrinier/react-native-ble-plx/issues/27). Not 3.8.x — per [ROADMAP.4.0.md](./ROADMAP.4.0.md) versioning, 3.8.x is security/critical fixes only, and new API surface is a semver minor. Both features carry the standard bar: unit tests (gating decisions, restored-device mapping), docs (CONNECTION_MANAGER.md + BACKGROUND.md sections), and no behavior change for existing callers.
 
 ---
 
