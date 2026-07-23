@@ -53,6 +53,18 @@ function rangeAllowsMajor(range, major) {
   return new RegExp(`^(?:\\^|~|>=)?${major}(?:\\.|$)`).test(range.trim())
 }
 
+/** Range allows patches on a fixed minor line (19.2.* / 0.86.* → ~19.2.0 / ~0.86.0). */
+function rangeAllowsMinorLine(range, major, minor) {
+  if (typeof range !== 'string') return false
+  const r = range.trim()
+  // ~19.2.0, ^19.2.0, 19.2.x, 19.2.*, >=19.2.0 <19.3
+  return (
+    new RegExp(`^(?:\\^|~)?${major}\\.${minor}(?:\\.|$)`).test(r) ||
+    r === `${major}.${minor}.*` ||
+    r === `${major}.${minor}.x`
+  )
+}
+
 describe('package modernization targets', () => {
   test('root package requires the React Native and Node versions used by Expo SDK 57', () => {
     expect(nvmrc).toBe('20.19.4')
@@ -61,11 +73,12 @@ describe('package modernization targets', () => {
     // Floors only — do not pin exact Expo/navigation patches (they move constantly).
     expect(rangeAllowsMajor(rootPackage.devDependencies.expo, 57)).toBe(true)
     expect(rangeAllowsMajor(rootPackage.devDependencies['@expo/config-plugins'], 57)).toBe(true)
-    expect(rootPackage.devDependencies.react).toBe('19.2.3')
-    expect(rootPackage.devDependencies['react-native']).toBe('0.86.0')
+    // Float patches on the platform minor line: react 19.2.*, RN 0.86.*
+    expect(rangeAllowsMinorLine(rootPackage.devDependencies.react, 19, 2)).toBe(true)
+    expect(rangeAllowsMinorLine(rootPackage.devDependencies['react-native'], 0, 86)).toBe(true)
     // RN 0.86+ ships TypeScript types; DefinitelyTyped @types/react-native is obsolete and harmful.
     expect(rootPackage.devDependencies).not.toHaveProperty('@types/react-native')
-    expect(rootPackage.devDependencies['@react-native/typescript-config']).toMatch(/^[\^~]?0\.86\./)
+    expect(rangeAllowsMinorLine(rootPackage.devDependencies['@react-native/typescript-config'], 0, 86)).toBe(true)
     expect(rangeAllowsMajor(rootPackage.devDependencies.eslint, 9)).toBe(true)
     expect(rangeAllowsMajor(rootPackage.devDependencies['@react-navigation/native'], 7)).toBe(true)
     expect(rangeAllowsMajor(rootPackage.devDependencies['@react-navigation/native-stack'], 7)).toBe(true)
@@ -269,18 +282,18 @@ describe('package modernization targets', () => {
 
   test('example apps use Expo SDK 57 and React Native 0.86 defaults', () => {
     for (const pkg of [examplePackage, exampleExpoPackage]) {
-      // RN/React floors stay exact (library platform floor); everything else is a floating range.
-      expect(pkg.dependencies.react).toBe('19.2.3')
-      expect(pkg.dependencies['react-native']).toBe('0.86.0')
-      expect(pkg.devDependencies['@react-native/babel-preset']).toMatch(/^[\^~]?0\.86\./)
-      expect(pkg.devDependencies['@react-native/metro-config']).toMatch(/^[\^~]?0\.86\./)
-      expect(pkg.devDependencies['@react-native/typescript-config']).toMatch(/^[\^~]?0\.86\./)
-      expect(rangeAllowsMajor(pkg.devDependencies['@types/react'], 19)).toBe(true)
+      // Platform minor lines float patches: react ~19.2.*, RN ~0.86.*
+      expect(rangeAllowsMinorLine(pkg.dependencies.react, 19, 2)).toBe(true)
+      expect(rangeAllowsMinorLine(pkg.dependencies['react-native'], 0, 86)).toBe(true)
+      expect(rangeAllowsMinorLine(pkg.devDependencies['@react-native/babel-preset'], 0, 86)).toBe(true)
+      expect(rangeAllowsMinorLine(pkg.devDependencies['@react-native/metro-config'], 0, 86)).toBe(true)
+      expect(rangeAllowsMinorLine(pkg.devDependencies['@react-native/typescript-config'], 0, 86)).toBe(true)
+      expect(rangeAllowsMinorLine(pkg.devDependencies['@types/react'], 19, 2)).toBe(true)
       expect(pkg.devDependencies).not.toHaveProperty('metro-react-native-babel-preset')
       expect(rangeAllowsMajor(pkg.dependencies['react-native-screens'], 4)).toBe(true)
       expect(rangeAllowsMajor(pkg.dependencies['react-native-safe-area-context'], 5)).toBe(true)
     }
-    expect(examplePackage.devDependencies['@react-native/eslint-config']).toMatch(/^[\^~]?0\.86\./)
+    expect(rangeAllowsMinorLine(examplePackage.devDependencies['@react-native/eslint-config'], 0, 86)).toBe(true)
     expect(exampleExpoPackage.devDependencies).not.toHaveProperty('@react-native/eslint-config')
     // Expo ecosystem: major/SDK floor only (matches expo upgrade docs: expo@^57.0.0).
     expect(rangeAllowsMajor(exampleExpoPackage.dependencies.expo, 57)).toBe(true)
@@ -306,8 +319,9 @@ describe('package modernization targets', () => {
   })
 
   test('non-Expo example lockfile and native project floors match React Native 0.86', () => {
-    expect(exampleYarnLock).toContain('react-native@0.86.0:')
-    expect(exampleYarnLock).toContain('react@19.2.3:')
+    // Lockfile may resolve any 0.86.x / 19.2.x patch — only the minor line is fixed.
+    expect(exampleYarnLock).toMatch(/react-native@0\.86\.\d+:/)
+    expect(exampleYarnLock).toMatch(/react@19\.2\.\d+:/)
     expect(exampleYarnLock).toContain('"@sfourdrinier/react-native-ble-plx@file:..":')
     expect(exampleYarnLock).not.toContain('react-native@0.77.0:')
     expect(exampleYarnLock).not.toContain('React (0.77.0)')
