@@ -46,20 +46,42 @@ const exampleImports = [
     .map((filePath) => fs.readFileSync(path.join(__dirname, '..', 'example-expo/src', filePath), 'utf8'))
 ].join('\n')
 
+/** Range must allow newer releases on the given major (caret/tilde/exact all OK). */
+function rangeAllowsMajor(range, major) {
+  if (typeof range !== 'string') return false
+  // ^57.0.0, ~57.0.8, 57.x, >=57.0.0, ^57
+  return new RegExp(`^(?:\\^|~|>=)?${major}(?:\\.|$)`).test(range.trim())
+}
+
+/** Range allows patches on a fixed minor line (19.2.* / 0.86.* → ~19.2.0 / ~0.86.0). */
+function rangeAllowsMinorLine(range, major, minor) {
+  if (typeof range !== 'string') return false
+  const r = range.trim()
+  // ~19.2.0, ^19.2.0, 19.2.x, 19.2.*, >=19.2.0 <19.3
+  return (
+    new RegExp(`^(?:\\^|~)?${major}\\.${minor}(?:\\.|$)`).test(r) ||
+    r === `${major}.${minor}.*` ||
+    r === `${major}.${minor}.x`
+  )
+}
+
 describe('package modernization targets', () => {
   test('root package requires the React Native and Node versions used by Expo SDK 57', () => {
     expect(nvmrc).toBe('20.19.4')
     expect(rootPackage.peerDependencies['react-native']).toBe('>=0.86.0')
     expect(rootPackage.engines.node).toBe('^20.19.4 || ^22.13.0 || ^24.3.0 || >=25.0.0')
-    expect(rootPackage.devDependencies.expo).toBe('^57.0.4')
-    expect(rootPackage.devDependencies.react).toBe('19.2.3')
-    expect(rootPackage.devDependencies['react-native']).toBe('0.86.0')
+    // Floors only — do not pin exact Expo/navigation patches (they move constantly).
+    expect(rangeAllowsMajor(rootPackage.devDependencies.expo, 57)).toBe(true)
+    expect(rangeAllowsMajor(rootPackage.devDependencies['@expo/config-plugins'], 57)).toBe(true)
+    // Float patches on the platform minor line: react 19.2.*, RN 0.86.*
+    expect(rangeAllowsMinorLine(rootPackage.devDependencies.react, 19, 2)).toBe(true)
+    expect(rangeAllowsMinorLine(rootPackage.devDependencies['react-native'], 0, 86)).toBe(true)
     // RN 0.86+ ships TypeScript types; DefinitelyTyped @types/react-native is obsolete and harmful.
     expect(rootPackage.devDependencies).not.toHaveProperty('@types/react-native')
-    expect(rootPackage.devDependencies['@react-native/typescript-config']).toBe('0.86.0')
-    expect(rootPackage.devDependencies.eslint).toBe('^9.39.1')
-    expect(rootPackage.devDependencies['@react-navigation/native']).toBe('^7.3.8')
-    expect(rootPackage.devDependencies['@react-navigation/native-stack']).toBe('^7.17.10')
+    expect(rangeAllowsMinorLine(rootPackage.devDependencies['@react-native/typescript-config'], 0, 86)).toBe(true)
+    expect(rangeAllowsMajor(rootPackage.devDependencies.eslint, 9)).toBe(true)
+    expect(rangeAllowsMajor(rootPackage.devDependencies['@react-navigation/native'], 7)).toBe(true)
+    expect(rangeAllowsMajor(rootPackage.devDependencies['@react-navigation/native-stack'], 7)).toBe(true)
     expect(rootPackage.repository).toEqual({
       type: 'git',
       url: 'git+https://github.com/sfourdrinier/react-native-ble-plx.git'
@@ -106,14 +128,9 @@ describe('package modernization targets', () => {
     expect(ciWorkflow).toContain('pnpm lint')
     expect(ciWorkflow).toContain('pnpm prepack')
     expect(ciWorkflow).toContain('pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json')
-    expect(ciWorkflow).toContain(`- name: Build package artifacts
-        run: pnpm prepack
-
-      - name: Install Expo example dependencies
-        run: pnpm --dir example-expo install --no-frozen-lockfile
-
-      - name: Typecheck Expo example
-        run: pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json`)
+    expect(ciWorkflow).toContain('pnpm --dir example-expo install --no-frozen-lockfile')
+    expect(ciWorkflow).toContain('npx expo install --fix')
+    expect(ciWorkflow).toContain('pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json')
     expect(ciWorkflow).toContain('npx expo-doctor')
     expect(ciWorkflow).toContain('npx expo prebuild --clean --no-install')
     expect(ciWorkflow).toContain('./gradlew :app:assembleDebug --no-daemon --console=plain')
@@ -123,6 +140,55 @@ describe('package modernization targets', () => {
     expect(githubConfig).not.toContain('actions/cache@v3')
     expect(githubConfig).not.toContain('actions/checkout@v3')
     expect(githubConfig).not.toContain('actions/setup-java@v3')
+  })
+
+  test('CI builds iOS examples and checks tvOS library on macOS runners (#20)', () => {
+    expect(ciWorkflow).toContain('runs-on: macos-15')
+    expect(ciWorkflow).toContain('ios-example:')
+    expect(ciWorkflow).toContain('ios-expo:')
+    expect(ciWorkflow).toContain('tvos-library:')
+    expect(ciWorkflow).toContain("RCT_NEW_ARCH_ENABLED: '1'")
+    expect(ciWorkflow).toContain('BlePlxExample.xcworkspace')
+    expect(ciWorkflow).toContain('-scheme BlePlxExample')
+    expect(ciWorkflow).toContain("destination 'generic/platform=iOS Simulator'")
+    expect(ciWorkflow).toContain('CODE_SIGNING_ALLOWED=NO')
+    expect(ciWorkflow).toContain('npx expo prebuild --clean --no-install --platform ios')
+    // Both Android and ios-expo align peers before native generation.
+    expect((ciWorkflow.match(/npx expo install --fix/g) || []).length).toBeGreaterThanOrEqual(2)
+    expect(ciWorkflow).toContain('bash scripts/ci/check-tvos-library.sh')
+    expect(fs.existsSync(path.join(__dirname, '..', 'scripts/ci/check-tvos-library.sh'))).toBe(true)
+  })
+
+  test('CI cancels superseded runs for the same PR or branch', () => {
+    expect(ciWorkflow).toMatch(/concurrency:\s*\n\s*group:/)
+    expect(ciWorkflow).toContain('github.workflow')
+    expect(ciWorkflow).toContain('github.event.pull_request.number || github.ref')
+    // Unrelated labels must not cancel/replace a real package run (Codex P1).
+    expect(ciWorkflow).toContain("github.event.label.name != 'ci:apple'")
+    expect(ciWorkflow).toMatch(/cancel-in-progress:\s*\$\{\{/)
+  })
+
+  test('CI keeps expensive Apple jobs off default PR commits (label / master / manual)', () => {
+    expect(ciWorkflow).toContain('workflow_dispatch:')
+    expect(ciWorkflow).toContain('types: [opened, reopened, synchronize, ready_for_review, labeled]')
+    expect(ciWorkflow).toContain("ci:apple")
+    // Keep paths-filter on current major (v4 as of 2026-07; Node 24 runtime).
+    expect(ciWorkflow).toMatch(/dorny\/paths-filter@v4(\.\d+\.\d+)?/)
+    expect(ciWorkflow).toContain('needs.changes.outputs.apple')
+    expect(ciWorkflow).toContain('needs.changes.outputs.android')
+    // Official contains() object-filter form:
+    // https://docs.github.com/en/actions/reference/evaluate-expressions-in-workflows-and-actions
+    expect(ciWorkflow).toContain("contains(github.event.pull_request.labels.*.name, 'ci:apple')")
+    expect(ciWorkflow).toContain("github.ref == 'refs/heads/master'")
+    expect(ciWorkflow).toContain("github.event_name == 'workflow_dispatch'")
+    // Hardened token permissions for checkout + paths-filter PR files API.
+    expect(ciWorkflow).toMatch(/permissions:\s*\n\s*contents:\s*read\s*\n\s*pull-requests:\s*read/)
+    // example app deps feed ios-example pod install — include in apple path filter.
+    expect(ciWorkflow).toContain("example/package.json")
+    // Package checks always run (no skip-on-unrelated-label if).
+    expect(ciWorkflow).not.toMatch(
+      /package:\s*\n\s*name: Package checks\s*\n\s*if:[\s\S]*label\.name == 'ci:apple'/
+    )
   })
 
   test('publish workflow uses tag-triggered OIDC trusted publishing with provenance', () => {
@@ -228,31 +294,36 @@ describe('package modernization targets', () => {
 
   test('example apps use Expo SDK 57 and React Native 0.86 defaults', () => {
     for (const pkg of [examplePackage, exampleExpoPackage]) {
-      expect(pkg.dependencies.react).toBe('19.2.3')
-      expect(pkg.dependencies['react-native']).toBe('0.86.0')
-      expect(pkg.devDependencies['@react-native/babel-preset']).toBe('0.86.0')
-      expect(pkg.devDependencies['@react-native/metro-config']).toBe('0.86.0')
-      expect(pkg.devDependencies['@react-native/typescript-config']).toBe('0.86.0')
-      expect(pkg.devDependencies['@types/react']).toBe('^19.2.2')
+      // Platform minor lines float patches: react ~19.2.*, RN ~0.86.*
+      expect(rangeAllowsMinorLine(pkg.dependencies.react, 19, 2)).toBe(true)
+      expect(rangeAllowsMinorLine(pkg.dependencies['react-native'], 0, 86)).toBe(true)
+      expect(rangeAllowsMinorLine(pkg.devDependencies['@react-native/babel-preset'], 0, 86)).toBe(true)
+      expect(rangeAllowsMinorLine(pkg.devDependencies['@react-native/metro-config'], 0, 86)).toBe(true)
+      expect(rangeAllowsMinorLine(pkg.devDependencies['@react-native/typescript-config'], 0, 86)).toBe(true)
+      expect(rangeAllowsMinorLine(pkg.devDependencies['@types/react'], 19, 2)).toBe(true)
       expect(pkg.devDependencies).not.toHaveProperty('metro-react-native-babel-preset')
+      expect(rangeAllowsMajor(pkg.dependencies['react-native-screens'], 4)).toBe(true)
+      expect(rangeAllowsMajor(pkg.dependencies['react-native-safe-area-context'], 5)).toBe(true)
     }
-    expect(examplePackage.devDependencies['@react-native/eslint-config']).toBe('0.86.0')
+    expect(rangeAllowsMinorLine(examplePackage.devDependencies['@react-native/eslint-config'], 0, 86)).toBe(true)
     expect(exampleExpoPackage.devDependencies).not.toHaveProperty('@react-native/eslint-config')
-    expect(exampleExpoPackage.dependencies.expo).toBe('^57.0.7')
-    expect(exampleExpoPackage.dependencies['@react-navigation/native']).toBe('^7.3.8')
-    expect(exampleExpoPackage.dependencies['@react-navigation/native-stack']).toBe('^7.17.10')
-    expect(exampleExpoPackage.dependencies['expo-status-bar']).toBe('~57.0.1')
-    expect(exampleExpoPackage.dependencies['expo-system-ui']).toBe('~57.0.1')
-    expect(exampleExpoPackage.dependencies['react-native-safe-area-context']).toBe('~5.7.0')
-    expect(exampleExpoPackage.dependencies['react-native-screens']).toBe('4.25.2')
-    expect(exampleExpoPackage.devDependencies.typescript).toBe('~6.0.3')
+    // Expo ecosystem: major/SDK floor only (matches expo upgrade docs: expo@^57.0.0).
+    expect(rangeAllowsMajor(exampleExpoPackage.dependencies.expo, 57)).toBe(true)
+    expect(rangeAllowsMajor(exampleExpoPackage.dependencies['@react-navigation/native'], 7)).toBe(true)
+    expect(rangeAllowsMajor(exampleExpoPackage.dependencies['@react-navigation/native-stack'], 7)).toBe(true)
+    expect(rangeAllowsMajor(exampleExpoPackage.dependencies['expo-status-bar'], 57)).toBe(true)
+    expect(rangeAllowsMajor(exampleExpoPackage.dependencies['expo-system-ui'], 57)).toBe(true)
+    // typescript 5 or 6 both fine for the example
+    expect(exampleExpoPackage.devDependencies.typescript).toMatch(/\b[56]\b/)
     expect(exampleExpoPackage.devDependencies).not.toHaveProperty('eslint')
     expect(exampleExpoPackage.devDependencies).not.toHaveProperty('prettier')
     expect(examplePackage.dependencies['@sfourdrinier/react-native-ble-plx']).toBe('file:..')
     expect(exampleExpoPackage.dependencies['@sfourdrinier/react-native-ble-plx']).toBe('file:..')
-    expect(examplePackage.devDependencies['@react-native-community/cli']).toBe('^20.0.0')
-    expect(examplePackage.devDependencies['@react-native-community/cli-platform-android']).toBe('^20.0.0')
-    expect(examplePackage.devDependencies['@react-native-community/cli-platform-ios']).toBe('^20.0.0')
+    expect(rangeAllowsMajor(examplePackage.devDependencies['@react-native-community/cli'], 20)).toBe(true)
+    expect(rangeAllowsMajor(examplePackage.devDependencies['@react-native-community/cli-platform-android'], 20)).toBe(
+      true
+    )
+    expect(rangeAllowsMajor(examplePackage.devDependencies['@react-native-community/cli-platform-ios'], 20)).toBe(true)
     expect(examplePackage.dependencies).not.toHaveProperty('react-native-ble-plx')
     expect(exampleExpoPackage.dependencies).not.toHaveProperty('react-native-ble-plx')
     expect(exampleImports).toContain("from '@sfourdrinier/react-native-ble-plx'")
@@ -260,8 +331,9 @@ describe('package modernization targets', () => {
   })
 
   test('non-Expo example lockfile and native project floors match React Native 0.86', () => {
-    expect(exampleYarnLock).toContain('react-native@0.86.0:')
-    expect(exampleYarnLock).toContain('react@19.2.3:')
+    // Lockfile may resolve any 0.86.x / 19.2.x patch — only the minor line is fixed.
+    expect(exampleYarnLock).toMatch(/react-native@0\.86\.\d+:/)
+    expect(exampleYarnLock).toMatch(/react@19\.2\.\d+:/)
     expect(exampleYarnLock).toContain('"@sfourdrinier/react-native-ble-plx@file:..":')
     expect(exampleYarnLock).not.toContain('react-native@0.77.0:')
     expect(exampleYarnLock).not.toContain('React (0.77.0)')
