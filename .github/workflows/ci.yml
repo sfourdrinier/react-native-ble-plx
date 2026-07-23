@@ -276,6 +276,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.0
 
+      # Expo SDK 57 expo-modules-jsi / macros Package.swift use swift-tools-version 6.2.
+      # macos-15 default is Xcode 16.4 (Swift 6.1) → ExpoModulesJSI SPM resolve fails
+      # with: package 'apple' is using Swift tools version 6.2.0 but installed is 6.1.0
+      # (master push after #28: https://github.com/sfourdrinier/react-native-ble-plx/actions/runs/30034953568).
+      - name: Select Xcode 26 (Swift 6.2)
+        run: |
+          set -euo pipefail
+          for candidate in \
+            /Applications/Xcode_26.3.app \
+            /Applications/Xcode_26.2.app \
+            /Applications/Xcode_26.1.1.app \
+            /Applications/Xcode_26.0.1.app
+          do
+            if [[ -d "$candidate" ]]; then
+              sudo xcode-select -s "$candidate"
+              echo "Selected $candidate"
+              xcodebuild -version
+              swift --version
+              exit 0
+            fi
+          done
+          echo "error: no Xcode 26.x app found (need Swift 6.2 for ExpoModulesJSI)" >&2
+          ls /Applications/Xcode*.app 2>/dev/null || true
+          exit 1
+
       - name: Setup Node.js
         uses: actions/setup-node@v6.4.0
         with:
