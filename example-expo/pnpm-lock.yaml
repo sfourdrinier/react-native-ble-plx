@@ -27,10 +27,10 @@ importers:
         specifier: ^57.0.0
         version: 57.0.1(expo@57.0.8)(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))
       react:
-        specifier: 19.2.3
+        specifier: ~19.2.0
         version: 19.2.3
       react-native:
-        specifier: 0.86.0
+        specifier: ~0.86.0
         version: 0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3)
       react-native-base64:
         specifier: ^0.2.1
@@ -58,16 +58,16 @@ importers:
         specifier: ^7.20.0
         version: 7.29.7
       '@react-native/babel-preset':
-        specifier: 0.86.0
+        specifier: ~0.86.0
         version: 0.86.0(@babel/core@7.29.7)
       '@react-native/metro-config':
-        specifier: 0.86.0
+        specifier: ~0.86.0
         version: 0.86.0(@babel/core@7.29.7)
       '@react-native/typescript-config':
-        specifier: 0.86.0
+        specifier: ~0.86.0
         version: 0.86.0
       '@types/react':
-        specifier: ^19.0.0
+        specifier: ~19.2.0
         version: 19.2.17
       '@types/react-native-base64':
         specifier: ^0.2.0

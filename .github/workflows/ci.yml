@@ -300,6 +300,11 @@ jobs:
       - name: Install Expo example dependencies
         run: pnpm --dir example-expo install --no-frozen-lockfile
 
+      - name: Align Expo peer deps to installed SDK
+        # Match Android CI / test:expo — broad caret ranges need SDK alignment before native gen.
+        working-directory: example-expo
+        run: npx expo install --fix
+
       - name: Prebuild Expo native projects
         working-directory: example-expo
         run: npx expo prebuild --clean --no-install --platform ios
