@@ -133,6 +133,94 @@ test('BleModule emits state restoration after BleManager was created', () => {
   expect(restoreStateFunction).toBeCalledWith(restoredState)
 })
 
+test('getRestoredState matches restoreStateFunction payload after emit', async () => {
+  const native = { connectedPeripherals: [createMockDevice({ id: 'restored-1' })] }
+  Native.BleModule.emit(Native.BleModule.RestoreStateEvent, native)
+  expect(restoreStateFunction).toHaveBeenCalledTimes(1)
+  const fromCb = restoreStateFunction.mock.calls[0][0]
+  const fromGet = await bleManager.getRestoredState()
+  expect(fromGet).toEqual(fromCb)
+  expect(fromGet.connectedPeripherals).toHaveLength(1)
+  expect(fromGet.connectedPeripherals[0].id).toBe('restored-1')
+})
+
+test('getRestoredState late subscriber waits for first event', async () => {
+  const pending = bleManager.getRestoredState()
+  Native.BleModule.emit(Native.BleModule.RestoreStateEvent, {
+    connectedPeripherals: [createMockDevice({ id: 'late' })]
+  })
+  const state = await pending
+  expect(state.connectedPeripherals[0].id).toBe('late')
+})
+
+test('buffer keeps first event; callback still fires on second emit', async () => {
+  Native.BleModule.emit(Native.BleModule.RestoreStateEvent, {
+    connectedPeripherals: [createMockDevice({ id: 'first' })]
+  })
+  Native.BleModule.emit(Native.BleModule.RestoreStateEvent, {
+    connectedPeripherals: [createMockDevice({ id: 'second' })]
+  })
+  expect(restoreStateFunction).toHaveBeenCalledTimes(2)
+  const buffered = await bleManager.getRestoredState()
+  expect(buffered.connectedPeripherals[0].id).toBe('first')
+  expect(restoreStateFunction.mock.calls[1][0].connectedPeripherals[0].id).toBe('second')
+})
+
+test('getRestoredState null when identifier not configured', async () => {
+  await bleManager.destroy()
+  BleManager.sharedInstance = null
+  const bare = new BleManager({})
+  await expect(bare.getRestoredState()).resolves.toBeNull()
+  await bare.destroy()
+  BleManager.sharedInstance = null
+})
+
+test('getRestoredState buffers native null payload', async () => {
+  Native.BleModule.emit(Native.BleModule.RestoreStateEvent, null)
+  await expect(bleManager.getRestoredState()).resolves.toBeNull()
+  expect(restoreStateFunction).toHaveBeenCalledWith(null)
+})
+
+test('empty connectedPeripherals array is not null', async () => {
+  Native.BleModule.emit(Native.BleModule.RestoreStateEvent, { connectedPeripherals: [] })
+  const state = await bleManager.getRestoredState()
+  expect(state).not.toBeNull()
+  expect(state.connectedPeripherals).toEqual([])
+  expect(restoreStateFunction).toHaveBeenCalledWith({ connectedPeripherals: [] })
+})
+
+test('identifier-only manager still buffers restore events', async () => {
+  await bleManager.destroy()
+  BleManager.sharedInstance = null
+  const bare = new BleManager({ restoreStateIdentifier: 'only-id' })
+  Native.BleModule.emit(Native.BleModule.RestoreStateEvent, {
+    connectedPeripherals: [createMockDevice({ id: 'id-only' })]
+  })
+  const state = await bare.getRestoredState()
+  expect(state.connectedPeripherals[0].id).toBe('id-only')
+  await bare.destroy()
+  BleManager.sharedInstance = null
+})
+
+test('pending getRestoredState resolves null on destroy', async () => {
+  const pending = bleManager.getRestoredState()
+  await bleManager.destroy()
+  BleManager.sharedInstance = null
+  await expect(pending).resolves.toBeNull()
+})
+
+test('getRestoredState after destroy returns null immediately', async () => {
+  await bleManager.destroy()
+  BleManager.sharedInstance = null
+  const dead = new BleManager({
+    restoreStateIdentifier: 'identifier',
+    restoreStateFunction
+  })
+  await dead.destroy()
+  BleManager.sharedInstance = null
+  await expect(dead.getRestoredState()).resolves.toBeNull()
+})
+
 test('BleModule calls destroy function when destroyed', () => {
   bleManager.destroy()
   expect(Native.BleModule.createClient).toBeCalled()

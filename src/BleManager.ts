@@ -18,6 +18,7 @@ import type {
   ScanOptions,
   ConnectionOptions,
   BleManagerOptions,
+  BleRestoredState,
   BackgroundModeOptions
 } from './TypeDefinition'
 import { isIOS } from './Utils'
@@ -30,7 +31,8 @@ import { Platform } from 'react-native'
  * {@link #blemanagerdestroy|destroy()} should be called on its instance when user wants to deallocate all resources.
  *
  * In case you want to properly support Background Mode, you should provide `restoreStateIdentifier` and
- * `restoreStateFunction` in {@link BleManagerOptions}.
+ * optionally `restoreStateFunction` in {@link BleManagerOptions}. Late subscribers can also call
+ * {@link #blemanagergetrestoredstate|getRestoredState()} for the buffered first restore payload.
  *
  * @example
  * const manager = new BleManager();
@@ -54,6 +56,17 @@ export class BleManager {
   // Map of error codes to error messages
   _errorCodesToMessagesMapping!: BleErrorCodeMessageMapping
 
+  /**
+   * First RestoreStateEvent payload (undefined = not yet received).
+   * @private
+   */
+  _restoredState!: BleRestoredState | null | undefined
+  /**
+   * Waiters for the first restore event when identifier is configured.
+   * @private
+   */
+  _restoreStateWaiters!: Array<(value: BleRestoredState | null) => void>
+
   static sharedInstance: BleManager | null = null
 
   /**
@@ -74,29 +87,47 @@ export class BleManager {
       ? options.errorCodesToMessagesMapping
       : BleErrorCodeMessage
     this._scanEventSubscription = null
+    this._restoredState = undefined
+    this._restoreStateWaiters = []
 
     const restoreStateIdentifier = options.restoreStateIdentifier
     const restoreStateFunction = options.restoreStateFunction
-    if (restoreStateFunction != null && restoreStateIdentifier != null) {
-      const restoreFn = restoreStateFunction
-
+    // Listen whenever restoration is configured (identifier set), even without callback.
+    // Register before createClient — Android may emit RestoreStateEvent synchronously.
+    if (restoreStateIdentifier != null) {
       this._activeSubscriptions[this._nextUniqueID()] = this._eventEmitter.addListener(
         BleModule.RestoreStateEvent,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (nativeRestoredState: NativeBleRestoredState | any) => {
-          if (nativeRestoredState == null) {
-            restoreFn(null)
-            return
+          const mapped: BleRestoredState | null =
+            nativeRestoredState == null
+              ? null
+              : {
+                  connectedPeripherals: nativeRestoredState.connectedPeripherals.map(
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    (nativeDevice: any) => new Device(nativeDevice, this)
+                  )
+                }
+
+          // Buffer first delivery only (stable for late getRestoredState)
+          if (this._restoredState === undefined) {
+            this._restoredState = mapped
+            const waiters = this._restoreStateWaiters
+            this._restoreStateWaiters = []
+            for (const resolve of waiters) {
+              resolve(mapped)
+            }
           }
 
-          restoreFn({
-            connectedPeripherals: nativeRestoredState.connectedPeripherals.map(
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (nativeDevice: any) => new Device(nativeDevice, this)
-            )
-          })
+          // Existing behavior: invoke callback on every emit when provided
+          if (restoreStateFunction != null) {
+            restoreStateFunction(mapped)
+          }
         }
       )
+    } else {
+      // Restoration not configured — immediate null for getRestoredState
+      this._restoredState = null
     }
 
     BleModule.createClient(options.restoreStateIdentifier || null)
@@ -153,10 +184,40 @@ export class BleManager {
       BleManager.sharedInstance = null
     }
 
+    // Null buffer first, then drain restore waiters (post-destroy null ≠ OS empty restore)
+    this._restoredState = null
+    const restoreWaiters = this._restoreStateWaiters
+    this._restoreStateWaiters = []
+    for (const resolve of restoreWaiters) {
+      resolve(null)
+    }
+
     // Destroy all promises
     this._destroyPromises()
 
     return response
+  }
+
+  /**
+   * Returns the first iOS state restoration payload captured after construction, or `null`
+   * when restoration is not configured, nothing was restored, or the manager was destroyed.
+   *
+   * Late callers receive the same value {@link BleManagerOptions.restoreStateFunction} received
+   * for the first RestoreStateEvent. Subsequent restore emits still invoke the callback but do
+   * not change the buffered value.
+   *
+   * When `restoreStateIdentifier` is set and the event has not arrived yet, the promise waits
+   * until the first event or {@link #blemanagerdestroy|destroy()}.
+   *
+   * @returns {Promise<BleRestoredState|null>}
+   */
+  async getRestoredState(): Promise<BleRestoredState | null> {
+    if (this._restoredState !== undefined) {
+      return this._restoredState
+    }
+    return new Promise<BleRestoredState | null>((resolve) => {
+      this._restoreStateWaiters.push(resolve)
+    })
   }
 
   /**
