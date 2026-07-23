@@ -107,6 +107,11 @@ interface DeviceConnectionState {
   attemptId: number // Generation token to invalidate old async attempts
   /** True while attemptConnectOnce owns the in-flight attempt for this device. */
   gatedAttempt: boolean
+  /**
+   * After user cancel of an in-flight connect on an auto-reconnect device, ignore the
+   * next disconnect for auto-rearm (that disconnect is from cancelDeviceConnection).
+   */
+  suppressNextAutoReconnect?: boolean
   pendingPromise?: {
     resolve: (device: Device) => void
     reject: (error: BleError) => void
@@ -419,6 +424,13 @@ export class ConnectionManager {
         currentState.callbacks?.onDisconnect?.(deviceId, error)
         this._globalCallbacks.onDisconnect?.(deviceId, error)
 
+        // User cancel of an in-flight connect fires cancelDeviceConnection → disconnect.
+        // That disconnect must not immediately re-arm auto-reconnect.
+        if (currentState.suppressNextAutoReconnect) {
+          currentState.suppressNextAutoReconnect = false
+          return
+        }
+
         // Auto-reconnect on ANY disconnect unless explicitly cancelled
         // This handles all platform behaviors including quirky null-error disconnects
         if (currentState.autoReconnect && !currentState.cancelled) {
@@ -581,6 +593,11 @@ export class ConnectionManager {
     state.attemptId++
 
     if (wasConnecting) {
+      // Native cancel may emit a disconnect after we re-arm auto (cancelled=false).
+      // Suppress that one disconnect so cancel does not immediately start another connect.
+      if (state.autoReconnect && !this._destroying) {
+        state.suppressNextAutoReconnect = true
+      }
       this._manager.cancelDeviceConnection(state.deviceId).catch(ignoreConnectionCancellationError)
     }
   }
@@ -705,6 +722,9 @@ export class ConnectionManager {
         clearTimeout(state.connectionTimeoutId)
         state.connectionTimeoutId = undefined
       }
+
+      // Successful connect — drop any stale cancel-suppression from a prior attempt
+      state.suppressNextAutoReconnect = false
 
       // Check if we timed out or were cancelled
       if (timeoutError) {

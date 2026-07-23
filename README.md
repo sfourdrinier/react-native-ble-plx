@@ -57,7 +57,8 @@ It does NOT support:
 - React Native **0.86.0+**
 - Expo SDK **57+**
 - Node.js **20.19.4+**
-- Xcode **16.1+** for iOS builds
+- Xcode **16.1+** for plain RN iOS builds (RN 0.86 floor)
+- Xcode **26.4+** when using **Expo SDK 57** / `expo-modules-jsi` (Swift tools 6.2; CI uses **26.6**)
 - Android min SDK **24**, compile/target SDK **36**
 - iOS deployment target **16.4**
 - RN 0.86 TurboModules/Fabric runtime

@@ -220,9 +220,9 @@ public class BleClientManager : NSObject {
         }
     }
 
-    /// Seed `connectedPeripherals` from CoreBluetooth restore identifiers so
-    /// `isDeviceConnected` / discovery work as soon as JS receives restore replay.
-    /// Uses synchronous `retrievePeripherals` (.just). Safe to call before connect loops.
+    /// Seed `connectedPeripherals` from CoreBluetooth restore identifiers (best-effort).
+    /// `retrievePeripherals` is gated on `.poweredOn`; when the central is still `.unknown`
+    /// at adapter wake, this may no-op — callers must not rely on it for the JS restore payload.
     @objc
     public func seedRestoredPeripherals(withIdentifiers identifiers: [String]) {
         let uuids = identifiers.compactMap { UUID(uuidString: $0) }
@@ -230,14 +230,27 @@ public class BleClientManager : NSObject {
 
         _ = manager.retrievePeripherals(withIdentifiers: uuids)
             .take(1)
-            .subscribe(onNext: { [weak self] peripherals in
-                guard let self = self else { return }
-                for peripheral in peripherals {
-                    // Only adopt peripherals CoreBluetooth still considers connected /
-                    // known; connectToDevice remains responsible for re-establishing links.
-                    self.adoptRestoredPeripheral(peripheral)
+            .subscribe(
+                onNext: { [weak self] peripherals in
+                    guard let self = self else { return }
+                    for peripheral in peripherals {
+                        // Avoid double-adopting (double disconnect monitors).
+                        if self.connectedPeripherals[peripheral.identifier] == nil {
+                            self.adoptRestoredPeripheral(peripheral)
+                        }
+                    }
+                },
+                onError: { _ in
+                    // Central not powered on yet — cache stays empty; connect loop will fill it.
                 }
-            })
+            )
+    }
+
+    /// Whether a device is already in the native connection cache (adopted or connected).
+    @objc
+    public func isDeviceInConnectionCache(_ deviceIdentifier: String) -> Bool {
+        guard let deviceId = UUID(uuidString: deviceIdentifier) else { return false }
+        return connectedPeripherals[deviceId] != nil
     }
 
     /// JS-shaped RestoreStateEvent body from the current native connection cache.

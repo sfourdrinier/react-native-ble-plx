@@ -131,19 +131,44 @@ public final class BlePlxRestorationAdapter: NSObject {
 
     let deviceIds = peripherals.map { $0.identifier.uuidString }
 
-    // Populate the native connection cache *before* buffering the JS restore payload.
-    // Otherwise getRestoredState()/restoreStateFunction can hand Devices to JS while
-    // isDeviceConnected/discovery still miss them (connectToDevice only fills the cache
-    // on async success).
-    manager.seedRestoredPeripherals(withIdentifiers: deviceIds)
-
-    // Payload mirrors the native cache after seed (not the raw CB restore list).
-    let restorePayload = manager.currentRestoreStatePayload()
+    // JS restore payload MUST come from the willRestoreState peripheral list, not from
+    // seedRestoredPeripherals. Seeding uses retrievePeripherals → ensure(.poweredOn); at
+    // adapter wake the new central is often still .unknown, so seed can no-op and would
+    // incorrectly store { connectedPeripherals: [] }.
+    let restorePayload: [AnyHashable: Any] = [
+      "connectedPeripherals": peripherals.map { peripheral -> [AnyHashable: Any] in
+        [
+          "id": peripheral.identifier.uuidString,
+          "name": peripheral.name as Any,
+          "rssi": NSNull(),
+          "mtu": 23,
+          "manufacturerData": NSNull(),
+          "serviceData": NSNull(),
+          "serviceUUIDs": NSNull(),
+          "localName": NSNull(),
+          "txPowerLevel": NSNull(),
+          "solicitedServiceUUIDs": NSNull(),
+          "isConnectable": NSNull(),
+          "overflowServiceUUIDs": NSNull(),
+          "rawScanRecord": NSNull()
+        ]
+      }
+    ]
     BlePlxRestorationState.storeRestoredManager(manager, restoreStatePayload: restorePayload)
 
-    // Register device routes and reconnect (fills cache for any not yet adopted).
+    // Best-effort native cache fill (may no-op if central not powered on yet).
+    manager.seedRestoredPeripherals(withIdentifiers: deviceIds)
+
+    // Register routes and reconnect only peripherals not already adopted into the cache.
+    // Re-connecting an already-adopted peripheral would install a second disconnect monitor
+    // and can double-fire DisconnectionEvent to JS.
     for deviceId in deviceIds {
       registerDeviceRoute(deviceId: deviceId)
+
+      if manager.isDeviceInConnectionCache(deviceId) {
+        BlePlxDebugLogging.log("[BlePlxRestorationAdapter] Already in cache, skip reconnect: \(deviceId)")
+        continue
+      }
 
       // Kick off reconnect in the background. We don't care about resolve/reject here
       // because JS may not be up yet. Any errors will surface once JS re-attaches.
