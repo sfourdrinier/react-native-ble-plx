@@ -143,6 +143,7 @@ describe('package modernization targets', () => {
   test('CI cancels superseded runs for the same PR or branch', () => {
     expect(ciWorkflow).toMatch(/concurrency:\s*\n\s*group:/)
     expect(ciWorkflow).toContain('cancel-in-progress: true')
+    expect(ciWorkflow).toContain('github.workflow')
     expect(ciWorkflow).toContain('github.event.pull_request.number || github.ref')
   })
 
@@ -150,13 +151,13 @@ describe('package modernization targets', () => {
     expect(ciWorkflow).toContain('workflow_dispatch:')
     expect(ciWorkflow).toContain('types: [opened, reopened, synchronize, ready_for_review, labeled]')
     expect(ciWorkflow).toContain("ci:apple")
-    expect(ciWorkflow).toContain('dorny/paths-filter@v3.0.2')
+    // Keep paths-filter on current major (v4 as of 2026-07; Node 24 runtime).
+    expect(ciWorkflow).toMatch(/dorny\/paths-filter@v4(\.\d+\.\d+)?/)
     expect(ciWorkflow).toContain('needs.changes.outputs.apple')
     expect(ciWorkflow).toContain('needs.changes.outputs.android')
-    // Apple jobs require opt-in label on PRs — not every synchronize.
-    expect(ciWorkflow).toMatch(
-      /pull_request' &&\s*\n\s*contains\(join\(github\.event\.pull_request\.labels/
-    )
+    // Official contains() object-filter form:
+    // https://docs.github.com/en/actions/reference/evaluate-expressions-in-workflows-and-actions
+    expect(ciWorkflow).toContain("contains(github.event.pull_request.labels.*.name, 'ci:apple')")
     expect(ciWorkflow).toContain("github.ref == 'refs/heads/master'")
     expect(ciWorkflow).toContain("github.event_name == 'workflow_dispatch'")
   })
