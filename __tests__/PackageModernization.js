@@ -125,6 +125,21 @@ describe('package modernization targets', () => {
     expect(githubConfig).not.toContain('actions/setup-java@v3')
   })
 
+  test('CI builds iOS examples and checks tvOS library on macOS runners (#20)', () => {
+    expect(ciWorkflow).toContain('runs-on: macos-15')
+    expect(ciWorkflow).toContain('ios-example:')
+    expect(ciWorkflow).toContain('ios-expo:')
+    expect(ciWorkflow).toContain('tvos-library:')
+    expect(ciWorkflow).toContain("RCT_NEW_ARCH_ENABLED: '1'")
+    expect(ciWorkflow).toContain('BlePlxExample.xcworkspace')
+    expect(ciWorkflow).toContain('-scheme BlePlxExample')
+    expect(ciWorkflow).toContain("destination 'generic/platform=iOS Simulator'")
+    expect(ciWorkflow).toContain('CODE_SIGNING_ALLOWED=NO')
+    expect(ciWorkflow).toContain('npx expo prebuild --clean --no-install --platform ios')
+    expect(ciWorkflow).toContain('bash scripts/ci/check-tvos-library.sh')
+    expect(fs.existsSync(path.join(__dirname, '..', 'scripts/ci/check-tvos-library.sh'))).toBe(true)
+  })
+
   test('publish workflow uses tag-triggered OIDC trusted publishing with provenance', () => {
     const publishWorkflowPath = path.join(__dirname, '..', '.github/workflows/publish.yml')
     expect(fs.existsSync(publishWorkflowPath)).toBe(true)

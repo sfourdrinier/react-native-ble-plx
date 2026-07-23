@@ -16,6 +16,13 @@ describe('iOS modernization defaults', () => {
     expect(examplePodfile).toContain("platform :ios, '16.4'")
   })
 
+  test('keeps Restoration subspec iOS-only (tvOS has no CoreBluetooth restore)', () => {
+    const restorationBlock = podspec.split('subspec "Restoration"')[1]
+    expect(restorationBlock).toBeDefined()
+    expect(restorationBlock).toMatch(/ss\.platforms\s*=\s*\{\s*:ios\s*=>\s*"16\.4"\s*\}/)
+    expect(restorationBlock).not.toMatch(/:tvos/)
+  })
+
   test('points CocoaPods source metadata at this fork', () => {
     expect(podspec).toContain('https://github.com/sfourdrinier/react-native-ble-plx.git')
     expect(podspec).toContain(':tag => "v#{s.version}"')
