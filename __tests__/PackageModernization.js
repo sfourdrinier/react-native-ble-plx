@@ -159,9 +159,11 @@ describe('package modernization targets', () => {
 
   test('CI cancels superseded runs for the same PR or branch', () => {
     expect(ciWorkflow).toMatch(/concurrency:\s*\n\s*group:/)
-    expect(ciWorkflow).toContain('cancel-in-progress: true')
     expect(ciWorkflow).toContain('github.workflow')
     expect(ciWorkflow).toContain('github.event.pull_request.number || github.ref')
+    // Unrelated labels must not cancel/replace a real package run (Codex P1).
+    expect(ciWorkflow).toContain("github.event.label.name != 'ci:apple'")
+    expect(ciWorkflow).toMatch(/cancel-in-progress:\s*\$\{\{/)
   })
 
   test('CI keeps expensive Apple jobs off default PR commits (label / master / manual)', () => {
@@ -177,6 +179,14 @@ describe('package modernization targets', () => {
     expect(ciWorkflow).toContain("contains(github.event.pull_request.labels.*.name, 'ci:apple')")
     expect(ciWorkflow).toContain("github.ref == 'refs/heads/master'")
     expect(ciWorkflow).toContain("github.event_name == 'workflow_dispatch'")
+    // Hardened token permissions for checkout + paths-filter PR files API.
+    expect(ciWorkflow).toMatch(/permissions:\s*\n\s*contents:\s*read\s*\n\s*pull-requests:\s*read/)
+    // example app deps feed ios-example pod install — include in apple path filter.
+    expect(ciWorkflow).toContain("example/package.json")
+    // Package checks always run (no skip-on-unrelated-label if).
+    expect(ciWorkflow).not.toMatch(
+      /package:\s*\n\s*name: Package checks\s*\n\s*if:[\s\S]*label\.name == 'ci:apple'/
+    )
   })
 
   test('publish workflow uses tag-triggered OIDC trusted publishing with provenance', () => {

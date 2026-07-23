@@ -21,12 +21,13 @@ if [[ ! -f "$PODSPEC" ]]; then
   exit 1
 fi
 
-if ! grep -qE 'tvos\s*=>\s*"16\.4"' "$PODSPEC"; then
+# Use POSIX [[:space:]] (not \s) — BSD grep on macOS runners is not GNU.
+if ! grep -qE 'tvos[[:space:]]*=>[[:space:]]*"16\.4"' "$PODSPEC"; then
   echo "error: podspec must declare :tvos => \"16.4\"" >&2
   exit 1
 fi
 
-if ! grep -qE 'ios\s*=>\s*"16\.4"' "$PODSPEC"; then
+if ! grep -qE 'ios[[:space:]]*=>[[:space:]]*"16\.4"' "$PODSPEC"; then
   echo "error: podspec must declare :ios => \"16.4\"" >&2
   exit 1
 fi
@@ -37,7 +38,7 @@ if ! grep -q 'subspec "Restoration"' "$PODSPEC"; then
   exit 1
 fi
 
-if ! grep -A6 'subspec "Restoration"' "$PODSPEC" | grep -qE 'platforms\s*=\s*\{\s*:ios'; then
+if ! grep -A6 'subspec "Restoration"' "$PODSPEC" | grep -qE 'platforms[[:space:]]*=[[:space:]]*\{[[:space:]]*:ios'; then
   echo "error: Restoration subspec must set platforms = { :ios => ... } (iOS-only)" >&2
   exit 1
 fi
