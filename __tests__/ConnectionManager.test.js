@@ -351,6 +351,7 @@ describe('ConnectionManager', () => {
       const pConnect = mgr.connect('d1', { maxRetries: 3, timeoutMs: 0 });
       await expect(mgr.attemptConnectOnce('d1', { timeoutMs: 0 })).rejects.toMatchObject({
         errorCode: BleErrorCode.OperationStartFailed,
+        reason: expect.stringMatching(/non-gated|in-flight/i),
       });
       expect(ble.connectToDevice).toHaveBeenCalledTimes(1);
       ble._resolveConnect('d1', createDevice('d1'));

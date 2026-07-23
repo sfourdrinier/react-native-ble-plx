@@ -112,7 +112,7 @@ const device = await connections.attemptConnectOnce(deviceId, {
 | `attemptConnectOnce` | Rejects `OperationStartFailed` | Coalesces with other gated calls |
 | `attemptConnectOnce` while multi-retry `connect` in flight | — | Rejects `OperationStartFailed` (strict: does not join multi-retry) |
 | `enableAutoReconnect` | Updates options | **Throws** `OperationStartFailed` (use try/catch) |
-| `connect` | Allowed (existing behavior) | Coalesces onto gated flight |
+| `connect` | Allowed (existing behavior) | Coalesces onto gated flight (single attempt already started; does **not** re-arm multi-retry) |
 
 ### Caller-owned backoff example
 
