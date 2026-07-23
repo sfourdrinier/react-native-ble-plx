@@ -326,4 +326,140 @@ describe('ConnectionManager', () => {
     reconnect.deferred.reject(createBleError(BleErrorCode.DeviceDisconnected, 'cleanup'));
     await flushMicrotasks().catch(() => {});
   });
+
+  describe('attemptConnectOnce (externally gated)', () => {
+    test('single native connect; no retry timer after failure even if maxRetries>1 passed', async () => {
+      const p = mgr.attemptConnectOnce('d1', { maxRetries: 5, timeoutMs: 0, initialDelayMs: 1000 });
+      expect(ble.connectToDevice).toHaveBeenCalledTimes(1);
+      ble._rejectConnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'fail'));
+      await expect(p).rejects.toMatchObject({ errorCode: BleErrorCode.DeviceDisconnected });
+      jest.advanceTimersByTime(10000);
+      await flushMicrotasks();
+      expect(ble.connectToDevice).toHaveBeenCalledTimes(1);
+    });
+
+    test('coalesces concurrent attemptConnectOnce', async () => {
+      const p1 = mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+      const p2 = mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+      expect(ble.connectToDevice).toHaveBeenCalledTimes(1);
+      ble._resolveConnect('d1', createDevice('d1'));
+      await expect(p1).resolves.toMatchObject({ id: 'd1' });
+      await expect(p2).resolves.toMatchObject({ id: 'd1' });
+    });
+
+    test('rejects when non-gated connect is already in flight (strict coalesce)', async () => {
+      const pConnect = mgr.connect('d1', { maxRetries: 3, timeoutMs: 0 });
+      await expect(mgr.attemptConnectOnce('d1', { timeoutMs: 0 })).rejects.toMatchObject({
+        errorCode: BleErrorCode.OperationStartFailed,
+      });
+      expect(ble.connectToDevice).toHaveBeenCalledTimes(1);
+      ble._resolveConnect('d1', createDevice('d1'));
+      await expect(pConnect).resolves.toMatchObject({ id: 'd1' });
+    });
+
+    test('connect coalesces onto in-flight gated attempt', async () => {
+      const pGated = mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+      const pConnect = mgr.connect('d1', { maxRetries: 5, timeoutMs: 0 });
+      expect(ble.connectToDevice).toHaveBeenCalledTimes(1);
+      ble._resolveConnect('d1', createDevice('d1'));
+      await expect(pGated).resolves.toMatchObject({ id: 'd1' });
+      await expect(pConnect).resolves.toMatchObject({ id: 'd1' });
+    });
+
+    test('rejects when auto-reconnect is enabled', async () => {
+      mgr.enableAutoReconnect('d1', { maxRetries: 1, timeoutMs: 0 });
+      await expect(mgr.attemptConnectOnce('d1', { timeoutMs: 0 })).rejects.toMatchObject({
+        errorCode: BleErrorCode.OperationStartFailed,
+        reason: expect.stringMatching(/auto-reconnect/i),
+      });
+      expect(ble.connectToDevice).not.toHaveBeenCalled();
+    });
+
+    test('enableAutoReconnect throws while gated attempt is in flight', () => {
+      void mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+      try {
+        mgr.enableAutoReconnect('d1');
+        throw new Error('expected enableAutoReconnect to throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(BleError);
+        expect(e.errorCode).toBe(BleErrorCode.OperationStartFailed);
+        expect(e.reason).toMatch(/attemptConnectOnce|gated/i);
+      }
+    });
+
+    test('enableAutoReconnect still throws if connect joined a gated flight', async () => {
+      const pGated = mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+      const pConnect = mgr.connect('d1', { timeoutMs: 0 });
+      try {
+        mgr.enableAutoReconnect('d1');
+        throw new Error('expected enableAutoReconnect to throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(BleError);
+        expect(e.errorCode).toBe(BleErrorCode.OperationStartFailed);
+        expect(e.reason).toMatch(/attemptConnectOnce|gated/i);
+      }
+      ble._resolveConnect('d1', createDevice('d1'));
+      await pGated;
+      await pConnect;
+    });
+
+    test('cancel mid-attempt: OperationCancelled, no retry', async () => {
+      const p = mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+      expect(mgr.cancel('d1')).toBe(true);
+      await expect(p).rejects.toMatchObject({ errorCode: BleErrorCode.OperationCancelled });
+      jest.advanceTimersByTime(5000);
+      await flushMicrotasks();
+      expect(ble.connectToDevice).toHaveBeenCalledTimes(1);
+    });
+
+    test('timeout: OperationTimedOut', async () => {
+      const p = mgr.attemptConnectOnce('d1', { timeoutMs: 100 });
+      jest.advanceTimersByTime(120);
+      await flushMicrotasks();
+      await expect(p).rejects.toMatchObject({ errorCode: BleErrorCode.OperationTimedOut });
+      expect(ble.cancelDeviceConnection).toHaveBeenCalledWith('d1');
+    });
+
+    test('callback order: onConnecting then onConnect', async () => {
+      const order = [];
+      mgr.setGlobalCallbacks({
+        onConnecting: () => order.push('connecting'),
+        onConnect: () => order.push('connect'),
+      });
+      const p = mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+      ble._resolveConnect('d1', createDevice('d1'));
+      await p;
+      expect(order).toEqual(['connecting', 'connect']);
+    });
+
+    test('callback order: onConnecting then onConnectFailed', async () => {
+      const order = [];
+      mgr.setGlobalCallbacks({
+        onConnecting: () => order.push('connecting'),
+        onConnectFailed: () => order.push('failed'),
+      });
+      const p = mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+      ble._rejectConnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'fail'));
+      await expect(p).rejects.toBeTruthy();
+      expect(order).toEqual(['connecting', 'failed']);
+    });
+
+    test('after gated success: auto off, no onDeviceDisconnected registration', async () => {
+      ble.onDeviceDisconnected.mockClear();
+      const p = mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+      expect(ble.onDeviceDisconnected).not.toHaveBeenCalled();
+      ble._resolveConnect('d1', createDevice('d1'));
+      await p;
+      expect(mgr.isAutoReconnectEnabled('d1')).toBe(false);
+      expect(ble.onDeviceDisconnected).not.toHaveBeenCalled();
+    });
+
+    test('after gated failure, enableAutoReconnect works', async () => {
+      const p = mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+      ble._rejectConnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'fail'));
+      await expect(p).rejects.toBeTruthy();
+      expect(() => mgr.enableAutoReconnect('d1', { maxRetries: 1, timeoutMs: 0 })).not.toThrow();
+      expect(mgr.isAutoReconnectEnabled('d1')).toBe(true);
+    });
+  });
 });

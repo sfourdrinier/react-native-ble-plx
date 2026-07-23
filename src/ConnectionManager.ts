@@ -105,6 +105,8 @@ interface DeviceConnectionState {
   callbacks?: ConnectionCallbacks
   cancelled: boolean
   attemptId: number // Generation token to invalidate old async attempts
+  /** True while attemptConnectOnce owns the in-flight attempt for this device. */
+  gatedAttempt: boolean
   pendingPromise?: {
     resolve: (device: Device) => void
     reject: (error: BleError) => void
@@ -174,17 +176,89 @@ export class ConnectionManager {
    * @returns Promise resolving to connected Device
    */
   connect(deviceId: DeviceId, options?: ConnectionOptionsWithRetry): Promise<Device> {
+    return this._beginConnect(deviceId, options, { gated: false })
+  }
+
+  /**
+   * Exactly one race-hardened connect attempt. No internal retries and no auto re-arm.
+   * Mutually exclusive with auto-reconnect for this deviceId (D1 strict coalesce).
+   *
+   * @param deviceId Device identifier to connect to
+   * @param options Connection options; `maxRetries` is forced to 1 (single attempt)
+   * @returns Promise resolving to connected Device
+   */
+  attemptConnectOnce(deviceId: DeviceId, options?: ConnectionOptionsWithRetry): Promise<Device> {
+    return this._beginConnect(deviceId, options, { gated: true })
+  }
+
+  /**
+   * Shared connect entry for {@link connect} and {@link attemptConnectOnce}.
+   * @private
+   */
+  private _beginConnect(
+    deviceId: DeviceId,
+    options: ConnectionOptionsWithRetry | undefined,
+    mode: { gated: boolean }
+  ): Promise<Device> {
+    if (mode.gated && this.isAutoReconnectEnabled(deviceId)) {
+      return Promise.reject(
+        new BleError(
+          {
+            errorCode: BleErrorCode.OperationStartFailed,
+            attErrorCode: null,
+            iosErrorCode: null,
+            androidErrorCode: null,
+            reason: `attemptConnectOnce is not allowed while auto-reconnect is enabled for device ${deviceId}`
+          },
+          BleErrorCodeMessage
+        )
+      )
+    }
+
+    if (mode.gated && options?.maxRetries != null && options.maxRetries !== 1) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[ConnectionManager] attemptConnectOnce ignores maxRetries=${options.maxRetries}; single attempt only`
+      )
+    }
+
     const existing = this._devices.get(deviceId)
 
-    // If there's already a connection attempt in progress, coalesce to the same promise
-    if (existing && existing.pendingPromise && !existing.cancelled) {
+    // D1: gated must not join a non-gated multi-retry in-flight connect
+    if (
+      mode.gated &&
+      existing &&
+      existing.pendingPromise &&
+      !existing.cancelled &&
+      !existing.gatedAttempt
+    ) {
+      return Promise.reject(
+        new BleError(
+          {
+            errorCode: BleErrorCode.OperationStartFailed,
+            attErrorCode: null,
+            iosErrorCode: null,
+            androidErrorCode: null,
+            reason: `attemptConnectOnce cannot join a non-gated in-flight connect for device ${deviceId}`
+          },
+          BleErrorCodeMessage
+        )
+      )
+    }
+
+    // Coalesce: normal connect joins any in-flight pending; gated only joins gated
+    const canCoalesce =
+      existing &&
+      existing.pendingPromise &&
+      !existing.cancelled &&
+      (!mode.gated || existing.gatedAttempt)
+
+    if (canCoalesce && existing.pendingPromise) {
       const pending = existing.pendingPromise
-      // Return a new promise that resolves/rejects when the existing one does
       return new Promise((resolve, reject) => {
         const originalResolve = pending.resolve
         const originalReject = pending.reject
 
-        // Chain to the original promise
         pending.resolve = (device: Device) => {
           originalResolve(device)
           resolve(device)
@@ -198,9 +272,7 @@ export class ConnectionManager {
     }
 
     return new Promise((resolve, reject) => {
-      // Cancel and clean up existing state if present
       if (existing) {
-        // Reject any existing pending promise before replacing
         if (existing.pendingPromise) {
           existing.pendingPromise.reject(
             new BleError(
@@ -219,7 +291,7 @@ export class ConnectionManager {
       }
 
       const connectionOptions: ResolvedConnectionOptions = {
-        maxRetries: options?.maxRetries ?? 3,
+        maxRetries: mode.gated ? 1 : options?.maxRetries ?? 3,
         initialDelayMs: options?.initialDelayMs ?? 1000,
         maxDelayMs: options?.maxDelayMs ?? 30000,
         backoffMultiplier: options?.backoffMultiplier ?? 2,
@@ -230,14 +302,15 @@ export class ConnectionManager {
       const state: DeviceConnectionState = {
         deviceId,
         options: connectionOptions,
-        reconnectOptions: existing?.reconnectOptions,
+        reconnectOptions: mode.gated ? undefined : existing?.reconnectOptions,
         isConnecting: false,
         retryCount: 0,
-        autoReconnect: existing?.autoReconnect ?? false, // Preserve autoReconnect flag if it exists
-        callbacks: existing?.callbacks, // Preserve callbacks if they exist
-        disconnectSubscription: existing?.disconnectSubscription, // Preserve disconnect subscription
+        autoReconnect: mode.gated ? false : existing?.autoReconnect ?? false,
+        callbacks: existing?.callbacks,
+        disconnectSubscription: mode.gated ? undefined : existing?.disconnectSubscription,
         cancelled: false,
-        attemptId: existing ? existing.attemptId + 1 : 0, // Increment attemptId if reusing state
+        attemptId: existing ? existing.attemptId + 1 : 0,
+        gatedAttempt: mode.gated,
         pendingPromise: { resolve, reject }
       }
 
@@ -252,8 +325,27 @@ export class ConnectionManager {
    * @param deviceId Device identifier
    * @param options Connection and retry options for reconnection
    * @param callbacks Optional callbacks for this specific device
+   * @throws {BleError} OperationStartFailed if attemptConnectOnce is in flight for this device
    */
   enableAutoReconnect(deviceId: DeviceId, options?: ConnectionOptionsWithRetry, callbacks?: ConnectionCallbacks): void {
+    const existingForGuard = this._devices.get(deviceId)
+    if (
+      existingForGuard?.gatedAttempt &&
+      existingForGuard.pendingPromise &&
+      !existingForGuard.cancelled
+    ) {
+      throw new BleError(
+        {
+          errorCode: BleErrorCode.OperationStartFailed,
+          attErrorCode: null,
+          iosErrorCode: null,
+          androidErrorCode: null,
+          reason: `enableAutoReconnect is not allowed while attemptConnectOnce is in flight for device ${deviceId}`
+        },
+        BleErrorCodeMessage
+      )
+    }
+
     // If already exists, update settings
     let state = this._devices.get(deviceId)
     const existingReconnectOptions = state?.reconnectOptions
@@ -270,6 +362,7 @@ export class ConnectionManager {
     if (state) {
       // Update existing state
       state.autoReconnect = true
+      state.gatedAttempt = false
       state.callbacks = callbacks
       state.reconnectOptions = reconnectOptions
       state.options = { ...reconnectOptions }
@@ -283,7 +376,8 @@ export class ConnectionManager {
         autoReconnect: true,
         callbacks,
         cancelled: false,
-        attemptId: 0
+        attemptId: 0,
+        gatedAttempt: false
       }
 
       this._devices.set(deviceId, state)
