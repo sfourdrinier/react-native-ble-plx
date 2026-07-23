@@ -90,10 +90,17 @@ export class BleManager {
     this._restoredState = undefined
     this._restoreStateWaiters = []
 
-    const restoreStateIdentifier = options.restoreStateIdentifier
+    // Empty/whitespace identifier is treated as unconfigured (matches native createClient
+    // which coerces "" → nil). Otherwise getRestoredState would wait forever for an event
+    // that will never be emitted.
+    const rawRestoreId = options.restoreStateIdentifier
+    const restoreStateIdentifier =
+      rawRestoreId != null && String(rawRestoreId).trim() !== '' ? String(rawRestoreId).trim() : null
     const restoreStateFunction = options.restoreStateFunction
     // Listen whenever restoration is configured (identifier set), even without callback.
     // Register before createClient — Android may emit RestoreStateEvent synchronously.
+    // iOS background restore may replay a buffered payload from createClient when the
+    // Restoration adapter woke native before this JS listener existed.
     if (restoreStateIdentifier != null) {
       this._activeSubscriptions[this._nextUniqueID()] = this._eventEmitter.addListener(
         BleModule.RestoreStateEvent,
@@ -130,7 +137,7 @@ export class BleManager {
       this._restoredState = null
     }
 
-    BleModule.createClient(options.restoreStateIdentifier || null)
+    BleModule.createClient(restoreStateIdentifier)
     BleManager.sharedInstance = this
   }
 

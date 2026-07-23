@@ -256,7 +256,8 @@ jobs:
         run: pnpm prepack
 
       - name: Install example dependencies
-        run: pnpm --dir example install
+        # example/pnpm-lock.yaml is gitignored (local install only); CI must not freeze.
+        run: pnpm --dir example install --no-frozen-lockfile
 
       - name: Install CocoaPods
         working-directory: example/ios

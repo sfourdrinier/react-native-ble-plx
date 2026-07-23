@@ -175,6 +175,24 @@ test('getRestoredState null when identifier not configured', async () => {
   BleManager.sharedInstance = null
 })
 
+test('empty restoreStateIdentifier is treated as unconfigured (no hang)', async () => {
+  await bleManager.destroy()
+  BleManager.sharedInstance = null
+  Native.BleModule.createClient.mockClear()
+  const empty = new BleManager({ restoreStateIdentifier: '' })
+  // Native createClient gets null (not empty string)
+  expect(Native.BleModule.createClient).toHaveBeenCalledWith(null)
+  await expect(empty.getRestoredState()).resolves.toBeNull()
+  await empty.destroy()
+  BleManager.sharedInstance = null
+
+  const whitespace = new BleManager({ restoreStateIdentifier: '   ' })
+  expect(Native.BleModule.createClient).toHaveBeenLastCalledWith(null)
+  await expect(whitespace.getRestoredState()).resolves.toBeNull()
+  await whitespace.destroy()
+  BleManager.sharedInstance = null
+})
+
 test('getRestoredState buffers native null payload', async () => {
   Native.BleModule.emit(Native.BleModule.RestoreStateEvent, null)
   await expect(bleManager.getRestoredState()).resolves.toBeNull()

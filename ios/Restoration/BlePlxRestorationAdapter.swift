@@ -128,7 +128,31 @@ public final class BlePlxRestorationAdapter: NSObject {
       queue: .main,
       restoreIdentifierKey: restorationIdentifier
     )
-    BlePlxRestorationState.storeRestoredManager(manager)
+
+    // Buffer a JS-shaped RestoreStateEvent payload so createClient can replay it after
+    // JS attaches listeners. The adapter runs before BleManager exists, so any native
+    // RestoreStateEvent from BleClientManager init would be dropped (no delegate yet).
+    let connectedPeripherals: [[AnyHashable: Any]] = peripherals.map { peripheral in
+      [
+        "id": peripheral.identifier.uuidString,
+        "name": peripheral.name as Any,
+        "rssi": NSNull(),
+        "mtu": 23,
+        "manufacturerData": NSNull(),
+        "serviceData": NSNull(),
+        "serviceUUIDs": NSNull(),
+        "localName": NSNull(),
+        "txPowerLevel": NSNull(),
+        "solicitedServiceUUIDs": NSNull(),
+        "isConnectable": NSNull(),
+        "overflowServiceUUIDs": NSNull(),
+        "rawScanRecord": NSNull()
+      ]
+    }
+    let restorePayload: [AnyHashable: Any] = [
+      "connectedPeripherals": connectedPeripherals
+    ]
+    BlePlxRestorationState.storeRestoredManager(manager, restoreStatePayload: restorePayload)
 
     // Register device routes and reconnect
     for peripheral in peripherals {

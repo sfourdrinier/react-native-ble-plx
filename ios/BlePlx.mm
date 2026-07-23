@@ -207,13 +207,29 @@ RCT_EXPORT_METHOD(createClient:(id)restoreIdentifierKey) {
 
   if (restoredManager != nil) {
     _manager = restoredManager;
+    // Always set the delegate to receive events after JS attaches.
+    _manager.delegate = self;
+
+    // Replay the restore payload buffered at system willRestoreState time.
+    // JS registers RestoreStateEvent before createClient; without this replay,
+    // getRestoredState() would wait until destroy() because the adapter path
+    // never re-emits RestoreStateEvent when reusing the stored manager.
+    NSDictionary *restorePayload = nil;
+    if (restorationStateClass && [restorationStateClass respondsToSelector:@selector(takeRestoredStatePayload)]) {
+      #pragma clang diagnostic push
+      #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+      restorePayload = [restorationStateClass performSelector:@selector(takeRestoredStatePayload)];
+      #pragma clang diagnostic pop
+    }
+    if (restorePayload != nil) {
+      [self dispatchEvent:[BleEvent restoreStateEvent] value:restorePayload];
+    }
   } else {
     _manager = [BleAdapterFactory getNewAdapterWithQueue:dispatch_get_main_queue()
                                       restoreIdentifierKey:restoreIdentifierKey];
+    // Always set the delegate to receive events after JS attaches.
+    _manager.delegate = self;
   }
-
-  // Always set the delegate to receive events after JS attaches.
-  _manager.delegate = self;
 }
 
 RCT_EXPORT_METHOD(destroyClient:(RCTPromiseResolveBlock)resolve

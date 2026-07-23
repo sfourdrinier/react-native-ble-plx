@@ -156,6 +156,8 @@ describe('package modernization targets', () => {
     expect(ciWorkflow).toContain("destination 'generic/platform=iOS Simulator'")
     expect(ciWorkflow).toContain('CODE_SIGNING_ALLOWED=NO')
     expect(ciWorkflow).toContain('npx expo prebuild --clean --no-install --platform ios')
+    // example lock is gitignored — CI must not freeze on missing pnpm-lock
+    expect(ciWorkflow).toContain('pnpm --dir example install --no-frozen-lockfile')
     // Both Android and ios-expo align peers before native generation.
     expect((ciWorkflow.match(/npx expo install --fix/g) || []).length).toBeGreaterThanOrEqual(2)
     expect(ciWorkflow).toContain('bash scripts/ci/check-tvos-library.sh')

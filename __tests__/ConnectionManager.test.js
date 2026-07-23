@@ -467,6 +467,26 @@ describe('ConnectionManager', () => {
       await expect(p).rejects.toMatchObject({ errorCode: BleErrorCode.OperationCancelled });
     });
 
+    test('destroy does not leave connects started from onConnectFailed', async () => {
+      let reentryAttempted = false;
+      mgr.setGlobalCallbacks({
+        onConnectFailed: () => {
+          // Reconnect-on-failure style handler — must not stick after destroy.
+          reentryAttempted = true;
+          void mgr.connect('d2', { timeoutMs: 0 }).catch(() => {});
+        },
+      });
+      const p = mgr.connect('d1', { timeoutMs: 0 });
+      mgr.destroy();
+      await expect(p).rejects.toMatchObject({ errorCode: BleErrorCode.OperationCancelled });
+      expect(reentryAttempted).toBe(false);
+      expect(mgr.activeCount).toBe(0);
+      // Direct connect after destroy is rejected (manager is dead).
+      await expect(mgr.connect('d3', { timeoutMs: 0 })).rejects.toMatchObject({
+        errorCode: BleErrorCode.OperationCancelled,
+      });
+    });
+
     test('onConnect may enableAutoReconnect after gated native success', async () => {
       mgr.setGlobalCallbacks({
         onConnect: device => {

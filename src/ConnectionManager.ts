@@ -113,6 +113,9 @@ interface DeviceConnectionState {
   }
 }
 
+/** Reject reason used when settling promises during destroy. */
+const DESTROY_CANCEL_REASON = 'ConnectionManager destroyed'
+
 /**
  * ConnectionManager unifies connection queuing, retry logic, and automatic reconnection.
  *
@@ -154,6 +157,8 @@ export class ConnectionManager {
   private _manager: BleManager
   private _devices: Map<DeviceId, DeviceConnectionState> = new Map()
   private _globalCallbacks: ConnectionCallbacks = {}
+  /** True while destroy() is tearing down — suppress re-arm from callbacks/promise handlers. */
+  private _destroying = false
 
   constructor(manager: BleManager) {
     this._manager = manager
@@ -200,6 +205,21 @@ export class ConnectionManager {
     options: ConnectionOptionsWithRetry | undefined,
     mode: { gated: boolean }
   ): Promise<Device> {
+    if (this._destroying) {
+      return Promise.reject(
+        new BleError(
+          {
+            errorCode: BleErrorCode.OperationCancelled,
+            attErrorCode: null,
+            iosErrorCode: null,
+            androidErrorCode: null,
+            reason: DESTROY_CANCEL_REASON
+          },
+          BleErrorCodeMessage
+        )
+      )
+    }
+
     if (mode.gated && this.isAutoReconnectEnabled(deviceId)) {
       return Promise.reject(
         new BleError(
@@ -441,7 +461,7 @@ export class ConnectionManager {
           attErrorCode: null,
           iosErrorCode: null,
           androidErrorCode: null,
-          reason: `Connection cancelled for device ${deviceId}`
+          reason: this._destroying ? DESTROY_CANCEL_REASON : `Connection cancelled for device ${deviceId}`
         },
         BleErrorCodeMessage
       )
@@ -450,16 +470,20 @@ export class ConnectionManager {
       state.pendingPromise.reject(error)
       state.pendingPromise = undefined
 
-      // Notify callbacks
-      state.callbacks?.onConnectFailed?.(deviceId, error)
-      this._globalCallbacks.onConnectFailed?.(deviceId, error)
+      // Skip failure callbacks during destroy so app handlers cannot start a new connect
+      // after the deviceIds snapshot (would leave native work + unsettled promises).
+      if (!this._destroying) {
+        state.callbacks?.onConnectFailed?.(deviceId, error)
+        this._globalCallbacks.onConnectFailed?.(deviceId, error)
+      }
     }
 
     // For auto-reconnect devices, reset cancelled flag so future disconnects can trigger reconnection
-    if (state.autoReconnect) {
+    // (unless we are destroying the whole manager).
+    if (state.autoReconnect && !this._destroying) {
       state.cancelled = false
     } else {
-      // Remove if auto-reconnect is disabled
+      // Remove if auto-reconnect is disabled or manager is being destroyed
       this._devices.delete(deviceId)
     }
 
@@ -533,7 +557,8 @@ export class ConnectionManager {
       state.connectionTimeoutId = undefined
     }
 
-    if (state.disconnectSubscription && !state.autoReconnect) {
+    // Keep disconnect sub for live auto-reconnect devices; always drop it when destroying.
+    if (state.disconnectSubscription && (!state.autoReconnect || this._destroying)) {
       state.disconnectSubscription.remove()
       state.disconnectSubscription = undefined
     }
@@ -778,28 +803,56 @@ export class ConnectionManager {
    * Destroy the manager and cancel all pending connections.
    */
   destroy(): void {
-    // Settle in-flight connect/attemptConnectOnce promises so host code does not hang
-    const deviceIds = Array.from(this._devices.keys())
-    for (const deviceId of deviceIds) {
-      this.cancel(deviceId)
-    }
-
-    // Force remove any remaining subscriptions (auto devices after cancel keep map entries)
+    this._destroying = true
+    // Drop callbacks first so cancel() / promise rejections cannot re-arm connects.
+    this._globalCallbacks = {}
     for (const state of this._devices.values()) {
-      state.cancelled = true
-      if (state.timeoutId) {
-        clearTimeout(state.timeoutId)
-      }
-      if (state.connectionTimeoutId) {
-        clearTimeout(state.connectionTimeoutId)
-      }
-      if (state.disconnectSubscription) {
-        state.disconnectSubscription.remove()
-        state.disconnectSubscription = undefined
-      }
+      state.callbacks = undefined
     }
 
-    this._devices.clear()
+    // Drain until stable: a reject handler may still call connect before _destroying
+    // was observed on a different call stack edge; _beginConnect rejects while destroying.
+    let safety = 0
+    while (this._devices.size > 0 && safety < 32) {
+      safety += 1
+      const deviceIds = Array.from(this._devices.keys())
+      for (const deviceId of deviceIds) {
+        this.cancel(deviceId)
+      }
+      // Any leftover auto-reconnect entries (or re-entries) — hard clear timers/subs
+      for (const state of this._devices.values()) {
+        state.cancelled = true
+        state.callbacks = undefined
+        if (state.timeoutId) {
+          clearTimeout(state.timeoutId)
+          state.timeoutId = undefined
+        }
+        if (state.connectionTimeoutId) {
+          clearTimeout(state.connectionTimeoutId)
+          state.connectionTimeoutId = undefined
+        }
+        if (state.disconnectSubscription) {
+          state.disconnectSubscription.remove()
+          state.disconnectSubscription = undefined
+        }
+        if (state.pendingPromise) {
+          const error = new BleError(
+            {
+              errorCode: BleErrorCode.OperationCancelled,
+              attErrorCode: null,
+              iosErrorCode: null,
+              androidErrorCode: null,
+              reason: DESTROY_CANCEL_REASON
+            },
+            BleErrorCodeMessage
+          )
+          state.pendingPromise.reject(error)
+          state.pendingPromise = undefined
+        }
+      }
+      this._devices.clear()
+    }
+
     this._globalCallbacks = {}
   }
 }
