@@ -9,22 +9,22 @@ importers:
   .:
     dependencies:
       '@react-navigation/native':
-        specifier: ^7.3.8
+        specifier: ^7.0.0
         version: 7.3.8(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)
       '@react-navigation/native-stack':
-        specifier: ^7.17.10
+        specifier: ^7.0.0
         version: 7.17.10(@react-navigation/native@7.3.8(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3))(react-native-safe-area-context@5.7.0(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3))(react-native-screens@4.26.2(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)
       '@sfourdrinier/react-native-ble-plx':
         specifier: file:..
         version: file:..(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)
       expo:
-        specifier: ~57.0.8
+        specifier: ^57.0.0
         version: 57.0.8(@babel/core@7.29.7)(@expo/dom-webview@57.0.0)(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)(typescript@6.0.3)
       expo-status-bar:
-        specifier: ~57.0.1
+        specifier: ^57.0.0
         version: 57.0.1(expo@57.0.8)(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)
       expo-system-ui:
-        specifier: ~57.0.1
+        specifier: ^57.0.0
         version: 57.0.1(expo@57.0.8)(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))
       react:
         specifier: 19.2.3
@@ -36,10 +36,10 @@ importers:
         specifier: ^0.2.1
         version: 0.2.2
       react-native-safe-area-context:
-        specifier: ~5.7.0
+        specifier: ^5.0.0
         version: 5.7.0(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)
       react-native-screens:
-        specifier: ~4.26.0
+        specifier: ^4.0.0
         version: 4.26.2(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)
       react-native-toast-message:
         specifier: ^2.1.6
@@ -67,7 +67,7 @@ importers:
         specifier: 0.86.0
         version: 0.86.0
       '@types/react':
-        specifier: ^19.2.2
+        specifier: ^19.0.0
         version: 19.2.17
       '@types/react-native-base64':
         specifier: ^0.2.0
@@ -76,7 +76,7 @@ importers:
         specifier: ^5.0.0
         version: 5.0.3
       typescript:
-        specifier: ~6.0.3
+        specifier: '>=5.0.0'
         version: 6.0.3
 
 packages:
