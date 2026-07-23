@@ -215,7 +215,7 @@ export class BleManager {
     if (this._restoredState !== undefined) {
       return this._restoredState
     }
-    return new Promise<BleRestoredState | null>((resolve) => {
+    return new Promise<BleRestoredState | null>(resolve => {
       this._restoreStateWaiters.push(resolve)
     })
   }

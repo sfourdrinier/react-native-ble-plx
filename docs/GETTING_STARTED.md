@@ -6,7 +6,8 @@ For more detail:
 
 - [Fork notes](./FORK.md) — platforms, floors, and what this fork owns
 - [Expo config plugin](./EXPO_PLUGIN.md) — plugin options and CNG
-- [ConnectionManager](./CONNECTION_MANAGER.md) — retries and auto-reconnect
+- [ConnectionManager](./CONNECTION_MANAGER.md) — retries, auto-reconnect, and gated single attempts
+- [Background / iOS restoration](./BACKGROUND.md) — `getRestoredState` and resume-streams
 - [tvOS](./TVOS.md) — Apple TV notes
 - [Tutorials](./TUTORIALS.md)
 - Example apps in this repository (`example/`, `example-expo/`)

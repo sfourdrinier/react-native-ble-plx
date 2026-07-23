@@ -5,6 +5,8 @@ toc:
     file: ./docs/FORK.md
   - name: ConnectionManager guide
     file: ./docs/CONNECTION_MANAGER.md
+  - name: Background / iOS restoration
+    file: ./docs/BACKGROUND.md
   - name: Expo config plugin
     file: ./docs/EXPO_PLUGIN.md
   - name: tvOS / Apple TV

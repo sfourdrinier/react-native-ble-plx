@@ -4,6 +4,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `ConnectionManager.attemptConnectOnce` — externally gated single connect for host-owned reconnect policy (mutually exclusive with auto-reconnect per device; strict coalesce).
+- `BleManager.getRestoredState()` — buffered iOS state restoration handoff for late subscribers (coexists with `restoreStateFunction`).
+- Docs: `docs/BACKGROUND.md` restore lifecycle and resume recipe; gated mode section in `docs/CONNECTION_MANAGER.md`.
+
 ## [3.8.4] - 2026-07-19
 
 ### Added

@@ -29,13 +29,41 @@ class BLEServiceInstance {
   constructor() {
     this.device = null
     this.characteristicMonitor = null
-    this.manager = new BleManager()
+    // First construct wins (singleton). On iOS, enable restore handoff for getRestoredState demo.
+    this.manager = new BleManager(
+      Platform.OS === 'ios'
+        ? {
+            restoreStateIdentifier: 'com.intent.BlePlxExample.restore',
+            restoreStateFunction: restoredState => {
+              console.log(
+                '[BLE restore callback]',
+                restoredState?.connectedPeripherals?.map(d => d.id) ?? null
+              )
+            }
+          }
+        : {}
+    )
     this.manager.setLogLevel(LogLevel.Verbose)
+    if (Platform.OS === 'ios') {
+      void this.manager.getRestoredState().then(restoredState => {
+        console.log(
+          '[BLE getRestoredState]',
+          restoredState?.connectedPeripherals?.map(d => d.id) ?? null
+        )
+      })
+    }
   }
 
   createNewManager = () => {
-    this.manager = new BleManager()
-    this.manager.setLogLevel(LogLevel.Verbose)
+    // Must destroy previous instance before new options take effect
+    void this.manager.destroy().then(() => {
+      this.manager = new BleManager(
+        Platform.OS === 'ios'
+          ? { restoreStateIdentifier: 'com.intent.BlePlxExample.restore' }
+          : {}
+      )
+      this.manager.setLogLevel(LogLevel.Verbose)
+    })
   }
 
   getDevice = () => this.device

@@ -216,7 +216,6 @@ export class ConnectionManager {
     }
 
     if (mode.gated && options?.maxRetries != null && options.maxRetries !== 1) {
-      // eslint-disable-next-line no-console
       console.warn(
         `[ConnectionManager] attemptConnectOnce ignores maxRetries=${options.maxRetries}; single attempt only`
       )
@@ -225,13 +224,7 @@ export class ConnectionManager {
     const existing = this._devices.get(deviceId)
 
     // D1: gated must not join a non-gated multi-retry in-flight connect
-    if (
-      mode.gated &&
-      existing &&
-      existing.pendingPromise &&
-      !existing.cancelled &&
-      !existing.gatedAttempt
-    ) {
+    if (mode.gated && existing && existing.pendingPromise && !existing.cancelled && !existing.gatedAttempt) {
       return Promise.reject(
         new BleError(
           {
@@ -248,10 +241,7 @@ export class ConnectionManager {
 
     // Coalesce: normal connect joins any in-flight pending; gated only joins gated
     const canCoalesce =
-      existing &&
-      existing.pendingPromise &&
-      !existing.cancelled &&
-      (!mode.gated || existing.gatedAttempt)
+      existing && existing.pendingPromise && !existing.cancelled && (!mode.gated || existing.gatedAttempt)
 
     if (canCoalesce && existing.pendingPromise) {
       const pending = existing.pendingPromise
@@ -291,7 +281,7 @@ export class ConnectionManager {
       }
 
       const connectionOptions: ResolvedConnectionOptions = {
-        maxRetries: mode.gated ? 1 : options?.maxRetries ?? 3,
+        maxRetries: mode.gated ? 1 : (options?.maxRetries ?? 3),
         initialDelayMs: options?.initialDelayMs ?? 1000,
         maxDelayMs: options?.maxDelayMs ?? 30000,
         backoffMultiplier: options?.backoffMultiplier ?? 2,
@@ -305,7 +295,7 @@ export class ConnectionManager {
         reconnectOptions: mode.gated ? undefined : existing?.reconnectOptions,
         isConnecting: false,
         retryCount: 0,
-        autoReconnect: mode.gated ? false : existing?.autoReconnect ?? false,
+        autoReconnect: mode.gated ? false : (existing?.autoReconnect ?? false),
         callbacks: existing?.callbacks,
         disconnectSubscription: mode.gated ? undefined : existing?.disconnectSubscription,
         cancelled: false,
@@ -329,11 +319,7 @@ export class ConnectionManager {
    */
   enableAutoReconnect(deviceId: DeviceId, options?: ConnectionOptionsWithRetry, callbacks?: ConnectionCallbacks): void {
     const existingForGuard = this._devices.get(deviceId)
-    if (
-      existingForGuard?.gatedAttempt &&
-      existingForGuard.pendingPromise &&
-      !existingForGuard.cancelled
-    ) {
+    if (existingForGuard?.gatedAttempt && existingForGuard.pendingPromise && !existingForGuard.cancelled) {
       throw new BleError(
         {
           errorCode: BleErrorCode.OperationStartFailed,
