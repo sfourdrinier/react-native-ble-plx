@@ -39,7 +39,7 @@ CI already runs package checks and Expo CNG **Android** builds on Ubuntu. There 
 
 ## Approach
 
-**Three new parallel jobs** on `macos-26` in `.github/workflows/ci.yml`, alongside existing Ubuntu jobs.
+**Three parallel Apple jobs** on `macos-26` via reusable workflow `.github/workflows/apple-ci.yml` (called from `ci.yml` when the Apple cost gate opens), alongside existing Ubuntu jobs. Shared steps live in `.github/actions/select-xcode` and `.github/actions/setup-js-package`.
 
 | Job | Proves |
 | --- | --- |

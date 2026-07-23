@@ -1,6 +1,6 @@
 # Background reliability — iOS state restoration handoff
 
-This guide covers **iOS BLE state restoration** for this fork: why constructor-only callbacks race app startup, how `getRestoredState()` works, and a resume-streams recipe that can use gated `ConnectionManager.attemptConnectOnce`.
+This guide covers **iOS BLE state restoration** for this fork: why constructor-only callbacks race app startup, how `getRestoredState()` works, and host-owned resume recipes (gated or explicit auto).
 
 For Android foreground service and Expo config, see the root README and [EXPO_PLUGIN.md](./EXPO_PLUGIN.md). For auto-reconnect vs host-owned policy, see [CONNECTION_MANAGER.md](./CONNECTION_MANAGER.md).
 
@@ -23,12 +23,26 @@ If your session layer initializes later, it can miss the one-shot callback with 
 
 **`getRestoredState()`** fixes that: the first restore payload is **buffered** on the manager and can be awaited later.
 
+## D5 — Restoration reports; host reconnects
+
+**Restoration is a reporting event, not a reconnect event.**
+
+| Layer | Role |
+| ----- | ---- |
+| iOS / Restoration adapter | Hand the app truthful state: restored peripheral **ids** (payload), reused `BleClientManager`, best-effort native cache for already-live links |
+| Library `ConnectionManager` | Executes connects when the host asks (`connect` / `attemptConnectOnce` / auto mode) |
+| Host / session layer | **Only** place that decides whether, when, and with what policy to re-establish links |
+
+The adapter **does not** call `connectToDevice`. That matches [ConnectionManager gated mode](./CONNECTION_MANAGER.md) (single reconnect authority). Apps that want “library just works” should use the **opt-in auto recipe** below — not a silent adapter reconnect.
+
+**Restored list ≠ ready for GATT.** `getRestoredState()` returns ids the OS restored. `isDeviceConnected` may still be `false` until the host reconnects (or until a best-effort seed sees an already-live link). Always verify before discover/monitor.
+
 ## API
 
 ```ts
 const manager = new BleManager({
   restoreStateIdentifier: 'com.example.myapp.bleplx',
-  restoreStateFunction: (state) => {
+  restoreStateFunction: state => {
     // Optional: still fires (every RestoreStateEvent)
     console.log('callback', state?.connectedPeripherals?.length ?? null)
   }
@@ -45,11 +59,11 @@ You may omit `restoreStateFunction` and only use `getRestoredState()` (identifie
 
 | Situation | Settles | Value | Notes |
 | --------- | ------- | ----- | ----- |
-| No `restoreStateIdentifier` | Immediate | `null` | Restoration not configured |
+| No `restoreStateIdentifier` (or empty/whitespace) | Immediate | `null` | Restoration not configured |
 | Identifier set, event not yet | Wait | — | Pending until first event or `destroy()` |
 | First event: native `null` | Yes | `null` | Cold launch / nothing restored / Android synthetic null |
 | First event: `{ connectedPeripherals: [] }` | Yes | that object | Empty list ≠ `null` |
-| First event: peripherals present | Yes | mapped `Device[]` | Library `Device` instances |
+| First event: peripherals present | Yes | mapped `Device[]` | Ids from OS restore; not a connectivity guarantee |
 | Subsequent events | Immediate | **First** buffered value | Callback still runs every emit with a new mapping |
 | Android + identifier | Yes | usually `null` | Native emits null promptly on `createClient` |
 | tvOS + identifier | May wait until destroy | waiter → `null` on destroy | Do not rely on restore on tvOS |
@@ -58,11 +72,13 @@ You may omit `restoreStateFunction` and only use `getRestoredState()` (identifie
 
 Always `await manager.destroy()` on teardown so any pending restore waiters settle.
 
-## Resume-streams recipe
+## Resume recipes (host policy)
 
-After process death / restore:
+### A — Host-owned policy (recommended for session/hub layers)
 
-```text
+Use when **your app** owns reconnect (same spirit as `attemptConnectOnce`):
+
+```ts
 const restored = await manager.getRestoredState()
 if (!restored?.connectedPeripherals?.length) {
   // cold start or nothing to re-adopt
@@ -74,7 +90,7 @@ const connections = new ConnectionManager(manager)
 for (const device of restored.connectedPeripherals) {
   const connected = await manager.isDeviceConnected(device.id)
   if (!connected) {
-    // Host-owned policy: single gated attempt (no CM auto-reconnect unless you want it)
+    // Single gated attempt — library does not self-schedule further retries
     await connections.attemptConnectOnce(device.id, { timeoutMs: 15000 })
   }
   await device.discoverAllServicesAndCharacteristics()
@@ -83,7 +99,31 @@ for (const device of restored.connectedPeripherals) {
 }
 ```
 
-If your session layer owns reconnect policy, prefer `attemptConnectOnce` over `enableAutoReconnect` so the library does not reconnect devices the session believes are gone. See [CONNECTION_MANAGER.md — Externally gated mode](./CONNECTION_MANAGER.md).
+### B — Opt-in “library just works” auto mode
+
+Same reporting path; **you** explicitly enable auto-reconnect for restored ids (never silent adapter reconnect):
+
+```ts
+const restored = await manager.getRestoredState()
+if (!restored?.connectedPeripherals?.length) return
+
+const connections = new ConnectionManager(manager)
+
+for (const device of restored.connectedPeripherals) {
+  connections.enableAutoReconnect(device.id, {
+    maxRetries: 10,
+    initialDelayMs: 1000,
+    timeoutMs: 15000
+  })
+  const connected = await manager.isDeviceConnected(device.id)
+  if (!connected) {
+    // Kick the first attempt under auto policy
+    void connections.connect(device.id).catch(() => {
+      /* auto will retry */
+    })
+  }
+}
+```
 
 ## Related
 

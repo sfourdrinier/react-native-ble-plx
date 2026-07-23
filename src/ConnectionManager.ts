@@ -121,6 +121,40 @@ interface DeviceConnectionState {
 /** Reject reason used when settling promises during destroy. */
 const DESTROY_CANCEL_REASON = 'ConnectionManager destroyed'
 
+const DEFAULT_CONNECT_MAX_RETRIES = 3
+const DEFAULT_AUTO_MAX_RETRIES = 5
+const DEFAULT_INITIAL_DELAY_MS = 1000
+const DEFAULT_MAX_DELAY_MS = 30000
+const DEFAULT_BACKOFF_MULTIPLIER = 2
+const DEFAULT_TIMEOUT_MS = 30000
+
+function makeBleError(errorCode: BleErrorCode, reason: string): BleError {
+  return new BleError(
+    {
+      errorCode,
+      attErrorCode: null,
+      iosErrorCode: null,
+      androidErrorCode: null,
+      reason
+    },
+    BleErrorCodeMessage
+  )
+}
+
+function resolveConnectionOptions(
+  options: ConnectionOptionsWithRetry | undefined,
+  defaults: { maxRetries: number }
+): ResolvedConnectionOptions {
+  return {
+    maxRetries: options?.maxRetries ?? defaults.maxRetries,
+    initialDelayMs: options?.initialDelayMs ?? DEFAULT_INITIAL_DELAY_MS,
+    maxDelayMs: options?.maxDelayMs ?? DEFAULT_MAX_DELAY_MS,
+    backoffMultiplier: options?.backoffMultiplier ?? DEFAULT_BACKOFF_MULTIPLIER,
+    timeoutMs: options?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    connectionOptions: options?.connectionOptions
+  }
+}
+
 /**
  * ConnectionManager unifies connection queuing, retry logic, and automatic reconnection.
  *
@@ -211,31 +245,14 @@ export class ConnectionManager {
     mode: { gated: boolean }
   ): Promise<Device> {
     if (this._destroying) {
-      return Promise.reject(
-        new BleError(
-          {
-            errorCode: BleErrorCode.OperationCancelled,
-            attErrorCode: null,
-            iosErrorCode: null,
-            androidErrorCode: null,
-            reason: DESTROY_CANCEL_REASON
-          },
-          BleErrorCodeMessage
-        )
-      )
+      return Promise.reject(makeBleError(BleErrorCode.OperationCancelled, DESTROY_CANCEL_REASON))
     }
 
     if (mode.gated && this.isAutoReconnectEnabled(deviceId)) {
       return Promise.reject(
-        new BleError(
-          {
-            errorCode: BleErrorCode.OperationStartFailed,
-            attErrorCode: null,
-            iosErrorCode: null,
-            androidErrorCode: null,
-            reason: `attemptConnectOnce is not allowed while auto-reconnect is enabled for device ${deviceId}`
-          },
-          BleErrorCodeMessage
+        makeBleError(
+          BleErrorCode.OperationStartFailed,
+          `attemptConnectOnce is not allowed while auto-reconnect is enabled for device ${deviceId}`
         )
       )
     }
@@ -251,15 +268,9 @@ export class ConnectionManager {
     // D1: gated must not join any non-gated in-flight connect (strict coalesce)
     if (mode.gated && existing && existing.pendingPromise && !existing.cancelled && !existing.gatedAttempt) {
       return Promise.reject(
-        new BleError(
-          {
-            errorCode: BleErrorCode.OperationStartFailed,
-            attErrorCode: null,
-            iosErrorCode: null,
-            androidErrorCode: null,
-            reason: `attemptConnectOnce cannot join a non-gated in-flight connect for device ${deviceId}`
-          },
-          BleErrorCodeMessage
+        makeBleError(
+          BleErrorCode.OperationStartFailed,
+          `attemptConnectOnce cannot join a non-gated in-flight connect for device ${deviceId}`
         )
       )
     }
@@ -290,28 +301,17 @@ export class ConnectionManager {
       if (existing) {
         if (existing.pendingPromise) {
           existing.pendingPromise.reject(
-            new BleError(
-              {
-                errorCode: BleErrorCode.OperationCancelled,
-                attErrorCode: null,
-                iosErrorCode: null,
-                androidErrorCode: null,
-                reason: `Connection attempt replaced for device ${deviceId}`
-              },
-              BleErrorCodeMessage
-            )
+            makeBleError(BleErrorCode.OperationCancelled, `Connection attempt replaced for device ${deviceId}`)
           )
         }
         this._cancelState(existing)
       }
 
-      const connectionOptions: ResolvedConnectionOptions = {
-        maxRetries: mode.gated ? 1 : (options?.maxRetries ?? 3),
-        initialDelayMs: options?.initialDelayMs ?? 1000,
-        maxDelayMs: options?.maxDelayMs ?? 30000,
-        backoffMultiplier: options?.backoffMultiplier ?? 2,
-        timeoutMs: options?.timeoutMs ?? 30000,
-        connectionOptions: options?.connectionOptions
+      const connectionOptions = resolveConnectionOptions(options, {
+        maxRetries: mode.gated ? 1 : DEFAULT_CONNECT_MAX_RETRIES
+      })
+      if (mode.gated) {
+        connectionOptions.maxRetries = 1
       }
 
       const state: DeviceConnectionState = {
@@ -344,16 +344,7 @@ export class ConnectionManager {
    */
   enableAutoReconnect(deviceId: DeviceId, options?: ConnectionOptionsWithRetry, callbacks?: ConnectionCallbacks): void {
     if (this._destroying) {
-      throw new BleError(
-        {
-          errorCode: BleErrorCode.OperationCancelled,
-          attErrorCode: null,
-          iosErrorCode: null,
-          androidErrorCode: null,
-          reason: DESTROY_CANCEL_REASON
-        },
-        BleErrorCodeMessage
-      )
+      throw makeBleError(BleErrorCode.OperationCancelled, DESTROY_CANCEL_REASON)
     }
 
     const existingForGuard = this._devices.get(deviceId)
@@ -365,15 +356,9 @@ export class ConnectionManager {
       existingForGuard.pendingPromise &&
       !existingForGuard.cancelled
     ) {
-      throw new BleError(
-        {
-          errorCode: BleErrorCode.OperationStartFailed,
-          attErrorCode: null,
-          iosErrorCode: null,
-          androidErrorCode: null,
-          reason: `enableAutoReconnect is not allowed while attemptConnectOnce is in flight for device ${deviceId}`
-        },
-        BleErrorCodeMessage
+      throw makeBleError(
+        BleErrorCode.OperationStartFailed,
+        `enableAutoReconnect is not allowed while attemptConnectOnce is in flight for device ${deviceId}`
       )
     }
 
@@ -381,14 +366,17 @@ export class ConnectionManager {
     let state = this._devices.get(deviceId)
     const existingReconnectOptions = state?.reconnectOptions
 
-    const reconnectOptions: ResolvedConnectionOptions = {
-      maxRetries: options?.maxRetries ?? existingReconnectOptions?.maxRetries ?? 5,
-      initialDelayMs: options?.initialDelayMs ?? existingReconnectOptions?.initialDelayMs ?? 1000,
-      maxDelayMs: options?.maxDelayMs ?? existingReconnectOptions?.maxDelayMs ?? 30000,
-      backoffMultiplier: options?.backoffMultiplier ?? existingReconnectOptions?.backoffMultiplier ?? 2,
-      timeoutMs: options?.timeoutMs ?? existingReconnectOptions?.timeoutMs ?? 30000,
-      connectionOptions: options?.connectionOptions ?? existingReconnectOptions?.connectionOptions
-    }
+    const reconnectOptions = resolveConnectionOptions(
+      {
+        maxRetries: options?.maxRetries ?? existingReconnectOptions?.maxRetries,
+        initialDelayMs: options?.initialDelayMs ?? existingReconnectOptions?.initialDelayMs,
+        maxDelayMs: options?.maxDelayMs ?? existingReconnectOptions?.maxDelayMs,
+        backoffMultiplier: options?.backoffMultiplier ?? existingReconnectOptions?.backoffMultiplier,
+        timeoutMs: options?.timeoutMs ?? existingReconnectOptions?.timeoutMs,
+        connectionOptions: options?.connectionOptions ?? existingReconnectOptions?.connectionOptions
+      },
+      { maxRetries: DEFAULT_AUTO_MAX_RETRIES }
+    )
 
     if (state) {
       // Update existing state
@@ -480,15 +468,9 @@ export class ConnectionManager {
 
     // Only reject promise and call callbacks if there was actually a pending connection
     if (state.pendingPromise) {
-      const error = new BleError(
-        {
-          errorCode: BleErrorCode.OperationCancelled,
-          attErrorCode: null,
-          iosErrorCode: null,
-          androidErrorCode: null,
-          reason: this._destroying ? DESTROY_CANCEL_REASON : `Connection cancelled for device ${deviceId}`
-        },
-        BleErrorCodeMessage
+      const error = makeBleError(
+        BleErrorCode.OperationCancelled,
+        this._destroying ? DESTROY_CANCEL_REASON : `Connection cancelled for device ${deviceId}`
       )
 
       // Reject pending promise
@@ -680,7 +662,7 @@ export class ConnectionManager {
     state.isConnecting = true
     state.retryCount++
 
-    const maxRetries = state.options.maxRetries ?? 3
+    const maxRetries = state.options.maxRetries ?? DEFAULT_CONNECT_MAX_RETRIES
 
     // Notify connecting callbacks
     state.callbacks?.onConnecting?.(state.deviceId, state.retryCount, maxRetries)
@@ -692,15 +674,9 @@ export class ConnectionManager {
 
     if (timeoutMs > 0) {
       state.connectionTimeoutId = setTimeout(() => {
-        timeoutError = new BleError(
-          {
-            errorCode: BleErrorCode.OperationTimedOut,
-            attErrorCode: null,
-            iosErrorCode: null,
-            androidErrorCode: null,
-            reason: `Connection timeout after ${timeoutMs}ms for device ${state.deviceId}`
-          },
-          BleErrorCodeMessage
+        timeoutError = makeBleError(
+          BleErrorCode.OperationTimedOut,
+          `Connection timeout after ${timeoutMs}ms for device ${state.deviceId}`
         )
 
         // Cancel the connection attempt
@@ -789,27 +765,21 @@ export class ConnectionManager {
 
       if (state.retryCount >= maxRetries) {
         // Max retries exceeded
-        const bleError =
+        const failureError =
           actualError instanceof BleError
             ? actualError
-            : new BleError(
-                {
-                  errorCode: BleErrorCode.UnknownError,
-                  attErrorCode: null,
-                  iosErrorCode: null,
-                  androidErrorCode: null,
-                  reason: actualError instanceof Error ? actualError.message : String(actualError)
-                },
-                BleErrorCodeMessage
+            : makeBleError(
+                BleErrorCode.UnknownError,
+                actualError instanceof Error ? actualError.message : String(actualError)
               )
 
         // Notify callbacks
-        state.callbacks?.onConnectFailed?.(state.deviceId, bleError)
-        this._globalCallbacks.onConnectFailed?.(state.deviceId, bleError)
+        state.callbacks?.onConnectFailed?.(state.deviceId, failureError)
+        this._globalCallbacks.onConnectFailed?.(state.deviceId, failureError)
 
         // Reject pending promise if exists
         if (state.pendingPromise) {
-          state.pendingPromise.reject(bleError)
+          state.pendingPromise.reject(failureError)
           state.pendingPromise = undefined
         }
 
@@ -869,16 +839,7 @@ export class ConnectionManager {
           state.disconnectSubscription = undefined
         }
         if (state.pendingPromise) {
-          const error = new BleError(
-            {
-              errorCode: BleErrorCode.OperationCancelled,
-              attErrorCode: null,
-              iosErrorCode: null,
-              androidErrorCode: null,
-              reason: DESTROY_CANCEL_REASON
-            },
-            BleErrorCodeMessage
-          )
+          const error = makeBleError(BleErrorCode.OperationCancelled, DESTROY_CANCEL_REASON)
           state.pendingPromise.reject(error)
           state.pendingPromise = undefined
         }

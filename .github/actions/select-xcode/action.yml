@@ -1,0 +1,26 @@
+name: Select Xcode 26.4+
+description: Prefer Xcode 26.6 (Swift 6.2) on macos-26 runners; require at least 26.4.
+runs:
+  using: composite
+  steps:
+    - name: Select Xcode
+      shell: bash
+      run: |
+        set -euo pipefail
+        for candidate in \
+          /Applications/Xcode_26.6.app \
+          /Applications/Xcode_26.5.app \
+          /Applications/Xcode_26.4.1.app \
+          /Applications/Xcode_26.4.app
+        do
+          if [[ -d "$candidate" ]]; then
+            sudo xcode-select -s "$candidate"
+            echo "Selected $candidate"
+            xcodebuild -version
+            swift --version
+            exit 0
+          fi
+        done
+        echo "error: no Xcode 26.4+ app found (need Swift 6.2 for Expo SDK 57 / expo-modules-jsi)" >&2
+        ls /Applications/Xcode*.app 2>/dev/null || true
+        exit 1

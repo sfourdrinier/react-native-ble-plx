@@ -8,7 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `ConnectionManager.attemptConnectOnce` — externally gated single connect for host-owned reconnect policy (mutually exclusive with auto-reconnect per device; strict coalesce).
 - `BleManager.getRestoredState()` — buffered iOS state restoration handoff for late subscribers (coexists with `restoreStateFunction`).
-- Docs: `docs/BACKGROUND.md` restore lifecycle and resume recipe; gated mode section in `docs/CONNECTION_MANAGER.md`.
+- Docs: `docs/BACKGROUND.md` restore lifecycle and host-owned resume recipes; gated mode section in `docs/CONNECTION_MANAGER.md`.
+- CI: reusable Apple workflow (`.github/workflows/apple-ci.yml`) and composite actions for Xcode / JS setup (macos-26, Xcode 26.4+).
+
+### Changed
+
+- **iOS Restoration adapter no longer calls `connectToDevice` on system restore** (D5). 3.8.x reconnected restored peripherals inside the adapter; 3.9.0 treats restore as **reporting only** (payload + manager reuse + best-effort cache seed). Hosts must reconnect via `getRestoredState` + `attemptConnectOnce` or an explicit `enableAutoReconnect` recipe — see `docs/BACKGROUND.md`. Intentional correctness fix so reconnect authority is not split under session layers.
 
 ## [3.8.4] - 2026-07-19
 

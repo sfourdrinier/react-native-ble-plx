@@ -13,6 +13,12 @@ const releaseVerifyScript = fs.existsSync(releaseVerifyScriptPath)
   : ''
 const nvmrc = fs.readFileSync(path.join(__dirname, '..', '.nvmrc'), 'utf8').trim()
 const ciWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github/workflows/ci.yml'), 'utf8')
+const appleCiWorkflow = fs.existsSync(path.join(__dirname, '..', '.github/workflows/apple-ci.yml'))
+  ? fs.readFileSync(path.join(__dirname, '..', '.github/workflows/apple-ci.yml'), 'utf8')
+  : ''
+const selectXcodeAction = fs.existsSync(path.join(__dirname, '..', '.github/actions/select-xcode/action.yml'))
+  ? fs.readFileSync(path.join(__dirname, '..', '.github/actions/select-xcode/action.yml'), 'utf8')
+  : ''
 const dependabotPath = path.join(__dirname, '..', '.github/dependabot.yml')
 const dependabot = fs.existsSync(dependabotPath) ? fs.readFileSync(dependabotPath, 'utf8') : ''
 const githubConfig = fs
@@ -116,11 +122,17 @@ describe('package modernization targets', () => {
   })
 
   test('CI verifies the same Expo CNG Android build path used locally', () => {
-    expect(ciWorkflow).toContain('node-version: 20.19.4')
+    const setupJsAction = fs.readFileSync(
+      path.join(__dirname, '..', '.github/actions/setup-js-package/action.yml'),
+      'utf8'
+    )
+    // Node pin lives in the shared composite action
+    expect(setupJsAction).toContain('node-version: 20.19.4')
+    expect(setupJsAction).toContain('actions/setup-node@v6.4.0')
+    expect(ciWorkflow).toContain('uses: ./.github/actions/setup-js-package')
     expect(ciWorkflow).toContain('java-version: 21')
     expect(ciWorkflow).toContain('NODE_OPTIONS: --max-old-space-size=8192')
     expect(ciWorkflow).toContain('actions/checkout@v7.0.0')
-    expect(ciWorkflow).toContain('actions/setup-node@v6.4.0')
     expect(ciWorkflow).toContain('actions/setup-java@v5.5.0')
     expect(ciWorkflow).toContain('android-actions/setup-android@v4.0.1')
     expect(ciWorkflow).toContain('pnpm test:package')
@@ -130,7 +142,6 @@ describe('package modernization targets', () => {
     expect(ciWorkflow).toContain('pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json')
     expect(ciWorkflow).toContain('pnpm --dir example-expo install --no-frozen-lockfile')
     expect(ciWorkflow).toContain('npx expo install --fix')
-    expect(ciWorkflow).toContain('pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json')
     expect(ciWorkflow).toContain('npx expo-doctor')
     expect(ciWorkflow).toContain('npx expo prebuild --clean --no-install')
     expect(ciWorkflow).toContain('./gradlew :app:assembleDebug --no-daemon --console=plain')
@@ -143,24 +154,27 @@ describe('package modernization targets', () => {
   })
 
   test('CI builds iOS examples and checks tvOS library on macOS runners (#20)', () => {
-    // Latest GA image + stable Xcode matching local (26.6). macos-15 tops out at 26.3 / defaults 16.4.
-    expect(ciWorkflow).toContain('runs-on: macos-26')
-    expect(ciWorkflow).not.toContain('runs-on: macos-15')
-    expect(ciWorkflow).toContain('Xcode_26.6.app')
-    expect(ciWorkflow).toContain('ios-example:')
-    expect(ciWorkflow).toContain('ios-expo:')
-    expect(ciWorkflow).toContain('tvos-library:')
-    expect(ciWorkflow).toContain("RCT_NEW_ARCH_ENABLED: '1'")
-    expect(ciWorkflow).toContain('BlePlxExample.xcworkspace')
-    expect(ciWorkflow).toContain('-scheme BlePlxExample')
-    expect(ciWorkflow).toContain("destination 'generic/platform=iOS Simulator'")
-    expect(ciWorkflow).toContain('CODE_SIGNING_ALLOWED=NO')
-    expect(ciWorkflow).toContain('npx expo prebuild --clean --no-install --platform ios')
-    // example lock is gitignored — CI must not freeze on missing pnpm-lock
-    expect(ciWorkflow).toContain('pnpm --dir example install --no-frozen-lockfile')
-    // Both Android and ios-expo align peers before native generation.
-    expect((ciWorkflow.match(/npx expo install --fix/g) || []).length).toBeGreaterThanOrEqual(2)
-    expect(ciWorkflow).toContain('bash scripts/ci/check-tvos-library.sh')
+    // Parent CI gates once, then reusable apple-ci.yml + composite actions (DRY).
+    expect(ciWorkflow).toContain('uses: ./.github/workflows/apple-ci.yml')
+    expect(ciWorkflow).toContain("contains(github.event.pull_request.labels.*.name, 'ci:apple')")
+    expect(ciWorkflow).toContain('.github/workflows/apple-ci.yml')
+    expect(appleCiWorkflow).toContain('runs-on: macos-26')
+    expect(appleCiWorkflow).not.toContain('runs-on: macos-15')
+    expect(appleCiWorkflow).toContain('ios-example:')
+    expect(appleCiWorkflow).toContain('ios-expo:')
+    expect(appleCiWorkflow).toContain('tvos-library:')
+    expect(appleCiWorkflow).toContain("RCT_NEW_ARCH_ENABLED: '1'")
+    expect(appleCiWorkflow).toContain('BlePlxExample.xcworkspace')
+    expect(appleCiWorkflow).toContain('-scheme BlePlxExample')
+    expect(appleCiWorkflow).toContain("destination 'generic/platform=iOS Simulator'")
+    expect(appleCiWorkflow).toContain('CODE_SIGNING_ALLOWED=NO')
+    expect(appleCiWorkflow).toContain('npx expo prebuild --clean --no-install --platform ios')
+    expect(appleCiWorkflow).toContain('pnpm --dir example install --no-frozen-lockfile')
+    expect(appleCiWorkflow).toContain('bash scripts/ci/check-tvos-library.sh')
+    expect(appleCiWorkflow).toContain('uses: ./.github/actions/select-xcode')
+    expect(selectXcodeAction).toContain('Xcode_26.6.app')
+    // Expo peer align in apple-ci + Android job in main CI
+    expect(((ciWorkflow + appleCiWorkflow).match(/npx expo install --fix/g) || []).length).toBeGreaterThanOrEqual(2)
     expect(fs.existsSync(path.join(__dirname, '..', 'scripts/ci/check-tvos-library.sh'))).toBe(true)
   })
 
