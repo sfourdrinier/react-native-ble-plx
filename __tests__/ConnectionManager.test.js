@@ -545,6 +545,31 @@ describe('ConnectionManager', () => {
     await expect(p2).resolves.toMatchObject({ id: 'd1' });
   });
 
+  test('success does not clear suppress before late cancel-disconnect is consumed', async () => {
+    mgr.enableAutoReconnect('d1', { maxRetries: 1, initialDelayMs: 0, timeoutMs: 0 });
+    ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'drop'));
+    await flushMicrotasks();
+    const p2 = mgr.connect('d1', { maxRetries: 1, timeoutMs: 0 });
+    // Succeed replacement BEFORE the cancel-disconnect is delivered
+    ble._resolveConnect('d1', createDevice('d1'));
+    await expect(p2).resolves.toMatchObject({ id: 'd1' });
+    ble.connectToDevice.mockClear();
+    // Late cancel-disconnect must still be suppressed (not re-arm auto on top of success)
+    ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'late-cancel'));
+    await flushMicrotasks();
+    expect(ble.connectToDevice).not.toHaveBeenCalled();
+  });
+
+  test('cancel of delay-0 scheduled auto reconnect does not fire native connect', async () => {
+    mgr.enableAutoReconnect('d1', { maxRetries: 1, initialDelayMs: 0, timeoutMs: 0 });
+    ble.connectToDevice.mockClear();
+    ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'drop'));
+    // Microtask scheduled; cancel before it runs
+    mgr.cancel('d1');
+    await flushMicrotasks();
+    expect(ble.connectToDevice).not.toHaveBeenCalled();
+  });
+
   test('cancel mid-connect with auto-reconnect still allows later disconnect re-arm', async () => {
     mgr.enableAutoReconnect('d1', { maxRetries: 1, initialDelayMs: 0, timeoutMs: 0 });
     const p = mgr.connect('d1', { timeoutMs: 0 });

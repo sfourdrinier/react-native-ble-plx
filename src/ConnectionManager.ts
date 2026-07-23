@@ -624,9 +624,13 @@ export class ConnectionManager {
       state.timeoutId = undefined
     }
 
+    // Capture generation so cancel()/replace (attemptId++) invalidates delay-0 microtasks
+    // even when auto-reconnect immediately clears the cancelled flag.
+    const scheduledAttemptId = state.attemptId
+
     if (delay === 0) {
       Promise.resolve().then(() => {
-        if (!state.cancelled) {
+        if (!state.cancelled && state.attemptId === scheduledAttemptId) {
           this._attemptConnection(state)
         }
       })
@@ -634,7 +638,7 @@ export class ConnectionManager {
     }
 
     state.timeoutId = setTimeout(() => {
-      if (!state.cancelled) {
+      if (!state.cancelled && state.attemptId === scheduledAttemptId) {
         this._attemptConnection(state)
       }
     }, delay)
@@ -703,8 +707,18 @@ export class ConnectionManager {
         state.connectionTimeoutId = undefined
       }
 
-      // Successful connect — drop any stale cancel-suppression from a prior attempt
-      state.suppressNextAutoReconnect = false
+      // Do NOT clear suppressNextAutoReconnect on success: a late disconnect from the
+      // previous cancelDeviceConnection must still be consumed without re-arming auto.
+      // If no disconnect ever arrives (cancel of never-connected attempt), drop orphan
+      // suppression after a short delay so a later real disconnect can re-arm.
+      if (state.suppressNextAutoReconnect) {
+        const suppressGeneration = state.attemptId
+        setTimeout(() => {
+          if (state.suppressNextAutoReconnect && state.attemptId === suppressGeneration && !this._destroying) {
+            state.suppressNextAutoReconnect = false
+          }
+        }, 2000)
+      }
 
       // Check if we timed out or were cancelled
       if (timeoutError) {
