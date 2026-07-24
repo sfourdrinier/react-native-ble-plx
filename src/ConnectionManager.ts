@@ -110,8 +110,11 @@ interface DeviceConnectionState {
   /**
    * After user cancel of an in-flight connect on an auto-reconnect device, ignore the
    * next disconnect for auto-rearm (that disconnect is from cancelDeviceConnection).
+   * Cleared when that disconnect is consumed, or when cancel rejects (no disconnect expected).
    */
   suppressNextAutoReconnect?: boolean
+  /** Generation for suppressNextAutoReconnect so a late cancel reject cannot clear a newer suppress. */
+  suppressGeneration?: number
   pendingPromise?: {
     resolve: (device: Device) => void
     reject: (error: BleError) => void
@@ -327,6 +330,7 @@ export class ConnectionManager {
         // does not re-arm auto on top of the replacement connect.
         disconnectSubscription: mode.gated ? undefined : existing?.disconnectSubscription,
         suppressNextAutoReconnect: mode.gated ? false : (existing?.suppressNextAutoReconnect ?? false),
+        suppressGeneration: mode.gated ? undefined : existing?.suppressGeneration,
         cancelled: false,
         attemptId: existing ? existing.attemptId + 1 : 0,
         gatedAttempt: mode.gated,
@@ -581,10 +585,32 @@ export class ConnectionManager {
     if (wasConnecting) {
       // Native cancel may emit a disconnect after we re-arm auto (cancelled=false).
       // Suppress that one disconnect so cancel does not immediately start another connect.
+      // iOS mid-connect (never in connectedPeripherals) rejects cancel with no disconnect —
+      // clear suppress on reject so a later real disconnect is not dropped. Android dispose
+      // typically resolves cancel and still emits DISCONNECTED, which consumes suppress.
+      let suppressGeneration: number | undefined
       if (state.autoReconnect && !this._destroying) {
         state.suppressNextAutoReconnect = true
+        state.suppressGeneration = (state.suppressGeneration ?? 0) + 1
+        suppressGeneration = state.suppressGeneration
       }
-      this._manager.cancelDeviceConnection(state.deviceId).catch(ignoreConnectionCancellationError)
+      const deviceId = state.deviceId
+      this._manager.cancelDeviceConnection(deviceId).then(
+        () => {
+          // Cancel accepted — keep suppress until the cancel-induced disconnect is consumed.
+        },
+        () => {
+          ignoreConnectionCancellationError()
+          const current = this._devices.get(deviceId)
+          if (
+            current &&
+            current.suppressNextAutoReconnect &&
+            current.suppressGeneration === suppressGeneration
+          ) {
+            current.suppressNextAutoReconnect = false
+          }
+        }
+      )
     }
   }
 
@@ -709,16 +735,9 @@ export class ConnectionManager {
 
       // Do NOT clear suppressNextAutoReconnect on success: a late disconnect from the
       // previous cancelDeviceConnection must still be consumed without re-arming auto.
-      // If no disconnect ever arrives (cancel of never-connected attempt), drop orphan
-      // suppression after a short delay so a later real disconnect can re-arm.
-      if (state.suppressNextAutoReconnect) {
-        const suppressGeneration = state.attemptId
-        setTimeout(() => {
-          if (state.suppressNextAutoReconnect && state.attemptId === suppressGeneration && !this._destroying) {
-            state.suppressNextAutoReconnect = false
-          }
-        }, 2000)
-      }
+      // Orphan suppress (cancel that will never emit disconnect) is cleared when
+      // cancelDeviceConnection rejects — not via a post-success timer window that
+      // would drop a real disconnect.
 
       // Check if we timed out or were cancelled
       if (timeoutError) {

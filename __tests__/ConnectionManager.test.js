@@ -18,6 +18,21 @@ const createMockBleManager = () => {
   const subscriptions = new Map();
   const pending = new Map(); // deviceId -> deferred
   const connectCalls = [];
+  // iOS mid-connect: cancel rejects (never connected, no disconnect).
+  // 'resolve' models Android dispose success where DISCONNECTED may still follow.
+  let cancelMidConnectOutcome = 'reject';
+
+  const cancelledError = (deviceId) =>
+    new BleError(
+      {
+        errorCode: BleErrorCode.OperationCancelled,
+        attErrorCode: null,
+        iosErrorCode: null,
+        androidErrorCode: null,
+        reason: `Cancelled ${deviceId}`,
+      },
+      BleErrorCodeMessage
+    );
 
   return {
     connectToDevice: jest.fn((deviceId, options) => {
@@ -30,19 +45,12 @@ const createMockBleManager = () => {
     cancelDeviceConnection: jest.fn((deviceId) => {
       const d = pending.get(deviceId);
       if (d) {
-        d.reject(
-          new BleError(
-            {
-              errorCode: BleErrorCode.OperationCancelled,
-              attErrorCode: null,
-              iosErrorCode: null,
-              androidErrorCode: null,
-              reason: `Cancelled ${deviceId}`,
-            },
-            BleErrorCodeMessage
-          )
-        );
+        d.reject(cancelledError(deviceId));
         pending.delete(deviceId);
+        if (cancelMidConnectOutcome === 'resolve') {
+          return Promise.resolve();
+        }
+        return Promise.reject(cancelledError(deviceId));
       }
       return Promise.resolve();
     }),
@@ -75,6 +83,10 @@ const createMockBleManager = () => {
 
     _getSubscription: (deviceId) => subscriptions.get(deviceId),
     _connectCalls: connectCalls,
+    /** @param {'reject' | 'resolve'} outcome */
+    _setCancelMidConnectOutcome: (outcome) => {
+      cancelMidConnectOutcome = outcome;
+    },
   };
 };
 
@@ -510,21 +522,21 @@ describe('ConnectionManager', () => {
     });
   });
 
-  test('cancel mid-connect with auto-reconnect does not immediately re-arm from cancel disconnect', async () => {
+  test('cancel mid-connect with auto-reconnect does not start reconnect by itself', async () => {
     mgr.enableAutoReconnect('d1', { maxRetries: 1, initialDelayMs: 0, timeoutMs: 0 });
     const p = mgr.connect('d1', { timeoutMs: 0 });
     ble.connectToDevice.mockClear();
     mgr.cancel('d1');
     await expect(p).rejects.toMatchObject({ errorCode: BleErrorCode.OperationCancelled });
     expect(mgr.isConnecting('d1')).toBe(false);
-
-    // Native cancelDeviceConnection often surfaces as a disconnect — must not auto-reconnect.
-    ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'from-cancel'));
+    // iOS mid-connect: cancel rejects, no disconnect event — must not auto-reconnect.
     await flushMicrotasks();
     expect(ble.connectToDevice).not.toHaveBeenCalled();
   });
 
-  test('replace in-flight auto connect inherits suppressNextAutoReconnect', async () => {
+  test('replace in-flight auto connect inherits suppress when cancel will emit disconnect', async () => {
+    // Android-like: cancel resolves and a DISCONNECTED event still follows.
+    ble._setCancelMidConnectOutcome('resolve');
     // Auto-reconnect path has no pendingPromise, so explicit connect() replaces (not coalesces).
     mgr.enableAutoReconnect('d1', { maxRetries: 1, initialDelayMs: 0, timeoutMs: 0 });
     ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'drop'));
@@ -534,6 +546,7 @@ describe('ConnectionManager', () => {
     const p2 = mgr.connect('d1', { maxRetries: 1, timeoutMs: 0 });
     expect(ble.connectToDevice).toHaveBeenCalledTimes(2);
     // Replace cancelled the auto attempt → suppressNextAutoReconnect inherited by p2 state.
+    await flushMicrotasks();
 
     ble.connectToDevice.mockClear();
     ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'from-cancel-replace'));
@@ -546,6 +559,7 @@ describe('ConnectionManager', () => {
   });
 
   test('success does not clear suppress before late cancel-disconnect is consumed', async () => {
+    ble._setCancelMidConnectOutcome('resolve');
     mgr.enableAutoReconnect('d1', { maxRetries: 1, initialDelayMs: 0, timeoutMs: 0 });
     ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'drop'));
     await flushMicrotasks();
@@ -553,11 +567,34 @@ describe('ConnectionManager', () => {
     // Succeed replacement BEFORE the cancel-disconnect is delivered
     ble._resolveConnect('d1', createDevice('d1'));
     await expect(p2).resolves.toMatchObject({ id: 'd1' });
+    await flushMicrotasks();
     ble.connectToDevice.mockClear();
     // Late cancel-disconnect must still be suppressed (not re-arm auto on top of success)
     ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'late-cancel'));
     await flushMicrotasks();
     expect(ble.connectToDevice).not.toHaveBeenCalled();
+  });
+
+  test('cancel reject clears orphan suppress so post-success disconnect re-arms', async () => {
+    // iOS mid-connect default: cancel rejects → no disconnect → suppress must not stick.
+    mgr.enableAutoReconnect('d1', { maxRetries: 1, initialDelayMs: 0, timeoutMs: 0 });
+    ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'drop'));
+    await flushMicrotasks();
+    const p2 = mgr.connect('d1', { maxRetries: 1, timeoutMs: 0 });
+    await flushMicrotasks(); // cancel of auto attempt rejects → clear orphan suppress
+    ble._resolveConnect('d1', createDevice('d1'));
+    await expect(p2).resolves.toMatchObject({ id: 'd1' });
+    ble.connectToDevice.mockClear();
+    // Real disconnect after success must re-arm (not swallowed by orphan suppress / 2s window).
+    ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'real'));
+    await flushMicrotasks();
+    expect(ble.connectToDevice).toHaveBeenCalledTimes(1);
+    if (ble._connectCalls.length > 0) {
+      ble._connectCalls[ble._connectCalls.length - 1].deferred.reject(
+        createBleError(BleErrorCode.DeviceDisconnected, 'cleanup')
+      );
+      await flushMicrotasks().catch(() => {});
+    }
   });
 
   test('cancel of delay-0 scheduled auto reconnect does not fire native connect', async () => {
@@ -576,13 +613,10 @@ describe('ConnectionManager', () => {
     mgr.cancel('d1');
     await expect(p).rejects.toMatchObject({ errorCode: BleErrorCode.OperationCancelled });
     expect(mgr.isConnecting('d1')).toBe(false);
-
-    // Consume the cancel-induced disconnect suppression first (if any).
-    ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'from-cancel'));
+    // Cancel rejected (never connected) → suppress already cleared; first disconnect re-arms.
     await flushMicrotasks();
     ble.connectToDevice.mockClear();
 
-    // A later real disconnect must still auto-reconnect.
     ble._simulateDisconnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'later'));
     await flushMicrotasks();
     expect(ble.connectToDevice).toHaveBeenCalledTimes(1);
