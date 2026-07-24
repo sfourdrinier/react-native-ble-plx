@@ -57,7 +57,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
     }
   }
 
-  fun startScan(serviceUuids: Array<String>?, scanMode: Int) {
+  fun startScan(serviceUuids: Array<out String>?, scanMode: Int) {
     stopScan()
     val a = adapter ?: throw IllegalStateException("Bluetooth adapter unavailable")
     scanner = a.bluetoothLeScanner ?: throw IllegalStateException("LE scanner unavailable")

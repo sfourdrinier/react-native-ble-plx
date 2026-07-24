@@ -58,10 +58,10 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
       // connection events delivered via connect callbacks primarily
       OwnedAndroidLog.d("connection $id connected=$connected")
     }
-    radio.onNotification = { deviceId, serviceUuid, charUuid, value ->
+    radio.onNotification = notify@{ deviceId, serviceUuid, charUuid, value ->
       val key = notifyKey(deviceId, serviceUuid, charUuid)
-      val cb = notifyCallbacks[key] ?: return@onNotification
-      val ch = findCharacteristicModel(deviceId, serviceUuid, charUuid) ?: return@onNotification
+      val cb = notifyCallbacks[key] ?: return@notify
+      val ch = findCharacteristicModel(deviceId, serviceUuid, charUuid) ?: return@notify
       ch.setValue(value)
       mainHandler.post { cb.onEvent(Characteristic(ch)) }
     }
