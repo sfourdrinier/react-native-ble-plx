@@ -157,22 +157,27 @@ Do **not** ship forced source breaks as 3.9 “just because.” Do **not** use a
 
 ### 3.3 One public package, staged resolution (locked)
 
-Consumers install and version **one public package**:
+Consumers install and version **one implementation**, published primarily as **`unified-ble-manager`**:
 
 ```text
-@sfourdrinier/react-native-ble-plx
+unified-ble-manager
   ├── .                → React Native mobile host (4.0 compatibility default)
   ├── ./web            → Web Bluetooth backend
   ├── ./electron       → Electron main-process client + native binding
   ├── ./node           → optional headless Node host
   └── (types shared)
+
+@sfourdrinier/react-native-ble-plx   → thin shim package (depends on / re-exports unified-ble-manager)
 ```
 
 ```ts
+import { BleManager } from 'unified-ble-manager'
+import { BleManager as WebBleManager } from 'unified-ble-manager/web'
+import { BleManager as ElectronBleManager } from 'unified-ble-manager/electron'
+import { BleManager as NodeBleManager } from 'unified-ble-manager/node'
+
+// Legacy shim (same API):
 import { BleManager } from '@sfourdrinier/react-native-ble-plx'
-import { BleManager as WebBleManager } from '@sfourdrinier/react-native-ble-plx/web'
-import { BleManager as ElectronBleManager } from '@sfourdrinier/react-native-ble-plx/electron'
-import { BleManager as NodeBleManager } from '@sfourdrinier/react-native-ble-plx/node'
 ```
 
 | Stage | Contract |
@@ -508,14 +513,15 @@ Electron/desktop: document process lifetime only—never mobile FGS/restore clai
 | ---- |
 | Cut `4.0` / `next` branch; **`master` = 3.9.x** production only |
 | Lock **compat guarantee** + dual binary policy (this doc) |
-| **Lock canonical package name** + shim design (`MIGRATION_4.0.md`) |
-| `exports` sketch for RN / browser / electron under the **new** package |
+| Canonical name **locked:** `unified-ble-manager`; write shim design in `MIGRATION_4.0.md` |
+| Scaffold monorepo/workspace layout: implement in `unified-ble-manager`, publish shim `@sfourdrinier/react-native-ble-plx` |
+| `exports` sketch for RN / browser / electron under **`unified-ble-manager`** |
 | Encoding helper module stub + **TDD test plan** (failing tests first) |
 | Shared **BLE port / backend interface** types + fake backend for unit tests |
 | Compat suite skeleton (3.9 Base64 golden call patterns) |
 | GitHub milestone `4.0.0-alpha` + tracking issues |
 
-**Exit:** Compat policy agreed; alpha versioning set; rename + shim rules written; first failing tests / fakes exist.
+**Exit:** Compat policy agreed; alpha versioning set; shim rules written for `unified-ble-manager` ↔ old name; first failing tests / fakes exist.
 
 ---
 
@@ -765,7 +771,8 @@ Native rewrite rule: **parity tests first** (record or assert current 3.9 Base64
 | Native cutover compatibility | Public 3.8 API parity required in Base64 mode; bytes remain additive |
 | Bytes API shape | Explicit parallel `AsBytes` / `FromBytes` methods; no union-valued existing types, overloads, or encoding mode switch |
 | Capability contract | `supports()` is a non-throwing boolean query; unsupported operations fail with `BleErrorCode.OperationNotSupported` through their existing error channel |
-| Public package layout | **One implementation**; **canonical new npm name** (TBD) + **compat shim** for `@sfourdrinier/react-native-ble-plx`; explicit host subpaths guaranteed in 4.0; automatic root conditions progressively in 4.x; explicit subpaths permanent |
+| Public package layout | **One implementation**; canonical npm **`unified-ble-manager`** + compat shim **`@sfourdrinier/react-native-ble-plx`**; explicit host subpaths on the canonical package; automatic root conditions progressively in 4.x; explicit subpaths permanent |
+| Package rename | **`unified-ble-manager`** is the install/import name for 4.0+; old scoped name is shim-only (deprecate over 4.x; remove no earlier than 5.0) |
 | Electron backend order | macOS/CoreBluetooth first → Windows/WinRT second → Linux/BlueZ third; all three reach preview in 4.0.0 |
 | Web device selection | Explicit user-gesture `requestDevice()`; `startDeviceScan()` remains continuous-scan-only and reports unsupported on Web |
 | Foundation before multi-host product | Owned core + dual path + bonding + mobile parity before Web/Electron are “supported preview”; contract tests may run on Web/mock hosts earlier for TDD speed |
@@ -775,10 +782,10 @@ Native rewrite rule: **parity tests first** (record or assert current 3.9 Base64
 
 | Decision | Options | Compat constraint |
 | -------- | ------- | ----------------- |
-| **Canonical package name** | e.g. `@sfourdrinier/ble` / similar — lock in Phase 0 | Old name remains installable via shim through 4.x |
 | Base64 removal | 5.0 only after deprecation | **Not 4.0** |
 | Peripheral | P3 unless product elevates | — |
-| CocoaPods / Android library module names | Keep `react-native-ble-plx` pod name vs rename with alias | Prefer less breakage; document either way |
+| CocoaPods / Android library module names | Keep `react-native-ble-plx` pod/module name vs rename with alias | Prefer less breakage; document either way |
+| Shim deprecation timeline | Warn in 4.x docs/CLI; hard remove only in 5.0+ | Zero-change upgrade path for 3.x apps using old package name |
 
 ---
 
@@ -798,7 +805,12 @@ See also [ROADMAP.md comparative landscape](./ROADMAP.md#comparative-landscape-s
 ## 19. One-page summary
 
 **3.9.x** = production stable line (`master`).  
-**4.0** = ambitious generation with a **compatibility guarantee** + **package rename** (new canonical name; old name as shim):
+**4.0** = ambitious generation with a **compatibility guarantee** + **package rename**:
+
+| Package | Role |
+| ------- | ---- |
+| **`unified-ble-manager`** | Canonical npm package (unscoped) — all new work and docs |
+| **`@sfourdrinier/react-native-ble-plx`** | Thin shim re-export for existing installs |
 
 1. **Upgrade without changing app source** (Base64 call sites keep working; optional old package name via shim).
 2. **Opt into bytes** for best notify/write performance; helpers + optional codemod for teams that want it.
@@ -810,7 +822,7 @@ See also [ROADMAP.md comparative landscape](./ROADMAP.md#comparative-landscape-s
 8. **TDD-first:** port contracts + compat suite drive implementation; Web/Electron speed the loop; device lab certifies radio/background.
 9. **Hard Base64 removal is not 4.0**—that’s a future major after deprecation.
 
-**Alpha** proves dual path + owned-core vertical slice + benchmarks under the new package name.  
+**Alpha** proves dual path + owned-core vertical slice + benchmarks as **`unified-ble-manager`**.  
 **4.0 GA** ships **full charter** (foundation + multi-host preview) **without breaking 3.x callers**.  
 **Later 4.x** hardens hosts and advanced transport.  
 **5.0** (someday) may drop Base64 and/or the old package shim—only after deprecation.
