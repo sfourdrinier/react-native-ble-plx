@@ -24,7 +24,8 @@ It supports:
 - Reading RSSI and negotiating MTU
 - Background mode on iOS (including optional state restoration)
 - Android background mode via foreground service
-- [`ConnectionManager`](docs/CONNECTION_MANAGER.md) retry, timeout, and auto-reconnect helpers
+- [`ConnectionManager`](docs/CONNECTION_MANAGER.md) retry, timeout, auto-reconnect, and **`attemptConnectOnce`** (host-owned single attempt)
+- [`getRestoredState()`](docs/BACKGROUND.md) late iOS restore handoff (3.9+) plus constructor `restoreStateFunction`
 - Apple TV / tvOS as a BLE central (see [tvOS notes](docs/TVOS.md))
 
 It does NOT support:
@@ -72,15 +73,22 @@ For older React Native versions, use the upstream [dotintent/react-native-ble-pl
 
 ## Current Branch Status
 
+- **3.9.0** stable line: gated `ConnectionManager.attemptConnectOnce`, `BleManager.getRestoredState()`, reporting-only iOS restore (D5), Apple CI composites.
 - Requires RN 0.86 / Expo SDK 57 and uses the generated TurboModule spec (`NativeBlePlxSpec`).
 - Android registers through `BaseReactPackage` and depends on `react-android`.
 - The Expo example is CNG-first: `example-expo/android` and `example-expo/ios` are generated, not checked in.
 - The Expo config plugin handles BLE permissions, iOS background modes/restoration, Android foreground service metadata, and native debug flags.
 - Public reliability APIs are consolidated on `ConnectionManager`. Legacy `ConnectionQueue` and `ReconnectionManager` modules are removed (use `ConnectionManager` only).
-- Documentation and support are owned in this repository (`docs/` + GitHub Issues).
+- Documentation and support are owned in this repository (`docs/` + GitHub Issues). Full restore recipes: [docs/BACKGROUND.md](docs/BACKGROUND.md).
 - Programmatic Android Bluetooth adapter toggling was removed because it is blocked for normal apps targeting Android 13+.
 
 ## Version History
+
+**3.9.0 (This Fork)**
+
+- Adds `ConnectionManager.attemptConnectOnce` for host-owned reconnect policy (single attempt; mutually exclusive with auto-reconnect).
+- Adds `BleManager.getRestoredState()` for late iOS restore handoff (buffered first payload alongside `restoreStateFunction`).
+- **Breaking for apps that relied on silent adapter reconnect:** iOS Restoration adapter reports restore only (D5) — no `connectToDevice` inside the adapter. Hosts reconnect via `getRestoredState` + gated/auto recipes in `docs/BACKGROUND.md`.
 
 **3.8.4 (This Fork)**
 
@@ -153,11 +161,13 @@ This fork is independently maintained. **Documentation and support live in this 
 | [Fork notes](docs/FORK.md) | What changed vs upstream, floors, and roadmap posture |
 | [Roadmap](ROADMAP.md) | Long-term strategy: reliability, features, native ownership, multiplatform |
 | [Roadmap 4.0](ROADMAP.4.0.md) | Ambitious 4.x charter (alpha, Electron, Web, desktop backends) |
-| [ConnectionManager](docs/CONNECTION_MANAGER.md) | Retry, timeout, and auto-reconnect |
+| [ConnectionManager](docs/CONNECTION_MANAGER.md) | Retry, timeout, auto-reconnect, `attemptConnectOnce` |
+| [Background / iOS restore](docs/BACKGROUND.md) | `getRestoredState`, D5 host reconnect recipes |
 | [Expo config plugin](docs/EXPO_PLUGIN.md) | Plugin options and CNG notes |
 | [tvOS / Apple TV](docs/TVOS.md) | Apple TV support and limits |
 | [Tutorials](docs/TUTORIALS.md) | Extra usage patterns |
 | [Release process](RELEASE.md) | How releases are verified and published |
+| [Changelog](CHANGELOG.md) | Release notes (3.9.0 migration and history) |
 
 **Support:** open an issue on [sfourdrinier/react-native-ble-plx](https://github.com/sfourdrinier/react-native-ble-plx/issues).
 
@@ -239,24 +249,29 @@ Expo SDK 57 targets modern iOS versions. The plugin writes `NSBluetoothAlwaysUsa
 1. If you want to support background mode:
    - In your application target go to `Capabilities` tab and enable `Uses Bluetooth LE Accessories` in
      `Background Modes` section.
-   - Pass `restoreStateIdentifier` and `restoreStateFunction` to `BleManager` constructor.
+   - Pass `restoreStateIdentifier` (and optionally `restoreStateFunction`) to `BleManager`. Prefer **`await manager.getRestoredState()`** for session layers that start after construction — see [docs/BACKGROUND.md](docs/BACKGROUND.md).
 
 #### Optional: iOS BLE State Restoration (Restoration subspec)
 
 - Opt-in via the config plugin: set `iosEnableRestoration: true` and optionally `iosRestorationIdentifier` to a stable string.
 - The plugin writes `BlePlxRestoreIdentifier` into `Info.plist` and injects the `react-native-ble-plx/Restoration` subspec into your Podfile.
-- In JS, pass the same identifier to `BleManager`:
+- In JS, pass the same identifier to `BleManager`. **3.9+:** the adapter **reports** restore only; your app reconnects:
 
 ```ts
 const manager = new BleManager({
   restoreStateIdentifier: 'com.example.myapp.bleplx',
+  // optional constructor callback (can race app boot):
   restoreStateFunction: (restoredState) => {
-    // Rehydrate your app, reconnect devices, etc.
+    console.log('restore callback', restoredState?.connectedPeripherals?.length ?? null)
   },
-});
+})
+
+// Later (session / hub init) — preferred handoff:
+const restored = await manager.getRestoredState()
+// then attemptConnectOnce or enableAutoReconnect — docs/BACKGROUND.md
 ```
 
-- The Restoration subspec exposes a Swift adapter (`BlePlxRestorationAdapter`) that will register with any restoration registry present in the host app (for example, a shared `BleRestorationRegistry`). If no registry is present, it is a no-op.
+- The Restoration subspec exposes a Swift adapter (`BlePlxRestorationAdapter`) that registers with a host restoration registry when present. It does **not** call `connectToDevice` (D5).
 
 ### Android (Manual Setup)
 
@@ -595,7 +610,7 @@ await connectionManager.connect(deviceId, {
 
 ### ConnectionManager (Recommended)
 
-**Unified connection management** with retry logic, timeout support, and automatic reconnection — all in one manager. Full guide: [docs/CONNECTION_MANAGER.md](docs/CONNECTION_MANAGER.md).
+**Unified connection management** with retry logic, timeout support, automatic reconnection, and host-owned gated attempts — all in one manager. Full guide: [docs/CONNECTION_MANAGER.md](docs/CONNECTION_MANAGER.md).
 
 ```typescript
 import { BleManager, ConnectionManager } from '@sfourdrinier/react-native-ble-plx';
@@ -610,6 +625,9 @@ const device = await connectionManager.connect('AA:BB:CC:DD:EE:FF', {
   timeoutMs: 15000,  // Connection timeout
   backoffMultiplier: 2
 });
+
+// Host-owned single attempt (3.9+): no multi-retry / no auto re-arm for this call
+// await connectionManager.attemptConnectOnce(deviceId, { timeoutMs: 15000 });
 
 // Enable auto-reconnect for a device
 connectionManager.enableAutoReconnect('AA:BB:CC:DD:EE:FF', {
@@ -648,7 +666,8 @@ connectionManager.disableAutoReconnect('AA:BB:CC:DD:EE:FF');
 - ✅ Concurrent connections to different devices
 - ✅ Configurable connection timeout (prevents hangs)
 - ✅ Exponential backoff retry logic
-- ✅ Automatic reconnection on unexpected disconnects
+- ✅ Automatic reconnection on unexpected disconnects (after a successful link)
+- ✅ **`attemptConnectOnce`** for host-owned reconnect policy (3.9+)
 - ✅ Comprehensive event callbacks (onConnect, onDisconnect, onConnecting, onConnectFailed)
 - ✅ Clean cancellation and lifecycle management
 

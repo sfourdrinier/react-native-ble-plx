@@ -2,11 +2,11 @@
 
 **Status:** living document · ambitious 4.x charter
 **Last updated:** 2026-07
-**Stable line:** 3.8.x (maintenance / critical fixes)
+**Stable line:** **3.9.x** (current production; 3.8.x remains installable for security/critical backports only)
 **Active ambition:** **4.0.0-alpha → 4.0.0 → 4.x**
-**Related:** [ROADMAP.md](./ROADMAP.md) (long-term strategy & multiplatform doctrine)
+**Related:** [ROADMAP.md](./ROADMAP.md) (long-term strategy & multiplatform doctrine) · [CHANGELOG.md](./CHANGELOG.md)
 
-This document is the **product charter for 4.x**. It is intentionally ambitious: 4.x is not “3.9 with bonding.” It is a **new generation**—mobile excellence, owned native core, multi-host preview (React Native, Electron, Web Bluetooth, macOS / Windows / Linux)—shipped with a **hard compatibility guarantee for existing 3.8.x app code**.
+This document is the **product charter for 4.x**. It is intentionally ambitious: 4.x is not “3.9 with bonding.” It is a **new generation**—mobile excellence, owned native core, multi-host preview (React Native, Electron, Web Bluetooth, macOS / Windows / Linux)—shipped with a **hard compatibility guarantee for existing 3.x app code** (including 3.8.x and 3.9.x Base64 call sites).
 
 No calendar dates. Phases are dependency-ordered.
 
@@ -50,8 +50,9 @@ The most **reliable**, **modern**, and **feature-complete** Bluetooth Low Energy
 
 | Line | Policy |
 | ---- | ------ |
-| **3.8.x** | Stable for production; security/critical fixes only |
-| **4.0.0-alpha.\*** | New surfaces land; **compat guarantee still applies** to 3.8-style API; dist-tag `alpha` |
+| **3.9.x** | Current stable production line (gated CM + restore handoff shipped in 3.9.0) |
+| **3.8.x** | Previous stable; security/critical fixes only |
+| **4.0.0-alpha.\*** | New surfaces land; **compat guarantee still applies** to 3.x-style API; dist-tag `alpha` |
 | **4.0.0-beta.\*** | API freeze candidate for new APIs; dual native stack kill date set; matrix rows for declared hosts |
 | **4.0.0** | Mobile production quality + multi-host **preview** + **compat guarantee held** |
 | **4.x** | Multi-host supported; L2CAP/PHY polish; Base64 still available unless 5.0 |

@@ -1,6 +1,6 @@
 # ConnectionManager
 
-`ConnectionManager` is the supported reliability API for this fork. It unifies connection attempts, exponential backoff retries, timeouts, and automatic reconnection in a **single state machine per device**.
+`ConnectionManager` is the supported reliability API for this fork. It unifies connection attempts, exponential backoff retries, timeouts, automatic reconnection, and (from **3.9.0**) host-owned **`attemptConnectOnce`** gated attempts in a **single state machine per device**.
 
 ## Why it exists
 

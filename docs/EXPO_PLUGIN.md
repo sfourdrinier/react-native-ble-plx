@@ -71,21 +71,31 @@ npx expo run:android
 
 ## JavaScript pairing for restoration
 
-When `iosEnableRestoration` is true, pass the same identifier into `BleManager`:
+When `iosEnableRestoration` is true, pass the same identifier into `BleManager`.
+
+**3.9+:** restoration is **reporting only** (the adapter does not reconnect). Prefer `getRestoredState()` for session layers that start after construction, then apply host reconnect policy:
 
 ```ts
-import { BleManager } from '@sfourdrinier/react-native-ble-plx'
+import { BleManager, ConnectionManager } from '@sfourdrinier/react-native-ble-plx'
 
 const manager = new BleManager({
   restoreStateIdentifier: 'com.example.myapp.bleplx',
+  // optional — can fire before your session layer exists:
   restoreStateFunction: (restoredState) => {
-    // Resume connections / streaming from restored peripherals
+    console.log('restore callback', restoredState?.connectedPeripherals?.length ?? null)
   }
 })
+
+// Later (session init) — preferred:
+const restored = await manager.getRestoredState()
+// recipes: docs/BACKGROUND.md (attemptConnectOnce or enableAutoReconnect)
 ```
+
+Full matrix and recipes: [BACKGROUND.md](./BACKGROUND.md).
 
 ## Related docs
 
+- [Background / iOS restore](./BACKGROUND.md)
 - [Fork notes](./FORK.md)
 - [ConnectionManager](./CONNECTION_MANAGER.md)
 - [tvOS](./TVOS.md)

@@ -1,8 +1,8 @@
 # Background reliability — iOS state restoration handoff
 
-This guide covers **iOS BLE state restoration** for this fork: why constructor-only callbacks race app startup, how `getRestoredState()` works, and host-owned resume recipes (gated or explicit auto).
+**Stable as of 3.9.0.** This guide covers **iOS BLE state restoration** for this fork: why constructor-only callbacks race app startup, how `getRestoredState()` works, and host-owned resume recipes (gated or explicit auto).
 
-For Android foreground service and Expo config, see the root README and [EXPO_PLUGIN.md](./EXPO_PLUGIN.md). For auto-reconnect vs host-owned policy, see [CONNECTION_MANAGER.md](./CONNECTION_MANAGER.md).
+For Android foreground service and Expo config, see the root README and [EXPO_PLUGIN.md](./EXPO_PLUGIN.md). For auto-reconnect vs host-owned policy, see [CONNECTION_MANAGER.md](./CONNECTION_MANAGER.md). See [CHANGELOG.md](../CHANGELOG.md) for the 3.8 → 3.9 migration note (D5 reporting-only restore).
 
 ## Prerequisites (iOS)
 
