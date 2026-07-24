@@ -23,6 +23,18 @@ describe('iOS modernization defaults', () => {
     expect(restorationBlock).not.toMatch(/:tvos/)
   })
 
+  test('Restoration subspec is opt-in only (default_subspecs :none) — #32', () => {
+    // CocoaPods without :none would default-link ALL subspecs on root pod install.
+    expect(podspec).toMatch(/s\.default_subspecs\s*=\s*:none/)
+    // Root source_files must not pull Restoration Swift into the base pod.
+    const rootSourceMatch = podspec.match(/s\.source_files\s*=\s*[^\n]+/)
+    expect(rootSourceMatch).toBeTruthy()
+    expect(rootSourceMatch[0]).not.toMatch(/ios\/Restoration/)
+    expect(podspec).toContain('ios/Restoration/**/*.{h,m,mm,swift}')
+    // Subspec still declared for explicit pod '…/Restoration'
+    expect(podspec).toContain('subspec "Restoration"')
+  })
+
   test('points CocoaPods source metadata at this fork', () => {
     expect(podspec).toContain('https://github.com/sfourdrinier/react-native-ble-plx.git')
     expect(podspec).toContain(':tag => "v#{s.version}"')

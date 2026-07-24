@@ -6,12 +6,15 @@ For Android foreground service and Expo config, see the root README and [EXPO_PL
 
 ## Prerequisites (iOS)
 
-1. Enable restoration in the Expo config plugin (`iosEnableRestoration: true`) or native Info.plist / background modes as documented in [EXPO_PLUGIN.md](./EXPO_PLUGIN.md).
+1. **Opt in** to the Restoration subspec (3.9.1+: not linked by default — [#32](https://github.com/sfourdrinier/react-native-ble-plx/issues/32)):
+   - Expo: `iosEnableRestoration: true` (and optional `iosRestorationIdentifier`), or
+   - Bare: `pod 'react-native-ble-plx/Restoration', :path => …` plus Info.plist `BlePlxRestoreIdentifier`.
 2. Pass the **same** string as:
-   - plugin `iosRestorationIdentifier`, and
+   - plugin `iosRestorationIdentifier` / `BlePlxRestoreIdentifier`, and
    - `BleManager` option `restoreStateIdentifier`.
 3. Optionally pass `restoreStateFunction` for a constructor-time callback.
 4. Construct `BleManager` **once** with those options (singleton: first constructor wins).
+5. Rebuild native iOS after enabling or disabling the flag (`expo prebuild --clean` / `pod install`).
 
 tvOS does not support CoreBluetooth state restoration. Prefer not setting a restore identifier on pure tvOS apps.
 
@@ -67,7 +70,7 @@ You may omit `restoreStateFunction` and only use `getRestoredState()` (identifie
 | Subsequent events | Immediate | **First** buffered value | Callback still runs every emit with a new mapping |
 | Android + identifier | Yes | usually `null` | Native emits null promptly on `createClient` |
 | tvOS + identifier | May wait until destroy | waiter → `null` on destroy | Do not rely on restore on tvOS |
-| Restoration subspec off + identifier | May wait until destroy | waiter → `null` on destroy | Install Restoration / plugin flag |
+| Restoration subspec off + identifier | May wait until destroy | waiter → `null` on destroy | Opt in: `iosEnableRestoration: true` or explicit `…/Restoration` pod (3.9.1+ root pod does not default-link subspecs) |
 | After `await destroy()` | Immediate | `null` | Means manager dead — **not** “OS restored nothing” |
 
 Always `await manager.destroy()` on teardown so any pending restore waiters settle.

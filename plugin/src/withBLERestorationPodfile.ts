@@ -83,6 +83,10 @@ function indentBlock(block: string, indent: string): string {
     .join('\n')
 }
 
+/**
+ * Inject opt-in `react-native-ble-plx/Restoration` into a Podfile.
+ * Pure string transform — unit-tested without pod install.
+ */
 export function injectRestorationPodLine(podfile: string, pkgName: string): string {
   if (!podfile) return podfile
   if (podfile.includes(MARKER_START) || podfile.includes(`${toPodName(pkgName)}/Restoration`)) return podfile
@@ -134,10 +138,72 @@ export function injectRestorationPodLine(podfile: string, pkgName: string): stri
   return podfile + '\n\n' + rubySnippet + '\n'
 }
 
-export const withBLERestorationPodfile: ConfigPlugin<{ pkgName: string }> = (config, { pkgName }) =>
+/**
+ * Remove Restoration subspec opt-in from a Podfile (marker block and/or explicit pod lines).
+ * Pure string transform — unit-tested without pod install. Idempotent when already absent.
+ */
+export function removeRestorationPodLine(podfile: string, pkgName: string): string {
+  if (!podfile) return podfile
+
+  const podName = toPodName(pkgName)
+  let result = podfile
+
+  // Remove marked Ruby blocks (autolinking injection) by line scan so indent variants match.
+  const lines = result.split('\n')
+  const out: string[] = []
+  let skipping = false
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed === MARKER_START) {
+      skipping = true
+      continue
+    }
+    if (skipping) {
+      if (trimmed === MARKER_END) {
+        skipping = false
+      }
+      continue
+    }
+    out.push(line)
+  }
+  result = out.join('\n')
+
+  // Remove explicit Restoration pod lines (monorepo / manual).
+  // Do not remove the base `pod 'react-native-ble-plx', …` line.
+  const explicitRestorationLineRe = new RegExp(
+    `^[ \\t]*pod\\s+['"]${podName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/Restoration['"][^\\n]*\\n?`,
+    'gm'
+  )
+  result = result.replace(explicitRestorationLineRe, '')
+
+  // Collapse accidental triple newlines from removals
+  result = result.replace(/\n{3,}/g, '\n\n')
+
+  return result
+}
+
+/** Info.plist pure helpers for unit tests and withInfoPlist mods. */
+export function setBlePlxRestoreIdentifier(
+  infoPlist: Record<string, unknown>,
+  identifier: string
+): Record<string, unknown> {
+  return { ...infoPlist, BlePlxRestoreIdentifier: identifier }
+}
+
+export function clearBlePlxRestoreIdentifier(infoPlist: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...infoPlist }
+  delete next.BlePlxRestoreIdentifier
+  return next
+}
+
+export const withBLERestorationPodfile: ConfigPlugin<{ pkgName: string; enable: boolean }> = (
+  config,
+  { pkgName, enable }
+) =>
   withPodfile(config, modConfig => {
     const contents = modConfig.modResults.contents
-    const updated = injectRestorationPodLine(contents, pkgName)
-    modConfig.modResults.contents = updated
+    modConfig.modResults.contents = enable
+      ? injectRestorationPodLine(contents, pkgName)
+      : removeRestorationPodLine(contents, pkgName)
     return modConfig
   })

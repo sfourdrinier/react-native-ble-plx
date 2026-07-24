@@ -84,6 +84,10 @@ For older React Native versions, use the upstream [dotintent/react-native-ble-pl
 
 ## Version History
 
+**3.9.1 (This Fork)**
+
+- Fixes iOS restoration **true opt-in**: CocoaPods no longer default-links the Restoration subspec; `iosEnableRestoration: false` leaves Restoration out of the binary, and the Expo plugin strips sticky Podfile/plist artifacts on disable ([#32](https://github.com/sfourdrinier/react-native-ble-plx/issues/32)).
+
 **3.9.0 (This Fork)**
 
 - Adds `ConnectionManager.attemptConnectOnce` for host-owned reconnect policy (single attempt; mutually exclusive with auto-reconnect).
@@ -213,7 +217,7 @@ The plugin provides props for extra customization. Every time you change the pro
 - `neverForLocation` (_boolean_): Set to true only if you can strongly assert that your app never derives physical location from Bluetooth scan results. The location permission will be still required on older Android devices. Note, that some BLE beacons are filtered from the scan results. Android SDK 31+. Default `false`. _WARNING: This parameter is experimental and BLE might not work. Make sure to test before releasing to production._
 - `modes` (_string[]_): Adds iOS `UIBackgroundModes` to the `Info.plist`. Options are: `peripheral`, and `central`. Defaults to undefined.
 - `bluetoothAlwaysPermission` (_string | false_): Sets the iOS `NSBluetoothAlwaysUsageDescription` permission message to the `Info.plist`. Setting `false` will skip adding the permission. Defaults to `Allow $(PRODUCT_NAME) to connect to bluetooth devices`.
-- `iosEnableRestoration` (_boolean_): Opt-in to the iOS BLE state restoration subspec (disabled by default). When true, the Podfile will include `react-native-ble-plx/Restoration` and the adapter will register with a restoration registry if present.
+- `iosEnableRestoration` (_boolean_): **True opt-in** for the iOS BLE state restoration subspec (disabled by default; 3.9.1+ root CocoaPods pod does not default-link subspecs — [#32](https://github.com/sfourdrinier/react-native-ble-plx/issues/32)). When true, injects `react-native-ble-plx/Restoration` and writes `BlePlxRestoreIdentifier`. When false, removes those artifacts.
 - `iosRestorationIdentifier` (_string_): Custom CBCentralManager restoration identifier. Written to `Info.plist` as `BlePlxRestoreIdentifier` and passed to `BleManager` for state restoration. Defaults to `com.reactnativebleplx.restore`.
 - `androidEnableForegroundService` (_boolean_): Enable Android foreground service for background BLE operations. Adds necessary permissions (`FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`) and service declaration to `AndroidManifest.xml`. Default `false`.
 
