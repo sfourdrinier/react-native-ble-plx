@@ -539,6 +539,25 @@ describe('ConnectionManager', () => {
       expect(mgr.isConnecting('d1')).toBe(false);
       warn.mockRestore();
     });
+
+    test('onConnectFailed reentrant attemptConnectOnce is not deleted by cleanup', async () => {
+      let reentry;
+      mgr.setGlobalCallbacks({
+        onConnectFailed: () => {
+          reentry = mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+        },
+      });
+      const p1 = mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+      ble._rejectConnect('d1', createBleError(BleErrorCode.DeviceDisconnected, 'first-fail'));
+      await expect(p1).rejects.toMatchObject({ errorCode: BleErrorCode.DeviceDisconnected });
+      await flushMicrotasks();
+      expect(reentry).toBeDefined();
+      // Second attempt must still be tracked and settle when native resolves
+      expect(mgr.isConnecting('d1')).toBe(true);
+      expect(ble.connectToDevice).toHaveBeenCalledTimes(2);
+      ble._resolveConnect('d1', createDevice('d1'));
+      await expect(reentry).resolves.toMatchObject({ id: 'd1' });
+    });
   });
 
   test('cancel mid-connect with auto-reconnect does not start reconnect by itself', async () => {

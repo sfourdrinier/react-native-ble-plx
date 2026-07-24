@@ -789,8 +789,9 @@ export class ConnectionManager {
       invokeUserCallback('onConnect', () => state.callbacks?.onConnect?.(device))
       invokeUserCallback('global onConnect', () => this._globalCallbacks.onConnect?.(device))
 
-      // Clean up if auto-reconnect is disabled
-      if (!state.autoReconnect) {
+      // Clean up if auto-reconnect is disabled. Identity check: onConnect may have
+      // started a reentrant attempt for the same deviceId — do not delete that entry.
+      if (!state.autoReconnect && this._devices.get(state.deviceId) === state) {
         this._devices.delete(state.deviceId)
       }
     } catch (error) {
@@ -840,8 +841,9 @@ export class ConnectionManager {
           this._globalCallbacks.onConnectFailed?.(state.deviceId, failureError)
         )
 
-        // Clean up if auto-reconnect is disabled
-        if (!state.autoReconnect) {
+        // Clean up if auto-reconnect is disabled. Identity check: onConnectFailed may
+        // have started a reentrant attempt for the same deviceId — do not delete it.
+        if (!state.autoReconnect && this._devices.get(state.deviceId) === state) {
           this._devices.delete(state.deviceId)
         }
 
