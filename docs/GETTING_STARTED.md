@@ -4,12 +4,12 @@ This guide introduces the BLE stack and APIs exported by **`@sfourdrinier/react-
 
 For more detail:
 
-- [Fork notes](./FORK.md) — platforms, floors, and what this fork owns (current stable **3.9.0**)
-- [Expo config plugin](./EXPO_PLUGIN.md) — plugin options and CNG
+- [Fork notes](./FORK.md) — platforms, floors, and what this fork owns (current stable **3.9.1**)
+- [Expo config plugin](./EXPO_PLUGIN.md) — plugin options and CNG (incl. true opt-in `iosEnableRestoration`)
 - [ConnectionManager](./CONNECTION_MANAGER.md) — retries, auto-reconnect, and `attemptConnectOnce`
-- [Background / iOS restoration](./BACKGROUND.md) — `getRestoredState` and host resume recipes (D5)
+- [Background / iOS restoration](./BACKGROUND.md) — `getRestoredState`, host resume recipes (D5), Restoration subspec opt-in
 - [tvOS](./TVOS.md) — Apple TV notes
-- [Changelog](../CHANGELOG.md) — release notes and 3.8 → 3.9 migration
+- [Changelog](../CHANGELOG.md) — release notes and 3.8 → 3.9.x migration
 - [Tutorials](./TUTORIALS.md)
 - Example apps in this repository (`example/`, `example-expo/`)
 
