@@ -76,6 +76,9 @@ jobs:
         if: runner.os == 'Linux'
         run: node example-electron/main.js
 
+      - name: Electron native backend contract tests
+        run: pnpm exec jest --config jest.config.js --testPathPattern='BluezBlePort|ElectronNative|OwnedCore'
+
   changes:
     name: Detect path changes
     if: |

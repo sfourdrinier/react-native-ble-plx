@@ -7,7 +7,7 @@ import androidx.annotation.NonNull;
 import com.sfourdrinier.unifiedblemanager.adapter.utils.ByteUtils;
 import com.sfourdrinier.unifiedblemanager.adapter.utils.IdGenerator;
 import com.sfourdrinier.unifiedblemanager.adapter.utils.IdGeneratorKey;
-import com.polidea.rxandroidble2.internal.RxBleLog;
+import com.sfourdrinier.unifiedblemanager.radio.OwnedAndroidLog;
 
 import java.util.UUID;
 
@@ -109,7 +109,7 @@ public class Descriptor {
       value = descriptor.getValue();
     }
     String hexValue = value != null ? ByteUtils.bytesToHex(value) : "(null)";
-    RxBleLog.v(message +
+    OwnedAndroidLog.v(message +
       " Descriptor(uuid: " + descriptor.getUuid().toString() +
       ", id: " + id +
       ", value: " + hexValue + ")");

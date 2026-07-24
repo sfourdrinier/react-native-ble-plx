@@ -8,7 +8,8 @@ public typealias BleAdapterCreator = (_ queue: DispatchQueue, _ restoreIdentifie
 public class BleAdapterFactory: NSObject {
 
     private static var bleAdapterCreator: BleAdapterCreator = { (queue, restoreIdentifierKey) in
-        return BleClientManager(queue: queue, restoreIdentifierKey: restoreIdentifierKey)
+        // 4.0 GA default: pure CoreBluetooth owned adapter (no RxBluetoothKit).
+        return OwnedCoreBluetoothAdapter(queue: queue, restoreIdentifierKey: restoreIdentifierKey)
     }
 
     @objc

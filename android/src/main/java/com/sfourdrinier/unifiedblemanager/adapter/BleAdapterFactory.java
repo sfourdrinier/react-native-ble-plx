@@ -7,7 +7,8 @@ public class BleAdapterFactory {
   private static BleAdapterCreator bleAdapterCreator = new BleAdapterCreator() {
     @Override
     public BleAdapter createAdapter(Context context) {
-      return new BleModule(context);
+      // 4.0 GA default: owned pure-Kotlin Android GATT radio (no RxAndroidBle).
+      return new com.sfourdrinier.unifiedblemanager.radio.OwnedBleAdapter(context);
     }
   };
 

@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Owned Android radio (4.0 GA default):** pure Kotlin `OwnedAndroidGattRadio` + `OwnedBleAdapter`; RxAndroidBle removed from default `android/build.gradle`; legacy Java adapter under `android/src/legacy`.
+- **Owned iOS radio (4.0 GA default):** pure Swift `OwnedCoreBluetoothAdapter`; podspec excludes MBA `BleModule` + RxBluetoothKit/RxSwift from default compile.
+- **Electron natives:** `BluezBlePort` (Linux D-Bus), WinRT/CoreBluetooth factory entrypoints + `native/electron/*` packages; `createPlatformElectronPort()`.
 - **Android bonding:** `createBond` / `removeBond` / `getBondState` (native Android + iOS typed `OperationNotSupported` stubs); `docs/BONDING.md`.
 - **`findAndConnect`**, scan name filters (`deviceName` / `deviceNamePrefix`), permission helpers `requestBluetoothPermissions` / `checkBluetoothPermissions`.
 - **`BleErrorCode.OperationNotSupported`** (+ DeviceBondFailed / DeviceUnbondFailed) for honest multi-host failures.

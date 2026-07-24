@@ -25,9 +25,26 @@ const manager = new BleManager({ allowMockFallback: true })
 
 With `{ allowMockFallback: false }` and no `port`, construction **throws** so apps cannot silently ship without a radio backend.
 
-## Linux
+## Linux (BlueZ)
 
-BlueZ-backed ports are the Linux destination. Until a system BlueZ binding is wired, use injectable ports + mock fallback; `supports()` never claims FGS/restore/bonding parity with mobile.
+Default native path: `BluezBlePort` (`src/hosts/native/bluez/BluezBlePort.ts`) over BlueZ D-Bus (`org.bluez`).
+
+```js
+const { BleManager, BluezBlePort, createPlatformElectronPort } = require('unified-ble-manager/electron')
+
+// Explicit:
+const port = new BluezBlePort()
+const manager = new BleManager({ port, backend: 'bluez', allowMockFallback: false })
+
+// Or async platform detect:
+const { port, backend } = await createPlatformElectronPort({ allowMockFallback: true })
+```
+
+Requires BlueZ + optional `dbus-next`. CI/contract tests inject a mock bus. `supports()` never claims FGS/restore/bonding parity with mobile.
+
+## Windows (WinRT) / macOS (CoreBluetooth)
+
+`createWinRtBlePort()` / `createCoreBluetoothBlePort()` load optional native addons under `native/electron/{winrt,corebluetooth}` when built; otherwise FakeBlePort fallback with backend `mock` for CI honesty.
 
 ## Dual path
 

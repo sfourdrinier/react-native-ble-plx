@@ -25,7 +25,12 @@ describe('Android modernization defaults', () => {
   test('implements the generated TurboModule spec and registers through BaseReactPackage', () => {
     const moduleJava = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxModule.java')
     const packageJava = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxPackage.java')
-    const adapterJava = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/BleModule.java')
+    const ownedAdapter = read(
+      'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedBleAdapter.kt'
+    )
+    const factory = read(
+      'android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/BleAdapterFactory.java'
+    )
 
     expect(moduleJava).toContain('import com.sfourdrinier.unifiedblemanager.NativeBlePlxSpec;')
     expect(moduleJava).toContain('public class BlePlxModule extends NativeBlePlxSpec')
@@ -40,12 +45,11 @@ describe('Android modernization defaults', () => {
     expect(packageJava).toContain('public ReactModuleInfoProvider getReactModuleInfoProvider()')
     expect(packageJava).not.toContain('implements ReactPackage')
 
-    expect(adapterJava).not.toContain('ReactContextBaseJavaModule')
-    expect(adapterJava).toContain('public class BleModule implements BleAdapter')
-    expect(adapterJava).not.toContain('public void invalidate()')
-    expect(adapterJava).not.toContain('BluetoothAdapter.ACTION_REQUEST_ENABLE')
-    expect(adapterJava).not.toContain('bluetoothAdapter.enable()')
-    expect(adapterJava).not.toContain('bluetoothAdapter.disable()')
+    // 4.0 GA: owned Kotlin adapter is the default BleAdapter
+    expect(factory).toContain('OwnedBleAdapter')
+    expect(ownedAdapter).toContain('class OwnedBleAdapter')
+    expect(ownedAdapter).toContain('OwnedAndroidGattRadio')
+    expect(ownedAdapter).not.toContain('RxBleClient')
   })
 
   test('does not expose newArchEnabled as an architecture switch', () => {
@@ -96,13 +100,20 @@ describe('Android modernization defaults', () => {
     expect(safePromise).toContain('message == null')
   })
 
-  test('keeps custom GATT refresh operation typed for javac', () => {
-    const refreshGattOperation = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/utils/RefreshGattCustomOperation.java')
-
-    expect(refreshGattOperation).toContain('Observable.amb(')
-    expect(refreshGattOperation).toContain('Arrays.asList(')
-    expect(refreshGattOperation).not.toContain('Observable.ambArray(')
-    expect(refreshGattOperation).toContain('rxBleGattCallback.<Boolean>observeDisconnect()')
-    expect(refreshGattOperation).not.toContain('@noinspection unchecked')
+  test('legacy Rx GATT refresh op is off the default source set', () => {
+    const legacyRefresh = path.join(
+      root,
+      'android/src/legacy/java/com/sfourdrinier/unifiedblemanager/adapter/utils/RefreshGattCustomOperation.java'
+    )
+    const mainRefresh = path.join(
+      root,
+      'android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/utils/RefreshGattCustomOperation.java'
+    )
+    expect(fs.existsSync(mainRefresh)).toBe(false)
+    // May exist under legacy archaeology tree
+    if (fs.existsSync(legacyRefresh)) {
+      const refreshGattOperation = fs.readFileSync(legacyRefresh, 'utf8')
+      expect(refreshGattOperation).toContain('RxBleCustomOperation')
+    }
   })
 })

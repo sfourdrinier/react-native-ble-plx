@@ -5,7 +5,7 @@ Honest matrix. Prefer `manager.supports(capability)` at runtime.
 | Capability | RN iOS/Android | Web | Electron main | Node |
 | ---------- | -------------- | --- | ------------- | ---- |
 | central | Y | Y | Y | Y |
-| continuous scan | Y | **N** (use `requestDevice`; `OperationNotSupported`) | Y (backend-dependent) | Y (backend-dependent) |
+| continuous scan | Y (owned Kotlin/Swift radio) | **N** (use `requestDevice`; `OperationNotSupported`) | Y (BlueZ / WinRT / CoreBluetooth backends) | Y (backend-dependent) |
 | findAndConnect | Y | N (no continuous scan) | Y (with scan) | Y (with scan) |
 | permission helpers | Y (Android request/check) | N/A browser model | N/A | N/A |
 | requestDevice chooser | N | Y | N | N |

@@ -10,7 +10,7 @@ import com.sfourdrinier.unifiedblemanager.adapter.utils.ByteUtils;
 import com.sfourdrinier.unifiedblemanager.adapter.utils.Constants;
 import com.sfourdrinier.unifiedblemanager.adapter.utils.IdGenerator;
 import com.sfourdrinier.unifiedblemanager.adapter.utils.IdGeneratorKey;
-import com.polidea.rxandroidble2.internal.RxBleLog;
+import com.sfourdrinier.unifiedblemanager.radio.OwnedAndroidLog;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -145,7 +145,7 @@ public class Characteristic {
       value = gattCharacteristic.getValue();
     }
     String hexValue = value != null ? ByteUtils.bytesToHex(value) : "(null)";
-    RxBleLog.v(message +
+    OwnedAndroidLog.v(message +
       " Characteristic(uuid: " + gattCharacteristic.getUuid().toString() +
       ", id: " + id +
       ", value: " + hexValue + ")");

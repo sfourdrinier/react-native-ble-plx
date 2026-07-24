@@ -1,5 +1,10 @@
 import Foundation
 
+@objc
+public protocol BleClientManagerDelegate {
+    func dispatchEvent(_ name: String, value: Any)
+}
+
 @objc public protocol BleAdapter {
 
     // MARK: - Properties
@@ -225,4 +230,5 @@ import Foundation
                          reject: @escaping Reject)
 }
 
-extension BleClientManager: BleAdapter { }
+// BleClientManager (RxBluetoothKit MBA) is no longer the default adapter.
+// OwnedCoreBluetoothAdapter (ios/Owned) implements BleAdapter for 4.0 GA.

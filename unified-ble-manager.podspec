@@ -14,19 +14,29 @@ Pod::Spec.new do |s|
   s.platforms    = { :ios => "16.4", :tvos => "16.4" }
   s.source       = { :git => "https://github.com/sfourdrinier/react-native-ble-plx.git", :tag => "v#{s.version}" }
 
-  # MultiplatformBleAdapter (0.2.0) is vendored under ios/vendor and compiled into this
-  # pod's own Swift module (module_name "BlePlx", matching the "BlePlx-Swift.h" import in
-  # BlePlx.mm) instead of being an external, iOS-only pod dependency. This lets BLE build
-  # for both iOS and tvOS. CoreBluetooth central (scan/connect/GATT) is available on tvOS;
-  # only state restoration is not, and is guarded with #if os(iOS).
+  # 4.0 GA: default radio is owned CoreBluetooth (ios/Owned) + thin BleAdapter protocol.
+  # Legacy MultiplatformBleAdapter/RxBluetoothKit sources remain under ios/vendor for
+  # archaeology but are NOT compiled on the default product path.
   s.module_name  = "BlePlx"
-  s.source_files = "ios/*.{h,m,mm}", "ios/vendor/MultiplatformBleAdapter/**/*.swift"
+  s.source_files = [
+    "ios/*.{h,m,mm}",
+    "ios/Owned/**/*.swift",
+    "ios/vendor/MultiplatformBleAdapter/classes/BleAdapter.swift",
+    "ios/vendor/MultiplatformBleAdapter/classes/BleAdapterFactory.swift",
+    "ios/vendor/MultiplatformBleAdapter/classes/BleEvent.swift",
+    "ios/vendor/MultiplatformBleAdapter/classes/Utils/**/*.swift"
+  ]
+  s.exclude_files = [
+    "ios/vendor/MultiplatformBleAdapter/classes/BleModule.swift",
+    "ios/vendor/MultiplatformBleAdapter/RxBluetoothKit/**/*",
+    "ios/vendor/MultiplatformBleAdapter/RxSwift/**/*"
+  ]
   s.resource_bundles = { 'BlePlx' => ['ios/PrivacyInfo.xcprivacy'] }
   # Do not add -fmodules/-fcxx-modules: under -fcxx-modules, clang can emit fmt
   # inline functions (via RCT-Folly) as strong definitions in BlePlx.o /
   # BlePlxTurboModule.o, causing duplicate-symbol link failures when RN is built
   # from source (libfmt.a). See #31.
-  s.compiler_flags = "-DMULTIPLATFORM_BLE_ADAPTER"
+  s.compiler_flags = "-DOWNED_COREBLUETOOTH_RADIO=1"
 
   # Without :none, CocoaPods treats ALL subspecs as default dependencies of the root pod,
   # so `pod 'react-native-ble-plx'` would always link Restoration (#32). Keep Restoration

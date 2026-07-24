@@ -41,14 +41,10 @@ import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.module.annotations.ReactModule;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
-import com.polidea.rxandroidble2.internal.RxBleLog;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import io.reactivex.exceptions.UndeliverableException;
-import io.reactivex.plugins.RxJavaPlugins;
 
 @ReactModule(name = BlePlxModule.NAME)
 public class BlePlxModule extends NativeBlePlxSpec {
@@ -59,17 +55,6 @@ public class BlePlxModule extends NativeBlePlxSpec {
   public BlePlxModule(ReactApplicationContext reactContext) {
     super(reactContext);
     this.reactContext = reactContext;
-    RxJavaPlugins.setErrorHandler(throwable -> {
-      if (throwable instanceof UndeliverableException) {
-        RxBleLog.e("Handle all unhandled exceptions from RxJava: " + throwable.getMessage());
-      } else {
-        Thread currentThread = Thread.currentThread();
-        Thread.UncaughtExceptionHandler errorHandler = currentThread.getUncaughtExceptionHandler();
-        if (errorHandler != null) {
-          errorHandler.uncaughtException(currentThread, throwable);
-        }
-      }
-    });
   }
 
   @Override

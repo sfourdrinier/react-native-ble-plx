@@ -1,36 +1,39 @@
 /**
  * Electron main-process host entry for unified-ble-manager/electron.
  *
- * Charter: production path is **native main**, not WebBT-in-renderer.
- * Linux: inject a BlePort (BlueZ-backed when available; FakeBlePort/tests otherwise).
- * Without an injected port, constructs a capability-gated placeholder that still
- * exposes supports() and accepts setPort()/constructor injection — never a silent
- * WebBT renderer path.
+ * Production path is **native main** per OS:
+ * - Linux: BlueZ (BluezBlePort)
+ * - Windows: WinRT (createWinRtBlePort)
+ * - macOS: CoreBluetooth (createCoreBluetoothBlePort)
+ *
+ * Not WebBT-in-renderer. Tests/CI inject FakeBlePort or mock BlueZ bus when radio/native addon absent.
  */
 
 import type { BlePort } from '../port/BlePort'
 import { FakeBlePort } from '../port/BlePort'
 import { PortBleManager } from '../port/PortBleManager'
 import { supports as supportsCapability, type BleCapability } from '../supports'
+import { BluezBlePort, BLUEZ_RADIO_ID, isBluezAvailable } from './native/bluez/BluezBlePort'
+import { createWinRtBlePort } from './native/winrt/WinRtBlePort'
+import { createCoreBluetoothBlePort } from './native/corebluetooth/CoreBluetoothBlePort'
 
-export type ElectronNativeBackend = 'mock' | 'bluez' | 'corebluetooth' | 'winrt' | 'unavailable'
+export type ElectronNativeBackend =
+  | 'mock'
+  | 'bluez'
+  | 'corebluetooth'
+  | 'winrt'
+  | 'unavailable'
 
 export type ElectronBleManagerOptions = {
-  /**
-   * Main-process radio port. Production Electron apps inject the platform backend
-   * (BlueZ / CoreBluetooth / WinRT). Tests inject FakeBlePort.
-   */
   port?: BlePort
-  /**
-   * Declared native backend identity for supports()/docs honesty.
-   * Default: 'mock' when a port is injected without a name; 'unavailable' if none.
-   */
   backend?: ElectronNativeBackend
   /**
-   * When true and no port is given, install an empty FakeBlePort for headless smoke
-   * (CI / Linux without BlueZ). Not a production radio.
+   * When true (default for alpha/CI), fall back to FakeBlePort if native radio cannot load.
+   * Production releases should set allowMockFallback: false and inject a real port.
    */
   allowMockFallback?: boolean
+  /** Prefer auto-detect OS backend when port not provided */
+  autoDetectNative?: boolean
 }
 
 export type ElectronBleManagerInfo = {
@@ -38,12 +41,71 @@ export type ElectronBleManagerInfo = {
   backend: ElectronNativeBackend
   portId: string
   isMainProcessOriented: true
+  platform: string
+}
+
+function detectPlatform(): string {
+  if (typeof process === 'undefined') return 'unknown'
+  return process.platform || 'unknown'
 }
 
 /**
- * Detect a coarse process type without requiring the electron package at build time.
- * Main process: process.type === 'browser' (Electron) or absence of window in Node.
+ * Select a platform native BlePort for Electron main.
  */
+export async function createPlatformElectronPort(options: {
+  allowMockFallback?: boolean
+} = {}): Promise<{ port: BlePort; backend: ElectronNativeBackend }> {
+  const platform = detectPlatform()
+  const allowMock = options.allowMockFallback !== false
+
+  if (platform === 'linux') {
+    const available = await isBluezAvailable()
+    if (available) {
+      try {
+        const port = new BluezBlePort()
+        await port.ensureBus()
+        return { port, backend: 'bluez' }
+      } catch {
+        // fall through to mock
+      }
+    }
+    if (allowMock) {
+      return { port: new FakeBlePort({ id: `${BLUEZ_RADIO_ID}-mock` }), backend: 'mock' }
+    }
+    throw new Error('BlueZ not available and mock fallback disabled')
+  }
+
+  if (platform === 'win32') {
+    try {
+      const port = createWinRtBlePort({ requireNative: true })
+      return { port, backend: 'winrt' }
+    } catch {
+      if (allowMock) {
+        return {
+          port: createWinRtBlePort({ allowMockFallback: true } as never) as BlePort,
+          backend: 'mock'
+        }
+      }
+      // createWinRtBlePort without requireNative returns Fake
+      return { port: createWinRtBlePort({}), backend: 'mock' }
+    }
+  }
+
+  if (platform === 'darwin') {
+    try {
+      const port = createCoreBluetoothBlePort({ requireNative: true })
+      return { port, backend: 'corebluetooth' }
+    } catch {
+      return { port: createCoreBluetoothBlePort({}), backend: allowMock ? 'mock' : 'unavailable' }
+    }
+  }
+
+  if (allowMock) {
+    return { port: new FakeBlePort({ id: 'electron-mock-fallback' }), backend: 'mock' }
+  }
+  throw new Error(`No Electron BLE backend for platform=${platform}`)
+}
+
 function defaultElectronEnv(): {
   type?: string
   versions?: { electron?: string }
@@ -67,41 +129,61 @@ export function isElectronMainLike(
   if (env.type === 'browser') return true
   if (env.type === 'renderer') return false
   if (env.versions?.electron && env.window === undefined) return true
-  // Node test / non-Electron: treat as main-like for headless API use
   if (typeof env.window === 'undefined') return true
   return false
 }
 
-/**
- * Electron main-process BleManager.
- * Throws on construct only if no port and allowMockFallback is false —
- * never pretends WebBT-in-renderer is the production path.
- */
 export class BleManager extends PortBleManager {
   readonly backend: ElectronNativeBackend
   readonly isMainProcessOriented = true as const
+  readonly platform: string
 
   constructor(options: ElectronBleManagerOptions = {}) {
-    const backend = options.backend ?? (options.port ? 'mock' : 'unavailable')
+    const platform = detectPlatform()
     let port = options.port
+    let backend: ElectronNativeBackend = options.backend ?? (options.port ? 'mock' : 'unavailable')
+
     if (!port) {
-      if (options.allowMockFallback !== false) {
-        // Default allow mock for alpha Linux/CI; production must inject real port + backend
-        port = new FakeBlePort({ id: 'electron-mock-fallback' })
-      } else {
-        throw new Error(
-          'unified-ble-manager/electron requires an injected BlePort (native main backend). ' +
-            'Pass { port } from main process, or { allowMockFallback: true } for headless tests. ' +
-            'Do not use Web Bluetooth in the renderer as the production Electron path (see docs/ELECTRON.md).'
-        )
+      if (options.autoDetectNative) {
+        // Sync constructor cannot await; use platform-specific sync factories with mock fallback
+        if (platform === 'linux') {
+          port = new BluezBlePort()
+          backend = 'bluez'
+        } else if (platform === 'win32') {
+          port = createWinRtBlePort({})
+          backend = 'winrt'
+        } else if (platform === 'darwin') {
+          port = createCoreBluetoothBlePort({})
+          backend = 'corebluetooth'
+        }
       }
+      if (!port) {
+        if (options.allowMockFallback !== false) {
+          port = new FakeBlePort({ id: 'electron-mock-fallback' })
+          backend = 'mock'
+        } else {
+          throw new Error(
+            'unified-ble-manager/electron requires an injected BlePort (native main backend). ' +
+              'Pass { port } from main process, use createPlatformElectronPort(), or { allowMockFallback: true }. ' +
+              'Do not use Web Bluetooth in the renderer as the production Electron path.'
+          )
+        }
+      }
+    } else if (options.backend) {
+      backend = options.backend
+    } else if (port.id.includes('bluez')) {
+      backend = 'bluez'
+    } else if (port.id.includes('winrt')) {
+      backend = 'winrt'
+    } else if (port.id.includes('corebluetooth')) {
+      backend = 'corebluetooth'
+    } else {
+      backend = 'mock'
     }
+
     super({ port, host: 'electron' })
-    this.backend = options.port
-      ? (options.backend ?? 'mock')
-      : backend === 'unavailable' && options.allowMockFallback !== false
-        ? 'mock'
-        : backend
+    this.backend = backend
+    this.platform = platform
   }
 
   supports(capability: BleCapability): boolean {
@@ -109,21 +191,20 @@ export class BleManager extends PortBleManager {
     return supportsCapability(capability, 'electron')
   }
 
-  /** Introspection for smoke tests and docs honesty. */
   getHostInfo(): ElectronBleManagerInfo {
     return {
       host: 'electron',
       backend: this.backend,
       portId: this.getPortId(),
-      isMainProcessOriented: true
+      isMainProcessOriented: true,
+      platform: this.platform
     }
   }
 }
 
-/**
- * Factory for production main process: forces explicit backend labeling.
- */
-export function createElectronBleManager(options: ElectronBleManagerOptions & { port: BlePort }): BleManager {
+export function createElectronBleManager(
+  options: ElectronBleManagerOptions & { port: BlePort }
+): BleManager {
   return new BleManager(options)
 }
 
@@ -131,4 +212,7 @@ export { PortBleManager } from '../port/PortBleManager'
 export { FakeBlePort } from '../port/BlePort'
 export { base64ToBytes, bytesToBase64 } from '../encoding'
 export { supports } from '../supports'
+export { BluezBlePort, BLUEZ_RADIO_ID, isBluezAvailable } from './native/bluez/BluezBlePort'
+export { createWinRtBlePort, WINRT_RADIO_ID } from './native/winrt/WinRtBlePort'
+export { createCoreBluetoothBlePort, COREBLUETOOTH_RADIO_ID } from './native/corebluetooth/CoreBluetoothBlePort'
 export type { BlePort }
