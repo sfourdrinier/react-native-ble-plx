@@ -58,12 +58,14 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
       // connection events delivered via connect callbacks primarily
       OwnedAndroidLog.d("connection $id connected=$connected")
     }
-    radio.onNotification = notify@{ deviceId, serviceUuid, charUuid, value ->
+    radio.onNotification = { deviceId, serviceUuid, charUuid, value ->
       val key = notifyKey(deviceId, serviceUuid, charUuid)
-      val cb = notifyCallbacks[key] ?: return@notify
-      val ch = findCharacteristicModel(deviceId, serviceUuid, charUuid) ?: return@notify
-      ch.setValue(value)
-      mainHandler.post { cb.onEvent(Characteristic(ch)) }
+      val cb = notifyCallbacks[key]
+      val ch = if (cb != null) findCharacteristicModel(deviceId, serviceUuid, charUuid) else null
+      if (cb != null && ch != null) {
+        ch.setValue(value)
+        mainHandler.post { cb.onEvent(Characteristic(ch)) }
+      }
     }
     // Owned core does not restore MBA-style state; emit null restore signal if key present
     if (restoreStateIdentifier != null) {
@@ -173,15 +175,16 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     try {
       val done = AtomicBoolean(false)
       radio.onConnectionState = { id, connected ->
-        if (!id.equals(deviceIdentifier, ignoreCase = true)) return@onConnectionState
-        if (connected && done.compareAndSet(false, true)) {
-          val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
-          mainHandler.post {
-            onConnectionStateChangedCallback.onEvent(ConnectionState.CONNECTED)
-            onSuccessCallback.onSuccess(d)
+        if (id.equals(deviceIdentifier, ignoreCase = true)) {
+          if (connected && done.compareAndSet(false, true)) {
+            val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
+            mainHandler.post {
+              onConnectionStateChangedCallback.onEvent(ConnectionState.CONNECTED)
+              onSuccessCallback.onSuccess(d)
+            }
+          } else if (!connected) {
+            mainHandler.post { onConnectionStateChangedCallback.onEvent(ConnectionState.DISCONNECTED) }
           }
-        } else if (!connected) {
-          mainHandler.post { onConnectionStateChangedCallback.onEvent(ConnectionState.DISCONNECTED) }
         }
       }
       radio.connect(deviceIdentifier, connectionOptions.getAutoConnect() == true)
@@ -295,15 +298,15 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     onErrorCallback: OnErrorCallback
   ) {
     radio.discover(deviceIdentifier) { ok ->
-      if (!ok) {
+      if (ok) {
+        cacheServices(deviceIdentifier)
+        val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
+        mainHandler.post { onSuccessCallback.onSuccess(d) }
+      } else {
         mainHandler.post {
           onErrorCallback.onError(BleError(BleErrorCode.ServicesDiscoveryFailed, "discover failed", null))
         }
-        return@discover
       }
-      cacheServices(deviceIdentifier)
-      val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
-      mainHandler.post { onSuccessCallback.onSuccess(d) }
     }
   }
 
