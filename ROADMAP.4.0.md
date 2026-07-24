@@ -12,7 +12,15 @@ This document is the **product charter for 4.x**. It is intentionally ambitious:
 
 **Delivery bar for `4.0.0` GA:** complete the phased plan in this doc (foundation + multi-host preview), not a thin subset. Phases are dependency-ordered for *how* we build, not permission to drop later phases from GA.
 
-**Package rename (locked):**
+**Package rename (locked) — one product name across registries:**
+
+| Surface | Canonical (4.0+) | Compat / transition |
+| ------- | ---------------- | ------------------- |
+| **npm** | `unified-ble-manager` | `@sfourdrinier/react-native-ble-plx` thin re-export shim |
+| **CocoaPods** | `unified-ble-manager` (podspec `s.name`) | Keep publishing / document alias or dual pod name for one major if bare Podfiles still pin `react-native-ble-plx` |
+| **Android Gradle module** | `unified-ble-manager` (library project / artifact identity) | Autolinking follows the npm package; old module name only via the npm shim package path |
+| **Android `namespace` / Java/Kotlin package** | Prefer align under a stable reverse-DNS id (e.g. `com.unifiedblemanager` or similar — exact string fixed in Phase 0 scaffold) | Avoid silent mid-alpha renames; one cut with migration note |
+| **Expo config plugin** | `plugins: ["unified-ble-manager"]` | Shim package re-exports the same plugin entry for old app.json |
 
 ```text
 pnpm add unified-ble-manager
@@ -27,8 +35,10 @@ Legacy (shim — prefer not for new apps):
 ```text
 pnpm add @sfourdrinier/react-native-ble-plx
 import { BleManager } from '@sfourdrinier/react-native-ble-plx'
-# → re-exports unified-ble-manager (one implementation, two package names)
+# → re-exports unified-ble-manager (one implementation; native pods/modules ship with the canonical package)
 ```
+
+**Rationale:** mismatched npm vs Pod vs Android names force every doc, autolinking path, and support thread to explain two identities. 4.0 is the rename window—use **one product name** everywhere users install or link native code. Temporary dual Pod names are a **migration bridge**, not the end state.
 
 No calendar dates. Phases are dependency-ordered.
 
