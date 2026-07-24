@@ -45,12 +45,8 @@ android {
     sourceSets {
       main {
         manifest.srcFile "src/main/AndroidManifestNew.xml"
-        // Kotlin + Java owned radio under main
-        java.srcDirs += ["src/main/java"]
-      }
-      // Legacy RxAndroidBle BleModule kept for archaeology — NOT on default compile path
-      legacy {
-        java.srcDirs = ["src/legacy/java"]
+        // Default product path only: owned Kotlin radio under src/main/java.
+        // Legacy RxAndroidBle sources live under android/src/legacy (not a source set).
       }
     }
   }
