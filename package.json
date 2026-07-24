@@ -60,7 +60,7 @@
     "clean": "del-cli android/build example/android/build example/android/app/build example/ios/build plugin/build lib",
     "build:plugin": "tsc --build plugin",
     "clean:plugin": "del-cli plugin/build",
-    "test:plugin": "NODE_PATH=./plugin/test-stubs jest --config plugin/jest.config.js",
+    "test:plugin": "jest --config plugin/jest.config.js",
     "prepare": "pnpm clean:plugin && pnpm build:plugin",
     "lint:plugin": "eslint plugin/src/*"
   },
