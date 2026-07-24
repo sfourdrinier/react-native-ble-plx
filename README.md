@@ -171,7 +171,7 @@ This fork is independently maintained. **Documentation and support live in this 
 | [tvOS / Apple TV](docs/TVOS.md) | Apple TV support and limits |
 | [Tutorials](docs/TUTORIALS.md) | Extra usage patterns |
 | [Release process](RELEASE.md) | How releases are verified and published |
-| [Changelog](CHANGELOG.md) | Release notes (3.9.0 migration and history) |
+| [Changelog](CHANGELOG.md) | Release notes (3.9.x migration and history) |
 
 **Support:** open an issue on [sfourdrinier/react-native-ble-plx](https://github.com/sfourdrinier/react-native-ble-plx/issues).
 
@@ -421,11 +421,13 @@ const restored = await manager.getRestoredState()
 
 ### Not Using Restoration?
 
-**No action needed.** The restoration feature is entirely opt-in:
+**No action needed on 3.9.1+** if you leave `iosEnableRestoration` false (default) and do not add a manual `…/Restoration` pod:
 
-- The `Restoration` subspec is not included by default
-- Native code uses runtime reflection - if restoration classes aren't present, it's a no-op
+- The `Restoration` subspec is **not** linked by default (`default_subspecs = :none` — fixed in [#32](https://github.com/sfourdrinier/react-native-ble-plx/issues/32) / 3.9.1)
+- Native code uses runtime reflection — if restoration classes aren't present, registration is a no-op
 - Without a restore identifier, `getRestoredState()` resolves `null` immediately
+
+**Upgrading from 3.9.0:** if you depended on Restoration without setting the flag (it was accidentally always linked), set `iosEnableRestoration: true` + matching `restoreStateIdentifier` and rebuild native iOS — see CHANGELOG Migration 3.9.0 → 3.9.1.
 
 ### Multi-Adapter Support (Advanced)
 
