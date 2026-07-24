@@ -528,9 +528,9 @@ Electron/desktop: document process lifetime only—never mobile FGS/restore clai
 | ---- |
 | Cut `4.0` / `next` branch; **`master` = 3.9.x** production only |
 | Lock **compat guarantee** + dual binary policy (this doc) |
-| Canonical name **locked:** `unified-ble-manager` across **npm + CocoaPods + Android module** (+ Expo plugin id); write shim design in `MIGRATION_4.0.md` |
-| Scaffold layout: implement as `unified-ble-manager` (podspec `s.name`, Android module, package.json); publish npm shim `@sfourdrinier/react-native-ble-plx` |
-| Fix reverse-DNS Android `namespace` string once in Phase 0; dual-pod alias only if bare Podfile migration needs it |
+| Identity **fully locked:** npm / pod / Android module / plugin = `unified-ble-manager`; Android `namespace` = `com.sfourdrinier.unifiedblemanager`; Restoration = `unified-ble-manager/Restoration` |
+| Scaffold layout under those names; npm shim `@sfourdrinier/react-native-ble-plx` re-exports only (no second native tree) |
+| `MIGRATION_4.0.md`: zero-change JS API + one-time rename (package, Podfile, plugin id) |
 | `exports` sketch for RN / browser / electron under **`unified-ble-manager`** |
 | Encoding helper module stub + **TDD test plan** (failing tests first) |
 | Shared **BLE port / backend interface** types + fake backend for unit tests |
@@ -787,8 +787,10 @@ Native rewrite rule: **parity tests first** (record or assert current 3.9 Base64
 | Native cutover compatibility | Public 3.8 API parity required in Base64 mode; bytes remain additive |
 | Bytes API shape | Explicit parallel `AsBytes` / `FromBytes` methods; no union-valued existing types, overloads, or encoding mode switch |
 | Capability contract | `supports()` is a non-throwing boolean query; unsupported operations fail with `BleErrorCode.OperationNotSupported` through their existing error channel |
-| Public package layout | **One implementation**; canonical **`unified-ble-manager`** on **npm, CocoaPods, and Android module**; npm compat shim **`@sfourdrinier/react-native-ble-plx`**; explicit host subpaths on the canonical package; automatic root conditions progressively in 4.x; explicit subpaths permanent |
-| Package rename | **`unified-ble-manager`** is the product name for 4.0+ (JS install + native link); old scoped npm name is shim-only (deprecate over 4.x; remove no earlier than 5.0). Native identifiers follow the same name—not left as `react-native-ble-plx` indefinitely. |
+| Public package layout | **One implementation**; canonical **`unified-ble-manager`** on **npm + CocoaPods + Android module + Expo plugin**; npm shim **`@sfourdrinier/react-native-ble-plx`** only; explicit host subpaths; automatic root conditions progressively in 4.x |
+| Product / native identity | **npm** `unified-ble-manager` · **pod** `unified-ble-manager` · **subspec** `unified-ble-manager/Restoration` · **Android module** `unified-ble-manager` · **namespace** `com.sfourdrinier.unifiedblemanager` · **plugin** `unified-ble-manager` |
+| No dual native names | Do **not** keep a permanent `react-native-ble-plx` pod or Android module alongside the new name. Document one-time Podfile/plugin migration. |
+| npm shim only | Old scoped package is JS re-export only (deprecate over 4.x; hard remove no earlier than 5.0) |
 | Electron backend order | macOS/CoreBluetooth first → Windows/WinRT second → Linux/BlueZ third; all three reach preview in 4.0.0 |
 | Web device selection | Explicit user-gesture `requestDevice()`; `startDeviceScan()` remains continuous-scan-only and reports unsupported on Web |
 | Foundation before multi-host product | Owned core + dual path + bonding + mobile parity before Web/Electron are “supported preview”; contract tests may run on Web/mock hosts earlier for TDD speed |
@@ -800,9 +802,7 @@ Native rewrite rule: **parity tests first** (record or assert current 3.9 Base64
 | -------- | ------- | ----------------- |
 | Base64 removal | 5.0 only after deprecation | **Not 4.0** |
 | Peripheral | P3 unless product elevates | — |
-| Exact Android `namespace` / applicationId string | e.g. `com.unifiedblemanager` vs `com.sfourdrinier.unifiedblemanager` — pick once in Phase 0 scaffold | Must not thrash after alpha consumers appear |
-| Temporary dual CocoaPods name | Whether to publish both `unified-ble-manager` and `react-native-ble-plx` podspecs for one major | Bridge only; end state is single pod name `unified-ble-manager` |
-| Shim deprecation timeline | Warn in 4.x docs/CLI; hard remove only in 5.0+ | Zero-change upgrade path for 3.x apps using old **npm** package name |
+| npm shim deprecation **comms** detail | Exact warning copy / version when docs mark “legacy only” | Hard remove still **≥ 5.0**; install path remains through 4.x |
 
 ---
 
@@ -824,10 +824,12 @@ See also [ROADMAP.md comparative landscape](./ROADMAP.md#comparative-landscape-s
 **3.9.x** = production stable line (`master`).  
 **4.0** = ambitious generation with a **compatibility guarantee** + **package rename**:
 
-| Package / identity | Role |
-| ------------------ | ---- |
-| **`unified-ble-manager`** | Canonical product name: **npm + CocoaPods + Android module** (+ Expo plugin) — all new work and docs |
-| **`@sfourdrinier/react-native-ble-plx`** | Thin **npm** shim re-export for existing JS installs (not a second native stack) |
+| Identity | Value |
+| -------- | ----- |
+| **Canonical product** | `unified-ble-manager` (npm · CocoaPods · Android module · Expo plugin) |
+| **Android namespace** | `com.sfourdrinier.unifiedblemanager` |
+| **Restoration subspec** | `unified-ble-manager/Restoration` |
+| **npm shim only** | `@sfourdrinier/react-native-ble-plx` → re-exports (no second native stack) |
 
 1. **Upgrade without changing app source** (Base64 call sites keep working; optional old package name via shim).
 2. **Opt into bytes** for best notify/write performance; helpers + optional codemod for teams that want it.
