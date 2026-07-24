@@ -38,7 +38,8 @@ const MATRIX: Record<HostKind, Partial<Record<BleCapability, boolean>>> = {
     base64Path: true,
     requestDevice: false,
     continuousScan: true,
-    bonding: true, // Android yes; iOS OS-driven — still "available" surface
+    // Fail-closed until createBond/removeBond/bondState ship (Phase 1 Open).
+    bonding: false,
     requestMtu: true,
     connectionPriority: true,
     iosStateRestoration: true,

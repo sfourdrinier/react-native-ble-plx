@@ -169,7 +169,8 @@ export class WebBluetoothPort implements BlePort {
   ): Promise<Uint8Array> {
     const c = await this.getChar(deviceId, serviceUUID, characteristicUUID)
     const view = await c.readValue()
-    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
+    // Detached copy — WebBT may reuse the underlying ArrayBuffer on next read/notify.
+    return Uint8Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength))
   }
 
   async writeCharacteristicBytes(
@@ -217,7 +218,8 @@ export class WebBluetoothPort implements BlePort {
       const target = ev.target
       const view = target.value
       if (!view) return
-      onValue(new Uint8Array(view.buffer, view.byteOffset, view.byteLength))
+      // Detached copy — WebBT may reuse the underlying ArrayBuffer on subsequent events.
+      onValue(Uint8Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength)))
     }
     this.monitorHandlers.set(key, handler)
     c.addEventListener('characteristicvaluechanged', handler)

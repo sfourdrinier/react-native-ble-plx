@@ -159,4 +159,88 @@ describe('unified-ble-manager/web (shipped host)', () => {
     const m = new mod.BleManager({ port: new FakeBlePort() })
     expect(m.supports('requestDevice')).toBe(true)
   })
+
+  test('WebBluetoothPort read/monitor return detached copies (buffer reuse safe)', async () => {
+    // Shared ArrayBuffer that WebBT might mutate after returning a view
+    const shared = new ArrayBuffer(4)
+    const sharedView = new Uint8Array(shared)
+    sharedView.set([0x11, 0x22, 0x33, 0x44])
+
+    let notifyHandler = null
+    const gattChar = {
+      uuid: CHR,
+      properties: { read: true, write: true, notify: true },
+      value: new DataView(shared),
+      async readValue() {
+        return new DataView(shared)
+      },
+      async writeValueWithResponse() {},
+      async startNotifications() {
+        return this
+      },
+      async stopNotifications() {
+        return this
+      },
+      addEventListener(_type, handler) {
+        notifyHandler = handler
+      },
+      removeEventListener() {
+        notifyHandler = null
+      }
+    }
+    const service = {
+      uuid: SVC,
+      async getCharacteristics() {
+        return [gattChar]
+      },
+      async getCharacteristic() {
+        return gattChar
+      }
+    }
+    const server = {
+      connected: false,
+      async connect() {
+        this.connected = true
+        return this
+      },
+      disconnect() {
+        this.connected = false
+      },
+      async getPrimaryServices() {
+        return [service]
+      },
+      async getPrimaryService() {
+        return service
+      }
+    }
+    const navigator = {
+      bluetooth: {
+        async requestDevice() {
+          return { id: DEVICE, name: 'CopyTest', gatt: server }
+        }
+      }
+    }
+    const port = new WebBluetoothPort({ navigator, optionalServices: [SVC] })
+    await port.requestDevice([{ services: [SVC] }])
+    await port.connect(DEVICE)
+
+    const read1 = await port.readCharacteristicBytes(DEVICE, SVC, CHR)
+    expect(Array.from(read1)).toEqual([0x11, 0x22, 0x33, 0x44])
+    // Mutate the WebBT shared buffer after read
+    sharedView.set([0xff, 0xff, 0xff, 0xff])
+    // Detached copy must be unchanged
+    expect(Array.from(read1)).toEqual([0x11, 0x22, 0x33, 0x44])
+
+    // Restore for notify path
+    sharedView.set([0xaa, 0xbb, 0x00, 0x00])
+    const notes = []
+    const unsub = await port.monitorCharacteristic(DEVICE, SVC, CHR, v => notes.push(v))
+    gattChar.value = new DataView(shared)
+    notifyHandler({ target: gattChar })
+    expect(notes).toHaveLength(1)
+    expect(Array.from(notes[0])).toEqual([0xaa, 0xbb, 0x00, 0x00])
+    sharedView.set([0x00, 0x00, 0x00, 0x00])
+    expect(Array.from(notes[0])).toEqual([0xaa, 0xbb, 0x00, 0x00])
+    await unsub()
+  })
 })

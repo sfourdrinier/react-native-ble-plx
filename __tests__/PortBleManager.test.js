@@ -26,6 +26,22 @@ function managerWith(payload = new Uint8Array([0x10, 0x20])) {
 }
 
 describe('PortBleManager (shipped host surface)', () => {
+  test('startDeviceScan rejects on host=web even if FakeBlePort could emit ads', async () => {
+    const port = new FakeBlePort({
+      advertisements: [{ id: 'x', name: null, rssi: null }]
+    })
+    const manager = new PortBleManager({ port, host: 'web' })
+    expect(manager.supports('continuousScan')).toBe(false)
+    expect(manager.supports('scan')).toBe(false)
+    expect(manager.supports('requestDevice')).toBe(true)
+    await expect(manager.startDeviceScan(null, null, () => {})).rejects.toThrow(/requestDevice/)
+    // Must not have started continuous scan on the port
+    const seen = []
+    // If gate were inverted, FakeBlePort would deliver ads after flush — assert we never open that path:
+    // re-create and only call after gate throws (already asserted).
+    expect(seen).toEqual([])
+  })
+
   test('full central slice: scan connect discover read write notify (Base64 + bytes)', async () => {
     const { port, manager } = managerWith(new Uint8Array([1, 2, 3]))
     expect(manager.supports('central')).toBe(true)

@@ -10,7 +10,7 @@ Honest matrix. Prefer `manager.supports(capability)` at runtime.
 | connect / discover / R/W / notify | Y | Y | Y | Y |
 | Base64 path | Y | Y | Y | Y |
 | bytes path (`AsBytes`/`FromBytes`) | Y | Y | Y | Y |
-| bonding | Android Y; iOS OS | N | N (alpha) | N |
+| bonding | **N** (API Open — fail-closed until createBond/removeBond ship) | N | N | N |
 | request MTU | Y | N | N (alpha) | N |
 | connection priority | Android | N | N | N |
 | iOS state restoration | Y | N | N | N |

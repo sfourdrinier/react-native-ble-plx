@@ -150,4 +150,63 @@ describe('Dual path AsBytes/FromBytes on shipped BleManager', () => {
       bleManager.writeCharacteristicWithResponseForDeviceFromBytes('d', 's', 'c', [1, 2])
     ).rejects.toThrow(TypeError)
   })
+
+  test('monitorCharacteristicForDeviceAsBytes delivers Uint8Array; Base64 monitor stays string', async () => {
+    // Keep monitor open (do not resolve) so ReadEvent listeners stay registered
+    Native.BleModule.monitorCharacteristicForDevice = jest.fn().mockReturnValue(new Promise(() => {}))
+
+    const payload = new Uint8Array([0xca, 0xfe])
+    const b64 = bytesToBase64(payload)
+    const native = createMockCharacteristic({ value: b64 })
+
+    const bytesListener = jest.fn()
+    const base64Listener = jest.fn()
+
+    const subBytes = bleManager.monitorCharacteristicForDeviceAsBytes(
+      'device-1',
+      '0000180f-0000-1000-8000-00805f9b34fb',
+      '00002a19-0000-1000-8000-00805f9b34fb',
+      bytesListener,
+      'tx-bytes'
+    )
+    const subBase = bleManager.monitorCharacteristicForDevice(
+      'device-1',
+      '0000180f-0000-1000-8000-00805f9b34fb',
+      '00002a19-0000-1000-8000-00805f9b34fb',
+      base64Listener,
+      'tx-b64'
+    )
+
+    Native.BleModule.emit(Native.BleModule.ReadEvent, [null, native, 'tx-bytes'])
+    Native.BleModule.emit(Native.BleModule.ReadEvent, [null, native, 'tx-b64'])
+
+    expect(bytesListener).toHaveBeenCalledTimes(1)
+    const [, asBytes] = bytesListener.mock.calls[0]
+    expect(asBytes.value).toBeInstanceOf(Uint8Array)
+    expect(Array.from(asBytes.value)).toEqual([0xca, 0xfe])
+
+    expect(base64Listener).toHaveBeenCalledTimes(1)
+    const [, asBase] = base64Listener.mock.calls[0]
+    expect(typeof asBase.value).toBe('string')
+    expect(asBase.value).toBe(b64)
+
+    subBytes.remove()
+    subBase.remove()
+  })
+
+  test('Characteristic.monitorAsBytes delivers Uint8Array payloads', async () => {
+    Native.BleModule.monitorCharacteristic = jest.fn().mockReturnValue(new Promise(() => {}))
+    const payload = new Uint8Array([1, 2, 3, 4])
+    const native = createMockCharacteristic({ value: bytesToBase64(payload) })
+    const c = new Characteristic(createMockCharacteristic(), bleManager)
+    const listener = jest.fn()
+    // capture transaction id from native call
+    const sub = c.monitorAsBytes(listener, 'char-tx')
+    Native.BleModule.emit(Native.BleModule.ReadEvent, [null, native, 'char-tx'])
+    expect(listener).toHaveBeenCalledTimes(1)
+    const [, snap] = listener.mock.calls[0]
+    expect(snap.value).toBeInstanceOf(Uint8Array)
+    expect(Array.from(snap.value)).toEqual([1, 2, 3, 4])
+    sub.remove()
+  })
 })

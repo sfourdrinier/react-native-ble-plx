@@ -20,6 +20,12 @@ describe('supports() honesty matrix', () => {
     expect(supports('requestDevice', 'react-native')).toBe(false)
   })
 
+  test('bonding is fail-closed until bond APIs ship (Phase 1 Open)', () => {
+    expect(supports('bonding', 'react-native')).toBe(false)
+    expect(supports('bonding', 'web')).toBe(false)
+    expect(supports('bonding', 'electron')).toBe(false)
+  })
+
   test('unknown capability fails closed', () => {
     expect(supports('not-a-real-capability', 'web')).toBe(false)
   })

@@ -52,11 +52,12 @@ export class PortBleManager {
     _options: Record<string, unknown> | null | undefined,
     listener: (error: Error | null, device: PortDevice | null) => void
   ): Promise<void> {
+    // Continuous/mobile-style scan only. requestDevice is a separate discovery path (web chooser).
     if (!this.supports('scan') && !this.supports('continuousScan')) {
-      // Web still allows scan method only if continuousScan; otherwise callers should use requestDevice
-      if (!this.supports('requestDevice')) {
-        throw new Error(`startDeviceScan is not supported on host=${this.host}`)
-      }
+      const hint = this.supports('requestDevice')
+        ? ' Use requestDevice() after a user gesture instead.'
+        : ''
+      throw new Error(`startDeviceScan is not supported on host=${this.host}.${hint}`)
     }
     this.scanActive = true
     await this.port.startScan((ad: PortAdvertisement) => {
