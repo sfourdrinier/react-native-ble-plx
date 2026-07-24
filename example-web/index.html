@@ -3,23 +3,114 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>unified-ble-manager / web example</title>
+    <title>unified-ble-manager · Polar H10 / Heart Rate</title>
     <style>
-      body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
-      button { margin: 0.25rem 0.25rem 0.25rem 0; padding: 0.5rem 0.75rem; }
-      pre { background: #111; color: #eee; padding: 1rem; overflow: auto; min-height: 8rem; }
-      .note { color: #444; font-size: 0.9rem; }
+      :root {
+        color-scheme: light dark;
+        --bg: #0f1419;
+        --card: #1a2332;
+        --text: #e7ecf3;
+        --muted: #8b9bb4;
+        --accent: #e74c3c;
+        --btn: #2d6cdf;
+      }
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 36rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        background: var(--bg);
+        color: var(--text);
+      }
+      h1 {
+        font-size: 1.35rem;
+        font-weight: 650;
+        margin-bottom: 0.25rem;
+      }
+      .note {
+        color: var(--muted);
+        font-size: 0.9rem;
+        line-height: 1.45;
+        margin-bottom: 1.25rem;
+      }
+      .bpm-card {
+        background: var(--card);
+        border-radius: 12px;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1rem;
+        text-align: center;
+      }
+      .bpm-label {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+      }
+      #bpm {
+        font-size: 3.5rem;
+        font-weight: 700;
+        color: var(--accent);
+        line-height: 1.1;
+        font-variant-numeric: tabular-nums;
+      }
+      #status {
+        color: var(--muted);
+        font-size: 0.9rem;
+        margin-top: 0.35rem;
+      }
+      button {
+        margin: 0.25rem 0.35rem 0.25rem 0;
+        padding: 0.55rem 0.9rem;
+        border: none;
+        border-radius: 8px;
+        background: var(--btn);
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      pre {
+        background: #0a0e14;
+        color: #c5d0e0;
+        padding: 1rem;
+        border-radius: 8px;
+        overflow: auto;
+        min-height: 10rem;
+        max-height: 18rem;
+        font-size: 0.78rem;
+        line-height: 1.4;
+      }
+      code {
+        font-size: 0.85em;
+      }
     </style>
   </head>
   <body>
-    <h1>unified-ble-manager / web</h1>
+    <h1>Heart rate · Polar H10</h1>
     <p class="note">
-      Requires Chromium + secure context (localhost/https) + Web Bluetooth.
-      Use a user gesture for <code>requestDevice</code>. Continuous scan is not supported.
+      Uses the Bluetooth SIG <strong>Heart Rate Service</strong> (<code>0x180D</code>) and
+      <strong>Heart Rate Measurement</strong> notifications (<code>0x2A37</code>).
+      Works with Polar H10 and other HR straps that broadcast standard HR.
+      Needs Chromium, a secure context (localhost/https), a BLE adapter, and a
+      <em>user gesture</em> for the device chooser.
     </p>
-    <button id="btn-request" type="button">Request device</button>
-    <button id="btn-connect" type="button" disabled>Connect</button>
-    <button id="btn-read" type="button" disabled>Read (bytes)</button>
+
+    <div class="bpm-card">
+      <div class="bpm-label">Heart rate</div>
+      <div id="bpm">—</div>
+      <div id="status">Idle — put the strap on and click Request device</div>
+    </div>
+
+    <div>
+      <button id="btn-request" type="button">Request device (HR / Polar)</button>
+      <button id="btn-connect" type="button" disabled>Connect</button>
+      <button id="btn-monitor" type="button" disabled>Start HR stream</button>
+      <button id="btn-stop" type="button" disabled>Stop</button>
+    </div>
+
     <pre id="log"></pre>
     <script type="module" src="./main.js"></script>
   </body>
