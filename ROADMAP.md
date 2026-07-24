@@ -7,7 +7,7 @@
 
 This roadmap describes how this fork becomes the most modern, reliable, and feature-complete Bluetooth Low Energy library for React Native—and, over time, a multiplatform BLE client (mobile, web, desktop, Linux). It is intentional product planning, not a release schedule. Priorities can shift when real app needs (especially production background reliability) demand it.
 
-**For the ambitious 4.x release train** (alpha → GA → multi-host preview including Electron native main process), see **[ROADMAP.4.0.md](./ROADMAP.4.0.md)**.
+**For the ambitious 4.x release train** (alpha → GA → multi-host preview including Electron native main process; package rename + TDD-first foundation), see **[ROADMAP.4.0.md](./ROADMAP.4.0.md)**.
 
 ---
 

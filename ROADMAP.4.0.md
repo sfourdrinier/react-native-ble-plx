@@ -1,14 +1,27 @@
-# Roadmap 4.0 — `@sfourdrinier/react-native-ble-plx`
+# Roadmap 4.0 — `@sfourdrinier/react-native-ble-plx` → new canonical package (name TBD)
 
-**Status:** living document · ambitious 4.x charter
-**Last updated:** 2026-07
-**Stable line:** **3.9.x** (current production; 3.8.x remains installable for security/critical backports only)
-**Active ambition:** **4.0.0-alpha → 4.0.0 → 4.x**
-**Related:** [ROADMAP.md](./ROADMAP.md) (long-term strategy & multiplatform doctrine) · [CHANGELOG.md](./CHANGELOG.md)
+**Status:** living document · ambitious 4.x charter  
+**Last updated:** 2026-07-24  
+**Stable line:** **3.9.x** (current production on `master`; 3.8.x backports only)  
+**Active ambition:** **`4.0.0-alpha.*` → `4.0.0` GA** (full charter: owned native core, dual binary path, bonding, multi-host **preview**) → later **4.x** polish  
+**Related:** [ROADMAP.md](./ROADMAP.md) · [CHANGELOG.md](./CHANGELOG.md)
 
-This document is the **product charter for 4.x**. It is intentionally ambitious: 4.x is not “3.9 with bonding.” It is a **new generation**—mobile excellence, owned native core, multi-host preview (React Native, Electron, Web Bluetooth, macOS / Windows / Linux)—shipped with a **hard compatibility guarantee for existing 3.x app code** (including 3.8.x and 3.9.x Base64 call sites).
+This document is the **product charter for 4.x**. It is intentionally ambitious: 4.0 is not “3.9 with bonding.” It is a **new generation**—mobile excellence, owned native core, multi-host preview (React Native, Electron, Web Bluetooth, macOS / Windows / Linux)—shipped with a **hard compatibility guarantee for existing 3.x app code** (including 3.8.x and 3.9.x Base64 call sites).
+
+**Delivery bar for `4.0.0` GA:** complete the phased plan in this doc (foundation + multi-host preview), not a thin subset. Phases are dependency-ordered for *how* we build, not permission to drop later phases from GA.
+
+**Package rename (4.0):** move to a **new canonical npm package** (name TBD in Phase 0). Keep `@sfourdrinier/react-native-ble-plx` as a **thin install/import shim** for one major line so existing apps can still install the old name. One implementation; two package names.
 
 No calendar dates. Phases are dependency-ordered.
+
+### Execution emphasis (2026-07)
+
+| Priority | Meaning |
+| -------- | ------- |
+| **Foundation first** | Owned Kotlin/Swift radio, dual binary path, bonding, `supports()`, ConnectionManager/background non-regression — **before** treating Web/Electron as product-complete |
+| **TDD-first** | Spec and tests define behavior; implementations fill them in (see §15) |
+| **Fast feedback without lying** | Web/Electron are **easier CI hosts** for host-agnostic TS + contract tests; they do **not** replace mobile/device lab for radio, restore, or FGS |
+| **Full roadmap in 4.0.0** | Multi-host preview remains in GA scope; it ships *after* the foundation is solid, not instead of it |
 
 ---
 
