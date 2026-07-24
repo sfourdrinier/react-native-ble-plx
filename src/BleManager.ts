@@ -5,6 +5,7 @@ import { Descriptor } from './Descriptor'
 import { State, LogLevel, ConnectionPriority } from './TypeDefinition'
 import { BleModule, EventEmitter } from './BleModule'
 import { parseBleError, BleError, BleErrorCode, BleErrorCodeMessage } from './BleError'
+// BleErrorCode used by findAndConnect timeout payload
 import type { NativeDevice, NativeCharacteristic, NativeDescriptor, NativeBleRestoredState } from './BleModule'
 import type {
   BleErrorCodeMessageMapping,
@@ -17,6 +18,8 @@ import type {
   Base64,
   ScanOptions,
   ConnectionOptions,
+  FindAndConnectOptions,
+  BondState,
   BleManagerOptions,
   BleRestoredState,
   BackgroundModeOptions
@@ -25,6 +28,12 @@ import { isIOS } from './Utils'
 import { Platform } from 'react-native'
 import { base64ToBytes, bytesToBase64 } from './encoding'
 import { supports as supportsCapability, type BleCapability } from './supports'
+import { rejectUnsupported } from './unsupported'
+import {
+  checkBluetoothPermissions,
+  requestBluetoothPermissions,
+  type PermissionCheckResult
+} from './permissions'
 
 /**
  * Byte-path characteristic snapshot (parallel to Base64 {@link Characteristic}.value).
@@ -431,16 +440,96 @@ export class BleManager {
     options: ScanOptions | null,
     listener: (error: BleError | null, scannedDevice: Device | null) => void
   ): Promise<void> {
+    const nameExact = options?.deviceName
+    const namePrefix = options?.deviceNamePrefix
     const scanListener = ([error, nativeDevice]: [string | null, NativeDevice | null]) => {
-      listener(
-        error ? parseBleError(error, this._errorCodesToMessagesMapping) : null,
-        nativeDevice ? new Device(nativeDevice, this) : null
-      )
+      if (error) {
+        listener(parseBleError(error, this._errorCodesToMessagesMapping), null)
+        return
+      }
+      if (!nativeDevice) {
+        listener(null, null)
+        return
+      }
+      if (nameExact || namePrefix) {
+        const n = nativeDevice.name || nativeDevice.localName || ''
+        if (nameExact && n !== nameExact) return
+        if (namePrefix && !n.startsWith(namePrefix)) return
+      }
+      listener(null, new Device(nativeDevice, this))
     }
+
+    // Native stack does not need JS-only filter fields
+    const nativeOptions = options
+      ? {
+          allowDuplicates: options.allowDuplicates,
+          scanMode: options.scanMode,
+          callbackType: options.callbackType,
+          legacyScan: options.legacyScan
+        }
+      : null
 
     this._scanEventSubscription = this._eventEmitter.addListener(BleModule.ScanEvent, scanListener)
 
-    return this._callPromise(BleModule.startDeviceScan(UUIDs || null, options || null))
+    return this._callPromise(BleModule.startDeviceScan(UUIDs || null, nativeOptions))
+  }
+
+  /**
+   * Scan until a device matching `predicate` is found, then connect.
+   * Stops the scan before connecting. Times out with {@link BleErrorCode.DeviceNotFound}.
+   */
+  async findAndConnect(
+    predicate: (device: Device) => boolean,
+    options: FindAndConnectOptions = {}
+  ): Promise<Device> {
+    const timeoutMs = options.scanTimeoutMs ?? 10000
+    const serviceUUIDs = null
+    return new Promise<Device>((resolve, reject) => {
+      let settled = false
+      const timer = setTimeout(() => {
+        if (settled) return
+        settled = true
+        void this.stopDeviceScan().finally(() => {
+          reject(
+            parseBleError(
+              JSON.stringify({
+                errorCode: BleErrorCode.DeviceNotFound,
+                attErrorCode: null,
+                iosErrorCode: null,
+                androidErrorCode: null,
+                reason: null,
+                deviceID: undefined,
+                internalMessage: `findAndConnect timed out after ${timeoutMs}ms`
+              }),
+              this._errorCodesToMessagesMapping
+            )
+          )
+        })
+      }, timeoutMs)
+
+      void this.startDeviceScan(serviceUUIDs, options.scanOptions ?? null, (error, device) => {
+        if (settled) return
+        if (error) {
+          settled = true
+          clearTimeout(timer)
+          void this.stopDeviceScan().finally(() => reject(error))
+          return
+        }
+        if (!device || !predicate(device)) return
+        settled = true
+        clearTimeout(timer)
+        void this.stopDeviceScan()
+          .catch(() => undefined)
+          .then(() => this.connectToDevice(device.id, options))
+          .then(resolve)
+          .catch(reject)
+      }).catch(err => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        reject(err)
+      })
+    })
   }
 
   /**
@@ -1486,6 +1575,67 @@ export class BleManager {
    */
   supports(capability: BleCapability): boolean {
     return supportsCapability(capability, 'react-native')
+  }
+
+  /**
+   * Check Android/iOS BLE runtime permissions (no prompt).
+   */
+  checkBluetoothPermissions(): Promise<PermissionCheckResult> {
+    return checkBluetoothPermissions()
+  }
+
+  /**
+   * Request Android BLE runtime permissions (iOS no-op grant).
+   */
+  requestBluetoothPermissions(): Promise<PermissionCheckResult> {
+    return requestBluetoothPermissions()
+  }
+
+  /**
+   * Create a bond (pair) with a device. **Android only.**
+   * iOS pairing is OS-driven when accessing protected characteristics.
+   */
+  async createBond(deviceIdentifier: DeviceId): Promise<void> {
+    if (!this.supports('bonding') || Platform.OS !== 'android') {
+      return rejectUnsupported(
+        'createBond',
+        Platform.OS === 'ios'
+          ? 'iOS pairing is OS-driven; no createBond API'
+          : 'bonding requires Android react-native host'
+      )
+    }
+    await this._callPromise(BleModule.createBond(deviceIdentifier))
+  }
+
+  /**
+   * Remove bond for a device. **Android only** (uses removeBond where available).
+   */
+  async removeBond(deviceIdentifier: DeviceId): Promise<void> {
+    if (!this.supports('bonding') || Platform.OS !== 'android') {
+      return rejectUnsupported(
+        'removeBond',
+        Platform.OS === 'ios'
+          ? 'iOS has no removeBond API'
+          : 'bonding requires Android react-native host'
+      )
+    }
+    await this._callPromise(BleModule.removeBond(deviceIdentifier))
+  }
+
+  /**
+   * Read bond state for a device. **Android only.**
+   */
+  async getBondState(deviceIdentifier: DeviceId): Promise<BondState> {
+    if (!this.supports('bonding') || Platform.OS !== 'android') {
+      return rejectUnsupported(
+        'getBondState',
+        Platform.OS === 'ios'
+          ? 'iOS has no bond-state API'
+          : 'bonding requires Android react-native host'
+      )
+    }
+    const state = await this._callPromise(BleModule.getBondState(deviceIdentifier))
+    return state as BondState
   }
 
   // ---------------------------------------------------------------------------

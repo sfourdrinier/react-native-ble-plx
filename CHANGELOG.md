@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Android bonding:** `createBond` / `removeBond` / `getBondState` (native Android + iOS typed `OperationNotSupported` stubs); `docs/BONDING.md`.
+- **`findAndConnect`**, scan name filters (`deviceName` / `deviceNamePrefix`), permission helpers `requestBluetoothPermissions` / `checkBluetoothPermissions`.
+- **`BleErrorCode.OperationNotSupported`** (+ DeviceBondFailed / DeviceUnbondFailed) for honest multi-host failures.
+- **Benchmark harness** (notify dual-path + encoding) in package tests.
 - **Host-agnostic `BlePort` + `FakeBlePort` + `PortBleManager`:** full central lifecycle (scan/connect/discover/R/W/notify) with dual Base64 + bytes store.
 - **Parallel bytes API on RN:** `readCharacteristicForDeviceAsBytes`, `writeCharacteristic*FromBytes`, `monitorCharacteristicForDeviceAsBytes`, plus `Characteristic.readAsBytes` / `write*FromBytes` / `monitorAsBytes`. Existing Base64 methods and `.value` typing unchanged.
 - **`supports(capability)`** honesty matrix (`src/supports.ts`) + `docs/PLATFORMS.md`.

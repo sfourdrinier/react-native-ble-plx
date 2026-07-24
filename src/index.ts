@@ -28,6 +28,10 @@ export type { PortBleManagerOptions, PortDevice, PortSubscription } from './port
 export { supports, capabilitiesFor } from './supports'
 export type { BleCapability, HostKind } from './supports'
 export type { CharacteristicAsBytes } from './BleManager'
+export { checkBluetoothPermissions, requestBluetoothPermissions } from './permissions'
+export type { PermissionCheckResult } from './permissions'
+export { unsupportedOperationError, rejectUnsupported } from './unsupported'
+export type { BondState, FindAndConnectOptions } from './TypeDefinition'
 
 export type {
   Subscription,

@@ -187,6 +187,32 @@ export interface ScanOptions {
    * @instance
    */
   legacyScan?: boolean
+
+  /**
+   * When true, only devices whose advertised localName/name matches `deviceName` exactly are reported.
+   * Applied in JS after native scan results (all hosts that use BleManager scan).
+   */
+  deviceName?: string
+
+  /**
+   * When set, only devices whose name/localName starts with this prefix are reported (JS-side filter).
+   */
+  deviceNamePrefix?: string
+}
+
+/**
+ * Android bond (pairing) state. iOS pairing is OS-driven — use supports('bonding').
+ */
+export type BondState = 'none' | 'bonding' | 'bonded'
+
+/**
+ * Options for {@link BleManager#findAndConnect|findAndConnect}.
+ */
+export interface FindAndConnectOptions extends ConnectionOptions {
+  /** Max time to scan before failing (ms). Default 10000. */
+  scanTimeoutMs?: number
+  /** Optional scan options (name filters, Android scan mode, etc.). */
+  scanOptions?: ScanOptions | null
 }
 
 /**

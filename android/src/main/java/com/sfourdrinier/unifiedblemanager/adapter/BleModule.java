@@ -4,13 +4,19 @@ import static com.sfourdrinier.unifiedblemanager.adapter.utils.Constants.Bluetoo
 
 import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGattCharacteristic;
 import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.ParcelUuid;
 import android.util.SparseArray;
 
@@ -42,11 +48,13 @@ import com.polidea.rxandroidble2.internal.RxBleLog;
 import com.polidea.rxandroidble2.scan.ScanFilter;
 import com.polidea.rxandroidble2.scan.ScanSettings;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.reactivex.BackpressureStrategy;
 import io.reactivex.Observable;
@@ -426,6 +434,138 @@ public class BleModule implements BleAdapter {
     } catch (Exception e) {
       RxBleLog.e(e, "Error while checking if device is connected");
       onErrorCallback.onError(errorConverter.toError(e));
+    }
+  }
+
+  @SuppressLint("MissingPermission")
+  @Override
+  public void createBond(String deviceIdentifier,
+                         OnSuccessCallback<Void> onSuccessCallback,
+                         OnErrorCallback onErrorCallback) {
+    if (bluetoothAdapter == null) {
+      onErrorCallback.onError(new BleError(BleErrorCode.BluetoothUnsupported, "Bluetooth adapter unavailable", null));
+      return;
+    }
+    final BluetoothDevice device;
+    try {
+      device = bluetoothAdapter.getRemoteDevice(deviceIdentifier);
+    } catch (Exception e) {
+      onErrorCallback.onError(new BleError(BleErrorCode.DeviceNotFound, "Invalid device id for createBond", null));
+      return;
+    }
+    if (device.getBondState() == BluetoothDevice.BOND_BONDED) {
+      onSuccessCallback.onSuccess(null);
+      return;
+    }
+    final AtomicBoolean finished = new AtomicBoolean(false);
+    final BroadcastReceiver receiver = new BroadcastReceiver() {
+      @Override
+      public void onReceive(Context ctx, Intent intent) {
+        if (!BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(intent.getAction())) return;
+        BluetoothDevice d = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+        if (d == null || !deviceIdentifier.equalsIgnoreCase(d.getAddress())) return;
+        int state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE);
+        if (state == BluetoothDevice.BOND_BONDED) {
+          if (finished.compareAndSet(false, true)) {
+            try {
+              context.unregisterReceiver(this);
+            } catch (Exception ignored) {
+            }
+            onSuccessCallback.onSuccess(null);
+          }
+        } else if (state == BluetoothDevice.BOND_NONE) {
+          int prev = intent.getIntExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, BluetoothDevice.BOND_NONE);
+          if (prev == BluetoothDevice.BOND_BONDING && finished.compareAndSet(false, true)) {
+            try {
+              context.unregisterReceiver(this);
+            } catch (Exception ignored) {
+            }
+            onErrorCallback.onError(new BleError(BleErrorCode.DeviceBondFailed, "Bonding failed for " + deviceIdentifier, null));
+          }
+        }
+      }
+    };
+    IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+    context.registerReceiver(receiver, filter);
+    boolean started = device.createBond();
+    if (!started) {
+      try {
+        context.unregisterReceiver(receiver);
+      } catch (Exception ignored) {
+      }
+      onErrorCallback.onError(new BleError(BleErrorCode.DeviceBondFailed, "createBond returned false for " + deviceIdentifier, null));
+      return;
+    }
+    // Safety timeout 60s
+    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+      if (finished.compareAndSet(false, true)) {
+        try {
+          context.unregisterReceiver(receiver);
+        } catch (Exception ignored) {
+        }
+        if (device.getBondState() == BluetoothDevice.BOND_BONDED) {
+          onSuccessCallback.onSuccess(null);
+        } else {
+          onErrorCallback.onError(new BleError(BleErrorCode.DeviceBondFailed, "Bonding timed out for " + deviceIdentifier, null));
+        }
+      }
+    }, 60_000);
+  }
+
+  @SuppressLint("MissingPermission")
+  @Override
+  public void removeBond(String deviceIdentifier,
+                         OnSuccessCallback<Void> onSuccessCallback,
+                         OnErrorCallback onErrorCallback) {
+    if (bluetoothAdapter == null) {
+      onErrorCallback.onError(new BleError(BleErrorCode.BluetoothUnsupported, "Bluetooth adapter unavailable", null));
+      return;
+    }
+    final BluetoothDevice device;
+    try {
+      device = bluetoothAdapter.getRemoteDevice(deviceIdentifier);
+    } catch (Exception e) {
+      onErrorCallback.onError(new BleError(BleErrorCode.DeviceNotFound, "Invalid device id for removeBond", null));
+      return;
+    }
+    if (device.getBondState() == BluetoothDevice.BOND_NONE) {
+      onSuccessCallback.onSuccess(null);
+      return;
+    }
+    try {
+      Method removeBond = device.getClass().getMethod("removeBond");
+      Object result = removeBond.invoke(device);
+      if (Boolean.FALSE.equals(result)) {
+        onErrorCallback.onError(new BleError(BleErrorCode.DeviceUnbondFailed, "removeBond returned false for " + deviceIdentifier, null));
+        return;
+      }
+      onSuccessCallback.onSuccess(null);
+    } catch (Exception e) {
+      onErrorCallback.onError(new BleError(BleErrorCode.DeviceUnbondFailed, "removeBond failed: " + e.getMessage(), null));
+    }
+  }
+
+  @SuppressLint("MissingPermission")
+  @Override
+  public void getBondState(String deviceIdentifier,
+                           OnSuccessCallback<String> onSuccessCallback,
+                           OnErrorCallback onErrorCallback) {
+    if (bluetoothAdapter == null) {
+      onErrorCallback.onError(new BleError(BleErrorCode.BluetoothUnsupported, "Bluetooth adapter unavailable", null));
+      return;
+    }
+    try {
+      BluetoothDevice device = bluetoothAdapter.getRemoteDevice(deviceIdentifier);
+      int state = device.getBondState();
+      if (state == BluetoothDevice.BOND_BONDED) {
+        onSuccessCallback.onSuccess("bonded");
+      } else if (state == BluetoothDevice.BOND_BONDING) {
+        onSuccessCallback.onSuccess("bonding");
+      } else {
+        onSuccessCallback.onSuccess("none");
+      }
+    } catch (Exception e) {
+      onErrorCallback.onError(new BleError(BleErrorCode.DeviceNotFound, "Invalid device id for getBondState", null));
     }
   }
 

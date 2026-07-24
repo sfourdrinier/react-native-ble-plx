@@ -110,6 +110,11 @@ export enum BleErrorCode {
    * Invalid UUIDs or IDs were passed to API call.
    */
   InvalidIdentifiers = 5,
+  /**
+   * Operation is not supported on this host/platform/backend.
+   * Prefer checking {@link BleManager#supports|supports()} first; this is the typed failure channel.
+   */
+  OperationNotSupported = 6,
 
   // Bluetooth global states -------------------------------------------------------------------------------------------
   /**
@@ -167,6 +172,14 @@ export enum BleErrorCode {
    * Device could not change MTU value.
    */
   DeviceMTUChangeFailed = 206,
+  /**
+   * Bonding (pairing) failed. [Android]
+   */
+  DeviceBondFailed = 207,
+  /**
+   * Removing a bond failed. [Android]
+   */
+  DeviceUnbondFailed = 208,
 
   // Services ----------------------------------------------------------------------------------------------------------
   /**
@@ -270,6 +283,9 @@ export enum BleErrorCode {
   LocationServicesDisabled = 601
 }
 
+/** @deprecated Use OperationNotSupported; alias for docs/roadmap naming */
+export const OperationNotSupportedCode = BleErrorCode.OperationNotSupported
+
 /**
  * Mapping of error codes to error messages
  * @name BleErrorCodeMessage
@@ -282,6 +298,8 @@ export const BleErrorCodeMessage: BleErrorCodeMessageMapping = {
   [BleErrorCode.OperationTimedOut]: 'Operation timed out',
   [BleErrorCode.OperationStartFailed]: 'Operation was rejected',
   [BleErrorCode.InvalidIdentifiers]: 'Invalid UUIDs or IDs were passed: {internalMessage}',
+  [BleErrorCode.OperationNotSupported]:
+    'Operation is not supported on this host/platform: {internalMessage}',
 
   // Bluetooth global states
   [BleErrorCode.BluetoothUnsupported]: 'BluetoothLE is unsupported on this device',
@@ -299,6 +317,8 @@ export const BleErrorCodeMessage: BleErrorCodeMessageMapping = {
   [BleErrorCode.DeviceNotFound]: 'Device {deviceID} not found',
   [BleErrorCode.DeviceNotConnected]: 'Device {deviceID} is not connected',
   [BleErrorCode.DeviceMTUChangeFailed]: 'Device {deviceID} could not change MTU size',
+  [BleErrorCode.DeviceBondFailed]: 'Device {deviceID} bonding failed',
+  [BleErrorCode.DeviceUnbondFailed]: 'Device {deviceID} unbond failed',
 
   // Services
   [BleErrorCode.ServicesDiscoveryFailed]: 'Services discovery failed for device {deviceID}',

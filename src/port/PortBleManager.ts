@@ -6,6 +6,7 @@
 import { base64ToBytes, bytesToBase64 } from '../encoding'
 import type { BleCapability, HostKind } from '../supports'
 import { supports as supportsCapability } from '../supports'
+import { rejectUnsupported } from '../unsupported'
 import type { BlePort, PortAdvertisement, PortDeviceId, PortUnsubscribe } from './BlePort'
 
 export type PortDevice = {
@@ -82,6 +83,89 @@ export class PortBleManager {
 
   async isDeviceConnected(deviceId: PortDeviceId): Promise<boolean> {
     return this.port.getConnectionState(deviceId) === 'connected'
+  }
+
+  /**
+   * Scan until predicate matches, then connect (same spirit as RN BleManager.findAndConnect).
+   */
+  async findAndConnect(
+    predicate: (device: PortDevice) => boolean,
+    options: { scanTimeoutMs?: number } = {}
+  ): Promise<PortDevice> {
+    if (!this.supports('scan') && !this.supports('continuousScan')) {
+      return rejectUnsupported('findAndConnect', `host=${this.host} has no continuous scan`)
+    }
+    const timeoutMs = options.scanTimeoutMs ?? 10000
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const timer = setTimeout(() => {
+        if (settled) return
+        settled = true
+        void this.stopDeviceScan().finally(() => {
+          reject(new Error(`findAndConnect timed out after ${timeoutMs}ms`))
+        })
+      }, timeoutMs)
+
+      void this.startDeviceScan(null, null, (error, device) => {
+        if (settled) return
+        if (error) {
+          settled = true
+          clearTimeout(timer)
+          void this.stopDeviceScan().finally(() => reject(error))
+          return
+        }
+        if (!device || !predicate(device)) return
+        settled = true
+        clearTimeout(timer)
+        void this.stopDeviceScan()
+          .catch(() => undefined)
+          .then(() => this.connectToDevice(device.id))
+          .then(resolve)
+          .catch(reject)
+      }).catch(err => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        reject(err)
+      })
+    })
+  }
+
+  async createBond(deviceId: PortDeviceId): Promise<void> {
+    if (!this.supports('bonding')) {
+      return rejectUnsupported('createBond', `host=${this.host}`)
+    }
+    const port = this.port as unknown as { createBond?: (id: string) => Promise<void> }
+    if (typeof port.createBond === 'function') {
+      await port.createBond(deviceId)
+      return
+    }
+    return rejectUnsupported('createBond', 'port does not implement bonding')
+  }
+
+  async removeBond(deviceId: PortDeviceId): Promise<void> {
+    if (!this.supports('bonding')) {
+      return rejectUnsupported('removeBond', `host=${this.host}`)
+    }
+    const port = this.port as unknown as { removeBond?: (id: string) => Promise<void> }
+    if (typeof port.removeBond === 'function') {
+      await port.removeBond(deviceId)
+      return
+    }
+    return rejectUnsupported('removeBond', 'port does not implement bonding')
+  }
+
+  async getBondState(deviceId: PortDeviceId): Promise<'none' | 'bonding' | 'bonded'> {
+    if (!this.supports('bonding')) {
+      return rejectUnsupported('getBondState', `host=${this.host}`)
+    }
+    const port = this.port as unknown as {
+      getBondState?: (id: string) => Promise<'none' | 'bonding' | 'bonded'>
+    }
+    if (typeof port.getBondState === 'function') {
+      return port.getBondState(deviceId)
+    }
+    return rejectUnsupported('getBondState', 'port does not implement bonding')
   }
 
   async discoverAllServicesAndCharacteristicsForDevice(deviceId: PortDeviceId): Promise<PortDevice> {

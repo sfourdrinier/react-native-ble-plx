@@ -38,8 +38,8 @@ const MATRIX: Record<HostKind, Partial<Record<BleCapability, boolean>>> = {
     base64Path: true,
     requestDevice: false,
     continuousScan: true,
-    // Fail-closed until createBond/removeBond/bondState ship (Phase 1 Open).
-    bonding: false,
+    // Public createBond/removeBond/getBondState exist (Android-native; iOS rejects typed).
+    bonding: true,
     requestMtu: true,
     connectionPriority: true,
     iosStateRestoration: true,

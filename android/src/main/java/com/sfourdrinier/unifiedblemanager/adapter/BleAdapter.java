@@ -71,6 +71,24 @@ public interface BleAdapter {
     OnSuccessCallback<Boolean> onSuccessCallback,
     OnErrorCallback onErrorCallback);
 
+  /** Create a bond (pair) with device. Android only. */
+  void createBond(
+    String deviceIdentifier,
+    OnSuccessCallback<Void> onSuccessCallback,
+    OnErrorCallback onErrorCallback);
+
+  /** Remove bond. Android only. */
+  void removeBond(
+    String deviceIdentifier,
+    OnSuccessCallback<Void> onSuccessCallback,
+    OnErrorCallback onErrorCallback);
+
+  /** Bond state: "none" | "bonding" | "bonded". */
+  void getBondState(
+    String deviceIdentifier,
+    OnSuccessCallback<String> onSuccessCallback,
+    OnErrorCallback onErrorCallback);
+
   void discoverAllServicesAndCharacteristicsForDevice(
     String deviceIdentifier,
     String transactionId,

@@ -1123,6 +1123,45 @@ public class BlePlxModule extends NativeBlePlxSpec {
     }
   }
 
+  @ReactMethod
+  public void createBond(final String deviceId, final Promise promise) {
+    if (!this.isRequestPossibleHandler("createBond", promise)) {
+      return;
+    }
+    final SafePromise safePromise = new SafePromise(promise);
+    bleAdapter.createBond(
+      deviceId,
+      value -> safePromise.resolve(null),
+      error -> safePromise.reject(DEFAULT_ERROR_CODE, errorConverter.toJs(error))
+    );
+  }
+
+  @ReactMethod
+  public void removeBond(final String deviceId, final Promise promise) {
+    if (!this.isRequestPossibleHandler("removeBond", promise)) {
+      return;
+    }
+    final SafePromise safePromise = new SafePromise(promise);
+    bleAdapter.removeBond(
+      deviceId,
+      value -> safePromise.resolve(null),
+      error -> safePromise.reject(DEFAULT_ERROR_CODE, errorConverter.toJs(error))
+    );
+  }
+
+  @ReactMethod
+  public void getBondState(final String deviceId, final Promise promise) {
+    if (!this.isRequestPossibleHandler("getBondState", promise)) {
+      return;
+    }
+    final SafePromise safePromise = new SafePromise(promise);
+    bleAdapter.getBondState(
+      deviceId,
+      safePromise::resolve,
+      error -> safePromise.reject(DEFAULT_ERROR_CODE, errorConverter.toJs(error))
+    );
+  }
+
   /**
    * Check if a service is running
    */

@@ -762,6 +762,56 @@ RCT_EXPORT_METHOD(isBackgroundModeEnabled:(RCTPromiseResolveBlock)resolve
     resolve(@YES);
 }
 
+// Mark: Bonding (Android-only surface; iOS is OS-driven) ---------------------------------------------------------------
+
+RCT_EXPORT_METHOD(createBond:(NSString*)deviceIdentifier
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    NSDictionary *error = @{
+        @"errorCode": @6, // OperationNotSupported
+        @"attErrorCode": [NSNull null],
+        @"iosErrorCode": [NSNull null],
+        @"androidErrorCode": [NSNull null],
+        @"reason": [NSNull null],
+        @"internalMessage": @"createBond is Android-only; iOS pairing is OS-driven"
+    };
+    NSData *json = [NSJSONSerialization dataWithJSONObject:error options:0 error:nil];
+    NSString *msg = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
+    reject(@"BlePlxError", msg, nil);
+}
+
+RCT_EXPORT_METHOD(removeBond:(NSString*)deviceIdentifier
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    NSDictionary *error = @{
+        @"errorCode": @6,
+        @"attErrorCode": [NSNull null],
+        @"iosErrorCode": [NSNull null],
+        @"androidErrorCode": [NSNull null],
+        @"reason": [NSNull null],
+        @"internalMessage": @"removeBond is Android-only"
+    };
+    NSData *json = [NSJSONSerialization dataWithJSONObject:error options:0 error:nil];
+    NSString *msg = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
+    reject(@"BlePlxError", msg, nil);
+}
+
+RCT_EXPORT_METHOD(getBondState:(NSString*)deviceIdentifier
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    NSDictionary *error = @{
+        @"errorCode": @6,
+        @"attErrorCode": [NSNull null],
+        @"iosErrorCode": [NSNull null],
+        @"androidErrorCode": [NSNull null],
+        @"reason": [NSNull null],
+        @"internalMessage": @"getBondState is Android-only"
+    };
+    NSData *json = [NSJSONSerialization dataWithJSONObject:error options:0 error:nil];
+    NSString *msg = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
+    reject(@"BlePlxError", msg, nil);
+}
+
 // Mark: Other operations ----------------------------------------------------------------------------------------------
 
 RCT_EXPORT_METHOD(cancelTransaction:(NSString*)transactionId

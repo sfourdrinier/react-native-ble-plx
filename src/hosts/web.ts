@@ -11,6 +11,7 @@ import type { BlePort, PortAdvertisement, PortCharacteristicMeta, PortDeviceId, 
 import { PortBleManager } from '../port/PortBleManager'
 import { supports as supportsCapability, type BleCapability } from '../supports'
 import { base64ToBytes, bytesToBase64 } from '../encoding'
+import { unsupportedOperationError } from '../unsupported'
 
 /** Minimal subset of Web Bluetooth types used by the adapter (avoids DOM lib requirement in RN tsc). */
 export type WebBluetoothRemoteGATTCharacteristic = {
@@ -311,8 +312,9 @@ export class BleManager extends PortBleManager {
   ): Promise<void> {
     // Honest: continuous scan is not supported on standard Web Bluetooth.
     if (!this.supports('continuousScan')) {
-      const err = new Error(
-        'startDeviceScan is not supported on Web Bluetooth. Use requestDevice() after a user gesture.'
+      const err = unsupportedOperationError(
+        'startDeviceScan',
+        'Web Bluetooth uses requestDevice() after a user gesture'
       )
       listener(err, null)
       throw err

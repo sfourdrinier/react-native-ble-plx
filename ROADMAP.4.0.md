@@ -551,14 +551,14 @@ Electron/desktop: document process lifetime only—never mobile FGS/restore clai
 
 | Work | Status |
 | ---- | ------ |
-| Bytes path + Base64 compat (default preserves 3.8 shapes) | **Done (alpha)** — parallel API + tests |
+| Bytes path + Base64 compat (default preserves 3.8 shapes) | **Done** — parallel API + tests |
 | Encoding helpers + round-trip tests | **Done** |
-| Android bonding + bond state | Open |
-| Scan filters; `findAndConnect`; permission helpers | Open |
-| `supports()` boolean contract + typed unsupported-operation failures | **Partial** — boolean matrix; typed failures expand next |
+| Android bonding + bond state | **Done** — createBond/removeBond/getBondState + tests |
+| Scan filters; `findAndConnect`; permission helpers | **Done** — name filters + findAndConnect + permissions.ts |
+| `supports()` boolean contract + typed unsupported-operation failures | **Done** — OperationNotSupported |
 | BACKGROUND.md v1 | Exists from 3.9; keep current |
-| Notify/connect **benchmark harness** (Base64 mode vs bytes mode) | Open |
-| Optional codemod v0 on fixtures only | Open |
+| Notify/connect **benchmark harness** (Base64 mode vs bytes mode) | **Done** — package Benchmark.harness.test |
+| Optional codemod v0 on fixtures only | Open (optional) |
 
 **Exit:**
 - Unmodified 3.8-style sample still works.

@@ -822,6 +822,26 @@ export interface BleModuleInterface {
    */
   isBackgroundModeEnabled(): Promise<boolean>
 
+  // Bonding (Android)
+
+  /**
+   * Create a bond with the device. [Android only]
+   * @private
+   */
+  createBond(deviceIdentifier: DeviceId): Promise<void>
+
+  /**
+   * Remove bond for the device. [Android only]
+   * @private
+   */
+  removeBond(deviceIdentifier: DeviceId): Promise<void>
+
+  /**
+   * Bond state: "none" | "bonding" | "bonded". [Android only]
+   * @private
+   */
+  getBondState(deviceIdentifier: DeviceId): Promise<string>
+
   // Other APIs
 
   /**

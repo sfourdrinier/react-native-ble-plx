@@ -24,6 +24,10 @@ public enum BleErrorCode {
   DeviceNotFound(204),
   DeviceNotConnected(205),
   DeviceMTUChangeFailed(206),
+  DeviceBondFailed(207),
+  DeviceUnbondFailed(208),
+
+  OperationNotSupported(6),
 
   ServicesDiscoveryFailed(300),
   IncludedServicesDiscoveryFailed(301),

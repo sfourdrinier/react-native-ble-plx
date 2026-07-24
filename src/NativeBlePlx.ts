@@ -246,6 +246,12 @@ export interface Spec extends TurboModule {
   updateBackgroundNotification(options: BackgroundModeOptions | null): Promise<boolean>
   isBackgroundModeEnabled(): Promise<boolean>
 
+  /** Android bonding (pairing). */
+  createBond(deviceIdentifier: DeviceId): Promise<void>
+  removeBond(deviceIdentifier: DeviceId): Promise<void>
+  /** Returns "none" | "bonding" | "bonded" */
+  getBondState(deviceIdentifier: DeviceId): Promise<string>
+
   cancelTransaction(transactionId: TransactionId): Promise<void>
   setLogLevel(logLevel: NativeLogLevel): Promise<NativeLogLevel | void>
   logLevel(): Promise<NativeLogLevel>
