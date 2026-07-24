@@ -1,14 +1,23 @@
 const fs = require('fs')
 const path = require('path')
 
-const podspec = fs.readFileSync(path.join(__dirname, '..', 'unified-ble-manager.podspec'), 'utf8')
-const iosHeader = fs.readFileSync(path.join(__dirname, '..', 'ios/BlePlx.h'), 'utf8')
+/** Normalize CRLF from Windows checkouts so multiline matchers stay LF-based. */
+const readText = p => fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n')
+
+const podspec = readText(path.join(__dirname, '..', 'unified-ble-manager.podspec'))
+const iosHeader = readText(path.join(__dirname, '..', 'ios/BlePlx.h'))
 const iosImplementationPath = path.join(__dirname, '..', 'ios/BlePlx.mm')
-const iosImplementation = fs.readFileSync(iosImplementationPath, 'utf8')
-const iosXcodeProject = fs.readFileSync(path.join(__dirname, '..', 'ios/BlePlx.xcodeproj/project.pbxproj'), 'utf8')
-const examplePodfile = fs.readFileSync(path.join(__dirname, '..', 'example/ios/Podfile'), 'utf8')
+const iosImplementation = readText(iosImplementationPath)
+const iosXcodeProject = readText(path.join(__dirname, '..', 'ios/BlePlx.xcodeproj/project.pbxproj'))
+const examplePodfile = readText(path.join(__dirname, '..', 'example/ios/Podfile'))
 const iosTurboModulePath = path.join(__dirname, '..', 'ios/BlePlxTurboModule.mm')
-const iosTurboModule = fs.existsSync(iosTurboModulePath) ? fs.readFileSync(iosTurboModulePath, 'utf8') : ''
+const iosTurboModule = fs.existsSync(iosTurboModulePath) ? readText(iosTurboModulePath) : ''
+
+// Bonding surface exists on iOS as typed OperationNotSupported stubs
+const hasBondStubs =
+  iosImplementation.includes('createBond:(NSString*)deviceIdentifier') &&
+  iosImplementation.includes('removeBond:(NSString*)deviceIdentifier') &&
+  iosImplementation.includes('getBondState:(NSString*)deviceIdentifier')
 
 describe('iOS modernization defaults', () => {
   test('uses the Expo SDK 57 iOS deployment target floor', () => {
@@ -93,6 +102,9 @@ describe('iOS modernization defaults', () => {
       'disableBackgroundMode:(RCTPromiseResolveBlock)resolve',
       'updateBackgroundNotification:(JS::NativeBlePlx::BackgroundModeOptions &)options',
       'isBackgroundModeEnabled:(RCTPromiseResolveBlock)resolve',
+      'createBond:(NSString*)deviceIdentifier',
+      'removeBond:(NSString*)deviceIdentifier',
+      'getBondState:(NSString*)deviceIdentifier',
       'cancelTransaction:(NSString*)transactionId',
       'setLogLevel:(NSString*)logLevel',
       'logLevel:(RCTPromiseResolveBlock)resolve',
@@ -102,6 +114,7 @@ describe('iOS modernization defaults', () => {
       '[BleEvent disconnectionEvent]'
     ]
 
+    expect(hasBondStubs).toBe(true)
     for (const selector of requiredSelectors) {
       expect(iosImplementation).toContain(selector)
     }

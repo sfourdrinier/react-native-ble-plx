@@ -1,3 +1,24 @@
+# Normalize text to LF so Windows checkouts don't break multiline test matchers.
+* text=auto eol=lf
+
+# Xcode projects: leave binary-ish as-is
 *.pbxproj -text
-# specific for windows script files
+
+# Windows scripts keep CRLF
 *.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.jar binary
+*.so binary
+*.a binary
+*.dylib binary
+*.zip binary
+*.gz binary
+*.tgz binary

@@ -5,41 +5,41 @@ const exampleExpoApp = require('../example-expo/app.json')
 const fs = require('fs')
 const path = require('path')
 
-const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8')
-const releaseDoc = fs.readFileSync(path.join(__dirname, '..', 'RELEASE.md'), 'utf8')
+/** Normalize CRLF from Windows checkouts so multiline matchers stay LF-based. */
+const readText = p => fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n')
+
+const readme = readText(path.join(__dirname, '..', 'README.md'))
+const releaseDoc = readText(path.join(__dirname, '..', 'RELEASE.md'))
 const releaseVerifyScriptPath = path.join(__dirname, '..', 'scripts/verify-release.sh')
-const releaseVerifyScript = fs.existsSync(releaseVerifyScriptPath)
-  ? fs.readFileSync(releaseVerifyScriptPath, 'utf8')
-  : ''
-const nvmrc = fs.readFileSync(path.join(__dirname, '..', '.nvmrc'), 'utf8').trim()
-const ciWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github/workflows/ci.yml'), 'utf8')
+const releaseVerifyScript = fs.existsSync(releaseVerifyScriptPath) ? readText(releaseVerifyScriptPath) : ''
+const nvmrc = readText(path.join(__dirname, '..', '.nvmrc')).trim()
+const ciWorkflow = readText(path.join(__dirname, '..', '.github/workflows/ci.yml'))
 const appleCiWorkflow = fs.existsSync(path.join(__dirname, '..', '.github/workflows/apple-ci.yml'))
-  ? fs.readFileSync(path.join(__dirname, '..', '.github/workflows/apple-ci.yml'), 'utf8')
+  ? readText(path.join(__dirname, '..', '.github/workflows/apple-ci.yml'))
   : ''
 const selectXcodeAction = fs.existsSync(path.join(__dirname, '..', '.github/actions/select-xcode/action.yml'))
-  ? fs.readFileSync(path.join(__dirname, '..', '.github/actions/select-xcode/action.yml'), 'utf8')
+  ? readText(path.join(__dirname, '..', '.github/actions/select-xcode/action.yml'))
   : ''
 const dependabotPath = path.join(__dirname, '..', '.github/dependabot.yml')
-const dependabot = fs.existsSync(dependabotPath) ? fs.readFileSync(dependabotPath, 'utf8') : ''
+const dependabot = fs.existsSync(dependabotPath) ? readText(dependabotPath) : ''
 const githubConfig = fs
   .readdirSync(path.join(__dirname, '..', '.github'), { recursive: true })
-  .filter((filePath) => filePath.endsWith('.yml') || filePath.endsWith('.yaml'))
-  .map((filePath) => fs.readFileSync(path.join(__dirname, '..', '.github', filePath), 'utf8'))
+  .filter(filePath => filePath.endsWith('.yml') || filePath.endsWith('.yaml'))
+  .map(filePath => readText(path.join(__dirname, '..', '.github', filePath)))
   .join('\n')
 const nativeBlePlxSpecPath = path.join(__dirname, '..', 'src/NativeBlePlx.ts')
-const nativeBlePlxSpec = fs.existsSync(nativeBlePlxSpecPath) ? fs.readFileSync(nativeBlePlxSpecPath, 'utf8') : ''
-const bleModule = fs.readFileSync(path.join(__dirname, '..', 'src/BleModule.ts'), 'utf8')
-const connectionManager = fs.readFileSync(path.join(__dirname, '..', 'src/ConnectionManager.ts'), 'utf8')
+const nativeBlePlxSpec = fs.existsSync(nativeBlePlxSpecPath) ? readText(nativeBlePlxSpecPath) : ''
+const bleModule = readText(path.join(__dirname, '..', 'src/BleModule.ts'))
+const connectionManager = readText(path.join(__dirname, '..', 'src/ConnectionManager.ts'))
 const connectionQueuePath = path.join(__dirname, '..', 'src/ConnectionQueue.ts')
 const reconnectionManagerPath = path.join(__dirname, '..', 'src/ReconnectionManager.ts')
-const gettingStartedDoc = fs.readFileSync(path.join(__dirname, '..', 'docs/GETTING_STARTED.md'), 'utf8')
-const connectionManagerDoc = fs.readFileSync(path.join(__dirname, '..', 'docs/CONNECTION_MANAGER.md'), 'utf8')
-const exampleExpoGitignore = fs.readFileSync(path.join(__dirname, '..', 'example-expo/.gitignore'), 'utf8')
-const rootGitignore = fs.readFileSync(path.join(__dirname, '..', '.gitignore'), 'utf8')
-const exampleAndroidBuild = fs.readFileSync(path.join(__dirname, '..', 'example/android/build.gradle'), 'utf8')
-const exampleIosProject = fs.readFileSync(
-  path.join(__dirname, '..', 'example/ios/BlePlxExample.xcodeproj/project.pbxproj'),
-  'utf8'
+const gettingStartedDoc = readText(path.join(__dirname, '..', 'docs/GETTING_STARTED.md'))
+const connectionManagerDoc = readText(path.join(__dirname, '..', 'docs/CONNECTION_MANAGER.md'))
+const exampleExpoGitignore = readText(path.join(__dirname, '..', 'example-expo/.gitignore'))
+const rootGitignore = readText(path.join(__dirname, '..', '.gitignore'))
+const exampleAndroidBuild = readText(path.join(__dirname, '..', 'example/android/build.gradle'))
+const exampleIosProject = readText(
+  path.join(__dirname, '..', 'example/ios/BlePlxExample.xcodeproj/project.pbxproj')
 )
 const exampleImports = [
   ...fs
@@ -122,9 +122,8 @@ describe('package modernization targets', () => {
   })
 
   test('CI verifies the same Expo CNG Android build path used locally', () => {
-    const setupJsAction = fs.readFileSync(
-      path.join(__dirname, '..', '.github/actions/setup-js-package/action.yml'),
-      'utf8'
+    const setupJsAction = readText(
+      path.join(__dirname, '..', '.github/actions/setup-js-package/action.yml')
     )
     // Node pin lives in the shared composite action
     expect(setupJsAction).toContain('node-version: 20.19.4')
@@ -213,7 +212,7 @@ describe('package modernization targets', () => {
   test('publish workflow uses tag-triggered OIDC trusted publishing with provenance', () => {
     const publishWorkflowPath = path.join(__dirname, '..', '.github/workflows/publish.yml')
     expect(fs.existsSync(publishWorkflowPath)).toBe(true)
-    const publishWorkflow = fs.readFileSync(publishWorkflowPath, 'utf8')
+    const publishWorkflow = readText(publishWorkflowPath)
     expect(publishWorkflow).toContain("tags:\n      - 'v*.*.*'")
     expect(publishWorkflow).toContain('id-token: write')
     expect(publishWorkflow).toContain('environment: npm')
