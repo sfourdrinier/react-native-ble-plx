@@ -4,15 +4,15 @@ This fork publishes as `@sfourdrinier/react-native-ble-plx`.
 
 ## Current Release
 
-Current released version: `3.9.0`.
+Current released version: `3.9.1`.
 
-- npm package: `@sfourdrinier/react-native-ble-plx@3.9.0`
-- Git tag: `v3.9.0`
-- Source commit: `1fc267198413f8a2a011644d49381ddb6c5ef393`
-- GitHub release: `v3.9.0`
+- npm package: `@sfourdrinier/react-native-ble-plx@3.9.1`
+- Git tag: `v3.9.1`
+- Source commit: `1a476d265379c4d2229b9fa0ad83580fcd5894c6`
+- GitHub release: `v3.9.1`
 - Provenance: yes (`dist.attestations` with SLSA provenance v1)
 
-3.9.0 was published from GitHub Actions with [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) (OIDC) and [provenance attestations](https://docs.npmjs.com/generating-provenance-statements/). Older versions stay as published; provenance is not retroactive.
+3.9.1 was published from GitHub Actions with [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) (OIDC) and [provenance attestations](https://docs.npmjs.com/generating-provenance-statements/). Older versions stay as published; provenance is not retroactive.
 
 ## Two publish paths
 
