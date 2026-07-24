@@ -3,7 +3,7 @@
 **Status:** living document  
 **Last updated:** 2026-07  
 **Package floor:** React Native 0.86+, Expo SDK 57+, TypeScript-first TurboModule  
-**Package version at writing:** 3.8.4
+**Package version at writing:** 3.9.0
 
 This roadmap describes how this fork becomes the most modern, reliable, and feature-complete Bluetooth Low Energy library for React Native—and, over time, a multiplatform BLE client (mobile, web, desktop, Linux). It is intentional product planning, not a release schedule. Priorities can shift when real app needs (especially production background reliability) demand it.
 
@@ -417,13 +417,13 @@ Phases are sequential in intent. Some Phase 1 items can ship independently. Phas
 | React hooks layer (`useBluetoothState`, `useScan`, `useDevice`, …) | **P1** | Low | Thin layer over BleManager / ConnectionManager |
 | Global events bus (connection, MTU, bond, services reset) | **P1** | Med | Multi-device telemetry and UIs |
 | Background hardening pass | **P0** | Med | Restore + FGS race fixes, disconnect storms, kill tests, ConnectionManager integration |
-| `ConnectionManager` externally gated mode (host-owned reconnect policy; CM executes attempts) | **P1** | Low | **Implemented** (`attemptConnectOnce`, [#27](https://github.com/sfourdrinier/react-native-ble-plx/issues/27)) — pending 3.9.0 release |
-| First-class `onRestoredState` handoff (restored peripherals as `Device[]` + resume-streams recipe) | **P1** | Med | **Implemented** (`getRestoredState`, BACKGROUND.md, [#27](https://github.com/sfourdrinier/react-native-ble-plx/issues/27)) — pending 3.9.0 release |
+| `ConnectionManager` externally gated mode (host-owned reconnect policy; CM executes attempts) | **P1** | Low | **Shipped in 3.9.0** (`attemptConnectOnce`, [#27](https://github.com/sfourdrinier/react-native-ble-plx/issues/27) / [#29](https://github.com/sfourdrinier/react-native-ble-plx/pull/29)) |
+| First-class `onRestoredState` handoff (restored peripherals as `Device[]` + resume-streams recipe) | **P1** | Med | **Shipped in 3.9.0** (`getRestoredState`, BACKGROUND.md, [#27](https://github.com/sfourdrinier/react-native-ble-plx/issues/27) / [#29](https://github.com/sfourdrinier/react-native-ble-plx/pull/29)) |
 | Example app: background + multi-device scenarios | **P1** | Low | Proof, not just prose |
 
 **Exit criteria:** OTA/services-reset is first-class; multi-device concurrency is documented and default-safe; background matrix is filled for mobile central; hooks are optional but polished.
 
-**Stable-line delivery note (3.9.0):** the externally-gated `ConnectionManager` mode (`attemptConnectOnce`) and the restore handoff (`getRestoredState` + BACKGROUND.md) are **implemented** on the stable line as additive public API for a **3.9.0 minor** ahead of the 4.x train — tracked in [#27](https://github.com/sfourdrinier/react-native-ble-plx/issues/27). Not 3.8.x — per [ROADMAP.4.0.md](./ROADMAP.4.0.md) versioning, 3.8.x is security/critical fixes only. Unit tests + docs land with the feature PR; package version bump / npm publish follow RELEASE.md after merge.
+**Stable-line delivery note (3.9.0):** the externally-gated `ConnectionManager` mode (`attemptConnectOnce`) and the restore handoff (`getRestoredState` + BACKGROUND.md) shipped on the stable line as additive public API in **3.9.0** ([#27](https://github.com/sfourdrinier/react-native-ble-plx/issues/27) / [#29](https://github.com/sfourdrinier/react-native-ble-plx/pull/29)). Not 3.8.x — per [ROADMAP.4.0.md](./ROADMAP.4.0.md) versioning, 3.8.x is security/critical fixes only.
 
 ---
 

@@ -9,7 +9,7 @@ This package is a maintained fork of [dotintent/react-native-ble-plx](https://gi
 - **Issues / support:** https://github.com/sfourdrinier/react-native-ble-plx/issues
 - **Docs:** this repository (`docs/` + root `README.md`)
 
-## Supported floors (v3.8+)
+## Supported floors (v3.8+; current stable **3.9.0**)
 
 | Surface | Minimum |
 | ------- | ------- |
@@ -27,10 +27,11 @@ Older RN/Expo versions should stay on upstream or an older fork tag.
 - TypeScript-first public API
 - RN 0.86 codegen TurboModule (`NativeBlePlx` / `BlePlxSpec`)
 - Expo config plugin for permissions, background modes, restoration, Android FGS, debug logging
-- `ConnectionManager` for retries, timeouts, and auto-reconnect
-- Optional iOS BLE state restoration subspec
+- `ConnectionManager` for retries, timeouts, auto-reconnect, and **`attemptConnectOnce`** (3.9+ host-owned single attempt)
+- Optional iOS BLE state restoration subspec with **reporting-only** restore (3.9+ D5) and **`getRestoredState()`** late handoff
 - Android foreground service background BLE
 - Apple TV / tvOS central role support (see [TVOS.md](./TVOS.md))
+- Documented background restore recipes ([BACKGROUND.md](./BACKGROUND.md))
 
 ## What was intentionally removed
 
@@ -55,9 +56,11 @@ This repo is developed and released with **pnpm**.
 ## Related docs
 
 - [Getting started](./GETTING_STARTED.md)
+- [Background / iOS restore](./BACKGROUND.md)
 - [Roadmap](../ROADMAP.md)
 - [Roadmap 4.0](../ROADMAP.4.0.md)
 - [ConnectionManager](./CONNECTION_MANAGER.md)
 - [Expo plugin](./EXPO_PLUGIN.md)
 - [tvOS](./TVOS.md)
 - [Release process](../RELEASE.md)
+- [Changelog](../CHANGELOG.md)

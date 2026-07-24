@@ -4,16 +4,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.9.0] - 2026-07-24
+
 ### Added
 
-- `ConnectionManager.attemptConnectOnce` — externally gated single connect for host-owned reconnect policy (mutually exclusive with auto-reconnect per device; strict coalesce).
-- `BleManager.getRestoredState()` — buffered iOS state restoration handoff for late subscribers (coexists with `restoreStateFunction`).
-- Docs: `docs/BACKGROUND.md` restore lifecycle and host-owned resume recipes; gated mode section in `docs/CONNECTION_MANAGER.md`.
-- CI: reusable Apple workflow (`.github/workflows/apple-ci.yml`) and composite actions for Xcode / JS setup (macos-26, Xcode 26.4+).
+- **`ConnectionManager.attemptConnectOnce`** — externally gated single connect for host-owned reconnect policy. Exactly one race-hardened native attempt (timeout / cancel / coalesce); no internal multi-retry and no auto re-arm for that call. Mutually exclusive with auto-reconnect per `deviceId` (strict coalesce: does not join a non-gated in-flight `connect`).
+- **`BleManager.getRestoredState()`** — buffered first iOS `RestoreStateEvent` for late session-layer subscribers. Coexists with `restoreStateFunction` (callback still runs on every emit; buffer is first-only). Identifier-only construction registers the listener (no callback required).
+- **`docs/BACKGROUND.md`** — restore lifecycle, semantics matrix, D5 reporting-only policy, and host resume recipes (gated **A** and opt-in auto **B**).
+- Gated-mode section in **`docs/CONNECTION_MANAGER.md`** (exclusivity table + caller-owned backoff example).
+- CI: reusable Apple workflow (`.github/workflows/apple-ci.yml`) and composite actions (`.github/actions/select-xcode`, `setup-js-package`) for macos-26 / Xcode 26.4+ (CI pin 26.6 for Expo Swift 6.2).
 
 ### Changed
 
-- **iOS Restoration adapter no longer calls `connectToDevice` on system restore** (D5). 3.8.x reconnected restored peripherals inside the adapter; 3.9.0 treats restore as **reporting only** (payload + manager reuse + best-effort cache seed). Hosts must reconnect via `getRestoredState` + `attemptConnectOnce` or an explicit `enableAutoReconnect` recipe — see `docs/BACKGROUND.md`. Intentional correctness fix so reconnect authority is not split under session layers.
+- **iOS Restoration adapter no longer calls `connectToDevice` on system restore (D5).**
+  In 3.8.x the adapter reconnected restored peripherals internally. In 3.9.0 restore is **reporting only**: JS-shaped payload, `BleClientManager` reuse, best-effort native cache seed / disconnect monitors, empty-list wakes still settle `getRestoredState`. Hosts reconnect via `getRestoredState` + `attemptConnectOnce` or an explicit `enableAutoReconnect` recipe — see `docs/BACKGROUND.md`. Intentional correctness fix so reconnect authority is not split under session layers.
+- Empty / whitespace `restoreStateIdentifier` is treated as **unconfigured** (immediate `null` for `getRestoredState`, `createClient(null)`), matching native empty→nil coercion.
+- On the Restoration adapter reuse path, `createClient` **replays** the buffered restore payload and disarms MBA’s synthetic-null restore amb so `restoreStateFunction` does not see a cold-launch `null` after a real restore handoff.
+- `ConnectionManager` cancel / replace: suppress one cancel-induced disconnect for auto-reconnect devices; clear suppress when cancel rejects (no disconnect expected); identity-safe map cleanup so reentrant `connect` / `attemptConnectOnce` from failure callbacks is not deleted; user callbacks isolated from the retry state machine.
+
+### Migration (3.8.x → 3.9.0)
+
+1. **If you relied on silent adapter reconnect after iOS kill/restore:** add an explicit host path after `await manager.getRestoredState()` (recipe A or B in `docs/BACKGROUND.md`). Without that, restored ids are reported but links are not re-established by the library.
+2. **Prefer `getRestoredState()`** for session layers that start after `new BleManager(...)` (constructor `restoreStateFunction` alone still races app boot).
+3. **Use `attemptConnectOnce`** when the host owns backoff / permanent-vs-transient failure policy; use `connect` / `enableAutoReconnect` when the library should own retries after a successful link.
+4. Auto-reconnect **does not** restart after a failed initial connect that never connected (no disconnect event). Kickoff exhaustion must be re-kicked by the host if needed.
 
 ## [3.8.4] - 2026-07-19
 
