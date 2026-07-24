@@ -207,6 +207,17 @@ RCT_EXPORT_METHOD(createClient:(id)restoreIdentifierKey) {
 
   if (restoredManager != nil) {
     _manager = restoredManager;
+
+    // Disarm MBA's init-time restore amb before attaching the JS delegate / replaying.
+    // Otherwise a late central state transition can emit synthetic null after the
+    // adapter-buffered restore payload, and restoreStateFunction would clear session state.
+    if ([_manager respondsToSelector:@selector(completePendingRestoreStateEvent)]) {
+      #pragma clang diagnostic push
+      #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+      [_manager performSelector:@selector(completePendingRestoreStateEvent)];
+      #pragma clang diagnostic pop
+    }
+
     // Always set the delegate to receive events after JS attaches.
     _manager.delegate = self;
 

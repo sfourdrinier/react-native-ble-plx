@@ -273,6 +273,19 @@ public class BleClientManager : NSObject {
             "connectedPeripherals": Array(connectedPeripherals.values).map { $0.asJSObject() }
         ]
     }
+
+    /// Disarm the init-time restore amb (`rx_state.skip(1) → nil` vs `listenOnRestoredState`).
+    ///
+    /// On the Restoration-adapter reuse path, JS is given a buffered payload via
+    /// `createClient` replay. Leaving the amb armed can still emit a synthetic `null`
+    /// on the central's first post-attach state transition, which `restoreStateFunction`
+    /// would treat as cold launch / nothing restored and can undo session handoff.
+    /// Call after adopting the restored manager and before (or with) the JS replay.
+    @objc
+    public func completePendingRestoreStateEvent() {
+        restorationDisposable.dispose()
+        restorationDisposable = Disposables.create()
+    }
 #endif
 
     // Mark: Scanning --------------------------------------------------------------------------------------------------

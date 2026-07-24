@@ -89,6 +89,16 @@ const ignoreConnectionCancellationError = () => {
   // Native cancellation can reject if the connection already ended.
 }
 
+/** User/global callbacks must not throw into CM control flow (retry, promise settle). */
+const invokeUserCallback = (label: string, fn: (() => void) | undefined): void => {
+  if (!fn) return
+  try {
+    fn()
+  } catch (error) {
+    console.warn(`[ConnectionManager] ${label} threw:`, error)
+  }
+}
+
 /**
  * Internal state for a device connection
  */
@@ -416,9 +426,9 @@ export class ConnectionManager {
         const currentState = this._devices.get(deviceId)
         if (!currentState) return
 
-        // Notify disconnect callbacks
-        currentState.callbacks?.onDisconnect?.(deviceId, error)
-        this._globalCallbacks.onDisconnect?.(deviceId, error)
+        // Notify disconnect callbacks (isolated — must not block suppress / auto re-arm)
+        invokeUserCallback('onDisconnect', () => currentState.callbacks?.onDisconnect?.(deviceId, error))
+        invokeUserCallback('global onDisconnect', () => this._globalCallbacks.onDisconnect?.(deviceId, error))
 
         // User cancel of an in-flight connect fires cancelDeviceConnection → disconnect.
         // That disconnect must not immediately re-arm auto-reconnect.
@@ -488,8 +498,10 @@ export class ConnectionManager {
       // Skip failure callbacks during destroy so app handlers cannot start a new connect
       // after the deviceIds snapshot (would leave native work + unsettled promises).
       if (!this._destroying) {
-        state.callbacks?.onConnectFailed?.(deviceId, error)
-        this._globalCallbacks.onConnectFailed?.(deviceId, error)
+        invokeUserCallback('onConnectFailed', () => state.callbacks?.onConnectFailed?.(deviceId, error))
+        invokeUserCallback('global onConnectFailed', () =>
+          this._globalCallbacks.onConnectFailed?.(deviceId, error)
+        )
       }
     }
 
@@ -698,9 +710,13 @@ export class ConnectionManager {
 
     const maxRetries = state.options.maxRetries ?? DEFAULT_CONNECT_MAX_RETRIES
 
-    // Notify connecting callbacks
-    state.callbacks?.onConnecting?.(state.deviceId, state.retryCount, maxRetries)
-    this._globalCallbacks.onConnecting?.(state.deviceId, state.retryCount, maxRetries)
+    // Notify connecting callbacks (isolated from connect try/catch / retry machine)
+    invokeUserCallback('onConnecting', () =>
+      state.callbacks?.onConnecting?.(state.deviceId, state.retryCount, maxRetries)
+    )
+    invokeUserCallback('global onConnecting', () =>
+      this._globalCallbacks.onConnecting?.(state.deviceId, state.retryCount, maxRetries)
+    )
 
     // Set up connection timeout if configured
     let timeoutError: BleError | null = null
@@ -762,15 +778,16 @@ export class ConnectionManager {
       state.isConnecting = false
       state.retryCount = 0
 
-      // Notify callbacks
-      state.callbacks?.onConnect?.(device)
-      this._globalCallbacks.onConnect?.(device)
-
-      // Resolve pending promise if exists
+      // Settle the promise *before* user callbacks so a throw cannot leave the
+      // promise pending or fall into the outer catch (which would schedule another
+      // native connect even for attemptConnectOnce / gatedAttempt).
       if (state.pendingPromise) {
         state.pendingPromise.resolve(device)
         state.pendingPromise = undefined
       }
+
+      invokeUserCallback('onConnect', () => state.callbacks?.onConnect?.(device))
+      invokeUserCallback('global onConnect', () => this._globalCallbacks.onConnect?.(device))
 
       // Clean up if auto-reconnect is disabled
       if (!state.autoReconnect) {
@@ -810,15 +827,18 @@ export class ConnectionManager {
                 actualError instanceof Error ? actualError.message : String(actualError)
               )
 
-        // Notify callbacks
-        state.callbacks?.onConnectFailed?.(state.deviceId, failureError)
-        this._globalCallbacks.onConnectFailed?.(state.deviceId, failureError)
-
-        // Reject pending promise if exists
+        // Settle the promise before failure callbacks (same isolation as onConnect).
         if (state.pendingPromise) {
           state.pendingPromise.reject(failureError)
           state.pendingPromise = undefined
         }
+
+        invokeUserCallback('onConnectFailed', () =>
+          state.callbacks?.onConnectFailed?.(state.deviceId, failureError)
+        )
+        invokeUserCallback('global onConnectFailed', () =>
+          this._globalCallbacks.onConnectFailed?.(state.deviceId, failureError)
+        )
 
         // Clean up if auto-reconnect is disabled
         if (!state.autoReconnect) {

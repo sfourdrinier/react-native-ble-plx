@@ -520,6 +520,25 @@ describe('ConnectionManager', () => {
       await expect(p).resolves.toMatchObject({ id: 'd1' });
       expect(mgr.isAutoReconnectEnabled('d1')).toBe(true);
     });
+
+    test('onConnect throw does not schedule another gated native connect', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mgr.setGlobalCallbacks({
+        onConnect: () => {
+          throw new Error('app callback boom');
+        },
+      });
+      const p = mgr.attemptConnectOnce('d1', { timeoutMs: 0 });
+      ble._resolveConnect('d1', createDevice('d1'));
+      await expect(p).resolves.toMatchObject({ id: 'd1' });
+      await flushMicrotasks();
+      jest.runOnlyPendingTimers();
+      await flushMicrotasks();
+      // Exactly one native connect — callback throw must not re-enter retry machine
+      expect(ble.connectToDevice).toHaveBeenCalledTimes(1);
+      expect(mgr.isConnecting('d1')).toBe(false);
+      warn.mockRestore();
+    });
   });
 
   test('cancel mid-connect with auto-reconnect does not start reconnect by itself', async () => {

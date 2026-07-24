@@ -117,10 +117,16 @@ for (const device of restored.connectedPeripherals) {
   })
   const connected = await manager.isDeviceConnected(device.id)
   if (!connected) {
-    // Kick the first attempt under auto policy
-    void connections.connect(device.id).catch(() => {
-      /* auto will retry */
-    })
+    // Kickoff: connect() owns retries until success or maxRetries.
+    // Auto-reconnect only re-arms from a *disconnect after a successful link* —
+    // it does not restart after a failed initial connect (never connected ⇒ no
+    // disconnect event). Do not swallow the kickoff failure as “auto will retry”.
+    try {
+      await connections.connect(device.id)
+    } catch (err) {
+      // Still offline: host must call connect() again (timer, scan, UI) if desired.
+      console.warn('restore kickoff exhausted', device.id, err)
+    }
   }
 }
 ```
