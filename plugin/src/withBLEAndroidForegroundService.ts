@@ -71,9 +71,22 @@ function addForegroundServicePermissions(androidManifest: AndroidConfig.Manifest
 }
 
 /**
- * Add BlePlxForegroundService declaration to the application
+ * FQCN of the library foreground service — must match Android `namespace`
+ * (`com.sfourdrinier.unifiedblemanager`) + `BlePlxForegroundService` class.
  */
-function addForegroundServiceDeclaration(androidManifest: AndroidConfig.Manifest.AndroidManifest): void {
+export const BLE_PLX_FOREGROUND_SERVICE_NAME =
+  'com.sfourdrinier.unifiedblemanager.BlePlxForegroundService'
+
+/** @deprecated 3.9 FQCN; still recognized so re-prebuild does not double-declare */
+export const BLE_PLX_FOREGROUND_SERVICE_NAME_LEGACY = 'com.bleplx.BlePlxForegroundService'
+
+/**
+ * Add BlePlxForegroundService declaration to the application.
+ * Exported for unit tests (Phase 0 identity / FGS FQCN contract).
+ */
+export function addForegroundServiceDeclaration(
+  androidManifest: AndroidConfig.Manifest.AndroidManifest
+): void {
   const manifest = androidManifest.manifest
 
   // Ensure application array exists
@@ -93,19 +106,21 @@ function addForegroundServiceDeclaration(androidManifest: AndroidConfig.Manifest
     app.service = []
   }
 
-  // Check if service is already declared
-  const serviceName = 'com.bleplx.BlePlxForegroundService'
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const serviceExists = app.service.some((service: any) => {
     const name = service.$?.['android:name']
-    return name === serviceName || name === '.BlePlxForegroundService'
+    return (
+      name === BLE_PLX_FOREGROUND_SERVICE_NAME ||
+      name === '.BlePlxForegroundService' ||
+      name === BLE_PLX_FOREGROUND_SERVICE_NAME_LEGACY
+    )
   })
 
   if (!serviceExists) {
     AndroidConfig.Manifest.ensureToolsAvailable(androidManifest)
     app.service.push({
       $: {
-        'android:name': serviceName,
+        'android:name': BLE_PLX_FOREGROUND_SERVICE_NAME,
         'android:enabled': 'true',
         'android:exported': 'false',
         'android:foregroundServiceType': 'connectedDevice',

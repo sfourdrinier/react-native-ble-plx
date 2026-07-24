@@ -511,7 +511,7 @@ If using the Expo config plugin with `androidEnableForegroundService: true`, the
 
 ```xml
 <service
-  android:name="com.bleplx.BlePlxForegroundService"
+  android:name="com.sfourdrinier.unifiedblemanager.BlePlxForegroundService"
   android:enabled="true"
   android:exported="false"
   android:foregroundServiceType="connectedDevice"

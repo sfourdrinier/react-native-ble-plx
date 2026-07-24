@@ -13,6 +13,7 @@ This document covers the **one-time rename** to the 4.0 product identity.
 | CocoaPods | `react-native-ble-plx` | **`unified-ble-manager`** |
 | Restoration subspec | `react-native-ble-plx/Restoration` | **`unified-ble-manager/Restoration`** |
 | Android module / namespace | `com.bleplx` | **`com.sfourdrinier.unifiedblemanager`** |
+| Android FGS `android:name` | `com.bleplx.BlePlxForegroundService` | **`com.sfourdrinier.unifiedblemanager.BlePlxForegroundService`** (Expo plugin injects this when FGS is enabled) |
 | Expo plugin | `@sfourdrinier/react-native-ble-plx` | **`unified-ble-manager`** |
 | Version train | `3.9.x` | **`4.0.0-alpha.*` → `4.0.0`** (not 1.x) |
 

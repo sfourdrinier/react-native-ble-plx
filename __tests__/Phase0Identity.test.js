@@ -42,6 +42,37 @@ describe('Phase 0 product identity (unified-ble-manager)', () => {
       'android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxModule.java'
     )
     expect(fs.existsSync(moduleJava)).toBe(true)
+    const fgsJava = path.join(
+      root,
+      'android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxForegroundService.java'
+    )
+    expect(fs.existsSync(fgsJava)).toBe(true)
+  })
+
+  test('Expo FGS plugin injects FQCN matching Android namespace (not legacy com.bleplx)', () => {
+    const fgsSrc = fs.readFileSync(
+      path.join(root, 'plugin/src/withBLEAndroidForegroundService.ts'),
+      'utf8'
+    )
+    // Primary constant must use locked namespace
+    expect(fgsSrc).toMatch(
+      /BLE_PLX_FOREGROUND_SERVICE_NAME\s*=\s*\n?\s*['"]com\.sfourdrinier\.unifiedblemanager\.BlePlxForegroundService['"]/
+    )
+    // When declaring a new service, android:name must use the constant (not hard-coded com.bleplx)
+    expect(fgsSrc).toContain("'android:name': BLE_PLX_FOREGROUND_SERVICE_NAME")
+    // Built plugin output must stay in sync (consumers load plugin/build)
+    const fgsBuild = fs.readFileSync(
+      path.join(root, 'plugin/build/withBLEAndroidForegroundService.js'),
+      'utf8'
+    )
+    expect(fgsBuild).toContain('com.sfourdrinier.unifiedblemanager.BlePlxForegroundService')
+    // Must not still be the only/default inject target
+    expect(fgsBuild).not.toMatch(
+      /serviceName\s*=\s*['"]com\.bleplx\.BlePlxForegroundService['"]/
+    )
+    expect(fgsBuild).not.toMatch(
+      /BLE_PLX_FOREGROUND_SERVICE_NAME\s*=\s*['"]com\.bleplx\.BlePlxForegroundService['"]/
+    )
   })
 
   test('Expo plugin entry exists (id follows package name at runtime)', () => {
