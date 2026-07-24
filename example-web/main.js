@@ -1,32 +1,16 @@
 /**
- * Web Bluetooth demo: Polar H10 (or any Heart Rate Service broadcaster).
- *
- * Flow: user gesture → requestDevice (HR filters) → connect → discover →
- * monitor Heart Rate Measurement (0x2A37) → parse BPM.
- *
- * Serve from a secure context (localhost/https), Chromium, BLE adapter on.
- * Prefer loading the built package; falls back to source for dev:
- *
- *   pnpm prepack
- *   npx --yes serve .   # from repo root with import map, or use Vite — see README
+ * Web demo UI — same CentralDemo as Electron.
+ * Discovery: requestDevice chooser (Web has no continuous scan).
+ * Then list / inspect / HR stream for Polar H10 and other HR bands.
  */
 
-import {
-  HR_SERVICE_UUID,
-  HR_MEASUREMENT_UUID,
-  heartRateRequestFilters,
-  heartRateOptionalServices,
-  parseHeartRateMeasurement,
-  isHeartRateService,
-  isHeartRateMeasurement
-} from './heartRate.mjs'
+import * as hr from './heartRate.mjs'
+import { createCentralDemo } from './centralDemo.mjs'
 
 async function loadWebBleManager() {
-  // Prefer published-style entry (works when app is bundled / package linked).
   try {
     return await import('unified-ble-manager/web')
   } catch {
-    // Dev: direct host module (bundler or TS-capable server required).
     return await import('../src/hosts/web.ts')
   }
 }
@@ -36,6 +20,9 @@ const { BleManager } = await loadWebBleManager()
 const logEl = document.getElementById('log')
 const bpmEl = document.getElementById('bpm')
 const statusEl = document.getElementById('status')
+const deviceListEl = document.getElementById('device-list')
+const inspectEl = document.getElementById('inspect')
+const capsEl = document.getElementById('caps')
 
 const log = (...args) => {
   const line = args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')
@@ -49,124 +36,214 @@ const setStatus = text => {
 }
 
 const manager = new BleManager({
-  optionalServices: heartRateOptionalServices()
+  optionalServices: hr.heartRateOptionalServices()
 })
 
-log('Target: Heart Rate Service (Polar H10 compatible)')
-log('  service', HR_SERVICE_UUID, '/ heart_rate')
-log('  measurement', HR_MEASUREMENT_UUID)
-log('supports(requestDevice)=', manager.supports('requestDevice'))
-log('supports(continuousScan)=', manager.supports('continuousScan'))
+const demo = createCentralDemo(manager, hr, { log })
+const caps = demo.capabilities()
+capsEl.textContent = `Discovery: ${
+  caps.continuousScan ? 'continuous scan' : caps.requestDevice ? 'chooser (requestDevice)' : 'none'
+} · notify=${caps.notify} · bytes=${caps.bytesPath}`
 
-let deviceId = null
-let hrSub = null
+let selectedId = null
 
-function setButtons({ request, connect, monitor, stop }) {
-  document.getElementById('btn-request').disabled = !request
-  document.getElementById('btn-connect').disabled = !connect
-  document.getElementById('btn-monitor').disabled = !monitor
-  document.getElementById('btn-stop').disabled = !stop
-}
-
-setButtons({ request: true, connect: false, monitor: false, stop: false })
-
-document.getElementById('btn-request').onclick = async () => {
-  setStatus('Chooser open — pick your Polar H10 / HR band…')
-  try {
-    const ad = await manager.requestDevice(heartRateRequestFilters())
-    deviceId = ad.id
-    log('selected', ad)
-    setStatus(`Selected: ${ad.name || ad.id}`)
-    setButtons({ request: true, connect: true, monitor: false, stop: false })
-  } catch (e) {
-    log('requestDevice error', String(e))
-    setStatus('Chooser cancelled or Web Bluetooth unavailable')
+function renderDeviceList() {
+  const list = demo.listDevices()
+  deviceListEl.innerHTML = ''
+  if (list.length === 0) {
+    deviceListEl.innerHTML = '<li class="empty">No devices yet — use Discover</li>'
+    return
+  }
+  for (const d of list) {
+    const li = document.createElement('li')
+    li.className = d.id === selectedId ? 'selected' : ''
+    li.tabIndex = 0
+    li.innerHTML = `<strong>${escapeHtml(d.name || '(no name)')}</strong>
+      <span class="meta">${escapeHtml(d.id)}</span>
+      <span class="meta">${d.rssi != null ? d.rssi + ' dBm' : 'rssi n/a'} · ${escapeHtml(d.source || '')}</span>`
+    li.onclick = () => {
+      selectedId = d.id
+      renderDeviceList()
+      setStatus(`Selected ${d.name || d.id}`)
+      document.getElementById('btn-connect').disabled = false
+      document.getElementById('btn-inspect').disabled = false
+    }
+    deviceListEl.appendChild(li)
   }
 }
 
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function setButtons(state) {
+  for (const [id, enabled] of Object.entries(state)) {
+    const el = document.getElementById(id)
+    if (el) el.disabled = !enabled
+  }
+}
+
+log('Shared CentralDemo on Web Bluetooth')
+log('Target: Heart Rate Service / Polar H10 (and any HR broadcaster)')
+renderDeviceList()
+setButtons({
+  'btn-discover': true,
+  'btn-stop-scan': false,
+  'btn-connect': false,
+  'btn-inspect': false,
+  'btn-monitor': false,
+  'btn-stop-hr': false,
+  'btn-disconnect': false
+})
+
+document.getElementById('btn-discover').onclick = async () => {
+  setStatus('Discovering…')
+  try {
+    // Web path: discover() → pickDevice chooser (user gesture required)
+    const result = await demo.discover(entry => {
+      log('device', demo.formatDeviceLine(entry))
+      renderDeviceList()
+    })
+    log('discover mode', result.mode)
+    if (result.device) {
+      selectedId = result.device.id
+      renderDeviceList()
+      setButtons({
+        'btn-discover': true,
+        'btn-stop-scan': false,
+        'btn-connect': true,
+        'btn-inspect': true,
+        'btn-monitor': false,
+        'btn-stop-hr': false,
+        'btn-disconnect': false
+      })
+      setStatus(`Found ${result.device.name || result.device.id}`)
+    } else if (result.mode === 'scan') {
+      setButtons({
+        'btn-discover': false,
+        'btn-stop-scan': true,
+        'btn-connect': false,
+        'btn-inspect': false,
+        'btn-monitor': false,
+        'btn-stop-hr': false,
+        'btn-disconnect': false
+      })
+      setStatus('Scanning… select a device from the list')
+    }
+  } catch (e) {
+    log('discover error', String(e))
+    setStatus('Discover failed (need user gesture / secure context / BLE)')
+  }
+}
+
+document.getElementById('btn-stop-scan').onclick = async () => {
+  await demo.stopScan()
+  setButtons({
+    'btn-discover': true,
+    'btn-stop-scan': false,
+    'btn-connect': !!selectedId,
+    'btn-inspect': !!selectedId,
+    'btn-monitor': false,
+    'btn-stop-hr': false,
+    'btn-disconnect': false
+  })
+  setStatus('Scan stopped')
+}
+
 document.getElementById('btn-connect').onclick = async () => {
-  if (!deviceId) return
+  if (!selectedId) return
   setStatus('Connecting…')
   try {
-    await manager.connectToDevice(deviceId)
-    await manager.discoverAllServicesAndCharacteristicsForDevice(deviceId)
-    const services = await manager.servicesForDevice(deviceId)
-    log(
-      'services',
-      services.map(s => s.uuid)
-    )
-    const hrSvc = services.find(s => isHeartRateService(s.uuid))
-    if (!hrSvc) {
-      log('warning: Heart Rate Service not found after discover — strap may need pairing or different filter')
-    } else {
-      log('Heart Rate Service OK', hrSvc.uuid)
-    }
-    setStatus('Connected — start HR monitor')
-    setButtons({ request: true, connect: false, monitor: true, stop: false })
+    await demo.connect(selectedId)
+    const info = await demo.inspectDevice(selectedId)
+    inspectEl.textContent = JSON.stringify(info, null, 2)
+    log('inspect', info.id, 'services', info.serviceCount)
+    setStatus(`Connected to ${info.name || info.id}`)
+    setButtons({
+      'btn-discover': true,
+      'btn-stop-scan': false,
+      'btn-connect': false,
+      'btn-inspect': true,
+      'btn-monitor': true,
+      'btn-stop-hr': false,
+      'btn-disconnect': true
+    })
   } catch (e) {
     log('connect error', String(e))
     setStatus('Connect failed')
   }
 }
 
-document.getElementById('btn-monitor').onclick = async () => {
-  if (!deviceId) return
-  if (hrSub) {
-    hrSub.remove()
-    hrSub = null
-  }
-
-  // Prefer known UUIDs; fall back to discover matching measurement char.
-  let serviceUUID = HR_SERVICE_UUID
-  let charUUID = HR_MEASUREMENT_UUID
+document.getElementById('btn-inspect').onclick = async () => {
+  if (!selectedId) return
   try {
-    const services = await manager.servicesForDevice(deviceId)
-    const hrSvc = services.find(s => isHeartRateService(s.uuid))
-    if (hrSvc) {
-      serviceUUID = hrSvc.uuid
-      const chars = await manager.characteristicsForDevice(deviceId, serviceUUID)
-      const meas = chars.find(c => isHeartRateMeasurement(c.uuid))
-      if (meas) charUUID = meas.uuid
-      log(
-        'characteristics',
-        chars.map(c => c.uuid)
-      )
-    }
+    const info = await demo.inspectDevice(selectedId)
+    inspectEl.textContent = JSON.stringify(info, null, 2)
+    log('inspect refresh', info.connected ? 'connected' : 'not connected', info.serviceCount, 'services')
+    setStatus(`Inspected ${info.name || info.id}`)
   } catch (e) {
-    log('discover chars note', String(e))
+    log('inspect error', String(e))
   }
-
-  setStatus('Monitoring Heart Rate Measurement…')
-  log('monitor', serviceUUID, charUUID)
-
-  hrSub = manager.monitorCharacteristicForDeviceAsBytes(deviceId, serviceUUID, charUUID, (err, snap) => {
-    if (err) {
-      log('notify error', String(err))
-      return
-    }
-    if (!snap?.value) return
-    try {
-      const parsed = parseHeartRateMeasurement(snap.value)
-      bpmEl.textContent = String(parsed.heartRate)
-      const contact =
-        parsed.sensorContactSupported && !parsed.sensorContactDetected ? ' (no contact?)' : ''
-      log(`HR ${parsed.heartRate} bpm${contact}`, 'raw', Array.from(snap.value))
-      setStatus(`Streaming ${parsed.heartRate} bpm`)
-    } catch (parseErr) {
-      log('parse error', String(parseErr), Array.from(snap.value))
-    }
-  })
-
-  setButtons({ request: true, connect: false, monitor: false, stop: true })
 }
 
-document.getElementById('btn-stop').onclick = async () => {
-  if (hrSub) {
-    hrSub.remove()
-    hrSub = null
+document.getElementById('btn-monitor').onclick = async () => {
+  if (!selectedId) return
+  try {
+    await demo.startHeartRate(selectedId, sample => {
+      if (sample.error) {
+        log('HR', String(sample.error))
+        return
+      }
+      bpmEl.textContent = String(sample.heartRate)
+      log(`HR ${sample.heartRate} bpm`, sample.raw)
+      setStatus(`Streaming ${sample.heartRate} bpm`)
+    })
+    setButtons({
+      'btn-discover': true,
+      'btn-stop-scan': false,
+      'btn-connect': false,
+      'btn-inspect': true,
+      'btn-monitor': false,
+      'btn-stop-hr': true,
+      'btn-disconnect': true
+    })
+    setStatus('HR stream active')
+  } catch (e) {
+    log('HR start error', String(e))
   }
+}
+
+document.getElementById('btn-stop-hr').onclick = async () => {
+  await demo.stopHeartRate()
   bpmEl.textContent = '—'
-  setStatus('Monitor stopped')
-  setButtons({ request: true, connect: true, monitor: true, stop: false })
-  log('monitor stopped')
+  setStatus('HR stopped')
+  setButtons({
+    'btn-discover': true,
+    'btn-stop-scan': false,
+    'btn-connect': false,
+    'btn-inspect': true,
+    'btn-monitor': true,
+    'btn-stop-hr': false,
+    'btn-disconnect': true
+  })
+}
+
+document.getElementById('btn-disconnect').onclick = async () => {
+  await demo.disconnect(selectedId)
+  bpmEl.textContent = '—'
+  inspectEl.textContent = ''
+  setStatus('Disconnected')
+  setButtons({
+    'btn-discover': true,
+    'btn-stop-scan': false,
+    'btn-connect': !!selectedId,
+    'btn-inspect': !!selectedId,
+    'btn-monitor': false,
+    'btn-stop-hr': false,
+    'btn-disconnect': false
+  })
 }

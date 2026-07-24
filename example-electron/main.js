@@ -1,22 +1,14 @@
 /**
- * Electron / Node main-process demo: Heart Rate Service (Polar H10 shape).
+ * Electron / Node main-process demo — same CentralDemo as web.
  *
- * Without a BlueZ port this runs a FakeBlePort that simulates a Polar H10
- * advertising Heart Rate Service and streaming BPM notifications — so CI/Linux
- * still validates the vertical slice. Plug a real BlePort for live straps.
+ * Fake multi-device radio by default (Polar H10 + generic HR + beacon) so
+ * scan → list → inspect → HR works on Linux/CI without BlueZ.
  *
  *   pnpm prepack && node example-electron/main.js
  */
 
-const path = require('path')
-const {
-  HR_SERVICE_UUID,
-  HR_MEASUREMENT_UUID,
-  encodeHeartRateMeasurement,
-  parseHeartRateMeasurement,
-  isHeartRateService,
-  isHeartRateMeasurement
-} = require('../example-shared/heartRate')
+const hr = require('../example-shared/heartRate')
+const { createCentralDemo, createDemoFakeRadio } = require('../example-shared/centralDemo')
 
 let ElectronHost
 try {
@@ -30,136 +22,101 @@ try {
     })
     ElectronHost = require('../src/hosts/electron.ts')
   } catch (e) {
-    console.error(
-      'Could not load electron host. Run `pnpm prepack` from the repo root first.\n',
-      e.message
-    )
+    console.error('Could not load electron host. Run `pnpm prepack` first.\n', e.message)
     process.exit(1)
   }
 }
 
 const { BleManager, FakeBlePort } = ElectronHost
 
-/** Simulated Polar H10 device id */
-const DEVICE_ID = 'polar-h10-sim'
-const DEVICE_NAME = 'Polar H10 12345678'
-
-function createPolarH10FakePort() {
-  const initialBpm = 72
-  return new FakeBlePort({
-    id: 'example-electron-polar-h10',
-    advertisements: [{ id: DEVICE_ID, name: DEVICE_NAME, rssi: -52 }],
-    services: {
-      [DEVICE_ID]: {
-        [HR_SERVICE_UUID]: {
-          [HR_MEASUREMENT_UUID]: {
-            value: encodeHeartRateMeasurement(initialBpm),
-            properties: { read: true, write: false, notify: true }
-          }
-        }
-      }
-    }
-  })
-}
-
 async function main() {
-  const port = createPolarH10FakePort()
+  const { port, devices: ids } = createDemoFakeRadio(FakeBlePort, hr)
   const manager = new BleManager({ port, backend: 'mock' })
-  const info = manager.getHostInfo()
-  console.log('hostInfo', info)
-  if (!info.isMainProcessOriented) {
-    throw new Error('expected main-process-oriented host')
-  }
-
-  console.log('Scanning for Heart Rate bands (simulated Polar H10)…')
-  const seen = []
-  await manager.startDeviceScan(null, null, (err, device) => {
-    if (err) {
-      console.error('scan error', err)
-      return
-    }
-    if (device) seen.push(device)
+  const demo = createCentralDemo(manager, hr, {
+    log: (...a) => console.log('[demo]', ...a)
   })
-  await new Promise(r => setTimeout(r, 20))
-  await manager.stopDeviceScan()
-  console.log(
-    'scan results',
-    seen.map(d => ({ id: d.id, name: d.name }))
-  )
-  if (!seen.some(d => d.id === DEVICE_ID)) {
-    throw new Error('expected simulated Polar H10 advertisement')
+
+  console.log('hostInfo', manager.getHostInfo())
+  console.log('capabilities', demo.capabilities())
+
+  // --- Scan & list (same CentralDemo API as web) ---
+  console.log('\n== Scan for devices ==')
+  await demo.discover(d => {
+    console.log('  +', demo.formatDeviceLine(d))
+  })
+  await new Promise(r => setTimeout(r, 30))
+  await demo.stopScan()
+
+  const listed = demo.listDevices()
+  console.log('\n== Device list ==')
+  for (const d of listed) {
+    console.log(' ', demo.formatDeviceLine(d))
+  }
+  if (listed.length < 3) {
+    throw new Error(`expected ≥3 simulated devices, got ${listed.length}`)
+  }
+  if (!listed.some(d => d.id === ids.polarId)) {
+    throw new Error('Polar H10 sim missing from scan results')
   }
 
-  console.log('Connecting to', DEVICE_NAME)
-  await manager.connectToDevice(DEVICE_ID)
-  await manager.discoverAllServicesAndCharacteristicsForDevice(DEVICE_ID)
+  // --- Inspect beacon without HR ---
+  console.log('\n== Inspect non-HR beacon ==')
+  await demo.connect(ids.beaconId)
+  const beaconInfo = await demo.inspectDevice(ids.beaconId)
+  console.log(JSON.stringify(beaconInfo, null, 2))
+  if (beaconInfo.serviceCount < 1) throw new Error('beacon should expose Device Information-like service')
+  await demo.disconnect(ids.beaconId)
 
-  const services = await manager.servicesForDevice(DEVICE_ID)
-  const hrSvc = services.find(s => isHeartRateService(s.uuid))
-  if (!hrSvc) throw new Error('Heart Rate Service missing on simulated device')
-  console.log('HR service', hrSvc.uuid)
-
-  const chars = await manager.characteristicsForDevice(DEVICE_ID, HR_SERVICE_UUID)
-  const meas = chars.find(c => isHeartRateMeasurement(c.uuid))
-  if (!meas) throw new Error('Heart Rate Measurement characteristic missing')
-  console.log('HR measurement', meas.uuid)
-
-  // One-shot read (many straps only notify; FakeBlePort supports both)
-  const initial = await manager.readCharacteristicForDeviceAsBytes(
-    DEVICE_ID,
-    HR_SERVICE_UUID,
-    HR_MEASUREMENT_UUID
-  )
-  const initialParsed = parseHeartRateMeasurement(initial.value)
-  console.log('initial HR', initialParsed.heartRate, 'bpm')
+  // --- Polar H10: connect, inspect, HR stream ---
+  console.log('\n== Polar H10 connect + inspect + HR ==')
+  await demo.connect(ids.polarId)
+  const polarInfo = await demo.inspectDevice(ids.polarId)
+  console.log(JSON.stringify(polarInfo, null, 2))
+  if (!polarInfo.services.some(s => s.isHeartRate)) {
+    throw new Error('Polar sim missing Heart Rate Service in inspect')
+  }
 
   const samples = []
-  const sub = manager.monitorCharacteristicForDeviceAsBytes(
-    DEVICE_ID,
-    HR_SERVICE_UUID,
-    HR_MEASUREMENT_UUID,
-    (err, snap) => {
-      if (err) {
-        console.error('notify error', err)
-        return
-      }
-      if (!snap?.value) return
-      const parsed = parseHeartRateMeasurement(snap.value)
-      samples.push(parsed.heartRate)
-      console.log('HR notify', parsed.heartRate, 'bpm', 'raw', Array.from(snap.value))
+  await demo.startHeartRate(ids.polarId, sample => {
+    if (sample.error) {
+      console.error('HR error', sample.error)
+      return
     }
-  )
+    samples.push(sample.heartRate)
+    console.log('  HR', sample.heartRate, 'bpm', sample.raw)
+  })
 
-  // Stream a few Polar-like samples through the fake radio
   const sequence = [72, 75, 78, 80]
   for (const bpm of sequence) {
     await port.emitNotification(
-      DEVICE_ID,
-      HR_SERVICE_UUID,
-      HR_MEASUREMENT_UUID,
-      encodeHeartRateMeasurement(bpm)
+      ids.polarId,
+      hr.HR_SERVICE_UUID,
+      hr.HR_MEASUREMENT_UUID,
+      hr.encodeHeartRateMeasurement(bpm)
     )
     await new Promise(r => setTimeout(r, 5))
   }
 
-  sub.remove()
-  await manager.cancelDeviceConnection(DEVICE_ID)
+  await demo.stopHeartRate()
+  await demo.disconnect(ids.polarId)
 
   if (samples.length < sequence.length) {
     throw new Error(`expected ${sequence.length} HR samples, got ${samples.length}`)
   }
-  if (samples[samples.length - 1] !== 80) {
-    throw new Error(`last BPM should be 80, got ${samples[samples.length - 1]}`)
-  }
 
-  console.log('supports(central)', manager.supports('central'))
-  console.log('supports(androidForegroundService)', manager.supports('androidForegroundService'))
-  console.log('example-electron Polar H10 HR smoke OK')
+  // --- Second HR band briefly ---
+  console.log('\n== Second HR band inspect ==')
+  await demo.connect(ids.otherHrId)
+  const other = await demo.inspectDevice(ids.otherHrId)
   console.log(
-    '(Live straps: inject a BlueZ BlePort and filter advertisements for',
-    HR_SERVICE_UUID,
-    '— see docs/ELECTRON.md)'
+    other.name,
+    'services',
+    other.services.map(s => s.uuid)
   )
+  await demo.disconnect(ids.otherHrId)
+
+  console.log('\nexample-electron shared CentralDemo smoke OK')
+  console.log('(Web uses the same createCentralDemo; discovery mode = chooser there.)')
 }
 
 main().catch(err => {
