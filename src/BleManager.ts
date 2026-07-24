@@ -23,6 +23,19 @@ import type {
 } from './TypeDefinition'
 import { isIOS } from './Utils'
 import { Platform } from 'react-native'
+import { base64ToBytes, bytesToBase64 } from './encoding'
+import { supports as supportsCapability, type BleCapability } from './supports'
+
+/**
+ * Byte-path characteristic snapshot (parallel to Base64 {@link Characteristic}.value).
+ * Existing Characteristic.value remains Base64-only (3.x compat).
+ */
+export type CharacteristicAsBytes = {
+  deviceID: DeviceId
+  serviceUUID: UUID
+  uuid: UUID
+  value: Uint8Array | null
+}
 
 /**
  *
@@ -1465,5 +1478,126 @@ export class BleManager {
       return true
     }
     return this._callPromise(BleModule.isBackgroundModeEnabled())
+  }
+
+  /**
+   * Honest capability query for the React Native host.
+   * Web/Electron use their own manager.supports() with host-specific matrix.
+   */
+  supports(capability: BleCapability): boolean {
+    return supportsCapability(capability, 'react-native')
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4.0 parallel bytes path (AsBytes / FromBytes). Existing Base64 methods unchanged.
+  // Interim: edge-convert via encoding helpers until native bytes TurboModule lands.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Read characteristic value as {@link Uint8Array} (parallel to
+   * {@link #blemanagerreadcharacteristicfordevice|readCharacteristicForDevice}).
+   */
+  async readCharacteristicForDeviceAsBytes(
+    deviceIdentifier: DeviceId,
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    transactionId?: TransactionId
+  ): Promise<CharacteristicAsBytes> {
+    const characteristic = await this.readCharacteristicForDevice(
+      deviceIdentifier,
+      serviceUUID,
+      characteristicUUID,
+      transactionId
+    )
+    return this._characteristicAsBytes(characteristic)
+  }
+
+  /**
+   * Write characteristic with response from {@link Uint8Array} (parallel to
+   * {@link #blemanagerwritecharacteristicwithresponsefordevice|writeCharacteristicWithResponseForDevice}).
+   */
+  async writeCharacteristicWithResponseForDeviceFromBytes(
+    deviceIdentifier: DeviceId,
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    value: Uint8Array,
+    transactionId?: TransactionId
+  ): Promise<CharacteristicAsBytes> {
+    if (!(value instanceof Uint8Array)) {
+      throw new TypeError('writeCharacteristicWithResponseForDeviceFromBytes expects Uint8Array')
+    }
+    const characteristic = await this.writeCharacteristicWithResponseForDevice(
+      deviceIdentifier,
+      serviceUUID,
+      characteristicUUID,
+      bytesToBase64(value),
+      transactionId
+    )
+    return this._characteristicAsBytes(characteristic, value)
+  }
+
+  /**
+   * Write characteristic without response from {@link Uint8Array}.
+   */
+  async writeCharacteristicWithoutResponseForDeviceFromBytes(
+    deviceIdentifier: DeviceId,
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    value: Uint8Array,
+    transactionId?: TransactionId
+  ): Promise<CharacteristicAsBytes> {
+    if (!(value instanceof Uint8Array)) {
+      throw new TypeError('writeCharacteristicWithoutResponseForDeviceFromBytes expects Uint8Array')
+    }
+    const characteristic = await this.writeCharacteristicWithoutResponseForDevice(
+      deviceIdentifier,
+      serviceUUID,
+      characteristicUUID,
+      bytesToBase64(value),
+      transactionId
+    )
+    return this._characteristicAsBytes(characteristic, value)
+  }
+
+  /**
+   * Monitor characteristic as {@link Uint8Array} (parallel to
+   * {@link #blemanagermonitorcharacteristicfordevice|monitorCharacteristicForDevice}).
+   */
+  monitorCharacteristicForDeviceAsBytes(
+    deviceIdentifier: DeviceId,
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    listener: (error: BleError | null, characteristic: CharacteristicAsBytes | null) => void,
+    transactionId?: TransactionId,
+    subscriptionType?: CharacteristicSubscriptionType | null
+  ): Subscription {
+    return this.monitorCharacteristicForDevice(
+      deviceIdentifier,
+      serviceUUID,
+      characteristicUUID,
+      (error, characteristic) => {
+        if (error || !characteristic) {
+          listener(error, null)
+          return
+        }
+        listener(null, this._characteristicAsBytes(characteristic))
+      },
+      transactionId,
+      subscriptionType
+    )
+  }
+
+  /** @private */
+  _characteristicAsBytes(characteristic: Characteristic, prefer?: Uint8Array): CharacteristicAsBytes {
+    let value: Uint8Array | null = prefer ? new Uint8Array(prefer) : null
+    if (value == null && characteristic.value != null) {
+      value = base64ToBytes(characteristic.value)
+    }
+    return {
+      deviceID: characteristic.deviceID,
+      serviceUUID: characteristic.serviceUUID,
+      uuid: characteristic.uuid,
+      value
+    }
   }
 }

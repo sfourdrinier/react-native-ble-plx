@@ -541,22 +541,24 @@ Electron/desktop: document process lifetime only—never mobile FGS/restore clai
 
 **Status (branch `4.0`):** Phase 0 scaffold landed — identity rename, shim package, `MIGRATION_4.0.md`, exports `/web` `/electron` `/node`, encoding + `FakeBlePort` + compat Base64 skeleton tests, milestone `4.0.0-alpha`.
 
+**Also landed (testable alpha, Linux-first):** full `BlePort` lifecycle + dual binary store; RN `AsBytes`/`FromBytes` (TS edge wrap); real `/web` (chooser + GATT) + `/electron` (main-process injectable); `supports()` + PLATFORMS/WEB/ELECTRON; CI package matrix Ubuntu/Windows/macOS; adversarial ADR. Still open for Phase 1 exit: Android bonding, scan filters/`findAndConnect`, permission helpers, benchmark harness, codemod.
+
 ---
 
 ### Phase 1 — Alpha: dual API + mobile DX + perf baseline
 
 **Goal:** Additive surface + performance baseline; **3.8-style Base64 still default-correct**.
 
-| Work |
-| ---- |
-| Bytes path + Base64 compat (default preserves 3.8 shapes) |
-| Encoding helpers + round-trip tests |
-| Android bonding + bond state |
-| Scan filters; `findAndConnect`; permission helpers |
-| `supports()` boolean contract + typed unsupported-operation failures |
-| BACKGROUND.md v1 |
-| Notify/connect **benchmark harness** (Base64 mode vs bytes mode) |
-| Optional codemod v0 on fixtures only |
+| Work | Status |
+| ---- | ------ |
+| Bytes path + Base64 compat (default preserves 3.8 shapes) | **Done (alpha)** — parallel API + tests |
+| Encoding helpers + round-trip tests | **Done** |
+| Android bonding + bond state | Open |
+| Scan filters; `findAndConnect`; permission helpers | Open |
+| `supports()` boolean contract + typed unsupported-operation failures | **Partial** — boolean matrix; typed failures expand next |
+| BACKGROUND.md v1 | Exists from 3.9; keep current |
+| Notify/connect **benchmark harness** (Base64 mode vs bytes mode) | Open |
+| Optional codemod v0 on fixtures only | Open |
 
 **Exit:**
 - Unmodified 3.8-style sample still works.
@@ -603,14 +605,14 @@ Electron/desktop: document process lifetime only—never mobile FGS/restore clai
 
 ### Phase 5 — Multi-host preview (in 4.0 train)
 
-| Work |
-| ---- |
-| Backend interface + PLATFORMS.md |
-| Web Bluetooth preview with explicit `requestDevice()` chooser, bytes-native GATT, and Base64 adapter for shared app code |
-| Electron **native main** previews in locked order: macOS/CoreBluetooth first → Windows/WinRT second → Linux/BlueZ third |
-| Single-package explicit `/web`, `/electron`, and `/node` exports + resolver isolation tests |
-| `example-electron/`, `example-web/` |
-| ELECTRON.md / WEB.md |
+| Work | Status |
+| ---- | ------ |
+| Backend interface + PLATFORMS.md | **Done (alpha)** — `BlePort` + docs |
+| Web Bluetooth preview with explicit `requestDevice()` chooser, bytes-native GATT, and Base64 adapter for shared app code | **Done (alpha)** — mock + WebBT port; live radio env-dependent |
+| Electron **native main** previews in locked order: macOS/CoreBluetooth first → Windows/WinRT second → Linux/BlueZ third | **Partial** — injectable main + mock; OS natives open |
+| Single-package explicit `/web`, `/electron`, and `/node` exports + resolver isolation tests | **Done (alpha)** — Jest + consumer import |
+| `example-electron/`, `example-web/` | **Done (alpha)** |
+| ELECTRON.md / WEB.md | **Done** |
 
 **4.0 GA multi-host bar:** Web preview plus Electron native-main previews on **macOS, Windows, and Linux**. The implementation order is macOS → Windows → Linux, but the order does not reduce the 4.0 scope.
 

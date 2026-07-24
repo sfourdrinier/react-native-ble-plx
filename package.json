@@ -223,22 +223,25 @@
     "./app.plugin.js": "./app.plugin.js",
     "./package.json": "./package.json",
     "./web": {
-      "types": "./src/hosts/web.ts",
-      "import": "./src/hosts/web.ts",
-      "require": "./src/hosts/web.ts",
-      "default": "./src/hosts/web.ts"
+      "types": "./lib/typescript/src/hosts/web.d.ts",
+      "react-native": "./src/hosts/web.ts",
+      "import": "./lib/module/hosts/web.js",
+      "require": "./lib/commonjs/hosts/web.js",
+      "default": "./lib/commonjs/hosts/web.js"
     },
     "./electron": {
-      "types": "./src/hosts/electron.ts",
-      "import": "./src/hosts/electron.ts",
-      "require": "./src/hosts/electron.ts",
-      "default": "./src/hosts/electron.ts"
+      "types": "./lib/typescript/src/hosts/electron.d.ts",
+      "react-native": "./src/hosts/electron.ts",
+      "import": "./lib/module/hosts/electron.js",
+      "require": "./lib/commonjs/hosts/electron.js",
+      "default": "./lib/commonjs/hosts/electron.js"
     },
     "./node": {
-      "types": "./src/hosts/node.ts",
-      "import": "./src/hosts/node.ts",
-      "require": "./src/hosts/node.ts",
-      "default": "./src/hosts/node.ts"
+      "types": "./lib/typescript/src/hosts/node.d.ts",
+      "react-native": "./src/hosts/node.ts",
+      "import": "./lib/module/hosts/node.js",
+      "require": "./lib/commonjs/hosts/node.js",
+      "default": "./lib/commonjs/hosts/node.js"
     }
   }
 }

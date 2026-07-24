@@ -13,9 +13,11 @@ on:
   push:
     branches:
       - master
+      - '4.0'
   pull_request:
     branches:
       - master
+      - '4.0'
     types: [opened, reopened, synchronize, ready_for_review, labeled]
   workflow_dispatch:
 
@@ -38,9 +40,14 @@ permissions:
 jobs:
   # Always run package checks — including labeled events — so required checks
   # never get replaced by a skipped success from an unrelated label.
+  # Multi-OS matrix: pure TS / Jest port+host tests run on Ubuntu, Windows, macOS.
   package:
-    name: Package checks
-    runs-on: ubuntu-latest
+    name: Package checks (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.0
@@ -56,11 +63,18 @@ jobs:
       - name: Run plugin tests
         run: pnpm test:plugin
 
+      # Lint/typecheck + prepack once on Linux (path/tooling quirks differ on Windows)
       - name: Lint and typecheck
+        if: runner.os == 'Linux'
         run: pnpm lint
 
       - name: Build package artifacts
+        if: runner.os == 'Linux'
         run: pnpm prepack
+
+      - name: Electron host smoke (mock port)
+        if: runner.os == 'Linux'
+        run: node example-electron/main.js
 
   changes:
     name: Detect path changes
@@ -103,6 +117,7 @@ jobs:
               - 'plugin/**'
               - 'app.plugin.js'
               - 'react-native-ble-plx.podspec'
+              - 'unified-ble-manager.podspec'
               - 'src/**'
               - 'scripts/ci/**'
               - 'package.json'

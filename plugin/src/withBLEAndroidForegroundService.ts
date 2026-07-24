@@ -74,8 +74,7 @@ function addForegroundServicePermissions(androidManifest: AndroidConfig.Manifest
  * FQCN of the library foreground service — must match Android `namespace`
  * (`com.sfourdrinier.unifiedblemanager`) + `BlePlxForegroundService` class.
  */
-export const BLE_PLX_FOREGROUND_SERVICE_NAME =
-  'com.sfourdrinier.unifiedblemanager.BlePlxForegroundService'
+export const BLE_PLX_FOREGROUND_SERVICE_NAME = 'com.sfourdrinier.unifiedblemanager.BlePlxForegroundService'
 
 /** @deprecated 3.9 FQCN; still recognized so re-prebuild does not double-declare */
 export const BLE_PLX_FOREGROUND_SERVICE_NAME_LEGACY = 'com.bleplx.BlePlxForegroundService'
@@ -84,9 +83,7 @@ export const BLE_PLX_FOREGROUND_SERVICE_NAME_LEGACY = 'com.bleplx.BlePlxForegrou
  * Add BlePlxForegroundService declaration to the application.
  * Exported for unit tests (Phase 0 identity / FGS FQCN contract).
  */
-export function addForegroundServiceDeclaration(
-  androidManifest: AndroidConfig.Manifest.AndroidManifest
-): void {
+export function addForegroundServiceDeclaration(androidManifest: AndroidConfig.Manifest.AndroidManifest): void {
   const manifest = androidManifest.manifest
 
   // Ensure application array exists

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>unified-ble-manager / web example</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+      button { margin: 0.25rem 0.25rem 0.25rem 0; padding: 0.5rem 0.75rem; }
+      pre { background: #111; color: #eee; padding: 1rem; overflow: auto; min-height: 8rem; }
+      .note { color: #444; font-size: 0.9rem; }
+    </style>
+  </head>
+  <body>
+    <h1>unified-ble-manager / web</h1>
+    <p class="note">
+      Requires Chromium + secure context (localhost/https) + Web Bluetooth.
+      Use a user gesture for <code>requestDevice</code>. Continuous scan is not supported.
+    </p>
+    <button id="btn-request" type="button">Request device</button>
+    <button id="btn-connect" type="button" disabled>Connect</button>
+    <button id="btn-read" type="button" disabled>Read (bytes)</button>
+    <pre id="log"></pre>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

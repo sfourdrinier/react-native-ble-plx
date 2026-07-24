@@ -87,18 +87,32 @@ Unchanged for existing methods:
 - Characteristic / descriptor values as **Base64 strings** on the classic API surface  
 - Existing method names and error codes for those call sites  
 
-Additive later (Phase 1+): parallel `*AsBytes` / `*FromBytes` methods. Not required to upgrade.
-
-## Host entrypoints (exports sketch)
+Additive **now** (alpha): parallel `*AsBytes` / `*FromBytes` methods. Not required to upgrade.
 
 ```ts
-import { BleManager } from 'unified-ble-manager'              // React Native (default)
-import { BleManager as WebBle } from 'unified-ble-manager/web'       // stub until Web phase
-import { BleManager as ElectronBle } from 'unified-ble-manager/electron' // stub
-import { BleManager as NodeBle } from 'unified-ble-manager/node'       // stub
+// existing — unchanged
+const c = await manager.readCharacteristicForDevice(id, svc, chr)
+typeof c.value === 'string' // Base64
+
+// optional bytes path
+const b = await manager.readCharacteristicForDeviceAsBytes(id, svc, chr)
+b.value instanceof Uint8Array
+await manager.writeCharacteristicWithResponseForDeviceFromBytes(id, svc, chr, new Uint8Array([1, 2]))
 ```
 
-Phase 0 stubs throw a clear “not implemented yet” error for non-RN hosts.
+See `docs/PLATFORMS.md` and `manager.supports('bytesPath')`.
+
+## Host entrypoints
+
+```ts
+import { BleManager } from 'unified-ble-manager'                       // React Native (default)
+import { BleManager as WebBle } from 'unified-ble-manager/web'         // Web Bluetooth chooser
+import { BleManager as ElectronBle } from 'unified-ble-manager/electron' // main-process injectable port
+import { BleManager as NodeBle } from 'unified-ble-manager/node'        // headless injectable port
+```
+
+- **Web:** `requestDevice()` after a user gesture; `startDeviceScan` is not supported (see `docs/WEB.md`).
+- **Electron:** inject a main-process `BlePort` (or `allowMockFallback` for tests). Not WebBT-in-renderer as production (`docs/ELECTRON.md`).
 
 ## Production today
 

@@ -4,6 +4,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Host-agnostic `BlePort` + `FakeBlePort` + `PortBleManager`:** full central lifecycle (scan/connect/discover/R/W/notify) with dual Base64 + bytes store.
+- **Parallel bytes API on RN:** `readCharacteristicForDeviceAsBytes`, `writeCharacteristic*FromBytes`, `monitorCharacteristicForDeviceAsBytes`, plus `Characteristic.readAsBytes` / `write*FromBytes` / `monitorAsBytes`. Existing Base64 methods and `.value` typing unchanged.
+- **`supports(capability)`** honesty matrix (`src/supports.ts`) + `docs/PLATFORMS.md`.
+- **Real `/web` host:** Web Bluetooth chooser (`requestDevice`), GATT adapter, rejects continuous scan; `example-web/`, `docs/WEB.md`.
+- **Real `/electron` host:** main-process-oriented injectable `BlePort`, mock fallback for Linux/CI; `example-electron/`, `docs/ELECTRON.md`.
+- **CI:** package tests matrix on Ubuntu + Windows + macOS; workflow triggers include branch `4.0`.
+- **ADR:** `docs/ADR/2026-07-4.0-host-and-bytes.md` (adversarial decision log).
+
 ### Changed
 
 - **4.0 train (branch `4.0`):** product identity scaffold as **`unified-ble-manager`** (`4.0.0-alpha.0`) with npm shim package path `@sfourdrinier/react-native-ble-plx` re-export; see `MIGRATION_4.0.md`.

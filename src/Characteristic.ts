@@ -1,4 +1,4 @@
-import type { BleManager } from './BleManager'
+import type { BleManager, CharacteristicAsBytes } from './BleManager'
 import type { BleError } from './BleError'
 import { Descriptor } from './Descriptor'
 import type { NativeCharacteristic } from './BleModule'
@@ -12,6 +12,7 @@ import type {
   Subscription
 } from './TypeDefinition'
 import { isIOS } from './Utils'
+import { base64ToBytes, bytesToBase64 } from './encoding'
 
 /**
  * Characteristic object.
@@ -195,5 +196,84 @@ export class Characteristic implements NativeCharacteristic {
    */
   async writeDescriptor(descriptorUUID: UUID, valueBase64: Base64, transactionId?: TransactionId): Promise<Descriptor> {
     return this._manager._writeDescriptorForCharacteristic(this.id, descriptorUUID, valueBase64, transactionId)
+  }
+
+  // --- 4.0 parallel bytes path (existing .value stays Base64) ---
+
+  /**
+   * Read this characteristic as {@link Uint8Array}.
+   * Parallel to {@link #characteristicread|read()}; does not change `.value` Base64 typing.
+   */
+  async readAsBytes(transactionId?: TransactionId): Promise<CharacteristicAsBytes> {
+    const characteristic = await this.read(transactionId)
+    const value = characteristic.value != null ? base64ToBytes(characteristic.value) : null
+    return {
+      deviceID: characteristic.deviceID,
+      serviceUUID: characteristic.serviceUUID,
+      uuid: characteristic.uuid,
+      value
+    }
+  }
+
+  /**
+   * Write with response from {@link Uint8Array}. Parallel to {@link #characteristicwritewithresponse|writeWithResponse}.
+   */
+  async writeWithResponseFromBytes(value: Uint8Array, transactionId?: TransactionId): Promise<CharacteristicAsBytes> {
+    if (!(value instanceof Uint8Array)) {
+      throw new TypeError('writeWithResponseFromBytes expects Uint8Array')
+    }
+    const characteristic = await this.writeWithResponse(bytesToBase64(value), transactionId)
+    return {
+      deviceID: characteristic.deviceID,
+      serviceUUID: characteristic.serviceUUID,
+      uuid: characteristic.uuid,
+      value: new Uint8Array(value)
+    }
+  }
+
+  /**
+   * Write without response from {@link Uint8Array}.
+   */
+  async writeWithoutResponseFromBytes(
+    value: Uint8Array,
+    transactionId?: TransactionId
+  ): Promise<CharacteristicAsBytes> {
+    if (!(value instanceof Uint8Array)) {
+      throw new TypeError('writeWithoutResponseFromBytes expects Uint8Array')
+    }
+    const characteristic = await this.writeWithoutResponse(bytesToBase64(value), transactionId)
+    return {
+      deviceID: characteristic.deviceID,
+      serviceUUID: characteristic.serviceUUID,
+      uuid: characteristic.uuid,
+      value: new Uint8Array(value)
+    }
+  }
+
+  /**
+   * Monitor notifications as {@link Uint8Array}. Parallel to {@link #characteristicmonitor|monitor}.
+   */
+  monitorAsBytes(
+    listener: (error: BleError | null, characteristic: CharacteristicAsBytes | null) => void,
+    transactionId: TransactionId | null = null,
+    subscriptionType: CharacteristicSubscriptionType | null = null
+  ): Subscription {
+    return this.monitor(
+      (error, characteristic) => {
+        if (error || !characteristic) {
+          listener(error, null)
+          return
+        }
+        const value = characteristic.value != null ? base64ToBytes(characteristic.value) : null
+        listener(null, {
+          deviceID: characteristic.deviceID,
+          serviceUUID: characteristic.serviceUUID,
+          uuid: characteristic.uuid,
+          value
+        })
+      },
+      transactionId,
+      subscriptionType
+    )
   }
 }
