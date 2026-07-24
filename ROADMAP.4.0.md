@@ -16,11 +16,12 @@ This document is the **product charter for 4.x**. It is intentionally ambitious:
 
 | Surface | Canonical (4.0+) | Compat / transition |
 | ------- | ---------------- | ------------------- |
-| **npm** | `unified-ble-manager` | `@sfourdrinier/react-native-ble-plx` thin re-export shim |
-| **CocoaPods** | `unified-ble-manager` (podspec `s.name`) | Keep publishing / document alias or dual pod name for one major if bare Podfiles still pin `react-native-ble-plx` |
-| **Android Gradle module** | `unified-ble-manager` (library project / artifact identity) | Autolinking follows the npm package; old module name only via the npm shim package path |
-| **Android `namespace` / Java/Kotlin package** | Prefer align under a stable reverse-DNS id (e.g. `com.unifiedblemanager` or similar — exact string fixed in Phase 0 scaffold) | Avoid silent mid-alpha renames; one cut with migration note |
-| **Expo config plugin** | `plugins: ["unified-ble-manager"]` | Shim package re-exports the same plugin entry for old app.json |
+| **npm** | `unified-ble-manager` | `@sfourdrinier/react-native-ble-plx` thin re-export shim only |
+| **CocoaPods** | `unified-ble-manager` (`s.name`) | **Single pod name** — no dual `react-native-ble-plx` pod. Bare Podfiles update once; autolinking picks up the new name from the package |
+| **Restoration subspec** | `unified-ble-manager/Restoration` | Same opt-in model as today (`default_subspecs = :none`) |
+| **Android Gradle module** | `unified-ble-manager` | Autolinking follows the npm package name |
+| **Android `namespace`** | **`com.sfourdrinier.unifiedblemanager`** | Locked; one cut at 4.0 scaffold — do not thrash |
+| **Expo config plugin** | `plugins: ["unified-ble-manager"]` | Shim package re-exports the same plugin for old `app.json` |
 
 ```text
 pnpm add unified-ble-manager
@@ -28,6 +29,10 @@ pnpm add unified-ble-manager
 import { BleManager } from 'unified-ble-manager'
 import { BleManager as WebBle } from 'unified-ble-manager/web'
 import { BleManager as ElectronBle } from 'unified-ble-manager/electron'
+
+# iOS (manual Podfile, if not using autolinking)
+pod 'unified-ble-manager', :path => '../node_modules/unified-ble-manager'
+pod 'unified-ble-manager/Restoration', :path => '../node_modules/unified-ble-manager'  # opt-in
 ```
 
 Legacy (shim — prefer not for new apps):
@@ -35,10 +40,10 @@ Legacy (shim — prefer not for new apps):
 ```text
 pnpm add @sfourdrinier/react-native-ble-plx
 import { BleManager } from '@sfourdrinier/react-native-ble-plx'
-# → re-exports unified-ble-manager (one implementation; native pods/modules ship with the canonical package)
+# → re-exports unified-ble-manager (one implementation; native code lives under the canonical package)
 ```
 
-**Rationale:** mismatched npm vs Pod vs Android names force every doc, autolinking path, and support thread to explain two identities. 4.0 is the rename window—use **one product name** everywhere users install or link native code. Temporary dual Pod names are a **migration bridge**, not the end state.
+**Rationale:** one product name everywhere users install or link. Dual pod names and leftover `react-native-ble-plx` native IDs are **out of scope for the 4.0 end state** — migration is a documented one-time Podfile/namespace update, not a permanent alias layer.
 
 No calendar dates. Phases are dependency-ordered.
 
