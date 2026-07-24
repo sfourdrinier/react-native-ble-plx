@@ -45,16 +45,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6.4.0
+      - name: Setup JS package
+        uses: ./.github/actions/setup-js-package
         with:
-          node-version: 20.19.4
-
-      - name: Enable pnpm
-        run: corepack enable
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          prepack: 'false'
 
       - name: Run package tests
         run: pnpm test:package
@@ -98,6 +92,7 @@ jobs:
               - 'package.json'
               - 'pnpm-lock.yaml'
               - '.github/workflows/ci.yml'
+              - '.github/actions/**'
             apple:
               - 'ios/**'
               - 'example/ios/**'
@@ -113,6 +108,8 @@ jobs:
               - 'package.json'
               - 'pnpm-lock.yaml'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/apple-ci.yml'
+              - '.github/actions/**'
 
   expo-cng-android:
     name: Expo CNG Android build
@@ -131,10 +128,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6.4.0
-        with:
-          node-version: 20.19.4
+      - name: Setup JS package
+        uses: ./.github/actions/setup-js-package
 
       - name: Setup Java
         uses: actions/setup-java@v5.5.0
@@ -144,15 +139,6 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4.0.1
-
-      - name: Enable pnpm
-        run: corepack enable
-
-      - name: Install root dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build package artifacts
-        run: pnpm prepack
 
       - name: Install Expo example dependencies
         run: pnpm --dir example-expo install --no-frozen-lockfile
@@ -180,9 +166,10 @@ jobs:
   # --- Apple compile checks (#20) ---
   # Compile/link only. No simulator boot, no BLE runtime (see #14).
   # Expensive: gated by master path changes, `ci:apple` label, or manual run.
-
-  ios-example:
-    name: iOS example (BlePlxExample)
+  # Implementation lives in reusable workflow apple-ci.yml + composite actions under
+  # .github/actions/ (select-xcode, setup-js-package) so we do not triple-copy jobs.
+  apple:
+    name: Apple compile checks
     needs: changes
     if: |
       always() &&
@@ -199,180 +186,4 @@ jobs:
           needs.changes.outputs.apple == 'true'
         )
       )
-    runs-on: macos-15
-    timeout-minutes: 60
-    env:
-      RCT_NEW_ARCH_ENABLED: '1'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6.4.0
-        with:
-          node-version: 20.19.4
-
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.3'
-          bundler-cache: true
-          working-directory: example
-
-      - name: Enable pnpm
-        run: corepack enable
-
-      - name: Install root dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build package artifacts
-        run: pnpm prepack
-
-      - name: Install example dependencies
-        run: pnpm --dir example install
-
-      - name: Install CocoaPods
-        working-directory: example/ios
-        run: BUNDLE_GEMFILE="$GITHUB_WORKSPACE/example/Gemfile" bundle exec pod install
-
-      - name: Build BlePlxExample (iphonesimulator, New Arch)
-        working-directory: example/ios
-        run: |
-          set -euo pipefail
-          xcodebuild \
-            -workspace BlePlxExample.xcworkspace \
-            -scheme BlePlxExample \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            build
-
-  ios-expo:
-    name: iOS Expo CNG example
-    needs: changes
-    if: |
-      always() &&
-      needs.changes.result == 'success' &&
-      (
-        github.event_name == 'workflow_dispatch' ||
-        (
-          github.event_name == 'pull_request' &&
-          contains(github.event.pull_request.labels.*.name, 'ci:apple')
-        ) ||
-        (
-          github.event_name == 'push' &&
-          github.ref == 'refs/heads/master' &&
-          needs.changes.outputs.apple == 'true'
-        )
-      )
-    runs-on: macos-15
-    timeout-minutes: 75
-    env:
-      RCT_NEW_ARCH_ENABLED: '1'
-      NODE_OPTIONS: --max-old-space-size=8192
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6.4.0
-        with:
-          node-version: 20.19.4
-
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.3'
-          bundler-cache: true
-          working-directory: example
-
-      - name: Enable pnpm
-        run: corepack enable
-
-      - name: Install root dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build package artifacts
-        run: pnpm prepack
-
-      - name: Install Expo example dependencies
-        run: pnpm --dir example-expo install --no-frozen-lockfile
-
-      - name: Align Expo peer deps to installed SDK
-        # Match Android CI / test:expo — broad caret ranges need SDK alignment before native gen.
-        working-directory: example-expo
-        run: npx expo install --fix
-
-      - name: Prebuild Expo native projects
-        working-directory: example-expo
-        run: npx expo prebuild --clean --no-install --platform ios
-
-      - name: Install CocoaPods
-        working-directory: example-expo/ios
-        run: |
-          set -euo pipefail
-          # Reuse the same CocoaPods pins as the non-Expo example Gemfile.
-          BUNDLE_GEMFILE="$GITHUB_WORKSPACE/example/Gemfile" bundle exec pod install
-
-      - name: Build Expo iOS app (iphonesimulator, New Arch)
-        working-directory: example-expo/ios
-        run: |
-          set -euo pipefail
-          WORKSPACE=$(ls -d *.xcworkspace | head -n 1)
-          if [[ -z "$WORKSPACE" ]]; then
-            echo "error: no .xcworkspace after prebuild" >&2
-            exit 1
-          fi
-          # Prefer an app scheme (contains example); skip CocoaPods aggregate schemes.
-          # One-line python keeps this valid YAML (multi-line -c '...' breaks the block scalar).
-          SCHEME=$(
-            xcodebuild -list -workspace "$WORKSPACE" -json \
-              | python3 -c "import json,sys; d=json.load(sys.stdin); s=(d.get('workspace') or d.get('project') or {}).get('schemes') or []; p=[x for x in s if 'example' in x.lower() and 'pod' not in x.lower()]; print((p or s)[0] if s else '')"
-          )
-          if [[ -z "$SCHEME" ]]; then
-            echo "error: could not resolve xcode scheme from $WORKSPACE" >&2
-            xcodebuild -list -workspace "$WORKSPACE"
-            exit 1
-          fi
-          echo "Building workspace=$WORKSPACE scheme=$SCHEME"
-          xcodebuild \
-            -workspace "$WORKSPACE" \
-            -scheme "$SCHEME" \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            build
-
-  tvos-library:
-    name: tvOS library compile check
-    needs: changes
-    if: |
-      always() &&
-      needs.changes.result == 'success' &&
-      (
-        github.event_name == 'workflow_dispatch' ||
-        (
-          github.event_name == 'pull_request' &&
-          contains(github.event.pull_request.labels.*.name, 'ci:apple')
-        ) ||
-        (
-          github.event_name == 'push' &&
-          github.ref == 'refs/heads/master' &&
-          needs.changes.outputs.apple == 'true'
-        )
-      )
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.0
-
-      - name: Select Xcode
-        run: xcodebuild -version
-
-      - name: Check tvOS library (podspec + vendor Swift)
-        run: bash scripts/ci/check-tvos-library.sh
+    uses: ./.github/workflows/apple-ci.yml

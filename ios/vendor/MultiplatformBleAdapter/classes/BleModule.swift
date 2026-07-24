@@ -185,34 +185,106 @@ public class BleClientManager : NSObject {
         }
 
         // When state is to be restored update all caches.
+        // Defer disconnect monitor until a state transition — same as historical MBA path
+        // during willRestoreState (central may still be settling).
         restoredState.peripherals.forEach { peripheral in
-            connectedPeripherals[peripheral.identifier] = peripheral
-
-            _ = manager.rx_state.skip(1).take(1).flatMap { [weak self] state -> Observable<Peripheral> in
-                    if let self = self {
-                        return self.manager.monitorDisconnection(for: peripheral)
-                    } else {
-                        return Observable.error(BleError.init(errorCode: BleErrorCode.BluetoothManagerDestroyed))
-                    }
-                }
-                .take(1)
-                .subscribe(
-                    onNext: { [weak self] peripheral in
-                        self?.onPeripheralDisconnected(peripheral)
-                    },
-                    onError: { [weak self] error in
-                        self?.onPeripheralDisconnected(peripheral)
-                    })
-
-            peripheral.services?.forEach { service in
-                discoveredServices[service.jsIdentifier] = service
-                service.characteristics?.forEach { characteristic in
-                    discoveredCharacteristics[characteristic.jsIdentifier] = characteristic
-                }
-            }
+            adoptRestoredPeripheral(peripheral, monitorDisconnectImmediately: false)
         }
 
         dispatchEvent(BleEvent.restoreStateEvent, value: restoredState.asJSObject)
+    }
+
+    /// Put a restored `Peripheral` into the native cache and watch for disconnects.
+    /// - Parameter monitorDisconnectImmediately: When true (seed after powered-on), attach
+    ///   `monitorDisconnection` now. When false (willRestoreState), wait for one state change
+    ///   first so we do not race the restoring central.
+    private func adoptRestoredPeripheral(_ peripheral: Peripheral, monitorDisconnectImmediately: Bool) {
+        connectedPeripherals[peripheral.identifier] = peripheral
+
+        let disconnectMonitor: Observable<Peripheral>
+        if monitorDisconnectImmediately {
+            disconnectMonitor = manager.monitorDisconnection(for: peripheral).take(1)
+        } else {
+            disconnectMonitor = manager.rx_state.skip(1).take(1).flatMap { [weak self] _ -> Observable<Peripheral> in
+                if let self = self {
+                    return self.manager.monitorDisconnection(for: peripheral)
+                } else {
+                    return Observable.error(BleError.init(errorCode: BleErrorCode.BluetoothManagerDestroyed))
+                }
+            }
+            .take(1)
+        }
+
+        _ = disconnectMonitor.subscribe(
+            onNext: { [weak self] disconnected in
+                self?.onPeripheralDisconnected(disconnected)
+            },
+            onError: { [weak self] _ in
+                self?.onPeripheralDisconnected(peripheral)
+            }
+        )
+
+        peripheral.services?.forEach { service in
+            discoveredServices[service.jsIdentifier] = service
+            service.characteristics?.forEach { characteristic in
+                discoveredCharacteristics[characteristic.jsIdentifier] = characteristic
+            }
+        }
+    }
+
+    /// Seed `connectedPeripherals` from CoreBluetooth restore identifiers (best-effort).
+    /// `retrievePeripherals` is gated on `.poweredOn`; when the central is still `.unknown`
+    /// at adapter wake, this may no-op — callers must not rely on it for the JS restore payload.
+    @objc
+    public func seedRestoredPeripherals(withIdentifiers identifiers: [String]) {
+        let uuids = identifiers.compactMap { UUID(uuidString: $0) }
+        guard !uuids.isEmpty else { return }
+
+        _ = manager.retrievePeripherals(withIdentifiers: uuids)
+            .take(1)
+            .subscribe(
+                onNext: { [weak self] peripherals in
+                    guard let self = self else { return }
+                    for peripheral in peripherals {
+                        // Avoid double-adopting (double disconnect monitors).
+                        if self.connectedPeripherals[peripheral.identifier] == nil {
+                            // Seed only runs after powered-on gate — attach monitors immediately.
+                            self.adoptRestoredPeripheral(peripheral, monitorDisconnectImmediately: true)
+                        }
+                    }
+                },
+                onError: { _ in
+                    // Central not powered on yet — cache stays empty.
+                }
+            )
+    }
+
+    /// Whether a device is already in the native connection cache (adopted or connected).
+    @objc
+    public func isDeviceInConnectionCache(_ deviceIdentifier: String) -> Bool {
+        guard let deviceId = UUID(uuidString: deviceIdentifier) else { return false }
+        return connectedPeripherals[deviceId] != nil
+    }
+
+    /// JS-shaped RestoreStateEvent body from the current native connection cache.
+    @objc
+    public func currentRestoreStatePayload() -> [AnyHashable: Any] {
+        return [
+            "connectedPeripherals": Array(connectedPeripherals.values).map { $0.asJSObject() }
+        ]
+    }
+
+    /// Disarm the init-time restore amb (`rx_state.skip(1) → nil` vs `listenOnRestoredState`).
+    ///
+    /// On the Restoration-adapter reuse path, JS is given a buffered payload via
+    /// `createClient` replay. Leaving the amb armed can still emit a synthetic `null`
+    /// on the central's first post-attach state transition, which `restoreStateFunction`
+    /// would treat as cold launch / nothing restored and can undo session handoff.
+    /// Call after adopting the restored manager and before (or with) the JS replay.
+    @objc
+    public func completePendingRestoreStateEvent() {
+        restorationDisposable.dispose()
+        restorationDisposable = Disposables.create()
     }
 #endif
 

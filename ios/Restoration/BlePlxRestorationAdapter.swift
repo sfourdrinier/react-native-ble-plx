@@ -22,7 +22,8 @@ import CoreBluetooth
 /// Restoration adapter for react-native-ble-plx that handles iOS BLE state restoration.
 ///
 /// When iOS terminates your app in the background while connected to BLE devices,
-/// this adapter handles automatic reconnection when iOS restores the app.
+/// this adapter **reports** restored peripherals (payload + manager reuse). It does
+/// **not** initiate reconnects — host policy owns that (D5 / `getRestoredState`).
 ///
 /// # Basic Setup (Expo) - Works Standalone
 /// ```json
@@ -115,40 +116,62 @@ public final class BlePlxRestorationAdapter: NSObject {
     central: CBCentralManager,
     willRestoreState dict: [String: Any]
   ) {
-    guard let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral],
-          !peripherals.isEmpty else {
-      BlePlxDebugLogging.log("[BlePlxRestorationAdapter] No peripherals to restore")
-      return
-    }
+    // Empty peripheral list is still a valid restore wake (scan options / no links).
+    // Always store manager + payload so createClient can replay and getRestoredState settles
+    // (empty array ≠ hang until destroy).
+    let peripherals =
+      (dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral]) ?? []
 
-    BlePlxDebugLogging.log("[BlePlxRestorationAdapter] Restoring \(peripherals.count) peripheral(s)")
+    BlePlxDebugLogging.log(
+      "[BlePlxRestorationAdapter] Reporting \(peripherals.count) restored peripheral(s) (no reconnect — D5 host policy)"
+    )
 
-    // Recreate a BleClientManager bound to the same restoration ID.
+    // Recreate a BleClientManager bound to the same restoration ID (CB continuity for JS).
     let manager = BleClientManager(
       queue: .main,
       restoreIdentifierKey: restorationIdentifier
     )
-    BlePlxRestorationState.storeRestoredManager(manager)
 
-    // Register device routes and reconnect
-    for peripheral in peripherals {
-      let deviceId = peripheral.identifier.uuidString
+    let deviceIds = peripherals.map { $0.identifier.uuidString }
+
+    // D5: restoration is a *reporting* event, not a reconnect authority.
+    // JS payload comes from willRestoreState (authoritative). Host decides whether/when
+    // to reconnect via getRestoredState + attemptConnectOnce or explicit auto mode.
+    // (3.8.x adapter called connectToDevice here — intentional 3.9 correctness change.)
+    let restorePayload: [AnyHashable: Any] = [
+      "connectedPeripherals": peripherals.map { Self.jsDeviceDictionary(from: $0) }
+    ]
+    BlePlxRestorationState.storeRestoredManager(manager, restoreStatePayload: restorePayload)
+
+    guard !deviceIds.isEmpty else { return }
+
+    // Best-effort native cache fill so isDeviceConnected can reflect OS-live links when
+    // the central is already powered on. May no-op if still .unknown — that is fine.
+    manager.seedRestoredPeripherals(withIdentifiers: deviceIds)
+
+    // Device→adapter routes for host registries only (no connectToDevice).
+    for deviceId in deviceIds {
       registerDeviceRoute(deviceId: deviceId)
-
-      // Kick off reconnect in the background. We don't care about resolve/reject here
-      // because JS may not be up yet. Any errors will surface once JS re-attaches.
-      manager.connectToDevice(
-        deviceId,
-        options: [:],
-        resolve: { _ in
-          BlePlxDebugLogging.log("[BlePlxRestorationAdapter] ✓ Reconnected to \(deviceId)")
-        },
-        reject: { code, message, error in
-          let reason = message ?? error?.localizedDescription ?? "unknown"
-          BlePlxDebugLogging.log("[BlePlxRestorationAdapter] ✗ Failed to reconnect \(deviceId): \(code ?? "-") / \(reason)")
-        }
-      )
     }
+  }
+
+  /// Minimal JS Device shape matching `Peripheral.asJSObject` field set.
+  private static func jsDeviceDictionary(from peripheral: CBPeripheral) -> [AnyHashable: Any] {
+    [
+      "id": peripheral.identifier.uuidString,
+      "name": peripheral.name as Any,
+      "rssi": NSNull(),
+      "mtu": 23,
+      "manufacturerData": NSNull(),
+      "serviceData": NSNull(),
+      "serviceUUIDs": NSNull(),
+      "localName": NSNull(),
+      "txPowerLevel": NSNull(),
+      "solicitedServiceUUIDs": NSNull(),
+      "isConnectable": NSNull(),
+      "overflowServiceUUIDs": NSNull(),
+      "rawScanRecord": NSNull()
+    ]
   }
 
   // MARK: - Device Route Registration

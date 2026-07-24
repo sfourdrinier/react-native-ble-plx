@@ -87,6 +87,55 @@ Disable with:
 connections.disableAutoReconnect(deviceId)
 ```
 
+## Externally gated mode
+
+Use when **your app** owns reconnect policy (session/hub layer). `ConnectionManager`
+still runs race-hardened single connects (timeout, coalesce, cancel) but **never**
+schedules retries or auto-reconnect for that call.
+
+### API
+
+```ts
+const device = await connections.attemptConnectOnce(deviceId, {
+  timeoutMs: 15000,
+  connectionOptions: {
+    /* native options */
+  },
+  // maxRetries is forced to 1 (single attempt); prefer omitting it
+})
+```
+
+### Mode exclusivity (per `deviceId`)
+
+| Call | While auto-reconnect enabled | While `attemptConnectOnce` in flight |
+| ---- | ---------------------------- | ------------------------------------ |
+| `attemptConnectOnce` | Rejects `OperationStartFailed` | Coalesces with other gated calls |
+| `attemptConnectOnce` while non-gated `connect` in flight | — | Rejects `OperationStartFailed` (strict: does not join any non-gated in-flight connect) |
+| `enableAutoReconnect` | Updates options | **Throws** `OperationStartFailed` (use try/catch) |
+| `connect` | Allowed (existing behavior) | Coalesces onto gated flight (single attempt already started; does **not** re-arm multi-retry) |
+
+### Caller-owned backoff example
+
+```ts
+async function reconnectWithPolicy(deviceId: string) {
+  let delay = 1000
+  for (let i = 0; i < 10; i++) {
+    try {
+      return await connections.attemptConnectOnce(deviceId, { timeoutMs: 15000 })
+    } catch (e) {
+      // permanent failures: rethrow; transient: back off
+      await new Promise((r) => setTimeout(r, delay))
+      delay = Math.min(delay * 2, 30000)
+    }
+  }
+  throw new Error('gave up')
+}
+```
+
+`setGlobalCallbacks` still observes gated attempts (`onConnecting` / `onConnect` / `onConnectFailed`).
+
+After iOS state restoration, combine with [`getRestoredState`](./BACKGROUND.md) and a single gated attempt if the peripheral is no longer connected — see [BACKGROUND.md](./BACKGROUND.md).
+
 ## Cancellation and coalescing
 
 - Multiple concurrent `connect()` calls for the **same** device coalesce onto one in-flight attempt.

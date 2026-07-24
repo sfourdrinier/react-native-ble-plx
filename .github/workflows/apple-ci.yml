@@ -1,0 +1,142 @@
+# Reusable Apple compile checks (#20). Called from ci.yml when the Apple gate is open.
+# Compile/link only — no simulator boot, no BLE runtime (see #14).
+#
+# Runner: macos-26 + Xcode 26.4+ (prefer 26.6; Expo SDK 57 needs Swift tools 6.2).
+name: Apple CI
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-example:
+    name: iOS example (BlePlxExample)
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      RCT_NEW_ARCH_ENABLED: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
+      - name: Select Xcode
+        uses: ./.github/actions/select-xcode
+
+      - name: Setup JS package
+        uses: ./.github/actions/setup-js-package
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: example
+
+      - name: Install example dependencies
+        # example/pnpm-lock.yaml is gitignored; CI must not freeze.
+        run: pnpm --dir example install --no-frozen-lockfile
+
+      - name: Install CocoaPods
+        working-directory: example/ios
+        run: BUNDLE_GEMFILE="$GITHUB_WORKSPACE/example/Gemfile" bundle exec pod install
+
+      - name: Build BlePlxExample (iphonesimulator, New Arch)
+        working-directory: example/ios
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -workspace BlePlxExample.xcworkspace \
+            -scheme BlePlxExample \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build
+
+  ios-expo:
+    name: iOS Expo CNG example
+    runs-on: macos-26
+    timeout-minutes: 75
+    env:
+      RCT_NEW_ARCH_ENABLED: '1'
+      NODE_OPTIONS: --max-old-space-size=8192
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
+      - name: Select Xcode
+        uses: ./.github/actions/select-xcode
+
+      - name: Setup JS package
+        uses: ./.github/actions/setup-js-package
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: example
+
+      - name: Install Expo example dependencies
+        run: pnpm --dir example-expo install --no-frozen-lockfile
+
+      - name: Align Expo peer deps to installed SDK
+        working-directory: example-expo
+        run: npx expo install --fix
+
+      - name: Prebuild Expo native projects
+        working-directory: example-expo
+        run: npx expo prebuild --clean --no-install --platform ios
+
+      - name: Install CocoaPods
+        working-directory: example-expo/ios
+        run: |
+          set -euo pipefail
+          BUNDLE_GEMFILE="$GITHUB_WORKSPACE/example/Gemfile" bundle exec pod install
+
+      - name: Build Expo iOS app (iphonesimulator, New Arch)
+        working-directory: example-expo/ios
+        run: |
+          set -euo pipefail
+          WORKSPACE=$(ls -d *.xcworkspace | head -n 1)
+          if [[ -z "$WORKSPACE" ]]; then
+            echo "error: no .xcworkspace after prebuild" >&2
+            exit 1
+          fi
+          # Prefer an app scheme (contains example); skip CocoaPods aggregate schemes.
+          SCHEME=$(
+            xcodebuild -list -workspace "$WORKSPACE" -json \
+              | python3 -c "import json,sys; d=json.load(sys.stdin); s=(d.get('workspace') or d.get('project') or {}).get('schemes') or []; p=[x for x in s if 'example' in x.lower() and 'pod' not in x.lower()]; print((p or s)[0] if s else '')"
+          )
+          if [[ -z "$SCHEME" ]]; then
+            echo "error: could not resolve xcode scheme from $WORKSPACE" >&2
+            xcodebuild -list -workspace "$WORKSPACE"
+            exit 1
+          fi
+          echo "Building workspace=$WORKSPACE scheme=$SCHEME"
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build
+
+  tvos-library:
+    name: tvOS library compile check
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
+      - name: Select Xcode
+        uses: ./.github/actions/select-xcode
+
+      - name: Check tvOS library (podspec + vendor Swift)
+        run: bash scripts/ci/check-tvos-library.sh

@@ -57,7 +57,8 @@ It does NOT support:
 - React Native **0.86.0+**
 - Expo SDK **57+**
 - Node.js **20.19.4+**
-- Xcode **16.1+** for iOS builds
+- Xcode **16.1+** for plain RN iOS builds (RN 0.86 floor)
+- Xcode **26.4+** when using **Expo SDK 57** / `expo-modules-jsi` (Swift tools 6.2; CI uses **26.6**)
 - Android min SDK **24**, compile/target SDK **36**
 - iOS deployment target **16.4**
 - RN 0.86 TurboModules/Fabric runtime
@@ -324,24 +325,29 @@ const manager = new BleManager({
 
 ## iOS BLE State Restoration (Optional)
 
-This fork includes **optional** support for iOS BLE state restoration, allowing your app to automatically reconnect to BLE devices after iOS terminates it in the background.
+This fork includes **optional** support for iOS BLE state restoration so the OS can wake your app and **report** which peripherals were restored after a background termination. **Reconnect policy is host-owned** (3.9+ / D5): the Restoration adapter does **not** call `connectToDevice`.
+
+Full lifecycle, semantics matrix, and recipes: **[docs/BACKGROUND.md](./docs/BACKGROUND.md)**.
 
 ### Why Use State Restoration?
 
-| Scenario | Without Restoration | With Restoration |
-|----------|---------------------|------------------|
-| App killed by iOS while connected | Connection lost, user must manually reconnect | Auto-reconnects when device sends data |
-| Phone rebooted while wearing sensor | Must open app and reconnect | System restores connection automatically |
-| Long recording session (hours) | Risk of disconnection if iOS reclaims memory | Seamless reconnection maintains session |
+| Scenario | Without Restoration | With Restoration (3.9+) |
+|----------|---------------------|-------------------------|
+| App killed by iOS while connected | Connection lost | OS reports restored peripheral ids; **your app** reconnects if needed |
+| Phone rebooted while wearing sensor | Must open app and reconnect | Same: handoff via `getRestoredState()` / restore callback |
+| Long recording session (hours) | Risk of silent death | Session layer can resume streams after handoff |
 
 ### How It Works
 
 1. User connects to a BLE device and starts streaming data
 2. User switches to another app or locks the phone
-3. iOS terminates your app to free memory (not a crash - iOS reclaiming resources)
-4. Later, the BLE device sends data (e.g., user is still wearing it)
-5. iOS wakes your app in the background with the restoration state
-6. `BlePlxRestorationAdapter` handles automatic reconnection
+3. iOS terminates your app to free memory (not a crash)
+4. Later, the BLE device or system wakes the app with restoration state
+5. Native adapter stores the manager + restore payload (reporting only)
+6. JS: `restoreStateFunction` and/or **`await manager.getRestoredState()`**
+7. **Your code** reconnects if needed (`ConnectionManager.attemptConnectOnce` or explicit auto — see BACKGROUND.md)
+
+Restored ids ≠ ready for GATT: always check `isDeviceConnected` (or reconnect) before discover/monitor.
 
 ### Enabling Restoration (Expo)
 
@@ -363,18 +369,20 @@ This fork includes **optional** support for iOS BLE state restoration, allowing 
 }
 ```
 
-Then in your JavaScript code:
+Then in JavaScript (identifier must match the plugin):
 
 ```typescript
 const manager = new BleManager({
-  restoreStateIdentifier: 'com.yourapp.bleplx',  // Must match iosRestorationIdentifier
-  restoreStateFunction: (restoredState) => {
-    if (restoredState?.connectedPeripherals) {
-      console.log('Restored peripherals:', restoredState.connectedPeripherals);
-      // Reconnect to devices, resume streaming, etc.
-    }
-  },
-});
+  restoreStateIdentifier: 'com.yourapp.bleplx',
+  restoreStateFunction: restoredState => {
+    // Optional constructor-time callback — may fire before your session layer exists
+    console.log('restore callback', restoredState?.connectedPeripherals?.map(d => d.id))
+  }
+})
+
+// Prefer late handoff for session/hub init:
+const restored = await manager.getRestoredState()
+// then host policy: attemptConnectOnce / enableAutoReconnect — see docs/BACKGROUND.md
 ```
 
 ### Enabling Restoration (Manual / Non-Expo)
@@ -390,7 +398,7 @@ const manager = new BleManager({
    <string>com.yourapp.bleplx</string>
    ```
 
-4. Enable background modes in Xcode: `Capabilities` → `Background Modes` → `Uses Bluetooth LE accessories`
+3. Enable background modes in Xcode: `Capabilities` → `Background Modes` → `Uses Bluetooth LE accessories`
 
 ### Not Using Restoration?
 
@@ -398,8 +406,7 @@ const manager = new BleManager({
 
 - The `Restoration` subspec is not included by default
 - Native code uses runtime reflection - if restoration classes aren't present, it's a no-op
-- No changes to the JavaScript API
-- Works exactly like upstream `react-native-ble-plx`
+- Without a restore identifier, `getRestoredState()` resolves `null` immediately
 
 ### Multi-Adapter Support (Advanced)
 
@@ -422,7 +429,7 @@ public final class BleRestorationRegistry: NSObject {
 }
 ```
 
-This ensures that when iOS restores the app, each device is reconnected by the appropriate SDK.
+When iOS restores the app, each device can be **routed** to the appropriate SDK registry. **Reconnect still belongs to each SDK’s host policy** (this library does not reconnect under you).
 
 ## Android Background Mode
 

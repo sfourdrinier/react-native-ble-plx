@@ -39,7 +39,7 @@ CI already runs package checks and Expo CNG **Android** builds on Ubuntu. There 
 
 ## Approach
 
-**Three new parallel jobs** on `macos-15` in `.github/workflows/ci.yml`, alongside existing Ubuntu jobs.
+**Three parallel Apple jobs** on `macos-26` via reusable workflow `.github/workflows/apple-ci.yml` (called from `ci.yml` when the Apple cost gate opens), alongside existing Ubuntu jobs. Shared steps live in `.github/actions/select-xcode` and `.github/actions/setup-js-package`.
 
 | Job | Proves |
 | --- | --- |
@@ -49,9 +49,9 @@ CI already runs package checks and Expo CNG **Android** builds on Ubuntu. There 
 
 ### Toolchain
 
-- Runner: `macos-15`
+- Runner: `macos-26` (Tahoe)
 - Node: `20.19.4` (match existing jobs)
-- Xcode: runner default / latest stable on image (RN 0.86 floor is Xcode 16.1+)
+- Xcode: **26.6** preferred on image (Swift 6.2 for Expo SDK 57 / `expo-modules-jsi`). Library RN floor remains Xcode 16.1+ for non-Expo hosts.
 - CocoaPods: via example `Gemfile` + `bundle install` where applicable, or system pod
 
 ### Shared xcodebuild policy
