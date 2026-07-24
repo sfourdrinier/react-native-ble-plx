@@ -37,7 +37,7 @@ def supportsNamespace() {
 
 android {
   if (supportsNamespace()) {
-    namespace "com.bleplx"
+    namespace "com.sfourdrinier.unifiedblemanager"
 
     sourceSets {
       main {
@@ -85,5 +85,5 @@ dependencies {
 react {
   jsRootDir = file("../src/")
   libraryName = "BlePlx"
-  codegenJavaPackageName = "com.bleplx"
+  codegenJavaPackageName = "com.sfourdrinier.unifiedblemanager"
 }

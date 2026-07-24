@@ -4,6 +4,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **4.0 train (branch `4.0`):** product identity scaffold as **`unified-ble-manager`** (`4.0.0-alpha.0`) with npm shim package path `@sfourdrinier/react-native-ble-plx` re-export; see `MIGRATION_4.0.md`.
+
+
 ## [3.9.1] - 2026-07-24
 
 ### Fixed

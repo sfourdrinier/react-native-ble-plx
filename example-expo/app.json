@@ -19,7 +19,7 @@
     },
     "plugins": [
       [
-        "@sfourdrinier/react-native-ble-plx",
+        "unified-ble-manager",
         {
           "isBackgroundEnabled": true,
           "modes": ["central"],

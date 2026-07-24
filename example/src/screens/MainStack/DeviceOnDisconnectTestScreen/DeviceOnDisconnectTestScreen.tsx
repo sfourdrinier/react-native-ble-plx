@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
-import { BleError, Device, type Subscription, type DeviceId } from '@sfourdrinier/react-native-ble-plx'
+import { BleError, Device, type Subscription, type DeviceId } from 'unified-ble-manager'
 import { ScrollView } from 'react-native'
 import Toast from 'react-native-toast-message'
 import { wait } from '../../../utils/wait'

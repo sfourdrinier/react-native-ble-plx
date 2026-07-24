@@ -1,7 +1,7 @@
 {
-  "name": "@sfourdrinier/react-native-ble-plx",
-  "version": "3.9.1",
-  "description": "React Native Bluetooth Low Energy library",
+  "name": "unified-ble-manager",
+  "version": "4.0.0-alpha.0",
+  "description": "Unified Bluetooth Low Energy manager for React Native, Electron, Web, and desktop (4.0 train; successor lineage of @sfourdrinier/react-native-ble-plx)",
   "packageManager": "pnpm@10.14.0",
   "main": "lib/commonjs/index.js",
   "module": "lib/module/index.js",
@@ -34,7 +34,8 @@
     "!**/__tests__",
     "!**/__fixtures__",
     "!**/__mocks__",
-    "!**/.*"
+    "!**/.*",
+    "MIGRATION_4.0.md"
   ],
   "scripts": {
     "build": "babel src/ -d lib/",
@@ -64,15 +65,15 @@
     "lint:plugin": "eslint plugin/src/*"
   },
   "keywords": [
+    "bluetooth",
+    "ble",
+    "unified-ble-manager",
     "react-native",
-    "ios",
-    "android",
-    "React",
-    "Native",
-    "Bluetooth",
-    "Low",
-    "Energy",
-    "BLE"
+    "electron",
+    "web",
+    "corebluetooth",
+    "gatt",
+    "central"
   ],
   "repository": {
     "type": "git",
@@ -157,7 +158,7 @@
     "type": "modules",
     "jsSrcsDir": "src",
     "android": {
-      "javaPackageName": "com.bleplx"
+      "javaPackageName": "com.sfourdrinier.unifiedblemanager"
     },
     "ios": {
       "modulesProvider": {
@@ -210,5 +211,34 @@
         }
       ]
     ]
+  },
+  "exports": {
+    ".": {
+      "react-native": "./src/index.ts",
+      "types": "./lib/typescript/src/index.d.ts",
+      "import": "./lib/module/index.js",
+      "require": "./lib/commonjs/index.js",
+      "default": "./lib/commonjs/index.js"
+    },
+    "./app.plugin.js": "./app.plugin.js",
+    "./package.json": "./package.json",
+    "./web": {
+      "types": "./src/hosts/web.ts",
+      "import": "./src/hosts/web.ts",
+      "require": "./src/hosts/web.ts",
+      "default": "./src/hosts/web.ts"
+    },
+    "./electron": {
+      "types": "./src/hosts/electron.ts",
+      "import": "./src/hosts/electron.ts",
+      "require": "./src/hosts/electron.ts",
+      "default": "./src/hosts/electron.ts"
+    },
+    "./node": {
+      "types": "./src/hosts/node.ts",
+      "import": "./src/hosts/node.ts",
+      "require": "./src/hosts/node.ts",
+      "default": "./src/hosts/node.ts"
+    }
   }
 }

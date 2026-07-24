@@ -539,6 +539,8 @@ Electron/desktop: document process lifetime only—never mobile FGS/restore clai
 
 **Exit:** Compat policy agreed; alpha versioning set; shim rules written for `unified-ble-manager` ↔ old name; first failing tests / fakes exist.
 
+**Status (branch `4.0`):** Phase 0 scaffold landed — identity rename, shim package, `MIGRATION_4.0.md`, exports `/web` `/electron` `/node`, encoding + `FakeBlePort` + compat Base64 skeleton tests, milestone `4.0.0-alpha`.
+
 ---
 
 ### Phase 1 — Alpha: dual API + mobile DX + perf baseline

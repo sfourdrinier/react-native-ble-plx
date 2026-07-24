@@ -1,0 +1,37 @@
+{
+  "name": "@sfourdrinier/react-native-ble-plx",
+  "version": "4.0.0-alpha.0",
+  "description": "Compatibility shim: re-exports unified-ble-manager (4.0 train). Prefer installing unified-ble-manager directly.",
+  "license": "MIT",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "react-native": "index.js",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "app.plugin.js",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sfourdrinier/react-native-ble-plx.git",
+    "directory": "packages/react-native-ble-plx-shim"
+  },
+  "homepage": "https://github.com/sfourdrinier/react-native-ble-plx#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": ">=0.86.0"
+  },
+  "dependencies": {
+    "unified-ble-manager": "file:../.."
+  },
+  "keywords": [
+    "react-native",
+    "ble",
+    "shim",
+    "unified-ble-manager"
+  ]
+}

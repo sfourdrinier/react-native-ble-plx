@@ -11,7 +11,7 @@ import {
   type Characteristic,
   type Base64,
   type Subscription
-} from '@sfourdrinier/react-native-ble-plx'
+} from 'unified-ble-manager'
 import { PermissionsAndroid, Platform } from 'react-native'
 import Toast from 'react-native-toast-message'
 

@@ -1,6 +1,6 @@
 import React, { useState, type Dispatch } from 'react'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
-import { Device, type Base64 } from '@sfourdrinier/react-native-ble-plx'
+import { Device, type Base64 } from 'unified-ble-manager'
 import { Platform, ScrollView } from 'react-native'
 import base64 from 'react-native-base64'
 import type { TestStateType } from '../../../types'

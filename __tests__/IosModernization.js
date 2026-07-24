@@ -1,7 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 
-const podspec = fs.readFileSync(path.join(__dirname, '..', 'react-native-ble-plx.podspec'), 'utf8')
+const podspec = fs.readFileSync(path.join(__dirname, '..', 'unified-ble-manager.podspec'), 'utf8')
 const iosHeader = fs.readFileSync(path.join(__dirname, '..', 'ios/BlePlx.h'), 'utf8')
 const iosImplementationPath = path.join(__dirname, '..', 'ios/BlePlx.mm')
 const iosImplementation = fs.readFileSync(iosImplementationPath, 'utf8')
@@ -26,6 +26,7 @@ describe('iOS modernization defaults', () => {
   test('Restoration subspec is opt-in only (default_subspecs :none) — #32', () => {
     // CocoaPods without :none would default-link ALL subspecs on root pod install.
     expect(podspec).toMatch(/s\.default_subspecs\s*=\s*:none/)
+    expect(podspec).toContain('s.name         = "unified-ble-manager"')
     // Root source_files must not pull Restoration Swift into the base pod.
     const rootSourceMatch = podspec.match(/s\.source_files\s*=\s*[^\n]+/)
     expect(rootSourceMatch).toBeTruthy()

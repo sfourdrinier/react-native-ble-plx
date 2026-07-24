@@ -39,8 +39,8 @@ pnpm test:package
 pnpm test:plugin
 pnpm lint
 pnpm prepack
-rm -rf "$ROOT_DIR/example-expo/node_modules/.pnpm/@sfourdrinier+react-native-ble-plx@file+.."*
-rm -rf "$ROOT_DIR/example-expo/node_modules/@sfourdrinier/react-native-ble-plx"
+rm -rf "$ROOT_DIR/example-expo/node_modules/.pnpm/unified-ble-manager@file+.."*
+rm -rf "$ROOT_DIR/example-expo/node_modules/unified-ble-manager"
 pnpm --dir example-expo install --no-frozen-lockfile
 pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json
 

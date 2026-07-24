@@ -3,7 +3,7 @@
     "baseUrl": "./",
     "rootDir": "./",
     "paths": {
-      "react-native-ble-plx": ["./src/index"]
+       "unified-ble-manager": ["./src/index"]
     },
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,

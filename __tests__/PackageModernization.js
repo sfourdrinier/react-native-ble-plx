@@ -104,7 +104,7 @@ describe('package modernization targets', () => {
       type: 'modules',
       jsSrcsDir: 'src',
       android: {
-        javaPackageName: 'com.bleplx'
+        javaPackageName: 'com.sfourdrinier.unifiedblemanager'
       },
       ios: {
         modulesProvider: {
@@ -268,9 +268,9 @@ describe('package modernization targets', () => {
     // Current Release block tracks last *published* version (updated after Path A succeeds).
     // While preparing a release PR, package.json may already be the next version.
     expect(releaseDoc).toMatch(/Current released version: `\d+\.\d+\.\d+`/)
-    expect(rootPackage.version).toBe('3.9.1')
-    expect(fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf8')).toContain('## [3.9.1]')
-    expect(fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf8')).toMatch(/#32|iosEnableRestoration/)
+    expect(rootPackage.version).toMatch(/^4\.0\.0-alpha\./)
+    expect(rootPackage.name).toBe('unified-ble-manager')
+    expect(fs.readFileSync(path.join(__dirname, '..', 'MIGRATION_4.0.md'), 'utf8')).toContain('unified-ble-manager')
     expect(releaseDoc).toContain('Expo SDK 57')
     expect(releaseDoc).toContain('React Native 0.86')
     expect(releaseDoc).toContain('pnpm test:package')
@@ -305,8 +305,8 @@ describe('package modernization targets', () => {
     )
     expect(releaseVerifyScript).toContain('export NODE_OPTIONS')
     expect(releaseVerifyScript).toContain('--max-old-space-size=8192')
-    expect(releaseVerifyScript).toContain('rm -rf "$ROOT_DIR/example-expo/node_modules/.pnpm/@sfourdrinier+react-native-ble-plx@file+.."*')
-    expect(releaseVerifyScript).toContain('rm -rf "$ROOT_DIR/example-expo/node_modules/@sfourdrinier/react-native-ble-plx"')
+    expect(releaseVerifyScript).toContain('rm -rf "$ROOT_DIR/example-expo/node_modules/.pnpm/unified-ble-manager@file+.."*')
+    expect(releaseVerifyScript).toContain('rm -rf "$ROOT_DIR/example-expo/node_modules/unified-ble-manager"')
     expect(releaseVerifyScript).toContain('pnpm --dir example-expo install --no-frozen-lockfile')
     expect(releaseVerifyScript).not.toContain('pnpm --dir example-expo install --no-frozen-lockfile --force')
     expect(releaseVerifyScript).toContain('pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json')
@@ -341,8 +341,8 @@ describe('package modernization targets', () => {
     expect(exampleExpoPackage.devDependencies.typescript).toMatch(/\b[56]\b/)
     expect(exampleExpoPackage.devDependencies).not.toHaveProperty('eslint')
     expect(exampleExpoPackage.devDependencies).not.toHaveProperty('prettier')
-    expect(examplePackage.dependencies['@sfourdrinier/react-native-ble-plx']).toBe('file:..')
-    expect(exampleExpoPackage.dependencies['@sfourdrinier/react-native-ble-plx']).toBe('file:..')
+    expect(examplePackage.dependencies['unified-ble-manager']).toBe('file:..')
+    expect(exampleExpoPackage.dependencies['unified-ble-manager']).toBe('file:..')
     expect(rangeAllowsMajor(examplePackage.devDependencies['@react-native-community/cli'], 20)).toBe(true)
     expect(rangeAllowsMajor(examplePackage.devDependencies['@react-native-community/cli-platform-android'], 20)).toBe(
       true
@@ -350,8 +350,9 @@ describe('package modernization targets', () => {
     expect(rangeAllowsMajor(examplePackage.devDependencies['@react-native-community/cli-platform-ios'], 20)).toBe(true)
     expect(examplePackage.dependencies).not.toHaveProperty('react-native-ble-plx')
     expect(exampleExpoPackage.dependencies).not.toHaveProperty('react-native-ble-plx')
-    expect(exampleImports).toContain("from '@sfourdrinier/react-native-ble-plx'")
+    expect(exampleImports).toContain("from 'unified-ble-manager'")
     expect(exampleImports).not.toContain("from 'react-native-ble-plx'")
+    expect(exampleImports).not.toContain("from '@sfourdrinier/react-native-ble-plx'")
   })
 
   test('non-Expo example lockfile and native project floors match React Native 0.86', () => {
@@ -362,7 +363,7 @@ describe('package modernization targets', () => {
     // Floors live in package.json (ranges); no committed example lock to pin patches.
     expect(rangeAllowsMinorLine(examplePackage.dependencies.react, 19, 2)).toBe(true)
     expect(rangeAllowsMinorLine(examplePackage.dependencies['react-native'], 0, 86)).toBe(true)
-    expect(examplePackage.dependencies['@sfourdrinier/react-native-ble-plx']).toBe('file:..')
+    expect(examplePackage.dependencies['unified-ble-manager']).toBe('file:..')
     expect(fs.existsSync(path.join(__dirname, '..', 'example/ios/Podfile.lock'))).toBe(false)
 
     expect(exampleAndroidBuild).toContain('buildToolsVersion = "36.0.0"')
@@ -398,7 +399,7 @@ describe('package modernization targets', () => {
     expect(exampleExpoGitignore).toMatch(/^\s*ios\/?\s*$/m)
     expect(exampleExpoApp.expo).not.toHaveProperty('splash')
     expect(exampleExpoApp.expo.plugins).toContainEqual([
-      '@sfourdrinier/react-native-ble-plx',
+      'unified-ble-manager',
       {
         isBackgroundEnabled: true,
         modes: ['central'],
@@ -493,7 +494,7 @@ describe('package modernization targets', () => {
     expect(rootPackage.files).toContain('!docs/index.html')
     expect(rootPackage.files).toContain('!docs/assets')
 
-    expect(gettingStartedDoc).toContain('@sfourdrinier/react-native-ble-plx')
+    expect(gettingStartedDoc).toMatch(/@sfourdrinier\/react-native-ble-plx|unified-ble-manager/)
     expect(gettingStartedDoc).toMatch(/EXPO_PLUGIN\.md/)
     expect(gettingStartedDoc).toContain('const requestBluetoothPermission')
     expect(gettingStartedDoc).not.toContain('github.com/dotintent/react-native-ble-plx?tab=readme-ov-file#expo-sdk-43')

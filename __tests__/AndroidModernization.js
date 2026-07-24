@@ -23,11 +23,11 @@ describe('Android modernization defaults', () => {
   })
 
   test('implements the generated TurboModule spec and registers through BaseReactPackage', () => {
-    const moduleJava = read('android/src/main/java/com/bleplx/BlePlxModule.java')
-    const packageJava = read('android/src/main/java/com/bleplx/BlePlxPackage.java')
-    const adapterJava = read('android/src/main/java/com/bleplx/adapter/BleModule.java')
+    const moduleJava = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxModule.java')
+    const packageJava = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxPackage.java')
+    const adapterJava = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/BleModule.java')
 
-    expect(moduleJava).toContain('import com.bleplx.NativeBlePlxSpec;')
+    expect(moduleJava).toContain('import com.sfourdrinier.unifiedblemanager.NativeBlePlxSpec;')
     expect(moduleJava).toContain('public class BlePlxModule extends NativeBlePlxSpec')
     expect(moduleJava).not.toContain('extends ReactContextBaseJavaModule')
 
@@ -56,7 +56,7 @@ describe('Android modernization defaults', () => {
     expect(buildGradle).toContain('apply plugin: "com.facebook.react"')
     expect(buildGradle).toContain('buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", "true"')
     expect(buildGradle).toContain('react {')
-    expect(buildGradle).toContain('codegenJavaPackageName = "com.bleplx"')
+    expect(buildGradle).toContain('codegenJavaPackageName = "com.sfourdrinier.unifiedblemanager"')
     expect(buildGradle).not.toContain('isNewArchitectureEnabled')
     expect(buildGradle).not.toContain('newArchEnabled')
     expect(exampleGradleProperties).not.toContain('newArchEnabled')
@@ -77,15 +77,15 @@ describe('Android modernization defaults', () => {
   })
 
   test('does not preserve deprecated Java promise overloads', () => {
-    const safePromise = read('android/src/main/java/com/bleplx/utils/SafePromise.java')
+    const safePromise = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/utils/SafePromise.java')
 
     expect(safePromise).not.toContain('@Deprecated')
     expect(safePromise).not.toContain('public void reject(String message)')
   })
 
   test('keeps Android promise rejection paths null-safe', () => {
-    const safePromise = read('android/src/main/java/com/bleplx/utils/SafePromise.java')
-    const errorDefaults = read('android/src/main/java/com/bleplx/utils/ErrorDefaults.java')
+    const safePromise = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/utils/SafePromise.java')
+    const errorDefaults = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/utils/ErrorDefaults.java')
 
     expect(errorDefaults).toContain('public static final String CODE')
     expect(errorDefaults).toContain('public static final String MESSAGE')
@@ -97,7 +97,7 @@ describe('Android modernization defaults', () => {
   })
 
   test('keeps custom GATT refresh operation typed for javac', () => {
-    const refreshGattOperation = read('android/src/main/java/com/bleplx/adapter/utils/RefreshGattCustomOperation.java')
+    const refreshGattOperation = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/utils/RefreshGattCustomOperation.java')
 
     expect(refreshGattOperation).toContain('Observable.amb(')
     expect(refreshGattOperation).toContain('Arrays.asList(')

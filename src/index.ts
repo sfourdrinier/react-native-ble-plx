@@ -11,6 +11,12 @@ export { State, LogLevel, ConnectionPriority, ScanCallbackType, ScanMode } from 
 export { ConnectionManager } from './ConnectionManager'
 export type { ConnectionOptionsWithRetry, AutoReconnectOptions, ConnectionCallbacks } from './ConnectionManager'
 
+// 4.0 constitution: dual-path encoding edge + host-agnostic port (TDD)
+export { base64ToBytes, bytesToBase64, roundTripBase64 } from './encoding'
+export type { BlePort, PortAdvertisement, PortConnectionState, PortDeviceId } from './port/BlePort'
+export { FakeBlePort } from './port/BlePort'
+export type { FakePortOptions } from './port/BlePort'
+
 export type {
   Subscription,
   DeviceId,

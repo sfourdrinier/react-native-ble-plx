@@ -1,4 +1,4 @@
-import { ConnectionPriority, LogLevel } from '@sfourdrinier/react-native-ble-plx'
+import { ConnectionPriority, LogLevel } from 'unified-ble-manager'
 import { BLEService } from '../../../services'
 import { deviceTimeCharacteristic, deviceTimeService } from '../../../consts/nRFDeviceConsts'
 
