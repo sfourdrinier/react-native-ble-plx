@@ -22,7 +22,11 @@ Pod::Spec.new do |s|
   s.module_name  = "BlePlx"
   s.source_files = "ios/*.{h,m,mm}", "ios/vendor/MultiplatformBleAdapter/**/*.swift"
   s.resource_bundles = { 'BlePlx' => ['ios/PrivacyInfo.xcprivacy'] }
-  s.compiler_flags = "-DMULTIPLATFORM_BLE_ADAPTER -fmodules -fcxx-modules"
+  # Do not add -fmodules/-fcxx-modules: under -fcxx-modules, clang can emit fmt
+  # inline functions (via RCT-Folly) as strong definitions in BlePlx.o /
+  # BlePlxTurboModule.o, causing duplicate-symbol link failures when RN is built
+  # from source (libfmt.a). See #31.
+  s.compiler_flags = "-DMULTIPLATFORM_BLE_ADAPTER"
 
   # Without :none, CocoaPods treats ALL subspecs as default dependencies of the root pod,
   # so `pod 'react-native-ble-plx'` would always link Restoration (#32). Keep Restoration
@@ -43,7 +47,7 @@ Pod::Spec.new do |s|
     install_modules_dependencies(s)
   else
     s.dependency "React-Core"
-    s.compiler_flags = folly_compiler_flags + " -DRCT_NEW_ARCH_ENABLED=1 -DMULTIPLATFORM_BLE_ADAPTER -fmodules -fcxx-modules"
+    s.compiler_flags = folly_compiler_flags + " -DRCT_NEW_ARCH_ENABLED=1 -DMULTIPLATFORM_BLE_ADAPTER"
     s.pod_target_xcconfig = {
       "HEADER_SEARCH_PATHS" => "\"$(PODS_ROOT)/boost\"",
       "OTHER_CPLUSPLUSFLAGS" => "-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1",

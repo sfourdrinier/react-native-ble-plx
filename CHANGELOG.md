@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **4.0 train (branch `4.0`):** product identity scaffold as **`unified-ble-manager`** (`4.0.0-alpha.0`) with npm shim package path `@sfourdrinier/react-native-ble-plx` re-export; see `MIGRATION_4.0.md`.
 
+## [3.9.2] - 2026-07-24
+
+### Fixed
+
+- **iOS: strip `-fmodules` / `-fcxx-modules` from podspec `compiler_flags` ([#31](https://github.com/sfourdrinier/react-native-ble-plx/issues/31)).** Those flags caused clang to embed ~180 strong `fmt` symbols into `BlePlx.o` / `BlePlxTurboModule.o`, producing duplicate-symbol link failures when React Native is built from source (`libfmt.a`) — visible on Xcode 26.6, latent on 26.5. Pod still compiles without the flags.
 
 ## [3.9.1] - 2026-07-24
 
