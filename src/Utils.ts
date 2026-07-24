@@ -1,6 +1,8 @@
 import { Platform } from 'react-native'
 import type { UUID } from './TypeDefinition'
 
+export { fillStringWithArguments } from './stringUtils'
+
 /**
  * Converts UUID to full 128bit, lowercase format which should be used to compare UUID values.
  *
@@ -15,13 +17,6 @@ export function fullUUID(uuid: UUID): UUID {
     return uuid.toLowerCase() + '-0000-1000-8000-00805f9b34fb'
   }
   return uuid.toLowerCase()
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function fillStringWithArguments(value: string, object: any): string {
-  return value.replace(/\{([^}]+)\}/g, function (_, arg: string) {
-    return object[arg] || '?'
-  })
 }
 
 export const isIOS = Platform.OS === 'ios'

@@ -1,4 +1,4 @@
-import { fillStringWithArguments } from './Utils'
+import { fillStringWithArguments } from './stringUtils'
 import type { BleErrorCodeMessageMapping } from './TypeDefinition'
 
 export interface NativeBleError {

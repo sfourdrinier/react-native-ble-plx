@@ -59,7 +59,7 @@
     "bootstrap": "pnpm --dir example install && pnpm install && pnpm --dir example pods",
     "clean": "del-cli android/build example/android/build example/android/app/build example/ios/build plugin/build lib",
     "build:plugin": "tsc --build plugin",
-    "clean:plugin": "expo-module clean plugin",
+    "clean:plugin": "del-cli plugin/build",
     "test:plugin": "NODE_PATH=./plugin/test-stubs jest --config plugin/jest.config.js",
     "prepare": "pnpm clean:plugin && pnpm build:plugin",
     "lint:plugin": "eslint plugin/src/*"
