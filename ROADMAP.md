@@ -3,7 +3,7 @@
 **Status:** living document  
 **Last updated:** 2026-07  
 **Package floor:** React Native 0.86+, Expo SDK 57+, TypeScript-first TurboModule  
-**Package version at writing:** 3.9.0
+**Package version at writing:** 3.9.1
 
 This roadmap describes how this fork becomes the most modern, reliable, and feature-complete Bluetooth Low Energy library for React Native—and, over time, a multiplatform BLE client (mobile, web, desktop, Linux). It is intentional product planning, not a release schedule. Priorities can shift when real app needs (especially production background reliability) demand it.
 

@@ -4,6 +4,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.9.1] - 2026-07-24
+
+### Fixed
+
+- **iOS `iosEnableRestoration` is truly opt-in ([#32](https://github.com/sfourdrinier/react-native-ble-plx/issues/32)).** CocoaPods previously default-linked **all** subspecs when installing the root pod, so the Restoration adapter was always compiled even with `iosEnableRestoration: false`. The podspec now sets `default_subspecs = :none`; Restoration is only linked via explicit `pod 'react-native-ble-plx/Restoration'` (what the Expo plugin injects when the flag is true).
+- Expo plugin **removes** sticky Restoration artifacts when the flag is `false` (or flipped true→false): Podfile marker / `…/Restoration` pod line and Info.plist `BlePlxRestoreIdentifier`.
+
+### Migration (3.9.0 → 3.9.1)
+
+If you relied on Restoration **without** setting `iosEnableRestoration: true` (it was accidentally always linked), set the flag and identifier explicitly, match `BleManager` `restoreStateIdentifier`, then rebuild native iOS (`expo prebuild --clean` / `pod install`).
+
+JS `restoreStateIdentifier` remains a **separate** CoreBluetooth restore key (unchanged); the plugin flag only gates the optional Restoration **subspec** + plist identifier.
+
 ## [3.9.0] - 2026-07-24
 
 ### Added

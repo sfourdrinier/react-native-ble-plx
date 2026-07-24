@@ -7,7 +7,11 @@ import { withBLEAndroidForegroundService } from './withBLEAndroidForegroundServi
 import { BackgroundMode, withBLEBackgroundModes } from './withBLEBackgroundModes'
 import { withBluetoothPermissions } from './withBluetoothPermissions'
 import { withBLEDebugLogging } from './withBLEDebugLogging'
-import { withBLERestorationPodfile } from './withBLERestorationPodfile'
+import {
+  clearBlePlxRestoreIdentifier,
+  setBlePlxRestoreIdentifier,
+  withBLERestorationPodfile
+} from './withBLERestorationPodfile'
 import { blePlxPluginDebugLog, isBlePlxPluginDebugEnabled } from './debugLog'
 
 /**
@@ -49,21 +53,35 @@ const withBLE: ConfigPlugin<
   config = withBluetoothPermissions(config, _props)
   config = withBLEBackgroundModes(config, _props.modes || [])
 
+  // Always run so true→false flips strip sticky Podfile/plist artifacts (#32).
   if (iosEnableRestoration) {
     blePlxPluginDebugLog(debugEnabled, '✓ iosEnableRestoration is TRUE - adding Restoration subspec')
     blePlxPluginDebugLog(debugEnabled, 'Setting BlePlxRestoreIdentifier in Info.plist:', iosRestorationIdentifier)
 
-    // Persist the identifier in Info.plist so the Swift adapter can read it
     config = withInfoPlist(config, conf => {
-      conf.modResults.BlePlxRestoreIdentifier = iosRestorationIdentifier
+      conf.modResults = setBlePlxRestoreIdentifier(
+        conf.modResults as Record<string, unknown>,
+        iosRestorationIdentifier
+      ) as typeof conf.modResults
       return conf
     })
 
-    blePlxPluginDebugLog(debugEnabled, 'Calling withBLERestorationPodfile with pkgName:', pkg.name)
-    // Inject Restoration subspec into Podfile
-    config = withBLERestorationPodfile(config, { pkgName: pkg.name })
+    blePlxPluginDebugLog(debugEnabled, 'Calling withBLERestorationPodfile (enable) with pkgName:', pkg.name)
+    config = withBLERestorationPodfile(config, { pkgName: pkg.name, enable: true })
   } else {
-    blePlxPluginDebugLog(debugEnabled, '✗ iosEnableRestoration is FALSE - skipping Restoration subspec')
+    blePlxPluginDebugLog(
+      debugEnabled,
+      '✗ iosEnableRestoration is FALSE - removing Restoration subspec / BlePlxRestoreIdentifier if present'
+    )
+
+    config = withInfoPlist(config, conf => {
+      conf.modResults = clearBlePlxRestoreIdentifier(
+        conf.modResults as Record<string, unknown>
+      ) as typeof conf.modResults
+      return conf
+    })
+
+    config = withBLERestorationPodfile(config, { pkgName: pkg.name, enable: false })
   }
 
   // Android

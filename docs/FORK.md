@@ -9,7 +9,7 @@ This package is a maintained fork of [dotintent/react-native-ble-plx](https://gi
 - **Issues / support:** https://github.com/sfourdrinier/react-native-ble-plx/issues
 - **Docs:** this repository (`docs/` + root `README.md`)
 
-## Supported floors (v3.8+; current stable **3.9.0**)
+## Supported floors (v3.8+; current stable **3.9.1**)
 
 | Surface | Minimum |
 | ------- | ------- |

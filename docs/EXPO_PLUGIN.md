@@ -32,8 +32,8 @@ Rebuild native projects after any plugin option change (`npx expo prebuild --cle
 | `neverForLocation` | `boolean` | `false` | Android 31+: assert scan results are never used for location. Experimental — test thoroughly. |
 | `modes` | `('central' \| 'peripheral')[]` | `undefined` | iOS `UIBackgroundModes` for Bluetooth. This library is a **central**; `peripheral` only sets the Info.plist background mode key for apps that use other peripheral APIs. |
 | `bluetoothAlwaysPermission` | `string \| false` | Allow `$(PRODUCT_NAME)` to connect to bluetooth devices | iOS `NSBluetoothAlwaysUsageDescription`. Pass `false` to skip. |
-| `iosEnableRestoration` | `boolean` | `false` | Opt in to the iOS `Restoration` CocoaPods subspec and Info.plist restore identifier. **iOS only** (not available on tvOS). |
-| `iosRestorationIdentifier` | `string` | `com.reactnativebleplx.restore` | Value written as `BlePlxRestoreIdentifier`. Must match the `BleManager` `restoreStateIdentifier`. |
+| `iosEnableRestoration` | `boolean` | `false` | **True opt-in** for the iOS `Restoration` CocoaPods subspec (`default_subspecs = :none` on the root pod). When `true`, injects `pod '…/Restoration'` and writes `BlePlxRestoreIdentifier`. When `false`, **removes** those artifacts (including after a prior true→false flip). **iOS only** (not available on tvOS). See [#32](https://github.com/sfourdrinier/react-native-ble-plx/issues/32). |
+| `iosRestorationIdentifier` | `string` | `com.reactnativebleplx.restore` | Value written as `BlePlxRestoreIdentifier` when restoration is enabled. Must match the `BleManager` `restoreStateIdentifier`. |
 | `androidEnableForegroundService` | `boolean` | `false` | Adds FGS permissions and the connected-device foreground service declaration for background BLE. |
 
 ## Example
@@ -71,7 +71,9 @@ npx expo run:android
 
 ## JavaScript pairing for restoration
 
-When `iosEnableRestoration` is true, pass the same identifier into `BleManager`.
+When `iosEnableRestoration` is true, pass the **same** identifier into `BleManager` as `restoreStateIdentifier`.
+
+**Opt-in only (3.9.1+):** the root CocoaPods pod does **not** include Restoration by default. You need the plugin flag (or a manual `pod 'react-native-ble-plx/Restoration'` line) for the adapter to be present. Passing JS `restoreStateIdentifier` alone still configures CoreBluetooth’s restore key on `createClient`, but without the subspec there is no early adapter wake / buffered payload path — see [BACKGROUND.md](./BACKGROUND.md).
 
 **3.9+:** restoration is **reporting only** (the adapter does not reconnect). Prefer `getRestoredState()` for session layers that start after construction, then apply host reconnect policy:
 

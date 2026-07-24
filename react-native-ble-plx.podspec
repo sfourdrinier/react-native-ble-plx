@@ -24,7 +24,12 @@ Pod::Spec.new do |s|
   s.resource_bundles = { 'BlePlx' => ['ios/PrivacyInfo.xcprivacy'] }
   s.compiler_flags = "-DMULTIPLATFORM_BLE_ADAPTER -fmodules -fcxx-modules"
 
-  # Optional BLE state restoration support (off by default). iOS-only: CoreBluetooth
+  # Without :none, CocoaPods treats ALL subspecs as default dependencies of the root pod,
+  # so `pod 'react-native-ble-plx'` would always link Restoration (#32). Keep Restoration
+  # truly opt-in via `pod 'react-native-ble-plx/Restoration'` (Expo plugin injects that line).
+  s.default_subspecs = :none
+
+  # Optional BLE state restoration support (opt-in only). iOS-only: CoreBluetooth
   # state restoration APIs are API_UNAVAILABLE(tvos). The iOS-only platform on this
   # subspec keeps it out of the tvOS build.
   s.subspec "Restoration" do |ss|
