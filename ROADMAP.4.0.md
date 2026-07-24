@@ -488,13 +488,16 @@ Electron/desktop: document process lifetime only—never mobile FGS/restore clai
 
 | Work |
 | ---- |
-| Cut `4.0` / `next` branch; 3.8.x stays stable |
-| Lock **compat guarantee** + dual binary policy in writing (this doc) |
-| `exports` sketch for RN / browser / electron |
-| `MIGRATION_4.0.md` skeleton (**zero-change upgrade first**) |
-| Encoding helper module stub + test plan |
+| Cut `4.0` / `next` branch; **`master` = 3.9.x** production only |
+| Lock **compat guarantee** + dual binary policy (this doc) |
+| **Lock canonical package name** + shim design (`MIGRATION_4.0.md`) |
+| `exports` sketch for RN / browser / electron under the **new** package |
+| Encoding helper module stub + **TDD test plan** (failing tests first) |
+| Shared **BLE port / backend interface** types + fake backend for unit tests |
+| Compat suite skeleton (3.9 Base64 golden call patterns) |
+| GitHub milestone `4.0.0-alpha` + tracking issues |
 
-**Exit:** Compat policy agreed; alpha versioning set.
+**Exit:** Compat policy agreed; alpha versioning set; rename + shim rules written; first failing tests / fakes exist.
 
 ---
 
@@ -660,17 +663,61 @@ Each desktop preview must be useful for real bug discovery: its package entrypoi
 
 ---
 
-## 15. Testing strategy
+## 15. Testing strategy (TDD-first)
 
-| Layer | Scope |
+### 15.1 Principle
+
+**Behavior is specified by tests before (or with) implementation.** A feature is not “done” when code exists—it is done when:
+
+1. Automated tests that exercise the **shipped entry point** pass, and  
+2. Those tests would **fail** if the behavior were removed or inverted (no theater).
+
+4.0 is large enough that TDD is how we finish the whole roadmap without silent regressions—especially during the native rewrite and package rename.
+
+### 15.2 Test pyramid (who runs where)
+
+| Layer | What | Where it runs | Speed |
+| ----- | ---- | ------------- | ----- |
+| **L0 — Pure TS unit** | Encoding, ConnectionManager, queues, `supports()`, error mapping, migration helpers | Node/Jest CI | Fastest |
+| **L1 — Port contract** | Backend interface: scan/connect/discover/read/write/notify/disconnect against a **fake radio** | Node/Jest CI | Fast |
+| **L2 — Host adapter** | TurboModule mock, Electron IPC mock, WebBT mock/polyfill | Node/Jest (+ optional browser test runner) | Fast |
+| **L3 — Real host smoke** | Web Bluetooth in Chromium; Electron main on macOS CI where available | CI matrix (optional/nightly) | Medium |
+| **L4 — Mobile device lab** | iOS restore, Android FGS, bonding, notify perf, OEM quirks | Physical devices / scheduled lab | Slow, **authoritative** for radio + background |
+
+**Web/Electron are the preferred fast hosts for L1–L3** because they iterate without Xcode/Gradle/device cables. They **do not** certify iOS restoration or Android FGS—those stay L4.
+
+### 15.3 TDD workflow per feature
+
+```text
+1. Spec     Write / extend public API contract + failing tests (L0–L1)
+2. Fake     Implement enough fake-backend behavior to make tests red for the right reason
+3. Green    Implement real code (TS → then native or host backend)
+4. Parity   Compat suite (Base64) + bytes suite still green
+5. Lab      Only for radio/background/bonding claims that fakes cannot prove
+```
+
+Native rewrite rule: **parity tests first** (record or assert current 3.9 Base64 outcomes on a fixture device path), then swap implementation under the same tests. No “rewrite then manually see if apps work.”
+
+### 15.4 Suites we maintain
+
+| Suite | Scope |
 | ----- | ----- |
-| Unit | ConnectionManager, queues, **encoding round-trip**, `supports()`, errors |
-| **Compat suite** | 3.8-style Base64 read/write/monitor patterns |
-| **Bytes suite** | Uint8Array path parity |
+| Unit | ConnectionManager, queues, **encoding round-trip**, `supports()`, errors, shim re-exports |
+| **Compat suite** | 3.8/3.9-style Base64 read/write/monitor patterns (must pass on 4.0 default path) |
+| **Bytes suite** | `AsBytes` / `FromBytes` parity with Base64 edge codec |
+| **Port contract suite** | Every backend (fake, Web, Electron, mobile) implements the same interface tests |
 | Codemod fixtures | Dry-run + apply on golden files |
-| Host mocks | RN / Electron IPC / WebBT |
-| Device lab | Background + notify performance sampling |
-| CI | typecheck, unit, compat suite, codemod fixtures, prepack—not full hardware |
+| Host mocks | RN TurboModule / Electron IPC / WebBT |
+| Package rename | Install old name (shim) and new name; both resolve same API surface in CI |
+| Device lab | Background + bonding + notify performance sampling |
+| CI gate | typecheck, unit, compat, port contract, codemod fixtures, prepack—not full hardware |
+
+### 15.5 What TDD does *not* mean
+
+- Not “only unit tests, skip devices” for restore/FGS/bonding claims  
+- Not re-implementing production logic inside tests  
+- Not hard-coding expected values that ignore the shipped function  
+- Not blocking all progress on L4 hardware for pure-TS features  
 
 ---
 
@@ -700,16 +747,20 @@ Each desktop preview must be useful for real bug discovery: its package entrypoi
 | Native cutover compatibility | Public 3.8 API parity required in Base64 mode; bytes remain additive |
 | Bytes API shape | Explicit parallel `AsBytes` / `FromBytes` methods; no union-valued existing types, overloads, or encoding mode switch |
 | Capability contract | `supports()` is a non-throwing boolean query; unsupported operations fail with `BleErrorCode.OperationNotSupported` through their existing error channel |
-| Public package layout | One `@sfourdrinier/react-native-ble-plx` package; explicit host subpaths guaranteed in 4.0; automatic root conditions added progressively in 4.x; explicit subpaths permanent |
+| Public package layout | **One implementation**; **canonical new npm name** (TBD) + **compat shim** for `@sfourdrinier/react-native-ble-plx`; explicit host subpaths guaranteed in 4.0; automatic root conditions progressively in 4.x; explicit subpaths permanent |
 | Electron backend order | macOS/CoreBluetooth first → Windows/WinRT second → Linux/BlueZ third; all three reach preview in 4.0.0 |
 | Web device selection | Explicit user-gesture `requestDevice()`; `startDeviceScan()` remains continuous-scan-only and reports unsupported on Web |
+| Foundation before multi-host product | Owned core + dual path + bonding + mobile parity before Web/Electron are “supported preview”; contract tests may run on Web/mock hosts earlier for TDD speed |
+| 4.0.0 GA scope | Full charter: mobile quality + multi-host **preview** + compat guarantee; not a foundation-only GA |
 
 ### Open
 
 | Decision | Options | Compat constraint |
 | -------- | ------- | ----------------- |
+| **Canonical package name** | e.g. `@sfourdrinier/ble` / similar — lock in Phase 0 | Old name remains installable via shim through 4.x |
 | Base64 removal | 5.0 only after deprecation | **Not 4.0** |
 | Peripheral | P3 unless product elevates | — |
+| CocoaPods / Android library module names | Keep `react-native-ble-plx` pod name vs rename with alias | Prefer less breakage; document either way |
 
 ---
 
@@ -728,21 +779,22 @@ See also [ROADMAP.md comparative landscape](./ROADMAP.md#comparative-landscape-s
 
 ## 19. One-page summary
 
-**3.8.x** = stable line.
-**4.0** = ambitious generation with a **compatibility guarantee**:
+**3.9.x** = production stable line (`master`).  
+**4.0** = ambitious generation with a **compatibility guarantee** + **package rename** (new canonical name; old name as shim):
 
-1. **Upgrade without changing app source** (Base64 call sites keep working).
+1. **Upgrade without changing app source** (Base64 call sites keep working; optional old package name via shim).
 2. **Opt into bytes** for best notify/write performance; helpers + optional codemod for teams that want it.
-3. **Owned native architecture:** pure Kotlin Android GATT + pure Swift/CoreBluetooth, with the official TurboModule/Codegen binding for React Native.
+3. **Owned native architecture first:** pure Kotlin Android GATT + pure Swift/CoreBluetooth + TurboModule—**solid foundation before multi-host product polish**.
 4. **Performance** from that owned core, queues, MTU, fewer copies—**even if you stay on Base64**.
 5. Bonding, `supports()`, reconnect DX, services-changed, hooks.
-6. Background reliability as the brand.
-7. Multi-host **preview**: Web + Electron (**native main only**) + macOS/Windows/Linux backends.
-8. **Hard Base64 removal is not 4.0**—that’s a future major after deprecation.
+6. Background reliability as the brand (non-regression through the rewrite).
+7. Multi-host **preview in 4.0.0 GA**: Web + Electron (**native main only**) + macOS/Windows/Linux backends—built on the same contracts, not a second stack.
+8. **TDD-first:** port contracts + compat suite drive implementation; Web/Electron speed the loop; device lab certifies radio/background.
+9. **Hard Base64 removal is not 4.0**—that’s a future major after deprecation.
 
-**Alpha** proves dual path + benchmarks.
-**4.0 GA** ships mobile quality + multi-host preview **without breaking 3.8 callers**.
-**Later 4.x** completes hosts and advanced transport.
-**5.0** (someday) may drop Base64—only after the world has moved.
+**Alpha** proves dual path + owned-core vertical slice + benchmarks under the new package name.  
+**4.0 GA** ships **full charter** (foundation + multi-host preview) **without breaking 3.x callers**.  
+**Later 4.x** hardens hosts and advanced transport.  
+**5.0** (someday) may drop Base64 and/or the old package shim—only after deprecation.
 
-Be ambitious on features and performance. Be conservative on breaking source. Make migration tools excellent and **optional**.
+Be ambitious on features and performance. Be conservative on breaking source. Make migration tools excellent and **optional**. Prefer tests that fail when the product is wrong.
