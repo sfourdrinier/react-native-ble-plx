@@ -227,7 +227,7 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
 
   public func readCharacteristicForService(_ serviceIdentifier: Double, characteristicUUID: String, transactionId: String, resolve: @escaping Resolve, reject: @escaping Reject) {
     guard let service = serviceIds[serviceIdentifier],
-          let ch = service.characteristics?.first(where: { $0.uuid == CBUUID(string: characteristicUUID) }),
+          service.characteristics?.contains(where: { $0.uuid == CBUUID(string: characteristicUUID) }) == true,
           let p = service.peripheral else {
       reject("BlePlxError", jsonError(code: 404, message: "Characteristic not found"), nil)
       return
@@ -275,7 +275,7 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
     guard let ch = charIds[characteristicIdentifier],
           let service = ch.service,
           let p = service.peripheral,
-          let data = Data(base64Encoded: valueBase64) else {
+          Data(base64Encoded: valueBase64) != nil else {
       reject("BlePlxError", jsonError(code: 404, message: "Characteristic not found"), nil)
       return
     }
@@ -381,12 +381,11 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   public func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
     let id = peripheral.identifier.uuidString
     if let pending = pendingConnect.removeValue(forKey: id) {
-      pending.1("BlePlxError", jsonError(code: 200, message: error?.localizedDescription ?? "connect failed"), error)
+      pending.1("BlePlxError", jsonError(code: 200, message: error?.localizedDescription ?? "connect failed"), nsError(error))
     }
   }
 
   public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-    let id = peripheral.identifier.uuidString
     let err: Any = error.map { jsonError(code: 201, message: $0.localizedDescription) } ?? NSNull()
     delegate?.dispatchEvent(BleEvent.disconnectionEvent, value: [err, deviceJs(peripheral)])
   }
@@ -397,7 +396,7 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
     let id = peripheral.identifier.uuidString
     if let error = error {
       pendingDiscoverCharsRemaining.removeValue(forKey: id)
-      pendingDiscover.removeValue(forKey: id)?.1("BlePlxError", jsonError(code: 300, message: error.localizedDescription), error)
+      pendingDiscover.removeValue(forKey: id)?.1("BlePlxError", jsonError(code: 300, message: error.localizedDescription), nsError(error))
       return
     }
     let services = peripheral.services ?? []
@@ -448,7 +447,7 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
     // Completes outstanding reads first
     if let (resolve, reject) = pendingRead.values.first {
       if let error = error {
-        reject("BlePlxError", jsonError(code: 402, message: error.localizedDescription), error)
+        reject("BlePlxError", jsonError(code: 402, message: error.localizedDescription), nsError(error))
       } else {
         resolve(js)
       }
@@ -472,7 +471,7 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
     let js = characteristicJs(characteristic, deviceId: id, service: characteristic.service, value: characteristic.value)
     if let (resolve, reject) = pendingWrite.values.first {
       if let error = error {
-        reject("BlePlxError", jsonError(code: 401, message: error.localizedDescription), error)
+        reject("BlePlxError", jsonError(code: 401, message: error.localizedDescription), nsError(error))
       } else {
         resolve(js)
       }
@@ -485,6 +484,12 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   private func nextId() -> Double {
     idCounter += 1
     return idCounter
+  }
+
+  /// Reject expects NSError?; CoreBluetooth callbacks surface Error.
+  private func nsError(_ error: Error?) -> NSError? {
+    guard let error = error else { return nil }
+    return error as NSError
   }
 
   private func stateString(_ state: CBManagerState) -> String {
@@ -555,7 +560,7 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
       "isNotifiable": props.contains(.notify),
       "isNotifying": ch.isNotifying,
       "isIndicatable": props.contains(.indicate),
-      "value": val?.base64EncodedString() as Any ?? NSNull()
+      "value": (val?.base64EncodedString()).map { $0 as Any } ?? NSNull()
     ]
   }
 
