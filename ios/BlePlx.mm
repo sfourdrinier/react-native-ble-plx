@@ -9,14 +9,21 @@
 #import "BlePlx.h"
 #import "BlePlxDebugLogging.h"
 
+// CoreBluetooth must be imported before BlePlx-Swift.h: OwnedCoreBluetoothAdapter
+// is @objc and conforms to CBCentralManagerDelegate / CBPeripheralDelegate, which
+// appear in the generated header. Without this import, ObjC++ compilation fails.
+#import <CoreBluetooth/CoreBluetooth.h>
+
 // Conditionally import Swift header - it may not exist if no Swift code is compiled
 // (e.g., when the Restoration subspec is not included)
 #if __has_include("BlePlx-Swift.h")
 #import "BlePlx-Swift.h"
 #endif
 
+// 4.0 default product path uses the BleAdapter protocol (OwnedCoreBluetoothAdapter).
+// Legacy BleClientManager (Rx MBA) is excluded from the default podspec sources.
 @interface BlePlx () <BleClientManagerDelegate>
-@property(nonatomic) BleClientManager* manager;
+@property(nonatomic) id<BleAdapter> manager;
 @end
 
 @implementation BlePlx
