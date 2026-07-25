@@ -22,6 +22,8 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   private var charIds = [Double: CBCharacteristic]()
   private var pendingConnect: [String: (Resolve, Reject)] = [:]
   private var pendingDiscover: [String: (Resolve, Reject)] = [:]
+  /// Remaining service characteristic discoveries before pendingDiscover may resolve.
+  private var pendingDiscoverCharsRemaining: [String: Int] = [:]
   private var pendingRead: [String: (Resolve, Reject)] = [:]
   private var pendingWrite: [String: (Resolve, Reject)] = [:]
   private var monitors = [String: String]() // charKey -> transactionId
@@ -394,26 +396,49 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
     let id = peripheral.identifier.uuidString
     if let error = error {
+      pendingDiscoverCharsRemaining.removeValue(forKey: id)
       pendingDiscover.removeValue(forKey: id)?.1("BlePlxError", jsonError(code: 300, message: error.localizedDescription), error)
       return
     }
-    servicesByDevice[id] = peripheral.services ?? []
-    for s in peripheral.services ?? [] {
+    let services = peripheral.services ?? []
+    servicesByDevice[id] = services
+    for s in services {
       let sid = nextId()
       serviceIds[sid] = s
+    }
+    // Resolve only after characteristics are discovered for every service (or immediately if none).
+    if services.isEmpty {
+      pendingDiscoverCharsRemaining.removeValue(forKey: id)
+      pendingDiscover.removeValue(forKey: id)?.0(deviceJs(peripheral))
+      return
+    }
+    pendingDiscoverCharsRemaining[id] = services.count
+    for s in services {
       peripheral.discoverCharacteristics(nil, for: s)
     }
-    // Resolve after first discovery pass; characteristics may still stream
-    pendingDiscover.removeValue(forKey: id)?.0(deviceJs(peripheral))
   }
 
   public func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
     let id = peripheral.identifier.uuidString
-    for ch in service.characteristics ?? [] {
-      let cid = nextId()
-      charIds[cid] = ch
+    if error == nil {
+      for ch in service.characteristics ?? [] {
+        // Keep stable ids: only allocate when characteristic is first seen.
+        if charIds.first(where: { $0.value === ch }) == nil {
+          let cid = nextId()
+          charIds[cid] = ch
+        }
+      }
     }
     servicesByDevice[id] = peripheral.services ?? []
+    guard var remaining = pendingDiscoverCharsRemaining[id] else { return }
+    remaining -= 1
+    if remaining <= 0 {
+      pendingDiscoverCharsRemaining.removeValue(forKey: id)
+      // Resolve only after every service has reported characteristics (success or error).
+      pendingDiscover.removeValue(forKey: id)?.0(deviceJs(peripheral))
+    } else {
+      pendingDiscoverCharsRemaining[id] = remaining
+    }
   }
 
   public func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
@@ -508,10 +533,20 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
     charIds[cid] = ch
     let props = ch.properties
     let val = value ?? ch.value
+    // Must compare dictionary values to the service parameter (outer $0), not the tuple to itself.
+    let resolvedServiceId: Any = {
+      guard let svc = service else { return NSNull() }
+      if let existing = serviceIds.first(where: { $0.value === svc })?.key {
+        return existing
+      }
+      let sid = nextId()
+      serviceIds[sid] = svc
+      return sid
+    }()
     return [
       "id": cid,
       "uuid": ch.uuid.uuidString.lowercased(),
-      "serviceID": service.flatMap { serviceIds.first(where: { $0.value === $0 })?.key } as Any? ?? NSNull(),
+      "serviceID": resolvedServiceId,
       "serviceUUID": (service?.uuid.uuidString ?? "").lowercased(),
       "deviceID": deviceId,
       "isReadable": props.contains(.read),

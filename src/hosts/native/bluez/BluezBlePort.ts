@@ -37,6 +37,29 @@ export type BluezBusLike = {
     getInterface(iface: string): BluezIface
   }>
   disconnect?: () => void
+  /** dbus-next MessageBus event API — used to swallow async handshake errors */
+  on?: (event: string, listener: (...args: unknown[]) => void) => void
+  removeListener?: (event: string, listener: (...args: unknown[]) => void) => void
+}
+
+/** Prevent dbus-next async handshake failures from crashing Jest/CI after suite end. */
+function silenceBusErrors(bus: BluezBusLike): void {
+  try {
+    bus.on?.('error', () => {
+      /* intentional no-op */
+    })
+  } catch {
+    /* ignore */
+  }
+}
+
+function safeDisconnect(bus: BluezBusLike | null | undefined): void {
+  if (!bus) return
+  try {
+    bus.disconnect?.()
+  } catch {
+    /* ignore */
+  }
 }
 
 function requireMethod(iface: BluezIface, name: string): (...args: unknown[]) => Promise<unknown> {
@@ -54,23 +77,39 @@ export const BLUEZ_GATT_CHAR_IFACE = 'org.bluez.GattCharacteristic1'
 export const BLUEZ_RADIO_ID = 'bluez-dbus-v1'
 
 /**
- * Detect whether BlueZ D-Bus is likely available (structural for CI).
+ * Detect whether BlueZ D-Bus is likely available.
+ * Requires a successful probe of org.bluez (not merely dbus-next being installable).
  */
 export async function isBluezAvailable(createBus?: () => Promise<BluezBusLike>): Promise<boolean> {
+  let bus: BluezBusLike | null = null
   try {
     if (createBus) {
-      const bus = await createBus()
-      bus.disconnect?.()
+      bus = await createBus()
+      silenceBusErrors(bus)
       return true
     }
-    // Dynamic import keeps package installable without native dbus on Windows/macOS
+    // Dynamic require keeps package installable without native dbus on Windows/macOS
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const dbus = require('dbus-next') as { systemBus: () => BluezBusLike }
-    const bus = dbus.systemBus()
-    bus.disconnect?.()
+    bus = dbus.systemBus()
+    silenceBusErrors(bus)
+    // Probe BlueZ service itself — system D-Bus without bluez is common on CI images.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        bus.getProxyObject(BLUEZ_SERVICE, '/org/bluez'),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('BlueZ probe timeout')), 750)
+        })
+      ])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
     return true
   } catch {
     return false
+  } finally {
+    safeDisconnect(bus)
   }
 }
 
@@ -95,18 +134,27 @@ export class BluezBlePort implements BlePort {
     if (this.bus) return this.bus
     if (this.options.createBus) {
       this.bus = await this.options.createBus()
+      silenceBusErrors(this.bus)
       return this.bus
     }
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const dbus = require('dbus-next') as { systemBus: () => BluezBusLike }
       this.bus = dbus.systemBus()
+      silenceBusErrors(this.bus)
       return this.bus
     } catch (e) {
       throw new Error(
         `BlueZ D-Bus unavailable (${e instanceof Error ? e.message : String(e)}). Install bluez + dbus-next on Linux.`
       )
     }
+  }
+
+  /** Release the D-Bus connection (call from tests / process shutdown). */
+  close(): void {
+    safeDisconnect(this.bus)
+    this.bus = null
+    this.scanning = false
   }
 
   async startScan(onDevice: (ad: PortAdvertisement) => void): Promise<void> {
@@ -162,14 +210,17 @@ export class BluezBlePort implements BlePort {
     }
     const bus = await this.ensureBus()
     const path = this.devices.get(deviceId)!.path
+    this.states.set(deviceId, 'connecting')
     try {
       const obj = await bus.getProxyObject(BLUEZ_SERVICE, path)
       const device = obj.getInterface(BLUEZ_DEVICE_IFACE)
       await requireMethod(device, 'Connect')()
-    } catch {
-      // Contract tests may inject a partial mock bus
+      this.states.set(deviceId, 'connected')
+    } catch (e) {
+      this.states.set(deviceId, 'disconnected')
+      const msg = e instanceof Error ? e.message : String(e)
+      throw new Error(`BlueZ Connect failed for ${deviceId}: ${msg}`)
     }
-    this.states.set(deviceId, 'connected')
   }
 
   async disconnect(deviceId: PortDeviceId): Promise<void> {
@@ -181,7 +232,7 @@ export class BluezBlePort implements BlePort {
         const device = obj.getInterface(BLUEZ_DEVICE_IFACE)
         await requireMethod(device, 'Disconnect')()
       } catch {
-        // ignore
+        // Best-effort disconnect: still mark disconnected locally
       }
     }
     this.states.set(deviceId, 'disconnected')

@@ -41,6 +41,8 @@ class OwnedAndroidGattRadio(private val context: Context) {
   private val discovered = ConcurrentHashMap<String, MutableList<android.bluetooth.BluetoothGattService>>()
   private val charCache = ConcurrentHashMap<String, BluetoothGattCharacteristic>()
   private val pending = ConcurrentHashMap<String, (Result<ByteArray?>) -> Unit>()
+  private val pendingMtu = ConcurrentHashMap<String, (Result<Int>) -> Unit>()
+  private val pendingRssi = ConcurrentHashMap<String, (Result<Int>) -> Unit>()
 
   var onAdapterState: ((String) -> Unit)? = null
   var onScanResult: ((deviceId: String, name: String?, rssi: Int, connectable: Boolean, raw: ByteArray?) -> Unit)? = null
@@ -144,9 +146,10 @@ class OwnedAndroidGattRadio(private val context: Context) {
       onDone(false)
       return
     }
-    pending["discover:$deviceId"] = { r -> onDone(r.isSuccess) }
+    val key = "discover:${deviceId.uppercase()}"
+    pending[key] = { r -> onDone(r.isSuccess) }
     if (!gatt.discoverServices()) {
-      pending.remove("discover:$deviceId")
+      pending.remove(key)
       onDone(false)
     }
   }
@@ -169,7 +172,8 @@ class OwnedAndroidGattRadio(private val context: Context) {
       onResult(Result.failure(IllegalStateException("characteristic not found")))
       return
     }
-    val key = "read:$deviceId:${charUuid}"
+    // Keys must match gatt.device.address casing used in callbacks (typically uppercased MACs).
+    val key = "read:${deviceId.uppercase()}:${charUuid}"
     pending[key] = onResult
     if (!gatt.readCharacteristic(ch)) {
       pending.remove(key)
@@ -194,23 +198,62 @@ class OwnedAndroidGattRadio(private val context: Context) {
     ch.writeType =
       if (withResponse) BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
       else BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+    val key = "write:${deviceId.uppercase()}:${charUuid}"
+    pending[key] = onResult
     if (Build.VERSION.SDK_INT >= 33) {
-      ch.setValue(value) // still set for older paths
-      val key = "write:$deviceId:${charUuid}"
-      pending[key] = onResult
+      @Suppress("DEPRECATION")
+      ch.value = value
       val status = gatt.writeCharacteristic(ch, value, ch.writeType)
-      if (status != BluetoothGatt.GATT_SUCCESS && status != 0) {
-        // API 33 returns int status; 0 is success on some devices
+      // API 33+: int status. GATT_SUCCESS (0) means accepted; anything else must fail the pending.
+      if (status != BluetoothGatt.GATT_SUCCESS) {
+        pending.remove(key)
+        onResult(
+          Result.failure(IllegalStateException("writeCharacteristic failed to start status=$status"))
+        )
       }
     } else {
       @Suppress("DEPRECATION")
       ch.value = value
-      val key = "write:$deviceId:${charUuid}"
-      pending[key] = onResult
       if (!gatt.writeCharacteristic(ch)) {
         pending.remove(key)
         onResult(Result.failure(IllegalStateException("writeCharacteristic failed to start")))
       }
+    }
+  }
+
+  /**
+   * Pure helper for API-33 write status handling (unit-testable without a radio).
+   * @return true if write was accepted (pending should wait for callback); false if failed immediately.
+   */
+  fun acceptApi33WriteStatus(status: Int): Boolean {
+    return status == BluetoothGatt.GATT_SUCCESS
+  }
+
+  fun requestMtu(deviceId: String, mtu: Int, onResult: (Result<Int>) -> Unit) {
+    val gatt = gatts[deviceId.uppercase()]
+    if (gatt == null) {
+      onResult(Result.failure(IllegalStateException("Not connected to $deviceId")))
+      return
+    }
+    val key = "mtu:${deviceId.uppercase()}"
+    pendingMtu[key] = onResult
+    if (!gatt.requestMtu(mtu)) {
+      pendingMtu.remove(key)
+      onResult(Result.failure(IllegalStateException("requestMtu failed to start")))
+    }
+  }
+
+  fun readRemoteRssi(deviceId: String, onResult: (Result<Int>) -> Unit) {
+    val gatt = gatts[deviceId.uppercase()]
+    if (gatt == null) {
+      onResult(Result.failure(IllegalStateException("Not connected to $deviceId")))
+      return
+    }
+    val key = "rssi:${deviceId.uppercase()}"
+    pendingRssi[key] = onResult
+    if (!gatt.readRemoteRssi()) {
+      pendingRssi.remove(key)
+      onResult(Result.failure(IllegalStateException("readRemoteRssi failed to start")))
     }
   }
 
@@ -253,6 +296,8 @@ class OwnedAndroidGattRadio(private val context: Context) {
     gatts.clear()
     discovered.clear()
     pending.clear()
+    pendingMtu.clear()
+    pendingRssi.clear()
   }
 
   private fun findChar(
@@ -300,9 +345,9 @@ class OwnedAndroidGattRadio(private val context: Context) {
     }
 
     override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-      val id = gatt.device.address
+      val id = gatt.device.address.uppercase()
       if (status == BluetoothGatt.GATT_SUCCESS) {
-        discovered[id.uppercase()] = gatt.services.toMutableList()
+        discovered[id] = gatt.services.toMutableList()
         pending.remove("discover:$id")?.invoke(Result.success(null))
       } else {
         pending.remove("discover:$id")?.invoke(Result.failure(IllegalStateException("discover status=$status")))
@@ -315,7 +360,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
       characteristic: BluetoothGattCharacteristic,
       status: Int
     ) {
-      val id = gatt.device.address
+      val id = gatt.device.address.uppercase()
       val key = "read:$id:${characteristic.uuid}"
       @Suppress("DEPRECATION")
       val value = characteristic.value
@@ -332,7 +377,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
       value: ByteArray,
       status: Int
     ) {
-      val id = gatt.device.address
+      val id = gatt.device.address.uppercase()
       val key = "read:$id:${characteristic.uuid}"
       if (status == BluetoothGatt.GATT_SUCCESS) {
         pending.remove(key)?.invoke(Result.success(value))
@@ -346,7 +391,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
       characteristic: BluetoothGattCharacteristic,
       status: Int
     ) {
-      val id = gatt.device.address
+      val id = gatt.device.address.uppercase()
       val key = "write:$id:${characteristic.uuid}"
       if (status == BluetoothGatt.GATT_SUCCESS) {
         @Suppress("DEPRECATION")
@@ -374,6 +419,26 @@ class OwnedAndroidGattRadio(private val context: Context) {
     ) {
       val serviceUuid = characteristic.service?.uuid ?: return
       onNotification?.invoke(gatt.device.address, serviceUuid, characteristic.uuid, value)
+    }
+
+    override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+      val id = gatt.device.address.uppercase()
+      val key = "mtu:$id"
+      if (status == BluetoothGatt.GATT_SUCCESS) {
+        pendingMtu.remove(key)?.invoke(Result.success(mtu))
+      } else {
+        pendingMtu.remove(key)?.invoke(Result.failure(IllegalStateException("onMtuChanged status=$status")))
+      }
+    }
+
+    override fun onReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
+      val id = gatt.device.address.uppercase()
+      val key = "rssi:$id"
+      if (status == BluetoothGatt.GATT_SUCCESS) {
+        pendingRssi.remove(key)?.invoke(Result.success(rssi))
+      } else {
+        pendingRssi.remove(key)?.invoke(Result.failure(IllegalStateException("onReadRemoteRssi status=$status")))
+      }
     }
   }
 

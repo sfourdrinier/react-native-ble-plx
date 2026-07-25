@@ -24,10 +24,12 @@ Pod::Spec.new do |s|
     "ios/vendor/MultiplatformBleAdapter/classes/BleAdapter.swift",
     "ios/vendor/MultiplatformBleAdapter/classes/BleAdapterFactory.swift",
     "ios/vendor/MultiplatformBleAdapter/classes/BleEvent.swift",
-    "ios/vendor/MultiplatformBleAdapter/classes/Utils/**/*.swift"
+    # SafePromise only — DisposableMap is RxSwift-era and is not used by Owned radio.
+    "ios/vendor/MultiplatformBleAdapter/classes/Utils/SafePromise.swift"
   ]
   s.exclude_files = [
     "ios/vendor/MultiplatformBleAdapter/classes/BleModule.swift",
+    "ios/vendor/MultiplatformBleAdapter/classes/Utils/DisposableMap.swift",
     "ios/vendor/MultiplatformBleAdapter/RxBluetoothKit/**/*",
     "ios/vendor/MultiplatformBleAdapter/RxSwift/**/*"
   ]

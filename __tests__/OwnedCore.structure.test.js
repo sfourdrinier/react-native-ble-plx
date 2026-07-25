@@ -86,4 +86,60 @@ describe('Owned native core (4.0 GA default path)', () => {
     expect(src).toContain('func connectToDevice')
     expect(src).not.toMatch(/import RxBluetoothKit|import class BluetoothManager|BluetoothManager\s*\(/)
   })
+
+  test('Owned Android radio fails API33 write start when status != GATT_SUCCESS', () => {
+    const radio = fs.readFileSync(
+      path.join(
+        root,
+        'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedAndroidGattRadio.kt'
+      ),
+      'utf8'
+    )
+    expect(radio).toContain('fun acceptApi33WriteStatus')
+    expect(radio).toMatch(/status\s*!=\s*BluetoothGatt\.GATT_SUCCESS/)
+    expect(radio).toContain('fun requestMtu')
+    expect(radio).toContain('fun readRemoteRssi')
+    expect(radio).toContain('onMtuChanged')
+    expect(radio).toContain('onReadRemoteRssi')
+    // pending keys normalized to uppercase for MAC match with gatt callbacks
+    expect(radio).toMatch(/mtu:\$\{deviceId\.uppercase\(\)\}/)
+    expect(radio).toMatch(/rssi:\$\{deviceId\.uppercase\(\)\}/)
+  })
+
+  test('OwnedBleAdapter wires MTU/RSSI to radio.requestMtu / readRemoteRssi', () => {
+    const adapter = fs.readFileSync(
+      path.join(root, 'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedBleAdapter.kt'),
+      'utf8'
+    )
+    expect(adapter).toMatch(/radio\.readRemoteRssi\(/)
+    expect(adapter).toMatch(/radio\.requestMtu\(/)
+    // Must not only set local Device.mtu without calling the radio
+    const mtuBody = adapter.slice(
+      adapter.indexOf('override fun requestMTUForDevice'),
+      adapter.indexOf('override fun getKnownDevices')
+    )
+    expect(mtuBody).toContain('radio.requestMtu')
+    expect(mtuBody).not.toMatch(/d\.mtu\s*=\s*mtu\s*\n\s*onSuccessCallback/)
+  })
+
+  test('iOS discover waits for characteristics; characteristicJs maps real serviceID', () => {
+    const src = fs.readFileSync(path.join(root, 'ios/Owned/OwnedCoreBluetoothAdapter.swift'), 'utf8')
+    expect(src).toContain('pendingDiscoverCharsRemaining')
+    const discoverServices = src.slice(
+      src.indexOf('didDiscoverServices'),
+      src.indexOf('didDiscoverCharacteristicsFor')
+    )
+    // Non-empty service lists schedule char discovery and track remaining count
+    expect(discoverServices).toContain('pendingDiscoverCharsRemaining[id] = services.count')
+    expect(discoverServices).toContain('discoverCharacteristics')
+    // Empty-service early resolve is OK; multi-service path must NOT resolve before chars
+    expect(discoverServices).toMatch(/if services\.isEmpty[\s\S]*pendingDiscover\.removeValue/)
+    // characteristic discovery completion decrements and resolves only at zero
+    const discoverChars = src.slice(src.indexOf('didDiscoverCharacteristicsFor'))
+    expect(discoverChars).toMatch(/remaining\s*-=\s*1/)
+    expect(discoverChars).toMatch(/remaining\s*<=\s*0/)
+    // serviceID lookup must compare dictionary value to the service parameter
+    expect(src).toMatch(/serviceIds\.first\(where:\s*\{\s*\$0\.value\s*===\s*svc\s*\}/)
+    expect(src).not.toMatch(/\$0\.value\s*===\s*\$0/)
+  })
 })

@@ -183,7 +183,8 @@ jobs:
 
   # --- Apple compile checks (#20) ---
   # Compile/link only. No simulator boot, no BLE runtime (see #14).
-  # Expensive: gated by master path changes, `ci:apple` label, or manual run.
+  # Expensive: gated by master/4.0 path changes, `ci:apple` label, or manual run.
+  # 4.0 is included so owned CoreBluetooth + podspec changes are compile-checked before GA.
   # Implementation lives in reusable workflow apple-ci.yml + composite actions under
   # .github/actions/ (select-xcode, setup-js-package) so we do not triple-copy jobs.
   apple:
@@ -200,7 +201,7 @@ jobs:
         ) ||
         (
           github.event_name == 'push' &&
-          github.ref == 'refs/heads/master' &&
+          (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/4.0') &&
           needs.changes.outputs.apple == 'true'
         )
       )

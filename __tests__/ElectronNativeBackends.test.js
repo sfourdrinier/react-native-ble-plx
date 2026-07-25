@@ -31,6 +31,10 @@ describe('Electron native backends', () => {
     expect(port).toBeDefined()
     expect(['mock', 'bluez', 'winrt', 'corebluetooth']).toContain(backend)
     expect(typeof port.connect).toBe('function')
+    // Tear down any real D-Bus connection so dbus-next cannot crash Jest after suite end.
+    if (typeof port.close === 'function') {
+      port.close()
+    }
   })
 
   test('BleManager labels backend from injected BluezBlePort id', () => {

@@ -186,7 +186,7 @@ describe('package modernization targets', () => {
     expect(ciWorkflow).toMatch(/cancel-in-progress:\s*\$\{\{/)
   })
 
-  test('CI keeps expensive Apple jobs off default PR commits (label / master / manual)', () => {
+  test('CI keeps expensive Apple jobs off default PR commits (label / master|4.0 / manual)', () => {
     expect(ciWorkflow).toContain('workflow_dispatch:')
     expect(ciWorkflow).toContain('types: [opened, reopened, synchronize, ready_for_review, labeled]')
     expect(ciWorkflow).toContain("ci:apple")
@@ -198,6 +198,8 @@ describe('package modernization targets', () => {
     // https://docs.github.com/en/actions/reference/evaluate-expressions-in-workflows-and-actions
     expect(ciWorkflow).toContain("contains(github.event.pull_request.labels.*.name, 'ci:apple')")
     expect(ciWorkflow).toContain("github.ref == 'refs/heads/master'")
+    // 4.0 GA train must compile Apple owned CoreBluetooth on path changes.
+    expect(ciWorkflow).toContain("github.ref == 'refs/heads/4.0'")
     expect(ciWorkflow).toContain("github.event_name == 'workflow_dispatch'")
     // Hardened token permissions for checkout + paths-filter PR files API.
     expect(ciWorkflow).toMatch(/permissions:\s*\n\s*contents:\s*read\s*\n\s*pull-requests:\s*read/)
@@ -207,6 +209,14 @@ describe('package modernization targets', () => {
     expect(ciWorkflow).not.toMatch(
       /package:\s*\n\s*name: Package checks\s*\n\s*if:[\s\S]*label\.name == 'ci:apple'/
     )
+  })
+
+  test('tvOS library check targets unified-ble-manager.podspec + owned product sources', () => {
+    const script = readText(path.join(__dirname, '..', 'scripts/ci/check-tvos-library.sh'))
+    expect(script).toContain('unified-ble-manager.podspec')
+    expect(script).not.toContain('react-native-ble-plx.podspec')
+    expect(script).toContain('ios/Owned')
+    expect(script).toContain('OWNED_COREBLUETOOTH_RADIO')
   })
 
   test('publish workflow uses tag-triggered OIDC trusted publishing with provenance', () => {

@@ -107,4 +107,40 @@ describe('BluezBlePort (Linux Electron native path)', () => {
   test('isBluezAvailable with inject factory', async () => {
     await expect(isBluezAvailable(async () => mockBus())).resolves.toBe(true)
   })
+
+  test('connect fails and leaves disconnected when D-Bus Connect rejects', async () => {
+    const bus = mockBus()
+    bus.getProxyObject = jest.fn(async () => ({
+      getInterface: name => {
+        if (name === 'org.bluez.Device1') {
+          return {
+            Connect: jest.fn(async () => {
+              throw new Error('org.bluez.Error.Failed: Connection refused')
+            }),
+            Disconnect: jest.fn(async () => undefined)
+          }
+        }
+        return {}
+      }
+    }))
+    const port = new BluezBlePort({ createBus: async () => bus })
+    port.registerDevice('11:22:33:44:55:66', '/org/bluez/hci0/dev_11_22_33_44_55_66', 'Failing')
+
+    await expect(port.connect('11:22:33:44:55:66')).rejects.toThrow(/BlueZ Connect failed/)
+    expect(port.getConnectionState('11:22:33:44:55:66')).toBe('disconnected')
+  })
+
+  test('connect fails when Device1.Connect method is missing', async () => {
+    const bus = {
+      getProxyObject: jest.fn(async () => ({
+        getInterface: () => ({}) // no Connect
+      })),
+      disconnect: jest.fn()
+    }
+    const port = new BluezBlePort({ createBus: async () => bus })
+    port.registerDevice('AA:00:00:00:00:01', '/org/bluez/hci0/dev_AA_00_00_00_00_01', null)
+
+    await expect(port.connect('AA:00:00:00:00:01')).rejects.toThrow(/Connect/)
+    expect(port.getConnectionState('AA:00:00:00:00:01')).toBe('disconnected')
+  })
 })

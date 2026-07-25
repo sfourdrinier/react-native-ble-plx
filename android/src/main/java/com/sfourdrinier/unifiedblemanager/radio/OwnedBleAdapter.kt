@@ -131,8 +131,22 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     onSuccessCallback: OnSuccessCallback<Device>,
     onErrorCallback: OnErrorCallback
   ) {
-    val d = devices[deviceIdentifier.uppercase()] ?: Device(deviceIdentifier, null)
-    onSuccessCallback.onSuccess(d)
+    radio.readRemoteRssi(deviceIdentifier) { result ->
+      result.fold(
+        onSuccess = { rssi ->
+          val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
+          d.rssi = rssi
+          mainHandler.post { onSuccessCallback.onSuccess(d) }
+        },
+        onFailure = { err ->
+          mainHandler.post {
+            onErrorCallback.onError(
+              BleError(BleErrorCode.DeviceRSSIReadFailed, err.message, null)
+            )
+          }
+        }
+      )
+    }
   }
 
   override fun requestMTUForDevice(
@@ -142,9 +156,22 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     onSuccessCallback: OnSuccessCallback<Device>,
     onErrorCallback: OnErrorCallback
   ) {
-    val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
-    d.mtu = mtu
-    onSuccessCallback.onSuccess(d)
+    radio.requestMtu(deviceIdentifier, mtu) { result ->
+      result.fold(
+        onSuccess = { negotiated ->
+          val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
+          d.mtu = negotiated
+          mainHandler.post { onSuccessCallback.onSuccess(d) }
+        },
+        onFailure = { err ->
+          mainHandler.post {
+            onErrorCallback.onError(
+              BleError(BleErrorCode.DeviceMTUChangeFailed, err.message, null)
+            )
+          }
+        }
+      )
+    }
   }
 
   override fun getKnownDevices(
