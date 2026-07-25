@@ -20,6 +20,17 @@ describe('supports() honesty matrix', () => {
     expect(supports('requestDevice', 'react-native')).toBe(false)
   })
 
+  test('react-native fails closed for PortBleManager-only Phase-2 surfaces', () => {
+    // BleManager has no onServicesReset / DeviceOperationQueue / long-write methods.
+    expect(supports('deviceOperationQueue', 'react-native')).toBe(false)
+    expect(supports('servicesChanged', 'react-native')).toBe(false)
+    expect(supports('longWrite', 'react-native')).toBe(false)
+    // Port hosts claim them
+    expect(supports('deviceOperationQueue', 'electron')).toBe(true)
+    expect(supports('servicesChanged', 'fake')).toBe(true)
+    expect(supports('longWrite', 'web')).toBe(true)
+  })
+
   test('bonding is true on react-native (Android APIs); false on web/electron', () => {
     expect(supports('bonding', 'react-native')).toBe(true)
     expect(supports('bonding', 'web')).toBe(false)

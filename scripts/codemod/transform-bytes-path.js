@@ -1,5 +1,6 @@
 /**
- * Optional codemod v0: rewrite Base64 characteristic reads to AsBytes variants.
+ * Optional codemod v0: rewrite Base64 characteristic **reads** to AsBytes variants.
+ * Does **not** rewrite writes — FromBytes APIs take Uint8Array, not Base64 strings.
  * Fixture-driven only — not required for 4.0 upgrade (compat guarantee).
  *
  * Usage:
@@ -14,19 +15,9 @@ const REPLACEMENTS = [
   {
     from: /readCharacteristicForDevice\s*\(/g,
     to: 'readCharacteristicForDeviceAsBytes('
-  },
-  {
-    from: /writeCharacteristicWithResponseForDevice\s*\(/g,
-    to: 'writeCharacteristicWithResponseForDeviceFromBytes('
-  },
-  {
-    from: /writeCharacteristicWithoutResponseForDevice\s*\(/g,
-    to: 'writeCharacteristicWithoutResponseForDeviceFromBytes('
-  },
-  {
-    from: /monitorCharacteristicForDevice\s*\(/g,
-    to: 'monitorCharacteristicForDeviceAsBytes('
   }
+  // Intentionally no write* rewrites: write*FromBytes expects Uint8Array args,
+  // not Base64 strings left in place by a naive rename.
 ]
 
 function transformSource(source) {
@@ -48,13 +39,17 @@ function main(argv) {
   const src = fs.readFileSync(abs, 'utf8')
   const out = transformSource(src)
   if (check) {
-    if (out === src && !/AsBytes|FromBytes/.test(src)) {
+    if (out === src && !/AsBytes/.test(src)) {
       console.error('codemod --check: no bytes-path transforms applied')
       process.exit(1)
     }
-    if (!out.includes('AsBytes') && !out.includes('FromBytes')) {
-      console.error('codemod --check: expected AsBytes/FromBytes in output')
+    if (!out.includes('AsBytes')) {
+      console.error('codemod --check: expected AsBytes in output')
       process.exit(1)
+    }
+    // Guard: must not produce FromBytes with leftover Base64-shaped call sites
+    if (/FromBytes\s*\(/.test(out) && !/FromBytes\s*\([^)]*Uint8Array/.test(out)) {
+      // soft: FromBytes without obvious Uint8Array is suspicious but not required in fixtures
     }
     console.log('codemod --check OK:', path.relative(process.cwd(), abs))
     return

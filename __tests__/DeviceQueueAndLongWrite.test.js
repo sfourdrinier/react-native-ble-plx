@@ -71,8 +71,9 @@ describe('PortBleManager device queue + services-changed + long-write', () => {
   const characteristic = '00002a19-0000-1000-8000-00805f9b34fb'
   const deviceId = '11:22:33:44:55:66'
 
-  test('GATT writes on one device are ordered through PortBleManager queue', async () => {
-    const order = []
+  test('PortBleManager serializes writes: max concurrent port write is 1', async () => {
+    let concurrent = 0
+    let maxConcurrent = 0
     const port = new FakeBlePort({
       characteristics: {
         [deviceId]: {
@@ -84,9 +85,11 @@ describe('PortBleManager device queue + services-changed + long-write', () => {
     })
     const origWrite = port.writeCharacteristicBytes.bind(port)
     port.writeCharacteristicBytes = async (id, s, c, value) => {
-      order.push(`w-${value[0]}`)
-      // tiny async delay to force interleaving if queue were missing
-      await new Promise(r => setTimeout(r, 5))
+      concurrent += 1
+      maxConcurrent = Math.max(maxConcurrent, concurrent)
+      // Hold the write open so a parallel unqueued call would bump concurrent > 1
+      await new Promise(r => setTimeout(r, 25))
+      concurrent -= 1
       return origWrite(id, s, c, value)
     }
 
@@ -114,8 +117,48 @@ describe('PortBleManager device queue + services-changed + long-write', () => {
       )
     ])
 
-    // With serialization, writes complete in start order 1 then 2 then 3
-    expect(order).toEqual(['w-1', 'w-2', 'w-3'])
+    // Without DeviceOperationQueue (serializeDeviceOps:false), maxConcurrent would be 3.
+    expect(maxConcurrent).toBe(1)
+  })
+
+  test('without serializeDeviceOps, concurrent port writes can overlap (control)', async () => {
+    let concurrent = 0
+    let maxConcurrent = 0
+    const port = new FakeBlePort({
+      characteristics: {
+        [deviceId]: {
+          [service]: {
+            [characteristic]: bytesToBase64(new Uint8Array([0]))
+          }
+        }
+      }
+    })
+    const origWrite = port.writeCharacteristicBytes.bind(port)
+    port.writeCharacteristicBytes = async (id, s, c, value) => {
+      concurrent += 1
+      maxConcurrent = Math.max(maxConcurrent, concurrent)
+      await new Promise(r => setTimeout(r, 25))
+      concurrent -= 1
+      return origWrite(id, s, c, value)
+    }
+
+    const manager = new PortBleManager({ port, host: 'fake', serializeDeviceOps: false })
+    await manager.connectToDevice(deviceId)
+    await Promise.all([
+      manager.writeCharacteristicWithResponseForDeviceFromBytes(
+        deviceId,
+        service,
+        characteristic,
+        new Uint8Array([1])
+      ),
+      manager.writeCharacteristicWithResponseForDeviceFromBytes(
+        deviceId,
+        service,
+        characteristic,
+        new Uint8Array([2])
+      )
+    ])
+    expect(maxConcurrent).toBeGreaterThan(1)
   })
 
   test('onServicesReset delivers emitServicesReset to listeners', () => {

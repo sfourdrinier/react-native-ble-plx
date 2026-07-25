@@ -21,6 +21,16 @@ describe('codemod transform-bytes-path (fixture-driven)', () => {
     expect(out).toContain('00002a37-0000-1000-8000-00805f9b34fb')
   })
 
+  test('does not rewrite write methods (would leave Base64 args on FromBytes APIs)', () => {
+    const src =
+      "manager.writeCharacteristicWithResponseForDevice(id, s, c, 'YQ==')\n" +
+      'manager.readCharacteristicForDevice(id, s, c)\n'
+    const out = transformSource(src)
+    expect(out).toContain('writeCharacteristicWithResponseForDevice(')
+    expect(out).not.toContain('FromBytes')
+    expect(out).toContain('readCharacteristicForDeviceAsBytes(')
+  })
+
   test('CLI --check exits 0 on before fixture', () => {
     const { spawnSync } = require('child_process')
     const r = spawnSync(

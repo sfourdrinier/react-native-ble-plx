@@ -19,9 +19,9 @@ Honest matrix. Prefer `manager.supports(capability)` at runtime.
 | Android FGS | Y | N | N | N |
 | L2CAP | N (later) | N | N | N |
 | preferred PHY | N (later) | N | N | N |
-| per-device operation queue | Y (`PortBleManager` / host adapters) | Y | Y | Y |
-| services-changed surface | Y (software `onServicesReset`; native ATT later) | Y | Y | Y |
-| long-write helper | Y (chunked bytes helper) | Y | Y | Y |
+| per-device operation queue | **N** on RN `BleManager` (fail-closed); **Y** on `PortBleManager` (web/electron/node/fake) | Y (`PortBleManager`) | Y | Y |
+| services-changed surface | **N** on RN `BleManager` until wired; **Y** on `PortBleManager` (`onServicesReset`) | Y | Y | Y |
+| long-write helper | **N** on RN `BleManager`; **Y** free helper + `PortBleManager.writeLong…` | Y | Y | Y |
 
 Y = supported on the host surface. N = not claimed; operations should fail typed or be absent from the matrix.
 

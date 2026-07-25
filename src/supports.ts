@@ -49,9 +49,11 @@ const MATRIX: Record<HostKind, Partial<Record<BleCapability, boolean>>> = {
     androidForegroundService: true,
     l2cap: false,
     preferredPhy: false,
-    deviceOperationQueue: true,
-    servicesChanged: true,
-    longWrite: true
+    // PortBleManager surfaces only (web/electron/node/fake). RN BleManager does not
+    // yet expose onServicesReset / DeviceOperationQueue / long-write helpers.
+    deviceOperationQueue: false,
+    servicesChanged: false,
+    longWrite: false
   },
   web: {
     central: true,
