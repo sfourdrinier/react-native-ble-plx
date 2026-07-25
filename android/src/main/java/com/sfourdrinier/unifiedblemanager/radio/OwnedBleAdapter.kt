@@ -246,8 +246,10 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
         }
       }
 
-      radio.onConnectionState = { id, connected, gattStatus ->
-        if (!id.equals(deviceIdentifier, ignoreCase = true)) return@onConnectionState
+      radio.onConnectionState = connect@{ id, connected, gattStatus ->
+        if (!id.equals(deviceIdentifier, ignoreCase = true)) {
+          return@connect
+        }
         if (connected) {
           val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
           // Optional connect-time MTU negotiation (0 means "do not request").
