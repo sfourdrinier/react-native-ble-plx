@@ -122,6 +122,18 @@ describe('Owned native core (4.0 GA default path)', () => {
     expect(mtuBody).not.toMatch(/d\.mtu\s*=\s*mtu\s*\n\s*onSuccessCallback/)
   })
 
+  test('BlePlx.mm uses BleAdapter protocol (not removed BleClientManager class)', () => {
+    const mm = fs.readFileSync(path.join(root, 'ios/BlePlx.mm'), 'utf8')
+    expect(mm).toContain('id<BleAdapter>')
+    expect(mm).toContain('#import <CoreBluetooth/CoreBluetooth.h>')
+    expect(mm).not.toMatch(/BleClientManager\s*\*/)
+    const adapter = fs.readFileSync(
+      path.join(root, 'ios/vendor/MultiplatformBleAdapter/classes/BleAdapter.swift'),
+      'utf8'
+    )
+    expect(adapter).toMatch(/protocol BleAdapter\s*:\s*NSObjectProtocol/)
+  })
+
   test('iOS discover waits for characteristics; characteristicJs maps real serviceID', () => {
     const src = fs.readFileSync(path.join(root, 'ios/Owned/OwnedCoreBluetoothAdapter.swift'), 'utf8')
     expect(src).toContain('pendingDiscoverCharsRemaining')
