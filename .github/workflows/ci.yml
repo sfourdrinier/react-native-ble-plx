@@ -200,6 +200,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: --max-old-space-size=8192
+      # JetifyTransform of react-android AAR OOM'd on default heap (see CI logs).
+      GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx6g\ -XX:MaxMetaspaceSize=1g\ -Dfile.encoding=UTF-8
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.0
