@@ -6,7 +6,7 @@
 **Active ambition:** **`4.0.0-alpha.*` → `4.0.0` GA** (full charter: owned native core, dual binary path, bonding, multi-host **preview**) → later **4.x** polish  
 **Canonical package (4.0+):** **`unified-ble-manager`** (unscoped npm)  
 **Compat package:** **`@sfourdrinier/react-native-ble-plx`** — thin install/import **shim** (same major line; re-exports the canonical package)  
-**Related:** [ROADMAP.md](./ROADMAP.md) · [CHANGELOG.md](./CHANGELOG.md)
+**Related:** [ROADMAP.md](./ROADMAP.md) · [CHANGELOG.md](./CHANGELOG.md) · **[GAPS.4.0.md](./docs/GAPS.4.0.md)** (complete remaining-work plan + GitHub issue index)
 
 This document is the **product charter for 4.x**. It is intentionally ambitious: 4.0 is not “3.9 with bonding.” It is a **new generation**—mobile excellence, owned native core, multi-host preview (React Native, Electron, Web Bluetooth, macOS / Windows / Linux)—shipped with a **hard compatibility guarantee for existing 3.x app code** (including 3.8.x and 3.9.x Base64 call sites).
 
