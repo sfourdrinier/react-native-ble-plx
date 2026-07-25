@@ -5,7 +5,9 @@ public protocol BleClientManagerDelegate {
     func dispatchEvent(_ name: String, value: Any)
 }
 
-@objc public protocol BleAdapter {
+// NSObjectProtocol required so ObjC (BlePlx.mm) can use id<BleAdapter> with
+// respondsToSelector:/performSelector: during optional restoration paths.
+@objc public protocol BleAdapter: NSObjectProtocol {
 
     // MARK: - Properties
 

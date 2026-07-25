@@ -203,7 +203,7 @@ RCT_EXPORT_METHOD(createClient:(id)restoreIdentifierKey) {
   // CBCentralManager continuity and pending connections.
   // BlePlxRestorationState only exists when the Restoration subspec is included,
   // so we use runtime reflection to check for it.
-  BleClientManager *restoredManager = nil;
+  id<BleAdapter> restoredManager = nil;
   Class restorationStateClass = NSClassFromString(@"BlePlxRestorationState");
   if (restorationStateClass && [restorationStateClass respondsToSelector:@selector(takeRestoredManager)]) {
     #pragma clang diagnostic push
