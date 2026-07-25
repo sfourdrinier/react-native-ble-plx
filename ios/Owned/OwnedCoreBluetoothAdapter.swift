@@ -26,6 +26,8 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   private var pendingDiscoverCharsRemaining: [String: Int] = [:]
   private var pendingRead: [String: (Resolve, Reject)] = [:]
   private var pendingWrite: [String: (Resolve, Reject)] = [:]
+  private var pendingRssi: [String: (Resolve, Reject)] = [:]
+  private var lastRssiByDevice: [String: Int] = [:]
   private var monitors = [String: String]() // charKey -> transactionId
   private var logLevel = "None"
 
@@ -95,8 +97,9 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
       return
     }
     p.delegate = self
+    // Must wait for peripheral(_:didReadRSSI:error:) — resolving immediately yields rssi:null.
+    pendingRssi[deviceIdentifier] = (resolve, reject)
     p.readRSSI()
-    resolve(deviceJs(p))
   }
 
   public func requestMTUForDevice(_ deviceIdentifier: String, mtu: Int, transactionId: String, resolve: @escaping Resolve, reject: @escaping Reject) {
@@ -355,6 +358,7 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
     let id = peripheral.identifier.uuidString
     peripherals[id] = peripheral
     peripheral.delegate = self
+    lastRssiByDevice[id] = RSSI.intValue
     var device = deviceJs(peripheral)
     device["rssi"] = RSSI
     device["name"] = peripheral.name ?? (advertisementData[CBAdvertisementDataLocalNameKey] as? String)
@@ -479,6 +483,19 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
     }
   }
 
+  public func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber, error: Error?) {
+    let id = peripheral.identifier.uuidString
+    guard let pending = pendingRssi.removeValue(forKey: id) else { return }
+    if let error = error {
+      pending.1("BlePlxError", jsonError(code: 202, message: error.localizedDescription), nsError(error))
+      return
+    }
+    lastRssiByDevice[id] = RSSI.intValue
+    var js = deviceJs(peripheral)
+    js["rssi"] = RSSI
+    pending.0(js)
+  }
+
   // MARK: - Helpers
 
   private func nextId() -> Double {
@@ -505,10 +522,12 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   }
 
   private func deviceJs(_ p: CBPeripheral) -> [String: Any] {
+    let id = p.identifier.uuidString
+    let rssiValue: Any = lastRssiByDevice[id].map { $0 as Any } ?? NSNull()
     return [
-      "id": p.identifier.uuidString,
+      "id": id,
       "name": p.name as Any,
-      "rssi": NSNull(),
+      "rssi": rssiValue,
       "mtu": 23,
       "manufacturerData": NSNull(),
       "rawScanRecord": "",

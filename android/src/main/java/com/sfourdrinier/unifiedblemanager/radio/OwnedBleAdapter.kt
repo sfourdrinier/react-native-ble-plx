@@ -54,9 +54,9 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     radio.onAdapterState = { state ->
       mainHandler.post { onAdapterStateChangeCallback.onEvent(state) }
     }
-    radio.onConnectionState = { id, connected ->
+    radio.onConnectionState = { id, connected, gattStatus ->
       // connection events delivered via connect callbacks primarily
-      OwnedAndroidLog.d("connection $id connected=$connected")
+      OwnedAndroidLog.d("connection $id connected=$connected status=$gattStatus")
     }
     radio.onNotification = { deviceId, serviceUuid, charUuid, value ->
       val key = notifyKey(deviceId, serviceUuid, charUuid)
@@ -201,20 +201,74 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
   ) {
     try {
       val done = AtomicBoolean(false)
-      radio.onConnectionState = { id, connected ->
-        if (id.equals(deviceIdentifier, ignoreCase = true)) {
-          if (connected && done.compareAndSet(false, true)) {
-            val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
-            mainHandler.post {
-              onConnectionStateChangedCallback.onEvent(ConnectionState.CONNECTED)
-              onSuccessCallback.onSuccess(d)
+      val requestMtu = connectionOptions.requestMTU
+      val timeoutMs = connectionOptions.timeoutInMillis
+
+      val timeoutRunnable =
+        Runnable {
+          if (done.compareAndSet(false, true)) {
+            try {
+              radio.disconnect(deviceIdentifier)
+            } catch (_: Exception) {
             }
-          } else if (!connected) {
-            mainHandler.post { onConnectionStateChangedCallback.onEvent(ConnectionState.DISCONNECTED) }
+            mainHandler.post {
+              onErrorCallback.onError(
+                BleError(BleErrorCode.OperationTimedOut, "connection timeout", null)
+              )
+            }
           }
         }
+      if (timeoutMs != null && timeoutMs > 0) {
+        mainHandler.postDelayed(timeoutRunnable, timeoutMs)
       }
-      radio.connect(deviceIdentifier, connectionOptions.getAutoConnect() == true)
+
+      fun clearTimeout() {
+        mainHandler.removeCallbacks(timeoutRunnable)
+      }
+
+      fun completeSuccess(device: Device) {
+        if (!done.compareAndSet(false, true)) return
+        clearTimeout()
+        mainHandler.post {
+          onConnectionStateChangedCallback.onEvent(ConnectionState.CONNECTED)
+          onSuccessCallback.onSuccess(device)
+        }
+      }
+
+      fun completeConnectFailure(status: Int, reason: String) {
+        if (!done.compareAndSet(false, true)) return
+        clearTimeout()
+        mainHandler.post {
+          onConnectionStateChangedCallback.onEvent(ConnectionState.DISCONNECTED)
+          onErrorCallback.onError(
+            BleError(BleErrorCode.DeviceConnectionFailed, reason, status)
+          )
+        }
+      }
+
+      radio.onConnectionState = { id, connected, gattStatus ->
+        if (!id.equals(deviceIdentifier, ignoreCase = true)) return@onConnectionState
+        if (connected) {
+          val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
+          // Optional connect-time MTU negotiation (0 means "do not request").
+          if (requestMtu > 0) {
+            radio.requestMtu(deviceIdentifier, requestMtu) { mtuResult ->
+              mtuResult.onSuccess { negotiated -> d.mtu = negotiated }
+              // Connection still succeeds if MTU negotiation fails — device is linked.
+              completeSuccess(d)
+            }
+          } else {
+            completeSuccess(d)
+          }
+        } else if (!done.get()) {
+          // Disconnect before success ⇒ failed connect (status 133, etc.). Must reject promise.
+          completeConnectFailure(gattStatus, "GATT connect failed status=$gattStatus")
+        } else {
+          // Clean later disconnect after a successful connect
+          mainHandler.post { onConnectionStateChangedCallback.onEvent(ConnectionState.DISCONNECTED) }
+        }
+      }
+      radio.connect(deviceIdentifier, connectionOptions.autoConnect == true)
     } catch (t: Throwable) {
       onErrorCallback.onError(BleError(BleErrorCode.DeviceConnectionFailed, t.message, null))
     }

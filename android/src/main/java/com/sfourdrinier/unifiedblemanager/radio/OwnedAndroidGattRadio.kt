@@ -43,10 +43,16 @@ class OwnedAndroidGattRadio(private val context: Context) {
   private val pending = ConcurrentHashMap<String, (Result<ByteArray?>) -> Unit>()
   private val pendingMtu = ConcurrentHashMap<String, (Result<Int>) -> Unit>()
   private val pendingRssi = ConcurrentHashMap<String, (Result<Int>) -> Unit>()
+  private val pendingDesc = ConcurrentHashMap<String, (Result<Unit>) -> Unit>()
 
   var onAdapterState: ((String) -> Unit)? = null
   var onScanResult: ((deviceId: String, name: String?, rssi: Int, connectable: Boolean, raw: ByteArray?) -> Unit)? = null
-  var onConnectionState: ((deviceId: String, connected: Boolean) -> Unit)? = null
+  /**
+   * Connection lifecycle from [BluetoothGattCallback.onConnectionStateChange].
+   * [gattStatus] is the Android GATT status code (0 = GATT_SUCCESS).
+   * Failed connects typically arrive as connected=false with status != 0 (e.g. 133).
+   */
+  var onConnectionState: ((deviceId: String, connected: Boolean, gattStatus: Int) -> Unit)? = null
   var onNotification: ((deviceId: String, serviceUuid: UUID, charUuid: UUID, value: ByteArray) -> Unit)? = null
 
   fun currentState(): String {
@@ -275,19 +281,31 @@ class OwnedAndroidGattRadio(private val context: Context) {
       return
     }
     val cccd = ch.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
-    if (cccd != null) {
-      val payload =
-        if (enable) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-        else BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-      if (Build.VERSION.SDK_INT >= 33) {
-        gatt.writeDescriptor(cccd, payload)
-      } else {
-        @Suppress("DEPRECATION")
-        cccd.value = payload
-        gatt.writeDescriptor(cccd)
+    if (cccd == null) {
+      // No CCCD: local notification registration is the best we can do.
+      onResult(Result.success(Unit))
+      return
+    }
+    val payload =
+      if (enable) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+      else BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+    // Must wait for onDescriptorWrite — reporting success before CCCD is armed is a race.
+    val key = "cccd:${deviceId.uppercase()}:${charUuid}"
+    pendingDesc[key] = onResult
+    if (Build.VERSION.SDK_INT >= 33) {
+      val status = gatt.writeDescriptor(cccd, payload)
+      if (status != BluetoothGatt.GATT_SUCCESS) {
+        pendingDesc.remove(key)
+        onResult(Result.failure(IllegalStateException("writeDescriptor failed to start status=$status")))
+      }
+    } else {
+      @Suppress("DEPRECATION")
+      cccd.value = payload
+      if (!gatt.writeDescriptor(cccd)) {
+        pendingDesc.remove(key)
+        onResult(Result.failure(IllegalStateException("writeDescriptor failed to start")))
       }
     }
-    onResult(Result.success(Unit))
   }
 
   fun destroy() {
@@ -298,6 +316,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
     pending.clear()
     pendingMtu.clear()
     pendingRssi.clear()
+    pendingDesc.clear()
   }
 
   private fun findChar(
@@ -331,16 +350,45 @@ class OwnedAndroidGattRadio(private val context: Context) {
     override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
       val id = gatt.device.address
       if (newState == BluetoothProfile.STATE_CONNECTED) {
-        gatts[id.uppercase()] = gatt
-        onConnectionState?.invoke(id, true)
+        if (status == BluetoothGatt.GATT_SUCCESS) {
+          gatts[id.uppercase()] = gatt
+          onConnectionState?.invoke(id, true, status)
+        } else {
+          // Non-success while "connected" is a failed connect — surface status and tear down.
+          onConnectionState?.invoke(id, false, status)
+          try {
+            gatt.close()
+          } catch (_: Exception) {
+          }
+          gatts.remove(id.uppercase())
+          discovered.remove(id.uppercase())
+        }
       } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-        onConnectionState?.invoke(id, false)
+        // Always pass gatt status: status 133 etc. means failed connect, not clean disconnect.
+        onConnectionState?.invoke(id, false, status)
         try {
           gatt.close()
         } catch (_: Exception) {
         }
         gatts.remove(id.uppercase())
         discovered.remove(id.uppercase())
+      }
+    }
+
+    override fun onDescriptorWrite(
+      gatt: BluetoothGatt,
+      descriptor: BluetoothGattDescriptor,
+      status: Int
+    ) {
+      val id = gatt.device.address.uppercase()
+      val charUuid = descriptor.characteristic?.uuid ?: return
+      val key = "cccd:$id:$charUuid"
+      if (status == BluetoothGatt.GATT_SUCCESS) {
+        pendingDesc.remove(key)?.invoke(Result.success(Unit))
+      } else {
+        pendingDesc.remove(key)?.invoke(
+          Result.failure(IllegalStateException("onDescriptorWrite status=$status"))
+        )
       }
     }
 

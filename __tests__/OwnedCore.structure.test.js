@@ -122,6 +122,50 @@ describe('Owned native core (4.0 GA default path)', () => {
     expect(mtuBody).not.toMatch(/d\.mtu\s*=\s*mtu\s*\n\s*onSuccessCallback/)
   })
 
+  test('OwnedBleAdapter connect fails closed: onError on disconnect-before-success; timeout + connect MTU', () => {
+    const adapter = fs.readFileSync(
+      path.join(root, 'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedBleAdapter.kt'),
+      'utf8'
+    )
+    const connectBody = adapter.slice(
+      adapter.indexOf('override fun connectToDevice'),
+      adapter.indexOf('override fun cancelDeviceConnection')
+    )
+    // Failed connect (disconnect before success) must call onErrorCallback — not only DISCONNECTED event
+    expect(connectBody).toContain('completeConnectFailure')
+    expect(connectBody).toContain('onErrorCallback.onError')
+    expect(connectBody).toContain('DeviceConnectionFailed')
+    // Timeout from ConnectionOptions
+    expect(connectBody).toMatch(/timeoutInMillis|timeoutMs/)
+    expect(connectBody).toContain('OperationTimedOut')
+    // Connect-time MTU when requestMTU > 0
+    expect(connectBody).toMatch(/requestMtu\s*>\s*0/)
+    expect(connectBody).toContain('radio.requestMtu')
+    // Radio connection callback must carry gatt status
+    expect(connectBody).toMatch(/gattStatus/)
+  })
+
+  test('OwnedAndroidGattRadio setNotify waits for onDescriptorWrite; connect surfaces status', () => {
+    const radio = fs.readFileSync(
+      path.join(
+        root,
+        'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedAndroidGattRadio.kt'
+      ),
+      'utf8'
+    )
+    const setNotifyBody = radio.slice(radio.indexOf('fun setNotify'), radio.indexOf('fun destroy'))
+    // Must NOT call onResult(success) before CCCD write completes
+    expect(setNotifyBody).toContain('pendingDesc')
+    expect(setNotifyBody).toMatch(/cccd:\$\{deviceId\.uppercase/)
+    expect(setNotifyBody).not.toMatch(/onResult\(Result\.success\(Unit\)\)\s*\n\s*\}/)
+    // Immediate success only when CCCD is null
+    expect(setNotifyBody).toMatch(/if \(cccd == null\)[\s\S]*onResult\(Result\.success/)
+    expect(radio).toContain('override fun onDescriptorWrite')
+    // Connection callback includes gattStatus (not only boolean)
+    expect(radio).toMatch(/onConnectionState:\s*\(\(deviceId:\s*String,\s*connected:\s*Boolean,\s*gattStatus:\s*Int\)/)
+    expect(radio).toMatch(/onConnectionState\?\.invoke\(id,\s*false,\s*status\)/)
+  })
+
   test('BlePlx.mm uses BleAdapter protocol (not removed BleClientManager class)', () => {
     const mm = fs.readFileSync(path.join(root, 'ios/BlePlx.mm'), 'utf8')
     expect(mm).toContain('id<BleAdapter>')
@@ -153,5 +197,22 @@ describe('Owned native core (4.0 GA default path)', () => {
     // serviceID lookup must compare dictionary value to the service parameter
     expect(src).toMatch(/serviceIds\.first\(where:\s*\{\s*\$0\.value\s*===\s*svc\s*\}/)
     expect(src).not.toMatch(/\$0\.value\s*===\s*\$0/)
+  })
+
+  test('iOS readRSSI waits for didReadRSSI (not immediate resolve with NSNull)', () => {
+    const src = fs.readFileSync(path.join(root, 'ios/Owned/OwnedCoreBluetoothAdapter.swift'), 'utf8')
+    const readRssi = src.slice(
+      src.indexOf('func readRSSIForDevice'),
+      src.indexOf('func requestMTUForDevice')
+    )
+    expect(readRssi).toContain('pendingRssi')
+    expect(readRssi).toContain('p.readRSSI()')
+    // Must not resolve immediately after readRSSI()
+    expect(readRssi).not.toMatch(/p\.readRSSI\(\)\s*\n\s*resolve\(/)
+    expect(src).toContain('didReadRSSI')
+    expect(src).toMatch(/func peripheral\(_ peripheral: CBPeripheral, didReadRSSI/)
+    // didReadRSSI resolves with real RSSI number
+    const didRead = src.slice(src.indexOf('didReadRSSI'))
+    expect(didRead).toMatch(/js\["rssi"\]\s*=\s*RSSI/)
   })
 })
