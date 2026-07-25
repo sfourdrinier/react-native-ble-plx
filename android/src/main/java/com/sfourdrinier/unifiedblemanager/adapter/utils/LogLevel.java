@@ -1,45 +1,49 @@
 package com.sfourdrinier.unifiedblemanager.adapter.utils;
 
-
-import com.polidea.rxandroidble2.internal.RxBleLog;
-
+/**
+ * Log level mapping for owned radio — no RxBleLog dependency.
+ */
 public class LogLevel {
 
-  @RxBleLog.LogLevel
+  public static final int NONE = Integer.MAX_VALUE;
+  public static final int VERBOSE = 2;
+  public static final int DEBUG = 3;
+  public static final int INFO = 4;
+  public static final int WARN = 5;
+  public static final int ERROR = 6;
+
   public static int toLogLevel(String logLevel) {
     switch (logLevel) {
       case Constants.BluetoothLogLevel.VERBOSE:
-        return RxBleLog.VERBOSE;
+        return VERBOSE;
       case Constants.BluetoothLogLevel.DEBUG:
-        return RxBleLog.DEBUG;
+        return DEBUG;
       case Constants.BluetoothLogLevel.INFO:
-        return RxBleLog.INFO;
+        return INFO;
       case Constants.BluetoothLogLevel.WARNING:
-        return RxBleLog.WARN;
+        return WARN;
       case Constants.BluetoothLogLevel.ERROR:
-        return RxBleLog.ERROR;
+        return ERROR;
       case Constants.BluetoothLogLevel.NONE:
-        // fallthrough
       default:
-        return RxBleLog.NONE;
+        return NONE;
     }
   }
 
   @Constants.BluetoothLogLevel
   public static String fromLogLevel(int logLevel) {
     switch (logLevel) {
-      case RxBleLog.VERBOSE:
+      case VERBOSE:
         return Constants.BluetoothLogLevel.VERBOSE;
-      case RxBleLog.DEBUG:
+      case DEBUG:
         return Constants.BluetoothLogLevel.DEBUG;
-      case RxBleLog.INFO:
+      case INFO:
         return Constants.BluetoothLogLevel.INFO;
-      case RxBleLog.WARN:
+      case WARN:
         return Constants.BluetoothLogLevel.WARNING;
-      case RxBleLog.ERROR:
+      case ERROR:
         return Constants.BluetoothLogLevel.ERROR;
-      case RxBleLog.NONE:
-        // fallthrough
+      case NONE:
       default:
         return Constants.BluetoothLogLevel.NONE;
     }
