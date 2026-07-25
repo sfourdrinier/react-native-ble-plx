@@ -10,27 +10,22 @@ import { supports } from '../src/supports'
 import { unsupportedOperationError } from '../src/unsupported'
 import { FakeBlePort } from '../src/port/BlePort'
 import { PortBleManager } from '../src/port/PortBleManager'
+import {
+  installBleModuleMock,
+  assertBleModuleEventConstants,
+  createMockDevice
+} from './helpers/nativeBleModule'
+import { useFakeTimers, useRealTimers, advanceTimers, flushMicrotasks, flushScan } from './helpers/async'
 
 Native.EventEmitter = NativeEventEmitter
 
-// Minimal mock device without importing broken helpers
 function mockDevice(overrides = {}) {
-  return {
+  return createMockDevice({
     id: 'AA:BB:CC:DD:EE:FF',
     name: 'Polar H10',
-    rssi: -50,
-    mtu: 23,
-    manufacturerData: null,
-    rawScanRecord: '',
-    serviceData: null,
-    serviceUUIDs: null,
     localName: 'Polar H10',
-    txPowerLevel: null,
-    solicitedServiceUUIDs: null,
-    isConnectable: true,
-    overflowServiceUUIDs: null,
     ...overrides
-  }
+  })
 }
 
 let bleManager
@@ -38,37 +33,15 @@ let bleManager
 beforeEach(() => {
   BleManager.sharedInstance = null
   Platform.OS = 'android'
-  Native.BleModule = {
-    createClient: jest.fn(),
-    destroyClient: jest.fn(),
-    cancelTransaction: jest.fn(),
-    setLogLevel: jest.fn(),
-    logLevel: jest.fn(),
-    enable: jest.fn(),
-    disable: jest.fn(),
-    state: jest.fn(),
-    startDeviceScan: jest.fn().mockResolvedValue(undefined),
-    stopDeviceScan: jest.fn().mockResolvedValue(undefined),
-    readRSSIForDevice: jest.fn(),
+  useFakeTimers()
+  installBleModuleMock(Native, {
     connectToDevice: jest.fn().mockResolvedValue(mockDevice()),
-    cancelDeviceConnection: jest.fn(),
-    isDeviceConnected: jest.fn(),
     discoverAllServicesAndCharacteristicsForDevice: jest.fn().mockResolvedValue(mockDevice()),
-    servicesForDevice: jest.fn(),
-    characteristicsForDevice: jest.fn(),
-    descriptorsForDevice: jest.fn(),
-    readCharacteristicForDevice: jest.fn(),
-    writeCharacteristicForDevice: jest.fn(),
-    monitorCharacteristicForDevice: jest.fn(),
     createBond: jest.fn().mockResolvedValue(undefined),
     removeBond: jest.fn().mockResolvedValue(undefined),
-    getBondState: jest.fn().mockResolvedValue('bonded'),
-    ScanEvent: 'scan_event',
-    ReadEvent: 'read_event',
-    StateChangeEvent: 'state_change_event',
-    RestoreStateEvent: 'restore_state_event',
-    DisconnectionEvent: 'disconnection_event'
-  }
+    getBondState: jest.fn().mockResolvedValue('bonded')
+  })
+  assertBleModuleEventConstants(Native.BleModule)
   bleManager = new BleManager()
 })
 
@@ -79,6 +52,7 @@ afterEach(async () => {
     // ignore
   }
   BleManager.sharedInstance = null
+  useRealTimers()
 })
 
 describe('supports + OperationNotSupported', () => {
@@ -130,7 +104,10 @@ describe('findAndConnect', () => {
     })
     Native.BleModule.connectToDevice = jest.fn().mockResolvedValue(mockDevice({ id: 'target-1', name: 'Wanted' }))
 
-    const device = await bleManager.findAndConnect(d => d.name === 'Wanted', { scanTimeoutMs: 2000 })
+    const pending = bleManager.findAndConnect(d => d.name === 'Wanted', { scanTimeoutMs: 2000 })
+    await advanceTimers(5)
+    await flushMicrotasks()
+    const device = await pending
     expect(device.id).toBe('target-1')
     expect(Native.BleModule.connectToDevice).toHaveBeenCalled()
     expect(Native.BleModule.stopDeviceScan).toHaveBeenCalled()
@@ -138,9 +115,11 @@ describe('findAndConnect', () => {
 
   test('times out when no match', async () => {
     Native.BleModule.startDeviceScan = jest.fn().mockResolvedValue(undefined)
-    await expect(
-      bleManager.findAndConnect(() => false, { scanTimeoutMs: 50 })
-    ).rejects.toMatchObject({ errorCode: BleErrorCode.DeviceNotFound })
+    const pending = bleManager.findAndConnect(() => false, { scanTimeoutMs: 50 })
+    const expectation = expect(pending).rejects.toMatchObject({ errorCode: BleErrorCode.DeviceNotFound })
+    await advanceTimers(50)
+    await flushMicrotasks()
+    await expectation
   })
 })
 
@@ -156,12 +135,19 @@ describe('scan name filters', () => {
     await bleManager.startDeviceScan(null, { deviceNamePrefix: 'Polar' }, (err, d) => {
       if (d) seen.push(d.name)
     })
-    await new Promise(r => setTimeout(r, 20))
+    await advanceTimers(20)
     expect(seen).toEqual(['Polar H10'])
   })
 })
 
 describe('PortBleManager findAndConnect + bonding honesty', () => {
+  beforeEach(() => {
+    useFakeTimers()
+  })
+  afterEach(() => {
+    useRealTimers()
+  })
+
   test('findAndConnect on fake port', async () => {
     const port = new FakeBlePort({
       advertisements: [
@@ -170,9 +156,13 @@ describe('PortBleManager findAndConnect + bonding honesty', () => {
       ]
     })
     const manager = new PortBleManager({ port, host: 'fake' })
-    const device = await manager.findAndConnect(d => d.name && d.name.startsWith('Polar'), {
+    const pending = manager.findAndConnect(d => d.name && d.name.startsWith('Polar'), {
       scanTimeoutMs: 2000
     })
+    // startDeviceScan sets scanActive only after port.startScan resolves (F094);
+    // flush microtasks first so ads are not dropped when the scan timer fires.
+    await flushScan()
+    const device = await pending
     expect(device.id).toBe('b')
     expect(await manager.isDeviceConnected('b')).toBe(true)
   })

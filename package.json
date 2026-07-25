@@ -13,6 +13,7 @@
     "lib",
     "android",
     "ios",
+    "native",
     "cpp",
     "docs",
     "ROADMAP.md",
@@ -31,6 +32,9 @@
     "!android/gradlew",
     "!android/gradlew.bat",
     "!android/local.properties",
+    "!native/**/build",
+    "!native/**/*.node",
+    "!native/**/obj.target",
     "!**/__tests__",
     "!**/__fixtures__",
     "!**/__mocks__",
@@ -39,9 +43,9 @@
   ],
   "scripts": {
     "build": "babel src/ -d lib/",
-    "test": "pnpm test:package && pnpm test:example",
-    "test:package": "jest --config jest.config.js --passWithNoTests",
-    "test:example": "jest --config example/jest.config.js --passWithNoTests",
+    "test": "pnpm test:package",
+    "test:package": "jest --config jest.config.js",
+    "pack:shim": "node scripts/prepare-shim-pack.js --pack",
     "docs": "pnpm prepack && documentation build lib/module/index.js -o docs --config documentation.yml -f html",
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"plugin/src/**/*.{ts,tsx}\" && pnpm typecheck",
@@ -61,7 +65,13 @@
     "build:plugin": "tsc --build plugin",
     "clean:plugin": "del-cli plugin/build",
     "test:plugin": "jest --config plugin/jest.config.js",
-    "test:codemod": "node scripts/codemod/transform-bytes-path.js --check scripts/codemod/fixtures/before-read.js",
+    "test:codemod": "node scripts/codemod/transform-bytes-path.js --check scripts/codemod/fixtures/before-read.js && node scripts/codemod/transform-bytes-path.js --check scripts/codemod/fixtures/before-read-safe.js && node scripts/codemod/transform-bytes-path.js --check scripts/codemod/fixtures/before-read-mixed.js",
+    "build:electron:macos": "cd native/electron/corebluetooth && node-gyp rebuild --release",
+    "example:web": "pnpm prepack && npx --yes vite --config example-web/vite.config.js",
+    "example:electron": "pnpm prepack && electron example-electron/main.js",
+    "example:electron:live": "pnpm run build:electron:macos && pnpm prepack && node example-electron/live-polar.js",
+    "example:electron:ui:live": "pnpm run build:electron:macos && pnpm prepack && npx --yes @electron/rebuild -f -w native/electron/corebluetooth && ELECTRON_BLE_REQUIRE_NATIVE=1 electron example-electron/main.js",
+    "example:electron:smoke": "pnpm prepack && node example-electron/smoke.js",
     "prepare": "pnpm clean:plugin && pnpm build:plugin",
     "lint:plugin": "eslint plugin/src/*"
   },
@@ -117,6 +127,7 @@
     "commitlint": "^17.0.2",
     "del-cli": "^5.1.0",
     "documentation": "12.3.0",
+    "electron": "43.2.0",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^9.0.0",
     "eslint-plugin-import": "^2.28.1",
@@ -131,6 +142,8 @@
     "globals": "^17.7.0",
     "hermes-eslint": "^0.15.1",
     "jest": "^29.7.0",
+    "node-addon-api": "^8.9.0",
+    "node-gyp": "^13.0.1",
     "pod-install": "^0.1.0",
     "prettier": "^3.0.3",
     "react": "~19.2.0",
@@ -150,6 +163,14 @@
   "peerDependencies": {
     "react": "*",
     "react-native": ">=0.86.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-native": {
+      "optional": true
+    }
   },
   "engines": {
     "node": "^20.19.4 || ^22.13.0 || ^24.3.0 || >=25.0.0"

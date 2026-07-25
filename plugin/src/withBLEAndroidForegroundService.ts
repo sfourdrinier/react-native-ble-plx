@@ -29,7 +29,9 @@ export const withBLEAndroidForegroundService: ConfigPlugin<{
 }
 
 /**
- * Add FOREGROUND_SERVICE and FOREGROUND_SERVICE_CONNECTED_DEVICE permissions
+ * Add FOREGROUND_SERVICE, FOREGROUND_SERVICE_CONNECTED_DEVICE, and POST_NOTIFICATIONS permissions.
+ * POST_NOTIFICATIONS (API 33+) is required for the FGS persistent notification to be user-visible;
+ * the host app must still request it at runtime (R2-F031).
  */
 function addForegroundServicePermissions(androidManifest: AndroidConfig.Manifest.AndroidManifest): void {
   const manifest = androidManifest.manifest
@@ -65,6 +67,21 @@ function addForegroundServicePermissions(androidManifest: AndroidConfig.Manifest
       $: {
         'android:name': 'android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE',
         'tools:targetApi': '34' // upside_down_cake = Android 14
+      }
+    } as AndroidConfig.Manifest.ManifestUsesPermission)
+  }
+
+  // Android 13+: notification permission for the FGS persistent notification (host requests at runtime)
+  const hasPostNotifications = permissions.some(
+    item => item.$?.['android:name'] === 'android.permission.POST_NOTIFICATIONS'
+  )
+
+  if (!hasPostNotifications) {
+    AndroidConfig.Manifest.ensureToolsAvailable(androidManifest)
+    permissions.push({
+      $: {
+        'android:name': 'android.permission.POST_NOTIFICATIONS',
+        'tools:targetApi': '33' // tiramisu = Android 13
       }
     } as AndroidConfig.Manifest.ManifestUsesPermission)
   }

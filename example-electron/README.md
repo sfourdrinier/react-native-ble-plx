@@ -1,22 +1,49 @@
-# example-electron — shared CentralDemo (scan + inspect + Polar HR)
+# example-electron — Electron UI (shared with web)
 
-Uses the **same** `createCentralDemo` API as the web example.
+Uses **Electron 43.2.x** (current stable) and the **same UI** as Chrome:
 
-Default radio is a multi-device `FakeBlePort`:
+[`example-shared/ui/`](../example-shared/ui/) — one HTML shell, one `app.js`.
 
-1. **Polar H10** (HR service)  
-2. **Generic HR Band**  
-3. **Office Beacon** (no HR — Device Information only)
+| | |
+| --- | --- |
+| **Main process** | `main.js` — owns BLE (`createCoreBluetoothBlePort` on macOS) |
+| **Preload** | `preload.js` — `contextBridge` → `bleApi` (same shape as web bridge) |
+| **Renderer** | loads shared `example-shared/ui/index.html` |
+| **CI smoke** | `smoke.js` Fake radio headless (no window) |
 
-Flow exercised:
-
-```text
-scan → list devices (id, name, rssi) → inspect GATT → HR stream on Polar
-```
+## Run UI + live Polar (macOS)
 
 ```bash
-pnpm prepack
-node example-electron/main.js
+# Electron ABI rebuild + fail-closed native (no silent Fake fallback):
+pnpm run example:electron:ui:live
 ```
 
-Live straps: inject a real main-process `BlePort` (BlueZ) into `BleManager` and keep calling `createCentralDemo(manager, hr)`.
+Or step-by-step:
+
+```bash
+pnpm run build:electron:macos   # CoreBluetooth Node-API addon (Node ABI)
+pnpm prepack
+npx --yes @electron/rebuild -f -w native/electron/corebluetooth   # Electron ABI
+ELECTRON_BLE_REQUIRE_NATIVE=1 pnpm run example:electron
+```
+
+1. Badge should show **LIVE** (CoreBluetooth).  
+2. **Discover** → continuous scan list → select **Polar H10**.  
+3. **Connect** → **Start HR** → BPM + IBI.  
+4. **Stop HR** / **Disconnect**.
+
+Force Fake radio (no strap): `ELECTRON_BLE_FAKE=1 pnpm run example:electron`
+
+## Headless CI smoke (not UI)
+
+```bash
+pnpm prepack && node example-electron/smoke.js
+# or: pnpm run example:electron:smoke
+```
+
+## Headless live CLI (Node ABI + Polar lab)
+
+```bash
+# node-gyp build + live-polar.js (GAP-E-MAC-LAB) — not the Electron UI
+pnpm run example:electron:live
+```

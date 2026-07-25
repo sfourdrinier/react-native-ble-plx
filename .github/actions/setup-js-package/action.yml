@@ -1,17 +1,23 @@
 name: Setup JS package
-description: Node 20.19.4 + pnpm frozen install + optional prepack for library consumers in CI.
+description: Node + pnpm frozen install + optional prepack for library consumers in CI.
 inputs:
   prepack:
     description: Run pnpm prepack after install
     required: false
     default: 'true'
+  node-version:
+    description: >
+      Node version for install/test (default 20.19.4 engines floor).
+      Publish uses Node 24; Linux package matrix also runs 24 (R2-F036).
+    required: false
+    default: '20.19.4'
 runs:
   using: composite
   steps:
     - name: Setup Node.js
       uses: actions/setup-node@v6.4.0
       with:
-        node-version: 20.19.4
+        node-version: ${{ inputs.node-version }}
 
     - name: Enable pnpm
       shell: bash

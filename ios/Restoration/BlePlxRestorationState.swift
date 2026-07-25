@@ -1,21 +1,22 @@
 import Foundation
-// MultiplatformBleAdapter is vendored into this pod's own module, so BleClientManager
-// is available in-module without an external import.
 
+/// Holds the owned CoreBluetooth adapter created during system BLE restoration wake,
+/// plus the JS-shaped RestoreStateEvent payload for createClient replay.
+/// Typed as BleAdapter (owned radio) so the 4.0 GA path compiles without MBA types.
 @objc(BlePlxRestorationState)
 public final class BlePlxRestorationState: NSObject {
-  private static var restoredManager: BleClientManager?
+  private static var restoredManager: BleAdapter?
   /// JS-shaped RestoreStateEvent body captured at system willRestoreState time
   /// (before JS constructs BleManager / attaches listeners).
   private static var restoredStatePayload: [AnyHashable: Any]?
   private static let lock = NSLock()
 
-  @objc public static func storeRestoredManager(_ manager: BleClientManager) {
+  @objc public static func storeRestoredManager(_ manager: BleAdapter) {
     storeRestoredManager(manager, restoreStatePayload: nil)
   }
 
   @objc public static func storeRestoredManager(
-    _ manager: BleClientManager,
+    _ manager: BleAdapter,
     restoreStatePayload: [AnyHashable: Any]?
   ) {
     lock.lock(); defer { lock.unlock() }
@@ -25,7 +26,7 @@ public final class BlePlxRestorationState: NSObject {
 
   /// Returns the stored manager (if any) and clears the manager cache to avoid reuse.
   /// Call {@link takeRestoredStatePayload} next if a replay payload is needed.
-  @objc public static func takeRestoredManager() -> BleClientManager? {
+  @objc public static func takeRestoredManager() -> BleAdapter? {
     lock.lock(); defer { lock.unlock() }
     let mgr = restoredManager
     restoredManager = nil

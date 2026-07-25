@@ -1,24 +1,29 @@
-# example-web — shared CentralDemo (chooser + inspect + Polar HR)
+# example-web — Chrome Web Bluetooth (shared UI)
 
-Uses the **same** `createCentralDemo` orchestration as Electron (`example-shared/centralDemo.js` / `centralDemo.mjs`):
+**UI is shared** with Electron under [`example-shared/ui/`](../example-shared/ui/) (HTML + `app.js` + `boot.js`).
 
-| Step | Web behavior |
-| ---- | ------------ |
-| Discover | `requestDevice` chooser (no continuous scan) → device list |
-| Select / Connect | GATT connect + discover |
-| Inspect | services + characteristics JSON |
-| Start HR | monitor Heart Rate Measurement `0x2A37` → BPM |
+| Host | Discovery | BLE location |
+| ---- | --------- | ------------ |
+| **Web** | `requestDevice` chooser | Browser Web Bluetooth |
+| **Electron** | continuous scan | Main process CoreBluetooth |
 
-## Run
+Bridge: `example-shared/ui/createWebBleBridge.js` (web) vs Electron `preload.js` → same button flows.
+
+## Run (Chrome + Polar H10)
 
 ```bash
+# prepack recommended (builds lib/module). Vite falls back to src/profiles when lib is missing.
 pnpm prepack
-npx --yes vite example-web --port 5173
+npx --yes vite --config example-web/vite.config.js
+# open http://localhost:5173
 ```
 
-Requires Chromium, localhost/https, BLE adapter, user gesture for the chooser.
+**Note:** `example-shared/profiles.mjs` re-exports pure profile modules only (never the package
+main / RN entry). After a clean checkout, either run `pnpm prepack` or rely on Vite’s
+`lib/module/profiles → src/profiles` alias (R2-F108).
 
-## Shared modules
+1. **Discover** (user gesture) → chooser → Polar H10  
+2. **Connect** → **Inspect**  
+3. **Start HR** → BPM + IBI/RR  
 
-- `example-shared/heartRate.js` + `heartRate.mjs` — SIG HR parse/filters  
-- `example-shared/centralDemo.js` + `centralDemo.mjs` — scan/list/inspect/HR API  
+Requires Chromium, localhost/https, BLE adapter, Bluetooth permission.

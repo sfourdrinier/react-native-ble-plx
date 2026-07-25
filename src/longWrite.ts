@@ -3,10 +3,16 @@
  * Does not talk to radio directly — callers pass a write function (port or BleManager).
  */
 
+import { isDeviceQueueCancelError } from './DeviceOperationQueue'
+
 export type LongWriteOptions = {
   /** Max payload bytes per write (ATT MTU − 3 for write with response, typically). Default 20. */
   chunkSize?: number
-  /** When true (default), stop on first write failure. */
+  /**
+   * When true (default), stop on first write failure.
+   * Cancel/disconnect errors (OperationCancelled / DeviceQueueCancelled / destroy)
+   * are always rethrown regardless of this flag.
+   */
   stopOnError?: boolean
 }
 
@@ -42,7 +48,8 @@ export async function writeLongCharacteristicFromBytes(
       bytesWritten += chunk.length
       chunks += 1
     } catch (e) {
-      if (stopOnError) throw e
+      // Always fail closed on cancel/disconnect/destroy (R2-F085).
+      if (isDeviceQueueCancelError(e) || stopOnError) throw e
     }
   }
   return { bytesWritten, chunks }

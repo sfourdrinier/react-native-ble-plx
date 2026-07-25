@@ -85,6 +85,8 @@ export type NativeBlePlxConstants = {
   StateChangeEvent: string
   RestoreStateEvent: string
   DisconnectionEvent: string
+  /** GATT services-changed (iOS didModifyServices / Android onServiceChanged API 31+) */
+  ServicesChangedEvent: string
 }
 
 export type RestorationStatus = {
@@ -249,6 +251,7 @@ export interface Spec extends TurboModule {
   /** Android bonding (pairing). */
   createBond(deviceIdentifier: DeviceId): Promise<void>
   removeBond(deviceIdentifier: DeviceId): Promise<void>
+  bondedDevices(): Promise<Array<NativeDevice>>
   /** Returns "none" | "bonding" | "bonded" */
   getBondState(deviceIdentifier: DeviceId): Promise<string>
 

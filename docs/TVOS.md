@@ -33,11 +33,13 @@ Restoration-related Swift is guarded with `#if os(iOS)`.
 
 ## Expo / react-native-tvos
 
-Use a TV-capable RN/Expo stack (for example `react-native-tvos` aligned with RN 0.86) and the same JS package:
+Use a TV-capable RN/Expo stack (for example `react-native-tvos` aligned with RN 0.86) and the **4.0 Path A** package:
 
 ```ts
-import { BleManager, ConnectionManager } from '@sfourdrinier/react-native-ble-plx'
+import { BleManager, ConnectionManager } from 'unified-ble-manager'
 ```
+
+Path B (`@sfourdrinier/react-native-ble-plx`) re-exports the same symbols for apps mid-rename; prefer Path A for new work. See [MIGRATION_4.0.md](../MIGRATION_4.0.md).
 
 Do **not** set `iosEnableRestoration: true` for pure tvOS apps; leave restoration disabled (default).
 

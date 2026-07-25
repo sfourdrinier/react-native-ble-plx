@@ -17,11 +17,11 @@ describe("Test if Descriptor is properly calling BleManager's utility function:"
 
   test('read', async () => {
     await descriptor.read('id')
-    expect(bleManager._readDescriptor).toBeCalledWith('dId', 'id')
+    expect(bleManager._readDescriptor).toBeCalledWith('deviceId', 'dId', 'id')
   })
 
   test('write', async () => {
     await descriptor.write('value', 'id')
-    expect(bleManager._writeDescriptor).toBeCalledWith('dId', 'value', 'id')
+    expect(bleManager._writeDescriptor).toBeCalledWith('deviceId', 'dId', 'value', 'id')
   })
 })

@@ -343,7 +343,7 @@ Migration is **opt-in**. Goal: teams that *want* bytes-first get a path that is 
 | -------- | ------- |
 | `src/encoding` or `src/utils/bytes.ts` | `base64ToBytes` / `bytesToBase64` (or re-export well-tested impl) |
 | `packages/codemod-ble-plx-4` or `scripts/codemod-4` | Optional codemod entry |
-| `docs/MIGRATION_4.0.md` | **Compat-first**: “you can upgrade with zero code changes”; then “optional bytes migration” |
+| [`MIGRATION_4.0.md`](./MIGRATION_4.0.md) | **Compat-first**: “you can upgrade with zero code changes”; then “optional bytes migration” |
 | Fixture suite | Bulletproof-as-possible automation bar |
 
 ### 6.5 Honesty bound
@@ -401,7 +401,7 @@ Web Bluetooth device discovery is an explicit permission-granting chooser, not a
 - `DeviceRequestOptions` mirrors the browser contract closely: `filters`, `exclusionFilters`, `optionalServices`, `optionalManufacturerData`, and `acceptAllDevices`.
 - Exactly one selection mode is valid: a non-empty `filters` array, or `acceptAllDevices: true`. `exclusionFilters` require `filters`. Empty or contradictory filters fail before opening the chooser.
 - Every service the application may access must be declared through filter services or `optionalServices`; the library never silently broadens browser permissions.
-- On the Web backend, `supports('deviceChooser')` is `true` and `supports('continuousScan')` is `false`.
+- On the Web backend, `supports('requestDevice')` is `true` and `supports('continuousScan')` is `false`.
 - Calling `startDeviceScan()` on Web reports `BleErrorCode.OperationNotSupported` once through its scan listener and performs no scan, chooser, or native work. It never changes meaning based on host.
 - User cancellation, invalid selection options, insecure-context/policy failures, unavailable Bluetooth, and post-selection GATT failures are mapped into distinct documented `BleError` outcomes; they are not mislabeled as unsupported.
 - The separate Web Bluetooth Scanning proposal is outside the 4.0 contract. It may be evaluated later as a new capability only after browser support, permissions, privacy behavior, and tests justify it; it never silently changes `startDeviceScan()` semantics.
@@ -424,7 +424,7 @@ supports(capability: BleCapability): boolean
 | Other failures | Permission, powered-off state, disconnected devices, peripheral feature gaps, and normal GATT failures retain their distinct error codes; they must not be collapsed into `OperationNotSupported`. |
 | Documentation parity | `BleCapability`, backend implementations, `supports()`, `docs/PLATFORMS.md`, and tests are one contract. A mismatch blocks release. |
 
-Eliminating a silent “success” for an operation the active backend cannot implement is an intentional 4.0 correctness fix and must be called out in `docs/MIGRATION_4.0.md`. The capability query exists so applications can avoid that failure path deliberately.
+Eliminating a silent “success” for an operation the active backend cannot implement is an intentional 4.0 correctness fix and must be called out in [`MIGRATION_4.0.md`](./MIGRATION_4.0.md). The capability query exists so applications can avoid that failure path deliberately.
 
 ---
 
@@ -583,14 +583,14 @@ Electron/desktop: document process lifetime only—never mobile FGS/restore clai
 
 ### Phase 3 — Native ownership (compat-preserving, architecture locked)
 
-| Work |
-| ---- |
-| ADR records the locked Kotlin/Swift radio boundaries, TurboModule adapter, cutover, and Nitro escalation gate |
-| Owned-core prototype + cutover with **public API parity tests** (Base64 + bytes) |
-| Remove the legacy Java/Rx/MBA stack from the default path before GA |
-| Host-agnostic backends for Node-API / Electron |
+| Work | Status |
+| ---- | ------ |
+| ADR records the locked Kotlin/Swift radio boundaries, TurboModule adapter, cutover, and Nitro escalation gate | **Done** — ADRs under `docs/ADR/` |
+| Owned-core prototype + cutover with **public API parity tests** (Base64 + bytes) | **Done (L2 default path)** — owned Android Kotlin + iOS Swift are the 4.0 GA default (compile CI); see [GAPS.4.0.md](./docs/GAPS.4.0.md) §2 baseline |
+| Remove the legacy Java/Rx/MBA stack from the default path before GA | **Partial** — default path no longer uses legacy runtime; trees remain under `android/src/legacy` and `ios/vendor` until **GAP-GA-LEGACY** (unreachable/archive). **Done default ≠ GA legacy gone** |
+| Host-agnostic backends for Node-API / Electron | **Partial** — `BlePort` + Electron macOS CoreBluetooth L2; Win/Linux backends still preview (Phase 5) |
 
-**Exit:** Owned stack default; parity tests green for both encodings.
+**Exit:** Owned stack default; parity tests green for both encodings. **Met for default path (L2).** Full GA exit still requires GAP-GA-LEGACY (legacy unreachable) and remaining parity/lab GAPs.
 
 ---
 
@@ -609,7 +609,7 @@ Electron/desktop: document process lifetime only—never mobile FGS/restore clai
 | ---- | ------ |
 | Backend interface + PLATFORMS.md | **Done (alpha)** — `BlePort` + docs |
 | Web Bluetooth preview with explicit `requestDevice()` chooser, bytes-native GATT, and Base64 adapter for shared app code | **Done (alpha)** — mock + WebBT port; live radio env-dependent |
-| Electron **native main** previews in locked order: macOS/CoreBluetooth first → Windows/WinRT second → Linux/BlueZ third | **Partial** — Linux BlueZ shipped; Win/mac factories + Fake CI contracts + requireNative fail-closed; live WinRT/CoreBluetooth radio still open |
+| Electron **native main** previews in locked order: macOS/CoreBluetooth first → Windows/WinRT second → Linux/BlueZ third | **Partial (per-OS)** — **macOS CoreBluetooth BlePort done (L2 software)**; L4 live Polar lab open (`GAP-E-MAC-LAB` only — not “radio still open”). **Linux BlueZ** partial D-Bus contracts (not full L4). **Windows WinRT** placeholder + `requireNative` fail-closed. **Fake** = CI / headless smoke only. See [docs/GAPS.4.0.md](./docs/GAPS.4.0.md) §2 and [docs/ELECTRON.md](./docs/ELECTRON.md). |
 | Single-package explicit `/web`, `/electron`, and `/node` exports + resolver isolation tests | **Done (alpha)** — Jest + consumer import |
 | `example-electron/`, `example-web/` | **Done (alpha)** |
 | ELECTRON.md / WEB.md | **Done** |
@@ -685,8 +685,8 @@ Each desktop preview must be useful for real bug discovery: its package entrypoi
 | --- | ------- |
 | [ROADMAP.4.0.md](./ROADMAP.4.0.md) | This charter |
 | [ROADMAP.md](./ROADMAP.md) | Long-range doctrine |
-| `docs/MIGRATION_4.0.md` | **Zero-change first**; optional bytes migration; codemod |
-| `docs/PERFORMANCE.md` | Benchmarks, encoding modes, native notes |
+| [`MIGRATION_4.0.md`](./MIGRATION_4.0.md) | **Zero-change first**; optional bytes migration; codemod |
+| [`docs/PERFORMANCE.md`](./docs/PERFORMANCE.md) | Benchmarks, encoding modes, RN interim Base64 bridge honesty (GAP-GA-PERF open for native ArrayBuffer) |
 | `docs/BACKGROUND.md` | Mobile background bible |
 | `docs/PLATFORMS.md` | Capability matrix |
 | `docs/ELECTRON.md` | Main-process native only |

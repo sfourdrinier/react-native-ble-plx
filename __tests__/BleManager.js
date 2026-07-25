@@ -2,9 +2,18 @@
 import { BleManager, Device, Service, Characteristic } from '../src'
 import { BleErrorCode, BleErrorCodeMessage } from '../src/BleError'
 import * as Native from '../src/BleModule'
+import { Platform } from 'react-native'
 
 import { NativeEventEmitter } from './Utils'
 import { Descriptor } from '../src/Descriptor'
+import {
+  installBleModuleMock,
+  assertBleModuleEventConstants,
+  createMockDevice,
+  createMockService,
+  createMockCharacteristic,
+  createMockDescriptor
+} from './helpers/nativeBleModule'
 Native.EventEmitter = NativeEventEmitter
 
 var bleManager
@@ -14,106 +23,19 @@ const restoreStateFunction = jest.fn()
 const nativeOperationCancelledError =
   '{"errorCode": 2, "attErrorCode": null, "iosErrorCode": null, "reason": null, "androidErrorCode": null}'
 
-// Helper function to create mock NativeDevice objects
-function createMockDevice(overrides = {}) {
-  return {
-    id: 'mock-device-id',
-    name: 'Mock Device',
-    rssi: -50,
-    mtu: 23,
-    manufacturerData: null,
-    rawScanRecord: '',
-    serviceData: null,
-    serviceUUIDs: null,
-    localName: null,
-    txPowerLevel: null,
-    solicitedServiceUUIDs: null,
-    isConnectable: true,
-    overflowServiceUUIDs: null,
-    ...overrides
-  }
-}
-
-// Helper function to create mock NativeService objects
-function createMockService(overrides = {}) {
-  return {
-    id: 'mock-service-id',
-    uuid: 'mock-service-uuid',
-    deviceID: 'mock-device-id',
-    isPrimary: true,
-    ...overrides
-  }
-}
-
-// Helper function to create mock NativeCharacteristic objects
-function createMockCharacteristic(overrides = {}) {
-  return {
-    id: 'mock-characteristic-id',
-    uuid: 'mock-characteristic-uuid',
-    serviceID: 'mock-service-id',
-    serviceUUID: 'mock-service-uuid',
-    deviceID: 'mock-device-id',
-    isReadable: true,
-    isWritableWithResponse: true,
-    isWritableWithoutResponse: false,
-    isNotifiable: true,
-    isNotifying: false,
-    isIndicatable: false,
-    value: null,
-    ...overrides
-  }
-}
-
-// Helper function to create mock NativeDescriptor objects
-function createMockDescriptor(overrides = {}) {
-  return {
-    id: 'mock-descriptor-id',
-    uuid: 'mock-descriptor-uuid',
-    characteristicID: 'mock-characteristic-id',
-    characteristicUUID: 'mock-characteristic-uuid',
-    serviceID: 'mock-service-id',
-    serviceUUID: 'mock-service-uuid',
-    deviceID: 'mock-device-id',
-    value: null,
-    ...overrides
-  }
-}
-
 beforeEach(() => {
   BleManager.sharedInstance = null
+  // Android so connectionPriority/bonding tests hit the native mock (F025 OS-honest).
+  Platform.OS = 'android'
   restoreStateFunction.mockClear()
-  Native.BleModule = {
-    createClient: jest.fn(),
-    destroyClient: jest.fn(),
-    cancelTransaction: jest.fn(),
-    setLogLevel: jest.fn(),
-    logLevel: jest.fn(),
-    enable: jest.fn(),
-    disable: jest.fn(),
-    state: jest.fn(),
-    startDeviceScan: jest.fn(),
-    stopDeviceScan: jest.fn(),
+  installBleModuleMock(Native, {
     readRSSIForDevice: jest.fn().mockResolvedValue(createMockDevice()),
-    connectToDevice: jest.fn(),
-    cancelDeviceConnection: jest.fn(),
-    isDeviceConnected: jest.fn(),
     discoverAllServicesAndCharacteristicsForDevice: jest.fn().mockResolvedValue(createMockDevice()),
-    servicesForDevice: jest.fn(),
-    characteristicsForDevice: jest.fn(),
-    descriptorsForDevice: jest.fn(),
-    readCharacteristicForDevice: jest.fn(),
-    writeCharacteristicForDevice: jest.fn(),
-    monitorCharacteristicForDevice: jest.fn(),
-    readDescriptorForDevice: jest.fn(),
-    writeDescriptorForDevice: jest.fn(),
     requestMTUForDevice: jest.fn().mockResolvedValue(createMockDevice({ mtu: 512 })),
-    requestConnectionPriorityForDevice: jest.fn().mockResolvedValue(createMockDevice()),
-    ScanEvent: 'scan_event',
-    ReadEvent: 'read_event',
-    StateChangeEvent: 'state_change_event',
-    RestoreStateEvent: 'restore_state_event',
-    DisconnectionEvent: 'disconnection_event'
-  }
+    requestConnectionPriorityForDevice: jest.fn().mockResolvedValue(createMockDevice())
+  })
+  // F086: shared helper always installs full event constants (incl. ServicesChangedEvent)
+  assertBleModuleEventConstants(Native.BleModule)
   bleManager = new BleManager({
     restoreStateIdentifier: 'identifier',
     restoreStateFunction
@@ -346,10 +268,12 @@ test('When BleManager stops scanning it calls BleModule stopScanning function', 
   expect(Native.BleModule.stopDeviceScan).toBeCalled()
 })
 
-test('When BleManager readRSSI is called it should call BleModule readRSSI', () => {
-  bleManager.readRSSIForDevice('id')
-  expect(Native.BleModule.readRSSIForDevice).toBeCalledWith('id', '2')
-  bleManager.readRSSIForDevice('id', 'transaction')
+test('When BleManager readRSSI is called it should call BleModule readRSSI', async () => {
+  // Queue-wrapped GATT ops settle after await (DeviceOperationQueue).
+  await bleManager.readRSSIForDevice('id')
+  // Auto transaction id: restore sub (1) + services-changed sub (2) → next is "3"
+  expect(Native.BleModule.readRSSIForDevice).toBeCalledWith('id', '3')
+  await bleManager.readRSSIForDevice('id', 'transaction')
   expect(Native.BleModule.readRSSIForDevice).toBeCalledWith('id', 'transaction')
 })
 
@@ -562,19 +486,19 @@ test('BleManager properly handles errors while monitoring characteristic values'
 })
 
 test('BleManager properly requests the MTU', async () => {
-  bleManager.requestMTUForDevice('id', 99, 'trId')
+  await bleManager.requestMTUForDevice('id', 99, 'trId')
   expect(Native.BleModule.requestMTUForDevice).toBeCalledWith('id', 99, 'trId')
 })
 
 test('BleManager properly requests connection priority', async () => {
-  bleManager.requestConnectionPriorityForDevice('id', 2, 'trId')
+  await bleManager.requestConnectionPriorityForDevice('id', 2, 'trId')
   expect(Native.BleModule.requestConnectionPriorityForDevice).toBeCalledWith('id', 2, 'trId')
 })
 
 test('BleManager properly reads descriptors value', async () => {
   Native.BleModule.readDescriptorForDevice = jest
     .fn()
-    .mockReturnValueOnce(Promise.resolve({ uuid: 'aaaa', value: '=AA' }))
+    .mockReturnValueOnce(Promise.resolve(createMockDescriptor({ uuid: 'aaaa', value: '=AA' })))
   const descriptor = await bleManager.readDescriptorForDevice(
     'id',
     'serviceUUID',
@@ -597,7 +521,7 @@ test('BleManager properly reads descriptors value', async () => {
 test('BleManager properly writes descriptors value', async () => {
   Native.BleModule.writeDescriptorForDevice = jest
     .fn()
-    .mockReturnValueOnce(Promise.resolve({ uuid: 'aaaa', value: 'value' }))
+    .mockReturnValueOnce(Promise.resolve(createMockDescriptor({ uuid: 'aaaa', value: 'value' })))
   const descriptor = await bleManager.writeDescriptorForDevice(
     'id',
     'serviceUUID',
@@ -619,46 +543,200 @@ test('BleManager properly writes descriptors value', async () => {
   )
 })
 
-// Background Mode Tests (Android Foreground Service)
+// Background Mode Tests — R2-F024: public BleManager API (not Native.BleModule.* direct)
+// Honesty: enable + isEnabled always hit native; disable/update short-circuit on iOS.
 
-test('BleManager enableBackgroundMode calls native module on Android', async () => {
-  jest.mock('react-native', () => ({
-    Platform: { OS: 'android' },
-    NativeModules: {},
-    NativeEventEmitter: jest.fn()
-  }))
-
+test('BleManager enableBackgroundMode calls native on Android', async () => {
+  Platform.OS = 'android'
   Native.BleModule.enableBackgroundMode = jest.fn().mockResolvedValue(true)
 
-  // Mock isIOS to false by directly testing the native call
   const options = { notificationTitle: 'Test', notificationText: 'Testing' }
-  await Native.BleModule.enableBackgroundMode(options)
+  const result = await bleManager.enableBackgroundMode(options)
 
+  expect(result).toBe(true)
   expect(Native.BleModule.enableBackgroundMode).toBeCalledWith(options)
 })
 
-test('BleManager disableBackgroundMode calls native module', async () => {
+test('BleManager enableBackgroundMode still calls native on iOS (warn only, no hardcode true)', async () => {
+  Platform.OS = 'ios'
+  Native.BleModule.enableBackgroundMode = jest.fn().mockResolvedValue(true)
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+  const options = { notificationTitle: 'Test', notificationText: 'Testing' }
+  const result = await bleManager.enableBackgroundMode(options)
+
+  expect(result).toBe(true)
+  expect(Native.BleModule.enableBackgroundMode).toBeCalledWith(options)
+  expect(warn).toHaveBeenCalled()
+  warn.mockRestore()
+})
+
+test('BleManager disableBackgroundMode calls native on Android', async () => {
+  Platform.OS = 'android'
   Native.BleModule.disableBackgroundMode = jest.fn().mockResolvedValue(true)
 
-  await Native.BleModule.disableBackgroundMode()
+  const result = await bleManager.disableBackgroundMode()
 
+  expect(result).toBe(true)
   expect(Native.BleModule.disableBackgroundMode).toBeCalled()
 })
 
-test('BleManager updateBackgroundNotification calls native module', async () => {
+test('BleManager updateBackgroundNotification calls native on Android', async () => {
+  Platform.OS = 'android'
   Native.BleModule.updateBackgroundNotification = jest.fn().mockResolvedValue(true)
 
   const options = { notificationTitle: 'Updated', notificationText: 'New text' }
-  await Native.BleModule.updateBackgroundNotification(options)
+  const result = await bleManager.updateBackgroundNotification(options)
 
+  expect(result).toBe(true)
   expect(Native.BleModule.updateBackgroundNotification).toBeCalledWith(options)
 })
 
-test('BleManager isBackgroundModeEnabled calls native module', async () => {
+test('BleManager isBackgroundModeEnabled calls native on Android', async () => {
+  Platform.OS = 'android'
   Native.BleModule.isBackgroundModeEnabled = jest.fn().mockResolvedValue(true)
 
-  const result = await Native.BleModule.isBackgroundModeEnabled()
+  const result = await bleManager.isBackgroundModeEnabled()
 
   expect(Native.BleModule.isBackgroundModeEnabled).toBeCalled()
   expect(result).toBe(true)
+})
+
+test('BleManager disable/updateBackground* short-circuit on iOS without native calls', async () => {
+  Platform.OS = 'ios'
+  Native.BleModule.disableBackgroundMode = jest.fn().mockResolvedValue(false)
+  Native.BleModule.updateBackgroundNotification = jest.fn().mockResolvedValue(false)
+
+  const options = { notificationTitle: 'Test', notificationText: 'Testing' }
+  await expect(bleManager.disableBackgroundMode()).resolves.toBe(true)
+  await expect(bleManager.updateBackgroundNotification(options)).resolves.toBe(true)
+
+  expect(Native.BleModule.disableBackgroundMode).not.toBeCalled()
+  expect(Native.BleModule.updateBackgroundNotification).not.toBeCalled()
+})
+
+test('BleManager isBackgroundModeEnabled always queries native (iOS honesty)', async () => {
+  Platform.OS = 'ios'
+  Native.BleModule.isBackgroundModeEnabled = jest.fn().mockResolvedValue(false)
+  await expect(bleManager.isBackgroundModeEnabled()).resolves.toBe(false)
+  expect(Native.BleModule.isBackgroundModeEnabled).toBeCalled()
+
+  Platform.OS = 'android'
+  Native.BleModule.isBackgroundModeEnabled = jest.fn().mockResolvedValue(true)
+  await expect(bleManager.isBackgroundModeEnabled()).resolves.toBe(true)
+  expect(Native.BleModule.isBackgroundModeEnabled).toBeCalled()
+})
+
+// R2-F025: Android subscriptionType forwarded; iOS always strips to null
+
+test('BleManager monitorCharacteristicForDevice forwards subscriptionType on Android', () => {
+  Platform.OS = 'android'
+  Native.BleModule.monitorCharacteristicForDevice = jest.fn().mockReturnValue(new Promise(() => {}))
+  const listener = jest.fn()
+
+  const subNotify = bleManager.monitorCharacteristicForDevice(
+    'id',
+    'aaaa',
+    'bbbb',
+    listener,
+    'tx-notify',
+    'notification'
+  )
+  const subIndicate = bleManager.monitorCharacteristicForDevice(
+    'id',
+    'aaaa',
+    'bbbb',
+    listener,
+    'tx-indicate',
+    'indication'
+  )
+
+  expect(Native.BleModule.monitorCharacteristicForDevice).toHaveBeenCalledWith(
+    'id',
+    'aaaa',
+    'bbbb',
+    'tx-notify',
+    'notification'
+  )
+  expect(Native.BleModule.monitorCharacteristicForDevice).toHaveBeenCalledWith(
+    'id',
+    'aaaa',
+    'bbbb',
+    'tx-indicate',
+    'indication'
+  )
+  subNotify.remove()
+  subIndicate.remove()
+})
+
+test('BleManager monitorCharacteristicForDevice strips subscriptionType on iOS', () => {
+  Platform.OS = 'ios'
+  Native.BleModule.monitorCharacteristicForDevice = jest.fn().mockReturnValue(new Promise(() => {}))
+  const listener = jest.fn()
+
+  const sub = bleManager.monitorCharacteristicForDevice(
+    'id',
+    'aaaa',
+    'bbbb',
+    listener,
+    'tx-ios',
+    'indication'
+  )
+
+  expect(Native.BleModule.monitorCharacteristicForDevice).toBeCalledWith(
+    'id',
+    'aaaa',
+    'bbbb',
+    'tx-ios',
+    null
+  )
+  sub.remove()
+})
+
+test('BleManager monitorCharacteristicForDeviceAsBytes forwards subscriptionType on Android', () => {
+  Platform.OS = 'android'
+  Native.BleModule.monitorCharacteristicForDevice = jest.fn().mockReturnValue(new Promise(() => {}))
+  const listener = jest.fn()
+
+  const sub = bleManager.monitorCharacteristicForDeviceAsBytes(
+    'id',
+    'aaaa',
+    'bbbb',
+    listener,
+    'tx-bytes',
+    'notification'
+  )
+
+  expect(Native.BleModule.monitorCharacteristicForDevice).toBeCalledWith(
+    'id',
+    'aaaa',
+    'bbbb',
+    'tx-bytes',
+    'notification'
+  )
+  sub.remove()
+})
+
+test('BleManager monitorCharacteristicForDeviceAsBytes strips subscriptionType on iOS', () => {
+  Platform.OS = 'ios'
+  Native.BleModule.monitorCharacteristicForDevice = jest.fn().mockReturnValue(new Promise(() => {}))
+  const listener = jest.fn()
+
+  const sub = bleManager.monitorCharacteristicForDeviceAsBytes(
+    'id',
+    'aaaa',
+    'bbbb',
+    listener,
+    'tx-bytes-ios',
+    'indication'
+  )
+
+  expect(Native.BleModule.monitorCharacteristicForDevice).toBeCalledWith(
+    'id',
+    'aaaa',
+    'bbbb',
+    'tx-bytes-ios',
+    null
+  )
+  sub.remove()
 })

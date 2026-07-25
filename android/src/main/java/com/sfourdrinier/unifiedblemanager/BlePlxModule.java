@@ -77,9 +77,14 @@ public class BlePlxModule extends NativeBlePlxSpec {
   @Override
   protected Map<String, Object> getTypedExportedConstants() {
     final Map<String, Object> constants = new HashMap<>();
-    for (Event event : Event.values()) {
-      constants.put(event.name, event.name);
-    }
+    // Export all constants declared on NativeBlePlx Spec (DEBUG validates exact keys).
+    // Must include ServicesChangedEvent for TurboModule / Spec parity with iOS (R2-F032).
+    constants.put(Event.ScanEvent.name, Event.ScanEvent.name);
+    constants.put(Event.ReadEvent.name, Event.ReadEvent.name);
+    constants.put(Event.StateChangeEvent.name, Event.StateChangeEvent.name);
+    constants.put(Event.RestoreStateEvent.name, Event.RestoreStateEvent.name);
+    constants.put(Event.DisconnectionEvent.name, Event.DisconnectionEvent.name);
+    constants.put(Event.ServicesChangedEvent.name, Event.ServicesChangedEvent.name);
     return constants;
   }
 
@@ -88,6 +93,11 @@ public class BlePlxModule extends NativeBlePlxSpec {
   @ReactMethod
   public void createClient(String restoreStateIdentifier) {
     bleAdapter = BleAdapterFactory.getNewAdapter(reactContext);
+    if (bleAdapter instanceof com.sfourdrinier.unifiedblemanager.radio.OwnedBleAdapter) {
+      ((com.sfourdrinier.unifiedblemanager.radio.OwnedBleAdapter) bleAdapter).setServicesChangedListener(
+        deviceId -> sendEvent(Event.ServicesChangedEvent, deviceId)
+      );
+    }
     bleAdapter.createClient(restoreStateIdentifier,
       new OnEventCallback<String>() {
         @Override
@@ -1144,6 +1154,25 @@ public class BlePlxModule extends NativeBlePlxSpec {
       deviceId,
       safePromise::resolve,
       error -> safePromise.reject(DEFAULT_ERROR_CODE, errorConverter.toJs(error))
+    );
+  }
+
+  @ReactMethod
+  public void bondedDevices(final Promise promise) {
+    if (!this.isRequestPossibleHandler("bondedDevices", promise)) {
+      return;
+    }
+    bleAdapter.bondedDevices(
+      devices -> {
+        WritableArray jsDevices = Arguments.createArray();
+        if (devices != null) {
+          for (Device device : devices) {
+            jsDevices.pushMap(deviceConverter.toJSObject(device));
+          }
+        }
+        promise.resolve(jsDevices);
+      },
+      error -> promise.reject(DEFAULT_ERROR_CODE, errorConverter.toJs(error))
     );
   }
 

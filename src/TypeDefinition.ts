@@ -201,7 +201,9 @@ export interface ScanOptions {
 }
 
 /**
- * Android bond (pairing) state. iOS pairing is OS-driven — use supports('bonding').
+ * Android bond (pairing) state. iOS pairing is OS-driven.
+ * Prefer `manager.supports('bonding')` (OS-honest: true on Android RN, false on iOS) —
+ * not the static host matrix alone (`supports('bonding', 'react-native')` is host-level).
  */
 export type BondState = 'none' | 'bonding' | 'bonded'
 
@@ -213,6 +215,11 @@ export interface FindAndConnectOptions extends ConnectionOptions {
   scanTimeoutMs?: number
   /** Optional scan options (name filters, Android scan mode, etc.). */
   scanOptions?: ScanOptions | null
+  /**
+   * Service UUIDs passed to `startDeviceScan` (radio-level filter when supported).
+   * Example: `heartRateScanServiceUUIDs()` from the Heart Rate profile helpers.
+   */
+  serviceUUIDs?: Array<UUID> | null
 }
 
 /**

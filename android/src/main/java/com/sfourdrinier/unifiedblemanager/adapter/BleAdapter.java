@@ -89,6 +89,13 @@ public interface BleAdapter {
     OnSuccessCallback<String> onSuccessCallback,
     OnErrorCallback onErrorCallback);
 
+  /**
+   * List currently bonded (paired) devices known to the OS adapter. Android only.
+   */
+  void bondedDevices(
+    OnSuccessCallback<Device[]> onSuccessCallback,
+    OnErrorCallback onErrorCallback);
+
   void discoverAllServicesAndCharacteristicsForDevice(
     String deviceIdentifier,
     String transactionId,

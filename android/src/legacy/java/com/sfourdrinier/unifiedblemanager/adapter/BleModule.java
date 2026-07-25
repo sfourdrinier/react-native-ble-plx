@@ -569,6 +569,33 @@ public class BleModule implements BleAdapter {
     }
   }
 
+  @SuppressLint("MissingPermission")
+  @Override
+  public void bondedDevices(
+    OnSuccessCallback<Device[]> onSuccessCallback,
+    OnErrorCallback onErrorCallback
+  ) {
+    if (bluetoothAdapter == null) {
+      onSuccessCallback.onSuccess(new Device[0]);
+      return;
+    }
+    try {
+      java.util.Set<BluetoothDevice> bonded = bluetoothAdapter.getBondedDevices();
+      if (bonded == null || bonded.isEmpty()) {
+        onSuccessCallback.onSuccess(new Device[0]);
+        return;
+      }
+      Device[] out = new Device[bonded.size()];
+      int i = 0;
+      for (BluetoothDevice d : bonded) {
+        out[i++] = new Device(d.getAddress(), d.getName());
+      }
+      onSuccessCallback.onSuccess(out);
+    } catch (Exception e) {
+      onErrorCallback.onError(new BleError(BleErrorCode.BluetoothInternalException, e.getMessage(), null));
+    }
+  }
+
   @Override
   public void discoverAllServicesAndCharacteristicsForDevice(String deviceIdentifier,
                                                              String transactionId,

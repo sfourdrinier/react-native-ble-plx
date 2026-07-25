@@ -24,6 +24,38 @@ describe('unified-ble-manager/electron (shipped host)', () => {
     expect(manager.supports('central')).toBe(true)
     expect(manager.supports('requestDevice')).toBe(false)
     expect(manager.supports('androidForegroundService')).toBe(false)
+    // R2-F012: mock backend fails closed for continuousScan / servicesChanged
+    expect(manager.supports('continuousScan')).toBe(false)
+    expect(manager.supports('servicesChanged')).toBe(false)
+  })
+
+  test('backend-aware continuousScan true only for real radios (R2-F012)', () => {
+    const mockMgr = new ElectronBleManager({
+      port: new FakeBlePort({ id: 'electron-mock-fallback' }),
+      backend: 'mock'
+    })
+    expect(mockMgr.supports('continuousScan')).toBe(false)
+    const bluezMgr = new ElectronBleManager({
+      port: new FakeBlePort({ id: 'bluez-dbus-v1' }),
+      backend: 'bluez'
+    })
+    expect(bluezMgr.supports('continuousScan')).toBe(true)
+    expect(bluezMgr.supports('servicesChanged')).toBe(false)
+    const cbMgr = new ElectronBleManager({
+      port: new FakeBlePort({ id: 'corebluetooth-electron-v1' }),
+      backend: 'corebluetooth'
+    })
+    expect(cbMgr.supports('continuousScan')).toBe(true)
+  })
+
+  test('autoDetectNative never claims live bluez without bus probe (R2-F060)', () => {
+    const manager = new ElectronBleManager({ autoDetectNative: true, allowMockFallback: true })
+    const info = manager.getHostInfo()
+    // On non-linux CI this is mock; on linux sync autoDetect also stays mock (async probe only).
+    if (info.platform === 'linux') {
+      expect(info.backend).toBe('mock')
+      expect(info.portId).toMatch(/mock/)
+    }
   })
 
   test('throws when no port and mock fallback disabled (forces real main injection)', () => {

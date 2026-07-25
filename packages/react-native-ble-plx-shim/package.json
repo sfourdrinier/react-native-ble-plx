@@ -9,9 +9,36 @@
   "files": [
     "index.js",
     "index.d.ts",
+    "web.js",
+    "web.d.ts",
+    "electron.js",
+    "electron.d.ts",
+    "node.js",
+    "node.d.ts",
     "app.plugin.js",
     "README.md"
   ],
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "react-native": "./index.js",
+      "default": "./index.js"
+    },
+    "./web": {
+      "types": "./web.d.ts",
+      "default": "./web.js"
+    },
+    "./electron": {
+      "types": "./electron.d.ts",
+      "default": "./electron.js"
+    },
+    "./node": {
+      "types": "./node.d.ts",
+      "default": "./node.js"
+    },
+    "./app.plugin.js": "./app.plugin.js",
+    "./package.json": "./package.json"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sfourdrinier/react-native-ble-plx.git",
@@ -24,6 +51,14 @@
   "peerDependencies": {
     "react": "*",
     "react-native": ">=0.86.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-native": {
+      "optional": true
+    }
   },
   "dependencies": {
     "unified-ble-manager": "file:../.."

@@ -3,13 +3,23 @@
  * Used by web / electron / node / tests — mirrors RN method names for shared apps.
  */
 
-import { DeviceOperationQueue } from '../DeviceOperationQueue'
+import {
+  DeviceOperationQueue,
+  deviceQueueCancelledError
+} from '../DeviceOperationQueue'
 import { base64ToBytes, bytesToBase64 } from '../encoding'
 import { writeLongCharacteristicFromBytes } from '../longWrite'
 import type { BleCapability, HostKind } from '../supports'
 import { supports as supportsCapability } from '../supports'
 import { rejectUnsupported } from '../unsupported'
-import type { BlePort, PortAdvertisement, PortDeviceId, PortUnsubscribe } from './BlePort'
+import type {
+  BlePort,
+  PortAdvertisement,
+  PortCharacteristicMeta,
+  PortDeviceId,
+  PortUnsubscribe,
+  WriteCharacteristicOptions
+} from './BlePort'
 
 export type PortDevice = {
   id: string
@@ -26,6 +36,8 @@ export type PortBleManagerOptions = {
   serializeDeviceOps?: boolean
 }
 
+type DisconnectListener = (error: Error | null, device: PortDevice | null) => void
+
 /**
  * Minimal multi-host manager implementing the central vertical slice.
  * Base64 methods preserve 3.x-shaped values; AsBytes/FromBytes are parallel.
@@ -38,6 +50,9 @@ export class PortBleManager {
   private readonly deviceQueue = new DeviceOperationQueue()
   private readonly serializeDeviceOps: boolean
   private readonly servicesResetListeners = new Set<(deviceId: string) => void>()
+  /** deviceId (upper) → listeners; key `*` = all devices */
+  private readonly disconnectListeners = new Map<string, Set<DisconnectListener>>()
+  private portDisconnectUnsub: PortUnsubscribe | null = null
 
   constructor(options: PortBleManagerOptions) {
     if (!options?.port) {
@@ -46,6 +61,28 @@ export class PortBleManager {
     this.port = options.port
     this.host = options.host ?? 'fake'
     this.serializeDeviceOps = options.serializeDeviceOps !== false
+
+    // Wire optional port.onDisconnect → manager onDeviceDisconnected (R2-F014).
+    if (typeof this.port.onDisconnect === 'function') {
+      this.portDisconnectUnsub = this.port.onDisconnect((deviceId, errMsg) => {
+        this.fanoutDisconnect(deviceId, errMsg)
+      })
+    }
+  }
+
+  /** Tear down port disconnect bridge and clear listeners (test / host shutdown). */
+  destroy(): void {
+    const unsub = this.portDisconnectUnsub
+    this.portDisconnectUnsub = null
+    if (unsub) {
+      try {
+        void unsub()
+      } catch {
+        // ignore
+      }
+    }
+    this.disconnectListeners.clear()
+    this.servicesResetListeners.clear()
   }
 
   /** Expose queue for tests (ordering proofs). */
@@ -53,9 +90,59 @@ export class PortBleManager {
     return this.deviceQueue
   }
 
+  /** Whether a continuous scan was successfully started and not yet stopped. */
+  isDeviceScanActive(): boolean {
+    return this.scanActive
+  }
+
   private runForDevice<T>(deviceId: string, fn: () => Promise<T>): Promise<T> {
     if (!this.serializeDeviceOps) return fn()
     return this.deviceQueue.enqueue(deviceId, fn)
+  }
+
+  /** Priority cancel path — invalidates pending ops then disconnects. */
+  private runCancelForDevice<T>(deviceId: string, fn: () => Promise<T>): Promise<T> {
+    if (!this.serializeDeviceOps) return fn()
+    return this.deviceQueue.enqueueCancel(deviceId, fn)
+  }
+
+  private fanoutDisconnect(deviceId: string, errMsg: string | null): void {
+    const error = errMsg ? new Error(errMsg) : null
+    const device: PortDevice = { id: deviceId, name: null, rssi: null }
+    const key = deviceId.trim().toUpperCase()
+    const targeted = this.disconnectListeners.get(key)
+    if (targeted) {
+      for (const listener of targeted) {
+        listener(error, device)
+      }
+    }
+    const global = this.disconnectListeners.get('*')
+    if (global) {
+      for (const listener of global) {
+        listener(error, device)
+      }
+    }
+  }
+
+  /**
+   * Subscribe to unexpected disconnect / link-loss for a device.
+   * Requires the underlying {@link BlePort} to implement `onDisconnect`.
+   * Pass a specific device id, or use the port fan-out for all devices via the same API.
+   */
+  onDeviceDisconnected(deviceId: PortDeviceId, listener: DisconnectListener): PortSubscription {
+    const key = deviceId.trim().toUpperCase()
+    if (!this.disconnectListeners.has(key)) {
+      this.disconnectListeners.set(key, new Set())
+    }
+    this.disconnectListeners.get(key)!.add(listener)
+    return {
+      remove: () => {
+        const set = this.disconnectListeners.get(key)
+        if (!set) return
+        set.delete(listener)
+        if (set.size === 0) this.disconnectListeners.delete(key)
+      }
+    }
   }
 
   /** Honest capability query for this host. */
@@ -68,7 +155,7 @@ export class PortBleManager {
   }
 
   async startDeviceScan(
-    _UUIDs: string[] | null,
+    UUIDs: string[] | null,
     _options: Record<string, unknown> | null | undefined,
     listener: (error: Error | null, device: PortDevice | null) => void
   ): Promise<void> {
@@ -77,13 +164,26 @@ export class PortBleManager {
       const hint = this.supports('requestDevice')
         ? ' Use requestDevice() after a user gesture instead.'
         : ''
-      throw new Error(`startDeviceScan is not supported on host=${this.host}.${hint}`)
+      return rejectUnsupported(
+        'startDeviceScan',
+        `host=${this.host} has no continuous scan.${hint}`
+      )
     }
-    this.scanActive = true
-    await this.port.startScan((ad: PortAdvertisement) => {
-      if (!this.scanActive) return
-      listener(null, { id: ad.id, name: ad.name, rssi: ad.rssi })
-    })
+    const serviceUUIDs = UUIDs && UUIDs.length > 0 ? UUIDs : null
+    try {
+      await this.port.startScan(
+        (ad: PortAdvertisement) => {
+          if (!this.scanActive) return
+          listener(null, { id: ad.id, name: ad.name, rssi: ad.rssi })
+        },
+        { serviceUUIDs }
+      )
+      // Only mark active after the port accepts the scan (F094).
+      this.scanActive = true
+    } catch (e) {
+      this.scanActive = false
+      throw e
+    }
   }
 
   async stopDeviceScan(): Promise<void> {
@@ -99,7 +199,7 @@ export class PortBleManager {
   }
 
   async cancelDeviceConnection(deviceId: PortDeviceId): Promise<void> {
-    return this.runForDevice(deviceId, async () => {
+    return this.runCancelForDevice(deviceId, async () => {
       await this.port.disconnect(deviceId)
     })
   }
@@ -127,26 +227,39 @@ export class PortBleManager {
 
   /**
    * Long-write helper on the bytes path (chunked sequential writes, per-device queued).
+   * Cooperative with {@link cancelDeviceConnection}: epoch bump aborts between chunks.
    */
   async writeLongCharacteristicForDeviceFromBytes(
     deviceId: PortDeviceId,
     serviceUUID: string,
     characteristicUUID: string,
     value: Uint8Array,
-    options: { chunkSize?: number } = {}
+    options: { chunkSize?: number; withResponse?: boolean; stopOnError?: boolean } = {}
   ): Promise<{ bytesWritten: number; chunks: number }> {
     if (!(value instanceof Uint8Array)) {
       throw new TypeError('writeLongCharacteristicForDeviceFromBytes expects Uint8Array')
     }
-    return this.runForDevice(deviceId, () =>
-      writeLongCharacteristicFromBytes(
+    const withResponse = options.withResponse !== false
+    const writeOpts: WriteCharacteristicOptions = { withResponse }
+    return this.runForDevice(deviceId, () => {
+      const epoch = this.deviceQueue.currentEpoch(deviceId)
+      return writeLongCharacteristicFromBytes(
         value,
         async chunk => {
-          await this.port.writeCharacteristicBytes(deviceId, serviceUUID, characteristicUUID, chunk)
+          if (this.serializeDeviceOps && this.deviceQueue.isCancelled(deviceId, epoch)) {
+            throw deviceQueueCancelledError()
+          }
+          await this.port.writeCharacteristicBytes(
+            deviceId,
+            serviceUUID,
+            characteristicUUID,
+            chunk,
+            writeOpts
+          )
         },
-        { chunkSize: options.chunkSize }
+        { chunkSize: options.chunkSize, stopOnError: options.stopOnError }
       )
-    )
+    })
   }
 
   async isDeviceConnected(deviceId: PortDeviceId): Promise<boolean> {
@@ -155,15 +268,17 @@ export class PortBleManager {
 
   /**
    * Scan until predicate matches, then connect (same spirit as RN BleManager.findAndConnect).
+   * Pass `serviceUUIDs` (e.g. heartRateScanServiceUUIDs()) to filter at the radio layer.
    */
   async findAndConnect(
     predicate: (device: PortDevice) => boolean,
-    options: { scanTimeoutMs?: number } = {}
+    options: { scanTimeoutMs?: number; serviceUUIDs?: string[] | null } = {}
   ): Promise<PortDevice> {
     if (!this.supports('scan') && !this.supports('continuousScan')) {
       return rejectUnsupported('findAndConnect', `host=${this.host} has no continuous scan`)
     }
     const timeoutMs = options.scanTimeoutMs ?? 10000
+    const serviceUUIDs = options.serviceUUIDs ?? null
     return new Promise((resolve, reject) => {
       let settled = false
       const timer = setTimeout(() => {
@@ -174,7 +289,7 @@ export class PortBleManager {
         })
       }, timeoutMs)
 
-      void this.startDeviceScan(null, null, (error, device) => {
+      void this.startDeviceScan(serviceUUIDs, null, (error, device) => {
         if (settled) return
         if (error) {
           settled = true
@@ -199,11 +314,54 @@ export class PortBleManager {
     })
   }
 
+  /**
+   * Bonding only when supports('bonding') is true (R2-F029).
+   * Fake host matrix marks bonding true for simulated bonds; electron stays false.
+   */
+  private portBondingAllowed(): boolean {
+    return this.supports('bonding')
+  }
+
+  async getBondState(deviceId: PortDeviceId): Promise<'none' | 'bonding' | 'bonded'> {
+    const port = this.port as unknown as {
+      getBondState?: (id: string) => Promise<'none' | 'bonding' | 'bonded'>
+    }
+    if (!this.portBondingAllowed()) {
+      return rejectUnsupported('getBondState', `host=${this.host}`)
+    }
+    if (typeof port.getBondState === 'function') {
+      return port.getBondState(deviceId)
+    }
+    return rejectUnsupported('getBondState', 'port does not implement bonding')
+  }
+
+  /**
+   * List bonded (paired) devices when the underlying port tracks bonds
+   * (FakeBlePort / Android-backed ports). Rejects when bonding unsupported (R2-F114).
+   */
+  async bondedDevices(): Promise<PortDevice[]> {
+    const port = this.port as unknown as {
+      listBondedDevices?: () => Promise<Array<{ id: string; name?: string | null; rssi?: number | null }>>
+    }
+    if (!this.portBondingAllowed()) {
+      return rejectUnsupported('bondedDevices', `host=${this.host}`)
+    }
+    if (typeof port.listBondedDevices !== 'function') {
+      return rejectUnsupported('bondedDevices', 'port does not implement listBondedDevices')
+    }
+    const list = await port.listBondedDevices()
+    return list.map(d => ({
+      id: d.id,
+      name: d.name ?? null,
+      rssi: d.rssi ?? null
+    }))
+  }
+
   async createBond(deviceId: PortDeviceId): Promise<void> {
-    if (!this.supports('bonding')) {
+    const port = this.port as unknown as { createBond?: (id: string) => Promise<void> }
+    if (!this.portBondingAllowed()) {
       return rejectUnsupported('createBond', `host=${this.host}`)
     }
-    const port = this.port as unknown as { createBond?: (id: string) => Promise<void> }
     if (typeof port.createBond === 'function') {
       await port.createBond(deviceId)
       return
@@ -212,28 +370,15 @@ export class PortBleManager {
   }
 
   async removeBond(deviceId: PortDeviceId): Promise<void> {
-    if (!this.supports('bonding')) {
+    const port = this.port as unknown as { removeBond?: (id: string) => Promise<void> }
+    if (!this.portBondingAllowed()) {
       return rejectUnsupported('removeBond', `host=${this.host}`)
     }
-    const port = this.port as unknown as { removeBond?: (id: string) => Promise<void> }
     if (typeof port.removeBond === 'function') {
       await port.removeBond(deviceId)
       return
     }
     return rejectUnsupported('removeBond', 'port does not implement bonding')
-  }
-
-  async getBondState(deviceId: PortDeviceId): Promise<'none' | 'bonding' | 'bonded'> {
-    if (!this.supports('bonding')) {
-      return rejectUnsupported('getBondState', `host=${this.host}`)
-    }
-    const port = this.port as unknown as {
-      getBondState?: (id: string) => Promise<'none' | 'bonding' | 'bonded'>
-    }
-    if (typeof port.getBondState === 'function') {
-      return port.getBondState(deviceId)
-    }
-    return rejectUnsupported('getBondState', 'port does not implement bonding')
   }
 
   async discoverAllServicesAndCharacteristicsForDevice(deviceId: PortDeviceId): Promise<PortDevice> {
@@ -273,6 +418,18 @@ export class PortBleManager {
     })
   }
 
+  /**
+   * Metadata-only characteristic inventory (no value reads) — R2-F094.
+   * Prefer this over {@link characteristicsForDevice} when values are not needed
+   * (avoids failing on notify/indicate-only chars and skips eager Base64 reads).
+   */
+  async characteristicsMetaForDevice(
+    deviceId: PortDeviceId,
+    serviceUUID: string
+  ): Promise<PortCharacteristicMeta[]> {
+    return this.runForDevice(deviceId, () => this.port.discoverCharacteristics(deviceId, serviceUUID))
+  }
+
   // --- Base64 path (3.x shape) ---
 
   async readCharacteristicForDevice(
@@ -293,7 +450,9 @@ export class PortBleManager {
     valueBase64: string
   ): Promise<{ value: string | null }> {
     return this.runForDevice(deviceId, async () => {
-      await this.port.writeCharacteristicBase64(deviceId, serviceUUID, characteristicUUID, valueBase64)
+      await this.port.writeCharacteristicBase64(deviceId, serviceUUID, characteristicUUID, valueBase64, {
+        withResponse: true
+      })
       return { value: valueBase64 }
     })
   }
@@ -304,7 +463,12 @@ export class PortBleManager {
     characteristicUUID: string,
     valueBase64: string
   ): Promise<{ value: string | null }> {
-    return this.writeCharacteristicWithResponseForDevice(deviceId, serviceUUID, characteristicUUID, valueBase64)
+    return this.runForDevice(deviceId, async () => {
+      await this.port.writeCharacteristicBase64(deviceId, serviceUUID, characteristicUUID, valueBase64, {
+        withResponse: false
+      })
+      return { value: valueBase64 }
+    })
   }
 
   monitorCharacteristicForDevice(
@@ -316,11 +480,13 @@ export class PortBleManager {
     let unsub: PortUnsubscribe | null = null
     let removed = false
     const ignore = (): undefined => undefined
-    this.port
-      .monitorCharacteristic(deviceId, serviceUUID, characteristicUUID, value => {
+    // Queue CCCD / subscription setup so it serializes with R/W (R2-F087).
+    this.runForDevice(deviceId, () =>
+      this.port.monitorCharacteristic(deviceId, serviceUUID, characteristicUUID, value => {
         if (removed) return
         listener(null, { value: bytesToBase64(value) })
       })
+    )
       .then(u => {
         unsub = u
         if (removed) {
@@ -358,7 +524,9 @@ export class PortBleManager {
     value: Uint8Array
   ): Promise<{ value: Uint8Array | null }> {
     return this.runForDevice(deviceId, async () => {
-      await this.port.writeCharacteristicBytes(deviceId, serviceUUID, characteristicUUID, value)
+      await this.port.writeCharacteristicBytes(deviceId, serviceUUID, characteristicUUID, value, {
+        withResponse: true
+      })
       return { value }
     })
   }
@@ -369,7 +537,12 @@ export class PortBleManager {
     characteristicUUID: string,
     value: Uint8Array
   ): Promise<{ value: Uint8Array | null }> {
-    return this.writeCharacteristicWithResponseForDeviceFromBytes(deviceId, serviceUUID, characteristicUUID, value)
+    return this.runForDevice(deviceId, async () => {
+      await this.port.writeCharacteristicBytes(deviceId, serviceUUID, characteristicUUID, value, {
+        withResponse: false
+      })
+      return { value }
+    })
   }
 
   monitorCharacteristicForDeviceAsBytes(
@@ -381,11 +554,13 @@ export class PortBleManager {
     let unsub: PortUnsubscribe | null = null
     let removed = false
     const ignore = (): undefined => undefined
-    this.port
-      .monitorCharacteristic(deviceId, serviceUUID, characteristicUUID, value => {
+    // BlePort contract: onValue already owns a detached copy — pass through (R2-F112).
+    this.runForDevice(deviceId, () =>
+      this.port.monitorCharacteristic(deviceId, serviceUUID, characteristicUUID, value => {
         if (removed) return
-        listener(null, { value: new Uint8Array(value) })
+        listener(null, { value })
       })
+    )
       .then(u => {
         unsub = u
         if (removed) {

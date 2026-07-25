@@ -87,6 +87,21 @@ export function DashboardScreen({ navigation }: DashboardScreenProps) {
           BLEService.initializeBLE().then(() => BLEService.scanDevices(addFoundDevice, null, false))
         }}
       />
+      <AppButton
+        label="Look for Heart Rate devices"
+        onPress={() => {
+          setFoundDevices([])
+          // R2-F063: wire package scanForHeartRateDevices helper (not null UUID scan)
+          BLEService.initializeBLE().then(() => BLEService.scanForHeartRateDevices(addFoundDevice, true))
+        }}
+      />
+      <AppButton
+        label="Look for Battery devices"
+        onPress={() => {
+          setFoundDevices([])
+          BLEService.initializeBLE().then(() => BLEService.scanForBatteryDevices(addFoundDevice, true))
+        }}
+      />
       <AppButton label="Ask for permissions" onPress={BLEService.requestBluetoothPermission} />
       <AppButton label="Go to nRF test" onPress={() => navigation.navigate('DEVICE_NRF_TEST_SCREEN')} />
       <AppButton label="Call disconnect with wrong id" onPress={() => BLEService.isDeviceWithIdConnected('asd')} />

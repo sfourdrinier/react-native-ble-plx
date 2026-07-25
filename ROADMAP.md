@@ -276,7 +276,7 @@ Do not start multiplatform backends on top of MultiplatformBleAdapter / RxAndroi
 - Use Web Bluetooth inside Electron as a substitute for a real Windows/macOS backend (possible hack, wrong long-term)  
 - Ship Web by wrapping a random third-party lib without owning the error model  
 
-`DeviceRequestOptions` mirrors the browser's filters, exclusion filters, optional services, optional manufacturer data, and `acceptAllDevices`. Exactly one of non-empty filters or `acceptAllDevices: true` is required; service access is limited to services declared during selection. `supports('deviceChooser')` is true and `supports('continuousScan')` is false. The separate Web Bluetooth Scanning proposal is not part of the 4.0 contract.
+`DeviceRequestOptions` mirrors the browser's filters, exclusion filters, optional services, optional manufacturer data, and `acceptAllDevices`. Exactly one of non-empty filters or `acceptAllDevices: true` is required; service access is limited to services declared during selection. `supports('requestDevice')` is true and `supports('continuousScan')` is false. The separate Web Bluetooth Scanning proposal is not part of the 4.0 contract.
 
 **Exit bar for “Web supported”:** core central documented; user-gesture chooser path; selected-device wrapper followed by explicit connect; R/W/notify; capability matrix row green for core; distinct chooser/security/GATT error mappings; example for Expo web / RN web or plain bundler.
 

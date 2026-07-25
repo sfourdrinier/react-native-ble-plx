@@ -13,6 +13,10 @@
 //    - restorationIdentifier (getter) - String
 //    - handleRestoredWithCentral:willRestoreState: - void
 //
+//  R2-F020: When BlePlxRestoreIdentifier is in Info.plist, the registry owns an
+//  early CBCentralManager so system willRestoreState can fire before JS starts,
+//  then dispatchRestoration → handleRestored → BlePlxRestorationState.storeRestoredManager.
+//
 
 import Foundation
 import CoreBluetooth
@@ -21,14 +25,15 @@ import CoreBluetooth
 
 /// Thread-safe fallback registry for BLE restoration adapters.
 ///
-/// This is the BUNDLED fallback that works out of the box for standalone apps.
-/// If the host app provides a class named "BleRestorationRegistry", the
-/// BlePlxRestorationAdapter will use that instead.
+/// This is the BUNDLED fallback that works out of the box for standalone apps
+/// when `BlePlxRestoreIdentifier` is set in Info.plist (Expo plugin
+/// `iosEnableRestoration: true`). If the host app provides a class named
+/// "BleRestorationRegistry", the BlePlxRestorationAdapter will use that instead.
 ///
 /// Adapters are stored as AnyClass and invoked via ObjC selectors to avoid
 /// protocol type conflicts with host apps.
 @objc(BlePlxBundledRestorationRegistry)
-public final class BlePlxBundledRestorationRegistry: NSObject {
+public final class BlePlxBundledRestorationRegistry: NSObject, CBCentralManagerDelegate {
 
   // MARK: - Singleton
 
@@ -45,6 +50,10 @@ public final class BlePlxBundledRestorationRegistry: NSObject {
     attributes: .concurrent
   )
   private var adapterClasses = [AnyClass]()
+
+  /// Early-wake central retained so system willRestoreState can fire before createClient (R2-F020).
+  private var earlyCentral: CBCentralManager?
+  private let centralQueue = DispatchQueue(label: "com.reactnativebleplx.bundled.restoration.central")
 
   // MARK: - Required Selectors
 
@@ -76,6 +85,9 @@ public final class BlePlxBundledRestorationRegistry: NSObject {
       adapterClasses.append(cls)
       BlePlxDebugLogging.log("[BlePlxBundledRestorationRegistry] ✓ Registered \(cls)")
     }
+
+    // Ensure early central exists after first successful adapter registration.
+    ensureEarlyCentralManager()
   }
 
   // MARK: - Query
@@ -107,10 +119,73 @@ public final class BlePlxBundledRestorationRegistry: NSObject {
     )
   }
 
+  // MARK: - Early-wake CBCentralManager (R2-F020)
+
+  /// Create/retain one CBCentralManager with BlePlxRestoreIdentifier so the OS can
+  /// deliver willRestoreState before React Native createClient runs.
+  private func ensureEarlyCentralManager() {
+    #if os(iOS)
+    queue.sync(flags: .barrier) {
+      guard earlyCentral == nil else { return }
+      let raw = Bundle.main.object(forInfoDictionaryKey: "BlePlxRestoreIdentifier") as? String
+      let key = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      guard !key.isEmpty else {
+        BlePlxDebugLogging.log(
+          "[BlePlxBundledRestorationRegistry] No BlePlxRestoreIdentifier in Info.plist — early central not created"
+        )
+        return
+      }
+      earlyCentral = CBCentralManager(
+        delegate: self,
+        queue: centralQueue,
+        options: [CBCentralManagerOptionRestoreIdentifierKey: key]
+      )
+      BlePlxDebugLogging.log(
+        "[BlePlxBundledRestorationRegistry] Early CBCentralManager created with restore id \(key)"
+      )
+    }
+    #endif
+  }
+
+  /// Hand off the early central to OwnedCoreBluetoothAdapter on cold createClient
+  /// (no system restore). Returns nil if restore already transferred ownership.
+  @objc public func takeEarlyCentralManager() -> CBCentralManager? {
+    var taken: CBCentralManager?
+    queue.sync(flags: .barrier) {
+      taken = earlyCentral
+      earlyCentral = nil
+    }
+    if let taken = taken {
+      taken.delegate = nil
+      BlePlxDebugLogging.log("[BlePlxBundledRestorationRegistry] Early central handed off via takeEarlyCentralManager")
+    }
+    return taken
+  }
+
+  // MARK: - CBCentralManagerDelegate
+
+  public func centralManagerDidUpdateState(_ central: CBCentralManager) {
+    // Required; state is observed by the owned adapter after handoff.
+  }
+
+  #if os(iOS)
+  public func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
+    BlePlxDebugLogging.log("[BlePlxBundledRestorationRegistry] willRestoreState — dispatching to adapters")
+    // Clear ownership before dispatch: handleRestored adopts this central.
+    queue.sync(flags: .barrier) {
+      if earlyCentral === central {
+        earlyCentral = nil
+      }
+    }
+    dispatchRestoration(central: central, willRestoreState: dict)
+  }
+  #endif
+
   // MARK: - Restoration Dispatch
 
   /// Dispatch restoration callback to all registered adapters.
   /// Invokes handleRestoredWithCentral:willRestoreState: on each adapter class.
+  /// Call path: willRestoreState → dispatchRestoration → handleRestored → storeRestoredManager.
   public func dispatchRestoration(
     central: CBCentralManager,
     willRestoreState dict: [String: Any]

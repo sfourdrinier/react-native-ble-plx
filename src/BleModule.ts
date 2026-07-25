@@ -842,6 +842,11 @@ export interface BleModuleInterface {
    */
   getBondState(deviceIdentifier: DeviceId): Promise<string>
 
+  /**
+   * List OS-known bonded (paired) devices. [Android only]
+   */
+  bondedDevices(): Promise<Array<NativeDevice>>
+
   // Other APIs
 
   /**
@@ -900,6 +905,14 @@ export interface BleModuleInterface {
    * @private
    */
   DisconnectionEvent: string
+
+  /**
+   * GATT services changed / cache invalidated (deviceId string or [deviceId]).
+   * iOS: CBPeripheralDelegate.peripheral(_:didModifyServices:)
+   * Android API 31+: BluetoothGattCallback.onServiceChanged
+   * @private
+   */
+  ServicesChangedEvent: string
 }
 
 /**

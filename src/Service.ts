@@ -1,4 +1,4 @@
-import type { BleManager } from './BleManager'
+import type { BleManager, CharacteristicAsBytes, DescriptorAsBytes } from './BleManager'
 import type { BleError } from './BleError'
 import type { Characteristic } from './Characteristic'
 import type { Descriptor } from './Descriptor'
@@ -73,7 +73,7 @@ export class Service implements NativeService {
    * discovered for this service.
    */
   characteristics(): Promise<Array<Characteristic>> {
-    return this._manager._characteristicsForService(this.id)
+    return this._manager._characteristicsForService(this.deviceID, this.id)
   }
 
   /**
@@ -84,7 +84,7 @@ export class Service implements NativeService {
    * discovered for this {@link Service} in specified {@link Characteristic}.
    */
   descriptorsForCharacteristic(characteristicUUID: UUID): Promise<Array<Descriptor>> {
-    return this._manager._descriptorsForService(this.id, characteristicUUID)
+    return this._manager._descriptorsForService(this.deviceID, this.id, characteristicUUID)
   }
 
   /**
@@ -97,7 +97,7 @@ export class Service implements NativeService {
    * UUID path. Latest value of {@link Characteristic} will be stored inside returned object.
    */
   readCharacteristic(characteristicUUID: UUID, transactionId?: TransactionId): Promise<Characteristic> {
-    return this._manager._readCharacteristicForService(this.id, characteristicUUID, transactionId)
+    return this._manager._readCharacteristicForService(this.deviceID, this.id, characteristicUUID, transactionId)
   }
 
   /**
@@ -116,6 +116,7 @@ export class Service implements NativeService {
     transactionId?: TransactionId
   ): Promise<Characteristic> {
     return this._manager._writeCharacteristicWithResponseForService(
+      this.deviceID,
       this.id,
       characteristicUUID,
       valueBase64,
@@ -139,6 +140,7 @@ export class Service implements NativeService {
     transactionId?: TransactionId
   ): Promise<Characteristic> {
     return this._manager._writeCharacteristicWithoutResponseForService(
+      this.deviceID,
       this.id,
       characteristicUUID,
       valueBase64,
@@ -163,7 +165,7 @@ export class Service implements NativeService {
     transactionId: TransactionId | null = null,
     subscriptionType: CharacteristicSubscriptionType | null = null
   ): Subscription {
-    if (isIOS) {
+    if (isIOS()) {
       return this._manager._monitorCharacteristicForService(
         this.id,
         characteristicUUID,
@@ -195,7 +197,13 @@ export class Service implements NativeService {
     descriptorUUID: UUID,
     transactionId?: TransactionId
   ): Promise<Descriptor> {
-    return this._manager._readDescriptorForService(this.id, characteristicUUID, descriptorUUID, transactionId)
+    return this._manager._readDescriptorForService(
+      this.deviceID,
+      this.id,
+      characteristicUUID,
+      descriptorUUID,
+      transactionId
+    )
   }
 
   /**
@@ -214,10 +222,114 @@ export class Service implements NativeService {
     transactionId?: TransactionId
   ): Promise<Descriptor> {
     return this._manager._writeDescriptorForService(
+      this.deviceID,
       this.id,
       characteristicUUID,
       descriptorUUID,
       valueBase64,
+      transactionId
+    )
+  }
+
+  // --- 4.0 parallel bytes path (existing Base64 methods unchanged) ---
+
+  /** Read characteristic as {@link Uint8Array}. Parallel to {@link #servicereadcharacteristic|readCharacteristic}. */
+  readCharacteristicAsBytes(
+    characteristicUUID: UUID,
+    transactionId?: TransactionId
+  ): Promise<CharacteristicAsBytes> {
+    return this._manager.readCharacteristicForDeviceAsBytes(
+      this.deviceID,
+      this.uuid,
+      characteristicUUID,
+      transactionId
+    )
+  }
+
+  /** Write with response from {@link Uint8Array}. */
+  writeCharacteristicWithResponseFromBytes(
+    characteristicUUID: UUID,
+    value: Uint8Array,
+    transactionId?: TransactionId
+  ): Promise<CharacteristicAsBytes> {
+    return this._manager.writeCharacteristicWithResponseForDeviceFromBytes(
+      this.deviceID,
+      this.uuid,
+      characteristicUUID,
+      value,
+      transactionId
+    )
+  }
+
+  /** Write without response from {@link Uint8Array}. */
+  writeCharacteristicWithoutResponseFromBytes(
+    characteristicUUID: UUID,
+    value: Uint8Array,
+    transactionId?: TransactionId
+  ): Promise<CharacteristicAsBytes> {
+    return this._manager.writeCharacteristicWithoutResponseForDeviceFromBytes(
+      this.deviceID,
+      this.uuid,
+      characteristicUUID,
+      value,
+      transactionId
+    )
+  }
+
+  /** Monitor notifications as {@link Uint8Array}. */
+  monitorCharacteristicAsBytes(
+    characteristicUUID: UUID,
+    listener: (error: BleError | null, characteristic: CharacteristicAsBytes | null) => void,
+    transactionId: TransactionId | null = null,
+    subscriptionType: CharacteristicSubscriptionType | null = null
+  ): Subscription {
+    if (isIOS()) {
+      return this._manager.monitorCharacteristicForDeviceAsBytes(
+        this.deviceID,
+        this.uuid,
+        characteristicUUID,
+        listener,
+        transactionId ?? undefined
+      )
+    }
+    return this._manager.monitorCharacteristicForDeviceAsBytes(
+      this.deviceID,
+      this.uuid,
+      characteristicUUID,
+      listener,
+      transactionId ?? undefined,
+      subscriptionType
+    )
+  }
+
+  /** Read descriptor as {@link Uint8Array}. */
+  async readDescriptorForCharacteristicAsBytes(
+    characteristicUUID: UUID,
+    descriptorUUID: UUID,
+    transactionId?: TransactionId
+  ): Promise<DescriptorAsBytes> {
+    return this._manager.readDescriptorForDeviceAsBytes(
+      this.deviceID,
+      this.uuid,
+      characteristicUUID,
+      descriptorUUID,
+      transactionId
+    )
+  }
+
+  /** Write descriptor from {@link Uint8Array}. */
+  async writeDescriptorForCharacteristicFromBytes(
+    characteristicUUID: UUID,
+    descriptorUUID: UUID,
+    value: Uint8Array,
+    transactionId?: TransactionId
+  ): Promise<DescriptorAsBytes> {
+    return this._manager.writeDescriptorForDeviceFromBytes(
+      this.deviceID,
+      this.uuid,
+      characteristicUUID,
+      descriptorUUID,
+      value,
       transactionId
     )
   }

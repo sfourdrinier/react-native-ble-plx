@@ -41,7 +41,8 @@ const MATRIX: Record<HostKind, Partial<Record<BleCapability, boolean>>> = {
     base64Path: true,
     requestDevice: false,
     continuousScan: true,
-    // Public createBond/removeBond/getBondState exist (Android-native; iOS rejects typed).
+    // Host matrix: Android-capable RN builds expose these APIs.
+    // BleManager.supports() is OS-honest (false on iOS) — see F025/F095.
     bonding: true,
     requestMtu: true,
     connectionPriority: true,
@@ -49,11 +50,11 @@ const MATRIX: Record<HostKind, Partial<Record<BleCapability, boolean>>> = {
     androidForegroundService: true,
     l2cap: false,
     preferredPhy: false,
-    // PortBleManager surfaces only (web/electron/node/fake). RN BleManager does not
-    // yet expose onServicesReset / DeviceOperationQueue / long-write helpers.
-    deviceOperationQueue: false,
-    servicesChanged: false,
-    longWrite: false
+    // Wired on RN BleManager (GAP-RN-Q / RN-SC / RN-LW): DeviceOperationQueue,
+    // onServicesReset (+ native ServicesChangedEvent), writeLong…FromBytes.
+    deviceOperationQueue: true,
+    servicesChanged: true,
+    longWrite: true
   },
   web: {
     central: true,
@@ -75,7 +76,9 @@ const MATRIX: Record<HostKind, Partial<Record<BleCapability, boolean>>> = {
     l2cap: false,
     preferredPhy: false,
     deviceOperationQueue: true,
-    servicesChanged: true,
+    // No WebBT bridge for ATT Services Changed / cache invalidation (software emitServicesReset only).
+    servicesChanged: false,
+    // Software chunked long-write helper exists; not radio-level MTU/WWR fidelity (see docs/WEB.md).
     longWrite: true
   },
   electron: {
@@ -136,7 +139,8 @@ const MATRIX: Record<HostKind, Partial<Record<BleCapability, boolean>>> = {
     base64Path: true,
     requestDevice: false,
     continuousScan: true,
-    bonding: false,
+    // Simulated bond list is a real Fake feature (R2-F029); electron stays false.
+    bonding: true,
     requestMtu: false,
     connectionPriority: false,
     iosStateRestoration: false,

@@ -24,6 +24,10 @@ public class BleEvent: NSObject {
     @objc
     static public let disconnectionEvent = "DisconnectionEvent"
 
+    /// GATT database change (CBPeripheral didModifyServices / Android onServiceChanged).
+    @objc
+    static public let servicesChangedEvent = "ServicesChangedEvent"
+
     @objc
     static public let connectingEvent = "ConnectingEvent"
 
@@ -37,6 +41,7 @@ public class BleEvent: NSObject {
         stateChangeEvent,
         restoreStateEvent,
         disconnectionEvent,
+        servicesChangedEvent,
         connectingEvent,
         connectedEvent
     ]

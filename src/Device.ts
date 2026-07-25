@@ -1,4 +1,4 @@
-import type { BleManager } from './BleManager'
+import type { BleManager, CharacteristicAsBytes, DescriptorAsBytes } from './BleManager'
 import type { BleError } from './BleError'
 import type { Characteristic } from './Characteristic'
 import type { Service } from './Service'
@@ -334,7 +334,7 @@ export class Device implements NativeDevice {
     transactionId: TransactionId | null = null,
     subscriptionType?: CharacteristicSubscriptionType
   ): Subscription {
-    if (isIOS) {
+    if (isIOS()) {
       return this._manager.monitorCharacteristicForDevice(
         this.id,
         serviceUUID,
@@ -402,6 +402,115 @@ export class Device implements NativeDevice {
       characteristicUUID,
       descriptorUUID,
       valueBase64,
+      transactionId
+    )
+  }
+
+  // --- 4.0 parallel bytes path (existing Base64 methods unchanged) ---
+
+  /** Read characteristic as {@link Uint8Array}. Parallel to {@link #devicereadcharacteristicforservice|readCharacteristicForService}. */
+  readCharacteristicForServiceAsBytes(
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    transactionId?: TransactionId
+  ): Promise<CharacteristicAsBytes> {
+    return this._manager.readCharacteristicForDeviceAsBytes(
+      this.id,
+      serviceUUID,
+      characteristicUUID,
+      transactionId
+    )
+  }
+
+  /** Write with response from {@link Uint8Array}. */
+  writeCharacteristicWithResponseForServiceFromBytes(
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    value: Uint8Array,
+    transactionId?: TransactionId
+  ): Promise<CharacteristicAsBytes> {
+    return this._manager.writeCharacteristicWithResponseForDeviceFromBytes(
+      this.id,
+      serviceUUID,
+      characteristicUUID,
+      value,
+      transactionId
+    )
+  }
+
+  /** Write without response from {@link Uint8Array}. */
+  writeCharacteristicWithoutResponseForServiceFromBytes(
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    value: Uint8Array,
+    transactionId?: TransactionId
+  ): Promise<CharacteristicAsBytes> {
+    return this._manager.writeCharacteristicWithoutResponseForDeviceFromBytes(
+      this.id,
+      serviceUUID,
+      characteristicUUID,
+      value,
+      transactionId
+    )
+  }
+
+  /** Monitor notifications as {@link Uint8Array}. */
+  monitorCharacteristicForServiceAsBytes(
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    listener: (error: BleError | null, characteristic: CharacteristicAsBytes | null) => void,
+    transactionId: TransactionId | null = null,
+    subscriptionType?: CharacteristicSubscriptionType
+  ): Subscription {
+    if (isIOS()) {
+      return this._manager.monitorCharacteristicForDeviceAsBytes(
+        this.id,
+        serviceUUID,
+        characteristicUUID,
+        listener,
+        transactionId ?? undefined
+      )
+    }
+    return this._manager.monitorCharacteristicForDeviceAsBytes(
+      this.id,
+      serviceUUID,
+      characteristicUUID,
+      listener,
+      transactionId ?? undefined,
+      subscriptionType
+    )
+  }
+
+  /** Read descriptor as {@link Uint8Array}. */
+  async readDescriptorForServiceAsBytes(
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    descriptorUUID: UUID,
+    transactionId?: TransactionId
+  ): Promise<DescriptorAsBytes> {
+    return this._manager.readDescriptorForDeviceAsBytes(
+      this.id,
+      serviceUUID,
+      characteristicUUID,
+      descriptorUUID,
+      transactionId
+    )
+  }
+
+  /** Write descriptor from {@link Uint8Array}. */
+  async writeDescriptorForServiceFromBytes(
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    descriptorUUID: UUID,
+    value: Uint8Array,
+    transactionId?: TransactionId
+  ): Promise<DescriptorAsBytes> {
+    return this._manager.writeDescriptorForDeviceFromBytes(
+      this.id,
+      serviceUUID,
+      characteristicUUID,
+      descriptorUUID,
+      value,
       transactionId
     )
   }

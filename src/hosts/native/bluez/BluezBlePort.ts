@@ -16,7 +16,8 @@ import type {
   PortCharacteristicMeta,
   PortConnectionState,
   PortDeviceId,
-  PortUnsubscribe
+  PortUnsubscribe,
+  WriteCharacteristicOptions
 } from '../../../port/BlePort'
 import { base64ToBytes, bytesToBase64 } from '../../../encoding'
 
@@ -315,7 +316,8 @@ export class BluezBlePort implements BlePort {
     deviceId: PortDeviceId,
     serviceUUID: string,
     characteristicUUID: string,
-    value: Uint8Array
+    value: Uint8Array,
+    options?: WriteCharacteristicOptions
   ): Promise<void> {
     this.assertConnected(deviceId)
     const key = `${deviceId}::${serviceUUID}::${characteristicUUID}`
@@ -325,9 +327,19 @@ export class BluezBlePort implements BlePort {
         const bus = await this.ensureBus()
         const obj = await bus.getProxyObject(BLUEZ_SERVICE, path)
         const ch = obj.getInterface(BLUEZ_GATT_CHAR_IFACE)
-        await requireMethod(ch, 'WriteValue')(Array.from(value), {})
-      } catch {
-        // mock may only update local cache
+        // Pass bytes as Buffer/Uint8Array (ay) — avoid Array.from dense number[] allocation.
+        const g = globalThis as { Buffer?: { from(data: Uint8Array): Uint8Array } }
+        const payload =
+          typeof g.Buffer !== 'undefined' ? g.Buffer.from(value) : value
+        // BlueZ WriteValue options: type "request" (with response) vs "command" (without).
+        const withResponse = options?.withResponse !== false
+        const dbusOptions = withResponse ? {} : { type: 'command' }
+        await requireMethod(ch, 'WriteValue')(payload, dbusOptions)
+      } catch (e) {
+        // Live D-Bus WriteValue failure must not silently update the local cache
+        // (R2-F076). Re-throw so callers observe the error; pure-mock paths that
+        // never register a char path still fall through to local cache below.
+        throw e instanceof Error ? e : new Error(String(e))
       }
     }
     this.values.set(key, new Uint8Array(value))
@@ -345,13 +357,15 @@ export class BluezBlePort implements BlePort {
     deviceId: PortDeviceId,
     serviceUUID: string,
     characteristicUUID: string,
-    valueBase64: string
+    valueBase64: string,
+    options?: WriteCharacteristicOptions
   ): Promise<void> {
     await this.writeCharacteristicBytes(
       deviceId,
       serviceUUID,
       characteristicUUID,
-      base64ToBytes(valueBase64)
+      base64ToBytes(valueBase64),
+      options
     )
   }
 
@@ -366,18 +380,31 @@ export class BluezBlePort implements BlePort {
     if (!this.monitors.has(key)) this.monitors.set(key, new Set())
     this.monitors.get(key)!.add(onValue)
     const path = this.charPaths.get(key)
+    // When a live char path is registered, StartNotify must succeed (R2-F026).
+    // Path-less pure-mock registrations still allow emitNotification test hooks.
     if (path) {
       try {
         const bus = await this.ensureBus()
         const obj = await bus.getProxyObject(BLUEZ_SERVICE, path)
         const ch = obj.getInterface(BLUEZ_GATT_CHAR_IFACE)
         await requireMethod(ch, 'StartNotify')()
-      } catch {
-        // local monitors still work via emitNotification
+      } catch (e) {
+        this.monitors.get(key)?.delete(onValue)
+        throw e instanceof Error ? e : new Error(String(e))
       }
     }
     return async () => {
       this.monitors.get(key)?.delete(onValue)
+      if (path && (this.monitors.get(key)?.size ?? 0) === 0) {
+        try {
+          const bus = await this.ensureBus()
+          const obj = await bus.getProxyObject(BLUEZ_SERVICE, path)
+          const ch = obj.getInterface(BLUEZ_GATT_CHAR_IFACE)
+          await requireMethod(ch, 'StopNotify')()
+        } catch {
+          // best-effort StopNotify on last unsub
+        }
+      }
     }
   }
 

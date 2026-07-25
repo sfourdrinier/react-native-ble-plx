@@ -1,6 +1,7 @@
-import type { BleManager } from './BleManager'
+import type { BleManager, DescriptorAsBytes } from './BleManager'
 import type { NativeDescriptor } from './BleModule'
 import type { DeviceId, Identifier, UUID, TransactionId, Base64 } from './TypeDefinition'
+import { base64ToBytes, bytesToBase64 } from './encoding'
 
 /**
  * Descriptor object.
@@ -81,7 +82,7 @@ export class Descriptor implements NativeDescriptor {
    * UUID paths. Latest value of {@link Descriptor} will be stored inside returned object.
    */
   async read(transactionId?: TransactionId): Promise<Descriptor> {
-    return this._manager._readDescriptor(this.id, transactionId)
+    return this._manager._readDescriptor(this.deviceID, this.id, transactionId)
   }
 
   /**
@@ -92,6 +93,41 @@ export class Descriptor implements NativeDescriptor {
    * @returns {Promise<Descriptor>} Descriptor which saved passed value.
    */
   async write(valueBase64: Base64, transactionId?: TransactionId): Promise<Descriptor> {
-    return this._manager._writeDescriptor(this.id, valueBase64, transactionId)
+    return this._manager._writeDescriptor(this.deviceID, this.id, valueBase64, transactionId)
+  }
+
+  // --- 4.0 parallel bytes path (existing .value stays Base64) ---
+
+  /**
+   * Read this descriptor as {@link Uint8Array}.
+   * Parallel to {@link #descriptorread|read()}; does not change `.value` Base64 typing.
+   */
+  async readAsBytes(transactionId?: TransactionId): Promise<DescriptorAsBytes> {
+    const descriptor = await this.read(transactionId)
+    const value = descriptor.value != null ? base64ToBytes(descriptor.value) : null
+    return {
+      deviceID: descriptor.deviceID,
+      serviceUUID: descriptor.serviceUUID,
+      characteristicUUID: descriptor.characteristicUUID,
+      uuid: descriptor.uuid,
+      value
+    }
+  }
+
+  /**
+   * Write from {@link Uint8Array}. Parallel to {@link #descriptorwrite|write}.
+   */
+  async writeFromBytes(value: Uint8Array, transactionId?: TransactionId): Promise<DescriptorAsBytes> {
+    if (!(value instanceof Uint8Array)) {
+      throw new TypeError('writeFromBytes expects Uint8Array')
+    }
+    const descriptor = await this.write(bytesToBase64(value), transactionId)
+    return {
+      deviceID: descriptor.deviceID,
+      serviceUUID: descriptor.serviceUUID,
+      characteristicUUID: descriptor.characteristicUUID,
+      uuid: descriptor.uuid,
+      value: new Uint8Array(value)
+    }
   }
 }

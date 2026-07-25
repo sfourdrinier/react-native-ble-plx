@@ -7,11 +7,20 @@
  * Tests inject a WebBluetoothPort (or FakeBlePort) via options.port.
  */
 
-import type { BlePort, PortAdvertisement, PortCharacteristicMeta, PortDeviceId, PortUnsubscribe } from '../port/BlePort'
+import type {
+  BlePort,
+  PortAdvertisement,
+  PortCharacteristicMeta,
+  PortDeviceId,
+  PortUnsubscribe,
+  WriteCharacteristicOptions
+} from '../port/BlePort'
 import { PortBleManager } from '../port/PortBleManager'
 import { supports as supportsCapability, type BleCapability } from '../supports'
 import { base64ToBytes, bytesToBase64 } from '../encoding'
+import { expandBluetoothUuid } from '../discovery/uuidMatch'
 import { unsupportedOperationError } from '../unsupported'
+import { BleError, BleErrorCode, BleErrorCodeMessage, type NativeBleError } from '../BleError'
 
 /** Minimal subset of Web Bluetooth types used by the adapter (avoids DOM lib requirement in RN tsc). */
 export type WebBluetoothRemoteGATTCharacteristic = {
@@ -19,6 +28,7 @@ export type WebBluetoothRemoteGATTCharacteristic = {
   properties: { read?: boolean; write?: boolean; writeWithoutResponse?: boolean; notify?: boolean; indicate?: boolean }
   readValue(): Promise<DataView>
   writeValueWithResponse?(value: BufferSource): Promise<void>
+  writeValueWithoutResponse?(value: BufferSource): Promise<void>
   writeValue?(value: BufferSource): Promise<void>
   startNotifications(): Promise<WebBluetoothRemoteGATTCharacteristic>
   stopNotifications(): Promise<WebBluetoothRemoteGATTCharacteristic>
@@ -52,25 +62,267 @@ export type WebBluetoothDevice = {
   name?: string | null
   gatt?: WebBluetoothRemoteGATTServer
   addEventListener?(type: string, listener: () => void): void
+  removeEventListener?(type: string, listener: () => void): void
+}
+
+/** Browser-shaped scan filter (subset of BluetoothLEScanFilter). */
+export type BluetoothLEScanFilter = {
+  services?: string[]
+  name?: string
+  namePrefix?: string
+  manufacturerData?: Array<{ companyIdentifier: number; dataPrefix?: BufferSource; mask?: BufferSource }>
+}
+
+/**
+ * Device selection options mirroring Web Bluetooth `requestDevice()`.
+ * Exactly one selection mode: non-empty `filters`, or `acceptAllDevices: true`.
+ */
+export type DeviceRequestOptions = {
+  filters?: BluetoothLEScanFilter[]
+  exclusionFilters?: BluetoothLEScanFilter[]
+  optionalServices?: string[]
+  optionalManufacturerData?: number[]
+  acceptAllDevices?: boolean
 }
 
 export type WebBluetoothNavigator = {
   bluetooth?: {
     requestDevice(options: {
-      filters?: Array<{ services?: string[]; name?: string; namePrefix?: string }>
+      filters?: BluetoothLEScanFilter[]
+      exclusionFilters?: BluetoothLEScanFilter[]
       optionalServices?: string[]
+      optionalManufacturerData?: number[]
       acceptAllDevices?: boolean
     }): Promise<WebBluetoothDevice>
+    /** Chromium: previously permitted devices for this origin (no chooser). */
+    getDevices?(): Promise<WebBluetoothDevice[]>
+    /** Preflight: whether a Bluetooth adapter is available. */
     getAvailability?(): Promise<boolean>
   }
+}
+
+/** Ref-counted characteristicvaluechanged subscription for one device/service/char. */
+type MonitorEntry = {
+  char: WebBluetoothRemoteGATTCharacteristic
+  domHandler: (ev: { target: WebBluetoothRemoteGATTCharacteristic }) => void
+  listeners: Set<(value: Uint8Array) => void>
 }
 
 export type WebBleManagerOptions = {
   /** Inject port for tests; production uses WebBluetoothPort against navigator.bluetooth */
   port?: BlePort
   navigator?: WebBluetoothNavigator
-  /** optionalServices passed to requestDevice */
+  /** Default optionalServices when a requestDevice call does not override them */
   optionalServices?: string[]
+}
+
+export type WriteCharacteristicBytesOptions = {
+  /** Default true (write with response). Pass false for write-without-response. */
+  withResponse?: boolean
+}
+
+function makeBleError(
+  errorCode: BleErrorCode,
+  extras: Partial<NativeBleError> & { reason?: string | null; internalMessage?: string } = {}
+): BleError {
+  return new BleError(
+    {
+      errorCode,
+      attErrorCode: null,
+      iosErrorCode: null,
+      androidErrorCode: null,
+      reason: extras.reason ?? null,
+      deviceID: extras.deviceID,
+      serviceUUID: extras.serviceUUID,
+      characteristicUUID: extras.characteristicUUID,
+      descriptorUUID: extras.descriptorUUID,
+      internalMessage: extras.internalMessage
+    },
+    BleErrorCodeMessage
+  )
+}
+
+/**
+ * Map browser DOMException / TypeError / plain failures into distinct BleError codes.
+ * See docs/WEB.md error table (GAP-WEB-SEC).
+ */
+export function mapWebBluetoothError(
+  err: unknown,
+  context: {
+    deviceID?: string
+    serviceUUID?: string
+    characteristicUUID?: string
+  } = {}
+): BleError {
+  if (err instanceof BleError) {
+    return err
+  }
+
+  const name =
+    err && typeof err === 'object' && 'name' in err && typeof (err as { name: unknown }).name === 'string'
+      ? (err as { name: string }).name
+      : ''
+  const message = err instanceof Error ? err.message : String(err)
+  const reason = message || name || 'Web Bluetooth error'
+
+  switch (name) {
+    case 'NotFoundError':
+      // User dismissed chooser, or no matching device.
+      return makeBleError(BleErrorCode.OperationCancelled, {
+        reason,
+        internalMessage: 'NotFoundError (user cancelled chooser or no matching device)'
+      })
+    case 'SecurityError':
+      return makeBleError(BleErrorCode.BluetoothUnauthorized, {
+        reason,
+        internalMessage: 'SecurityError (policy, permissions, or insecure context)',
+        ...context
+      })
+    case 'NetworkError':
+    case 'InvalidStateError':
+      return makeBleError(BleErrorCode.DeviceConnectionFailed, {
+        reason,
+        deviceID: context.deviceID,
+        internalMessage: name
+      })
+    case 'NotSupportedError':
+      return makeBleError(BleErrorCode.OperationNotSupported, {
+        reason,
+        internalMessage: message || 'NotSupportedError',
+        ...context
+      })
+    case 'TypeError':
+      return makeBleError(BleErrorCode.InvalidIdentifiers, {
+        reason,
+        internalMessage: message || 'TypeError'
+      })
+    default:
+      break
+  }
+
+  if (err instanceof TypeError) {
+    return makeBleError(BleErrorCode.InvalidIdentifiers, {
+      reason,
+      internalMessage: message
+    })
+  }
+
+  return makeBleError(BleErrorCode.UnknownError, {
+    reason,
+    internalMessage: name || message,
+    ...context
+  })
+}
+
+function isSecureContext(): boolean {
+  if (typeof globalThis === 'undefined') return true
+  if (!('isSecureContext' in globalThis)) return true
+  return Boolean((globalThis as { isSecureContext?: boolean }).isSecureContext)
+}
+
+/**
+ * Validate and shape DeviceRequestOptions for navigator.bluetooth.requestDevice.
+ * Filters XOR acceptAllDevices; exclusionFilters require filters.
+ * Fail closed when the granted service set would be empty (accept-all or
+ * service-less name/namePrefix/manufacturerData filters with empty optionalServices).
+ */
+export function shapeDeviceRequestOptions(
+  input: DeviceRequestOptions | BluetoothLEScanFilter[] | undefined,
+  defaultOptionalServices: string[] = []
+): {
+  filters?: BluetoothLEScanFilter[]
+  exclusionFilters?: BluetoothLEScanFilter[]
+  optionalServices: string[]
+  optionalManufacturerData?: number[]
+  acceptAllDevices?: boolean
+} {
+  const options: DeviceRequestOptions = Array.isArray(input)
+    ? { filters: input }
+    : input && typeof input === 'object'
+      ? input
+      : {}
+
+  const filters = Array.isArray(options.filters) ? options.filters : undefined
+  const hasFilters = !!filters && filters.length > 0
+  const acceptAllExplicit = options.acceptAllDevices === true
+  const acceptAllFalse = options.acceptAllDevices === false
+
+  if (hasFilters && acceptAllExplicit) {
+    throw makeBleError(BleErrorCode.InvalidIdentifiers, {
+      reason: 'filters and acceptAllDevices are mutually exclusive',
+      internalMessage: 'DeviceRequestOptions: filters XOR acceptAllDevices'
+    })
+  }
+
+  if (!hasFilters && acceptAllFalse) {
+    throw makeBleError(BleErrorCode.InvalidIdentifiers, {
+      reason: 'DeviceRequestOptions requires non-empty filters or acceptAllDevices: true',
+      internalMessage: 'DeviceRequestOptions: missing selection mode'
+    })
+  }
+
+  // Legacy filters-only overload / empty call: no filters ⇒ acceptAllDevices.
+  const acceptAllDevices = !hasFilters
+
+  if (options.exclusionFilters && options.exclusionFilters.length > 0 && !hasFilters) {
+    throw makeBleError(BleErrorCode.InvalidIdentifiers, {
+      reason: 'exclusionFilters require a non-empty filters array',
+      internalMessage: 'DeviceRequestOptions: exclusionFilters without filters'
+    })
+  }
+
+  const optionalServices =
+    options.optionalServices !== undefined ? options.optionalServices : defaultOptionalServices
+
+  if (!Array.isArray(optionalServices)) {
+    throw makeBleError(BleErrorCode.InvalidIdentifiers, {
+      reason: 'optionalServices must be an array of service UUIDs',
+      internalMessage: 'DeviceRequestOptions: invalid optionalServices'
+    })
+  }
+
+  // Chrome grants only services listed in filter.services ∪ optionalServices.
+  // Service-less filters (name / namePrefix / manufacturerData only) need optionalServices
+  // the same way acceptAllDevices does — otherwise the chooser opens but GATT is empty.
+  const filterServiceCount = hasFilters
+    ? filters!.reduce((n, f) => n + (Array.isArray(f.services) ? f.services.length : 0), 0)
+    : 0
+  const grantedServiceCount = filterServiceCount + optionalServices.length
+  if (grantedServiceCount === 0) {
+    throw makeBleError(BleErrorCode.InvalidIdentifiers, {
+      reason: acceptAllDevices
+        ? 'acceptAllDevices requires a non-empty optionalServices list (every accessible GATT service must be declared)'
+        : 'filters with no services require a non-empty optionalServices list (Chrome grants zero GATT services otherwise)',
+      internalMessage: acceptAllDevices
+        ? 'DeviceRequestOptions: acceptAllDevices with empty optionalServices'
+        : 'DeviceRequestOptions: service-less filters with empty optionalServices'
+    })
+  }
+
+  const shaped: {
+    filters?: BluetoothLEScanFilter[]
+    exclusionFilters?: BluetoothLEScanFilter[]
+    optionalServices: string[]
+    optionalManufacturerData?: number[]
+    acceptAllDevices?: boolean
+  } = {
+    optionalServices
+  }
+
+  if (hasFilters) {
+    shaped.filters = filters
+    if (options.exclusionFilters && options.exclusionFilters.length > 0) {
+      shaped.exclusionFilters = options.exclusionFilters
+    }
+  } else {
+    shaped.acceptAllDevices = true
+  }
+
+  if (options.optionalManufacturerData && options.optionalManufacturerData.length > 0) {
+    shaped.optionalManufacturerData = options.optionalManufacturerData
+  }
+
+  return shaped
 }
 
 /**
@@ -83,7 +335,8 @@ export class WebBluetoothPort implements BlePort {
   private devices = new Map<string, WebBluetoothDevice>()
   private servers = new Map<string, WebBluetoothRemoteGATTServer>()
   private charCache = new Map<string, WebBluetoothRemoteGATTCharacteristic>()
-  private monitorHandlers = new Map<string, (ev: { target: WebBluetoothRemoteGATTCharacteristic }) => void>()
+  private monitorHandlers = new Map<string, MonitorEntry>()
+  private disconnectHandlers = new Map<string, () => void>()
 
   constructor(options: { navigator?: WebBluetoothNavigator; optionalServices?: string[] } = {}) {
     this.nav = options.navigator ?? (globalThis as unknown as { navigator?: WebBluetoothNavigator }).navigator ?? {}
@@ -91,9 +344,10 @@ export class WebBluetoothPort implements BlePort {
   }
 
   async startScan(_onDevice: (ad: PortAdvertisement) => void): Promise<void> {
-    throw new Error(
-      'Web Bluetooth does not support continuous startScan. Call requestDevice() after a user gesture (see docs/WEB.md).'
-    )
+    throw makeBleError(BleErrorCode.OperationNotSupported, {
+      reason: 'Web Bluetooth does not support continuous startScan',
+      internalMessage: 'Call requestDevice() after a user gesture (see docs/WEB.md)'
+    })
   }
 
   async stopScan(): Promise<void> {
@@ -102,38 +356,120 @@ export class WebBluetoothPort implements BlePort {
 
   /**
    * Primary discovery path on Web: chooser dialog (must run from user gesture).
+   *
+   * Accepts full {@link DeviceRequestOptions}, or a filters array (compat overload).
+   * Selection does not connect — call connect(deviceId) separately.
    */
   async requestDevice(
-    filters?: Array<{ services?: string[]; name?: string; namePrefix?: string }>
+    options?: DeviceRequestOptions | BluetoothLEScanFilter[]
   ): Promise<PortAdvertisement> {
     const bt = this.nav.bluetooth
     if (!bt?.requestDevice) {
-      throw new Error('Web Bluetooth API is not available in this environment')
+      if (!isSecureContext()) {
+        throw makeBleError(BleErrorCode.BluetoothUnauthorized, {
+          reason: 'Web Bluetooth requires a secure context (HTTPS or localhost)',
+          internalMessage: 'insecure context'
+        })
+      }
+      throw makeBleError(BleErrorCode.BluetoothUnsupported, {
+        reason: 'Web Bluetooth API is not available in this environment',
+        internalMessage: 'navigator.bluetooth missing'
+      })
     }
-    const device = await bt.requestDevice({
-      filters: filters && filters.length > 0 ? filters : undefined,
-      acceptAllDevices: !filters || filters.length === 0,
-      optionalServices: this.optionalServices
-    })
-    this.devices.set(device.id, device)
-    return { id: device.id, name: device.name ?? null, rssi: null }
+
+    let shaped: ReturnType<typeof shapeDeviceRequestOptions>
+    try {
+      shaped = shapeDeviceRequestOptions(options, this.optionalServices)
+    } catch (err) {
+      throw mapWebBluetoothError(err)
+    }
+
+    try {
+      const device = await bt.requestDevice(shaped)
+      this.devices.set(device.id, device)
+      return { id: device.id, name: device.name ?? null, rssi: null }
+    } catch (err) {
+      throw mapWebBluetoothError(err)
+    }
+  }
+
+  /**
+   * Previously permitted devices for this origin (Chromium `navigator.bluetooth.getDevices`).
+   * Registers each device so {@link connect} works without reopening the chooser.
+   * Throws {@link BleErrorCode.OperationNotSupported} when the browser API is missing.
+   */
+  async getDevices(): Promise<PortAdvertisement[]> {
+    return this.getPermittedDevices()
+  }
+
+  /** Alias for {@link getDevices} — permitted-devices reconnect path. */
+  async getPermittedDevices(): Promise<PortAdvertisement[]> {
+    const bt = this.nav.bluetooth
+    if (!bt?.getDevices) {
+      throw makeBleError(BleErrorCode.OperationNotSupported, {
+        reason:
+          'navigator.bluetooth.getDevices is not available (Chromium permitted-devices API required for reconnect without chooser)',
+        internalMessage: 'getDevices missing'
+      })
+    }
+    try {
+      const devices = await bt.getDevices()
+      const out: PortAdvertisement[] = []
+      for (const device of devices) {
+        this.devices.set(device.id, device)
+        out.push({ id: device.id, name: device.name ?? null, rssi: null })
+      }
+      return out
+    } catch (err) {
+      throw mapWebBluetoothError(err)
+    }
+  }
+
+  /**
+   * Preflight: whether a Bluetooth adapter is available (`navigator.bluetooth.getAvailability`).
+   * When getAvailability is missing, returns true if requestDevice exists, else false.
+   */
+  async getAvailability(): Promise<boolean> {
+    const bt = this.nav.bluetooth
+    if (!bt) return false
+    if (typeof bt.getAvailability === 'function') {
+      try {
+        return await bt.getAvailability()
+      } catch {
+        return false
+      }
+    }
+    return typeof bt.requestDevice === 'function'
   }
 
   async connect(deviceId: PortDeviceId): Promise<void> {
     const device = this.devices.get(deviceId)
     if (!device?.gatt) {
-      throw new Error(`Unknown Web Bluetooth device ${deviceId}; call requestDevice first`)
+      throw makeBleError(BleErrorCode.DeviceNotFound, {
+        reason: `Unknown Web Bluetooth device ${deviceId}; call requestDevice first`,
+        deviceID: deviceId,
+        internalMessage: deviceId
+      })
     }
-    const server = await device.gatt.connect()
-    this.servers.set(deviceId, server)
+    try {
+      const server = await device.gatt.connect()
+      this.servers.set(deviceId, server)
+      this.attachDisconnectListener(deviceId, device)
+    } catch (err) {
+      throw mapWebBluetoothError(err, { deviceID: deviceId })
+    }
   }
 
   async disconnect(deviceId: PortDeviceId): Promise<void> {
     const server = this.servers.get(deviceId)
     if (server?.connected) {
-      server.disconnect()
+      try {
+        server.disconnect()
+      } catch {
+        // ignore — still purge local state
+      }
     }
-    this.servers.delete(deviceId)
+    this.purgeDeviceGatt(deviceId)
   }
 
   getConnectionState(deviceId: PortDeviceId): 'disconnected' | 'connecting' | 'connected' {
@@ -142,25 +478,33 @@ export class WebBluetoothPort implements BlePort {
   }
 
   async discoverServices(deviceId: PortDeviceId): Promise<string[]> {
-    const server = this.requireServer(deviceId)
-    const services = await server.getPrimaryServices()
-    return services.map(s => s.uuid)
+    try {
+      const server = this.requireServer(deviceId)
+      const services = await server.getPrimaryServices()
+      return services.map(s => s.uuid)
+    } catch (err) {
+      throw mapWebBluetoothError(err, { deviceID: deviceId })
+    }
   }
 
   async discoverCharacteristics(deviceId: PortDeviceId, serviceUUID: string): Promise<PortCharacteristicMeta[]> {
-    const server = this.requireServer(deviceId)
-    const service = await server.getPrimaryService(serviceUUID)
-    const chars = await service.getCharacteristics()
-    for (const c of chars) {
-      this.charCache.set(this.ck(deviceId, serviceUUID, c.uuid), c)
+    try {
+      const server = this.requireServer(deviceId)
+      const service = await server.getPrimaryService(serviceUUID)
+      const chars = await service.getCharacteristics()
+      for (const c of chars) {
+        this.charCache.set(this.ck(deviceId, serviceUUID, c.uuid), c)
+      }
+      return chars.map(c => ({
+        uuid: c.uuid,
+        isReadable: !!c.properties.read,
+        isWritableWithResponse: !!c.properties.write,
+        isWritableWithoutResponse: !!c.properties.writeWithoutResponse,
+        isNotifiable: !!(c.properties.notify || c.properties.indicate)
+      }))
+    } catch (err) {
+      throw mapWebBluetoothError(err, { deviceID: deviceId, serviceUUID })
     }
-    return chars.map(c => ({
-      uuid: c.uuid,
-      isReadable: !!c.properties.read,
-      isWritableWithResponse: !!c.properties.write,
-      isWritableWithoutResponse: !!c.properties.writeWithoutResponse,
-      isNotifiable: !!(c.properties.notify || c.properties.indicate)
-    }))
   }
 
   async readCharacteristicBytes(
@@ -168,25 +512,60 @@ export class WebBluetoothPort implements BlePort {
     serviceUUID: string,
     characteristicUUID: string
   ): Promise<Uint8Array> {
-    const c = await this.getChar(deviceId, serviceUUID, characteristicUUID)
-    const view = await c.readValue()
-    // Detached copy — WebBT may reuse the underlying ArrayBuffer on next read/notify.
-    return Uint8Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength))
+    try {
+      const c = await this.getChar(deviceId, serviceUUID, characteristicUUID)
+      const view = await c.readValue()
+      // Detached copy — WebBT may reuse the underlying ArrayBuffer on next read/notify.
+      return Uint8Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength))
+    } catch (err) {
+      throw mapWebBluetoothError(err, { deviceID: deviceId, serviceUUID, characteristicUUID })
+    }
   }
 
+  /**
+   * Write characteristic bytes.
+   * @param options.withResponse default true; false uses writeValueWithoutResponse when available.
+   */
   async writeCharacteristicBytes(
     deviceId: PortDeviceId,
     serviceUUID: string,
     characteristicUUID: string,
-    value: Uint8Array
+    value: Uint8Array,
+    options: WriteCharacteristicBytesOptions = {}
   ): Promise<void> {
-    const c = await this.getChar(deviceId, serviceUUID, characteristicUUID)
-    if (c.writeValueWithResponse) {
-      await c.writeValueWithResponse(value)
-    } else if (c.writeValue) {
-      await c.writeValue(value)
-    } else {
-      throw new Error('Characteristic does not support write')
+    const withResponse = options.withResponse !== false
+    try {
+      const c = await this.getChar(deviceId, serviceUUID, characteristicUUID)
+      if (withResponse) {
+        if (c.writeValueWithResponse) {
+          await c.writeValueWithResponse(value)
+        } else if (c.writeValue) {
+          await c.writeValue(value)
+        } else {
+          throw makeBleError(BleErrorCode.CharacteristicWriteFailed, {
+            reason: 'Characteristic does not support write with response',
+            deviceID: deviceId,
+            serviceUUID,
+            characteristicUUID,
+            internalMessage: 'missing writeValueWithResponse'
+          })
+        }
+      } else if (c.writeValueWithoutResponse) {
+        await c.writeValueWithoutResponse(value)
+      } else if (c.writeValue && c.properties.writeWithoutResponse) {
+        // Legacy writeValue may pick WWR from properties.
+        await c.writeValue(value)
+      } else {
+        throw makeBleError(BleErrorCode.CharacteristicWriteFailed, {
+          reason: 'Characteristic does not support write without response',
+          deviceID: deviceId,
+          serviceUUID,
+          characteristicUUID,
+          internalMessage: 'missing writeValueWithoutResponse'
+        })
+      }
+    } catch (err) {
+      throw mapWebBluetoothError(err, { deviceID: deviceId, serviceUUID, characteristicUUID })
     }
   }
 
@@ -202,9 +581,16 @@ export class WebBluetoothPort implements BlePort {
     deviceId: PortDeviceId,
     serviceUUID: string,
     characteristicUUID: string,
-    valueBase64: string
+    valueBase64: string,
+    options?: WriteCharacteristicOptions
   ): Promise<void> {
-    await this.writeCharacteristicBytes(deviceId, serviceUUID, characteristicUUID, base64ToBytes(valueBase64))
+    await this.writeCharacteristicBytes(
+      deviceId,
+      serviceUUID,
+      characteristicUUID,
+      base64ToBytes(valueBase64),
+      options
+    )
   }
 
   async monitorCharacteristic(
@@ -213,39 +599,127 @@ export class WebBluetoothPort implements BlePort {
     characteristicUUID: string,
     onValue: (value: Uint8Array) => void
   ): Promise<PortUnsubscribe> {
-    const c = await this.getChar(deviceId, serviceUUID, characteristicUUID)
-    const key = this.ck(deviceId, serviceUUID, characteristicUUID)
-    const handler = (ev: { target: WebBluetoothRemoteGATTCharacteristic }) => {
-      const target = ev.target
-      const view = target.value
-      if (!view) return
-      // Detached copy — WebBT may reuse the underlying ArrayBuffer on subsequent events.
-      onValue(Uint8Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength)))
+    try {
+      const c = await this.getChar(deviceId, serviceUUID, characteristicUUID)
+      const key = this.ck(deviceId, serviceUUID, characteristicUUID)
+      let entry = this.monitorHandlers.get(key)
+      if (!entry) {
+        const listeners = new Set<(value: Uint8Array) => void>()
+        const domHandler = (ev: { target: WebBluetoothRemoteGATTCharacteristic }) => {
+          const target = ev.target
+          const view = target.value
+          if (!view) return
+          // Detached copy — WebBT may reuse the underlying ArrayBuffer on subsequent events.
+          const copy = Uint8Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength))
+          for (const cb of listeners) {
+            cb(new Uint8Array(copy))
+          }
+        }
+        entry = { char: c, domHandler, listeners }
+        this.monitorHandlers.set(key, entry)
+        c.addEventListener('characteristicvaluechanged', domHandler)
+        try {
+          await c.startNotifications()
+        } catch (startErr) {
+          c.removeEventListener('characteristicvaluechanged', domHandler)
+          this.monitorHandlers.delete(key)
+          throw startErr
+        }
+      }
+      entry.listeners.add(onValue)
+      return async () => {
+        const current = this.monitorHandlers.get(key)
+        if (!current) return
+        current.listeners.delete(onValue)
+        if (current.listeners.size > 0) return
+        current.char.removeEventListener('characteristicvaluechanged', current.domHandler)
+        this.monitorHandlers.delete(key)
+        try {
+          await current.char.stopNotifications()
+        } catch {
+          // ignore
+        }
+      }
+    } catch (err) {
+      throw mapWebBluetoothError(err, { deviceID: deviceId, serviceUUID, characteristicUUID })
     }
-    this.monitorHandlers.set(key, handler)
-    c.addEventListener('characteristicvaluechanged', handler)
-    await c.startNotifications()
-    return async () => {
-      c.removeEventListener('characteristicvaluechanged', handler)
-      this.monitorHandlers.delete(key)
+  }
+
+  /** Test helper: whether a char handle is still cached for this device/service/char. */
+  hasCachedCharacteristic(deviceId: string, serviceUUID: string, characteristicUUID: string): boolean {
+    return this.charCache.has(this.ck(deviceId, serviceUUID, characteristicUUID))
+  }
+
+  private attachDisconnectListener(deviceId: PortDeviceId, device: WebBluetoothDevice): void {
+    if (this.disconnectHandlers.has(deviceId)) return
+    if (typeof device.addEventListener !== 'function') return
+    const onDisc = () => {
+      this.purgeDeviceGatt(deviceId)
+    }
+    device.addEventListener('gattserverdisconnected', onDisc)
+    this.disconnectHandlers.set(deviceId, onDisc)
+  }
+
+  private detachDisconnectListener(deviceId: PortDeviceId): void {
+    const handler = this.disconnectHandlers.get(deviceId)
+    if (!handler) return
+    const device = this.devices.get(deviceId)
+    if (device && typeof device.removeEventListener === 'function') {
       try {
-        await c.stopNotifications()
+        device.removeEventListener('gattserverdisconnected', handler)
       } catch {
         // ignore
       }
     }
+    this.disconnectHandlers.delete(deviceId)
+  }
+
+  /** Clear server, char cache, and monitor handlers for a device (local or peer disconnect). */
+  private purgeDeviceGatt(deviceId: PortDeviceId): void {
+    this.servers.delete(deviceId)
+    const prefix = `${deviceId}::`
+    for (const key of Array.from(this.charCache.keys())) {
+      if (key.startsWith(prefix)) {
+        this.charCache.delete(key)
+      }
+    }
+    // Tear down live DOM listeners so late characteristicvaluechanged cannot deliver after disconnect.
+    for (const key of Array.from(this.monitorHandlers.keys())) {
+      if (!key.startsWith(prefix)) continue
+      const entry = this.monitorHandlers.get(key)
+      this.monitorHandlers.delete(key)
+      if (!entry) continue
+      try {
+        entry.char.removeEventListener('characteristicvaluechanged', entry.domHandler)
+      } catch {
+        // ignore
+      }
+      // Best-effort: purge is sync; stopNotifications is async in the WebBT surface.
+      try {
+        void entry.char.stopNotifications()
+      } catch {
+        // ignore
+      }
+      entry.listeners.clear()
+    }
+    this.detachDisconnectListener(deviceId)
   }
 
   private requireServer(deviceId: PortDeviceId): WebBluetoothRemoteGATTServer {
     const server = this.servers.get(deviceId)
     if (!server?.connected) {
-      throw new Error(`Not connected to ${deviceId}`)
+      throw makeBleError(BleErrorCode.DeviceNotConnected, {
+        reason: `Not connected to ${deviceId}`,
+        deviceID: deviceId,
+        internalMessage: deviceId
+      })
     }
     return server
   }
 
+  /** Cache key: expanded 16/32-bit UUIDs so short and full forms share one entry. */
   private ck(deviceId: string, serviceUUID: string, characteristicUUID: string): string {
-    return `${deviceId}::${serviceUUID.toLowerCase()}::${characteristicUUID.toLowerCase()}`
+    return `${deviceId}::${expandBluetoothUuid(serviceUUID)}::${expandBluetoothUuid(characteristicUUID)}`
   }
 
   private async getChar(
@@ -287,39 +761,127 @@ export class BleManager extends PortBleManager {
   }
 
   supports(capability: BleCapability): boolean {
+    // Honesty: requestDevice is only true when a real WebBluetoothPort is backing this manager.
+    // FakeBlePort / non-Web injections still use host='web' for the rest of the matrix.
+    if (capability === 'requestDevice') {
+      return this.webPort != null
+    }
     return supportsCapability(capability, 'web')
   }
 
   /**
    * Web Bluetooth chooser — must be called from a user gesture.
-   * Returns a PortAdvertisement-shaped device handle for connectToDevice(id).
+   * Accepts {@link DeviceRequestOptions} or a filters array (compat).
+   * Returns a PortAdvertisement-shaped handle for connectToDevice(id); selection does not connect.
    */
   async requestDevice(
-    filters?: Array<{ services?: string[]; name?: string; namePrefix?: string }>
+    options?: DeviceRequestOptions | BluetoothLEScanFilter[]
   ): Promise<{ id: string; name: string | null; rssi: number | null }> {
     if (this.webPort) {
-      return this.webPort.requestDevice(filters)
+      return this.webPort.requestDevice(options)
     }
-    throw new Error(
-      'requestDevice requires a WebBluetoothPort. Inject navigator.bluetooth or use the default constructor in a browser.'
-    )
+    throw makeBleError(BleErrorCode.OperationNotSupported, {
+      reason:
+        'requestDevice requires a WebBluetoothPort. Inject navigator.bluetooth or use the default constructor in a browser.',
+      internalMessage: 'requestDevice without WebBluetoothPort'
+    })
   }
 
+  /**
+   * Previously permitted devices (Chromium `getDevices`) for reconnect without the chooser.
+   * Registers handles so {@link PortBleManager.connectToDevice} works. Throws when API missing.
+   */
+  async getDevices(): Promise<{ id: string; name: string | null; rssi: number | null }[]> {
+    if (this.webPort) {
+      return this.webPort.getDevices()
+    }
+    throw makeBleError(BleErrorCode.OperationNotSupported, {
+      reason: 'getDevices requires a WebBluetoothPort',
+      internalMessage: 'getDevices without WebBluetoothPort'
+    })
+  }
+
+  /** Alias for {@link getDevices}. */
+  async getPermittedDevices(): Promise<{ id: string; name: string | null; rssi: number | null }[]> {
+    return this.getDevices()
+  }
+
+  /**
+   * Preflight Bluetooth adapter availability (`navigator.bluetooth.getAvailability`).
+   * When the injected port is not WebBluetoothPort, returns false.
+   */
+  async getAvailability(): Promise<boolean> {
+    if (this.webPort) {
+      return this.webPort.getAvailability()
+    }
+    return false
+  }
+
+  /**
+   * Continuous scan is not supported on standard Web Bluetooth.
+   * Reports {@link BleErrorCode.OperationNotSupported} **once** through the listener and resolves
+   * (no throw, no dual channel). See ROADMAP.4.0 listener/subscription contract.
+   */
   async startDeviceScan(
     UUIDs: string[] | null,
     options: Record<string, unknown> | null | undefined,
     listener: (error: Error | null, device: { id: string; name: string | null; rssi: number | null } | null) => void
   ): Promise<void> {
-    // Honest: continuous scan is not supported on standard Web Bluetooth.
     if (!this.supports('continuousScan')) {
       const err = unsupportedOperationError(
         'startDeviceScan',
         'Web Bluetooth uses requestDevice() after a user gesture'
       )
       listener(err, null)
-      throw err
+      return
     }
     return super.startDeviceScan(UUIDs, options, listener)
+  }
+
+  /** Write-without-response via WebBT writeValueWithoutResponse when using WebBluetoothPort. */
+  async writeCharacteristicWithoutResponseForDevice(
+    deviceId: PortDeviceId,
+    serviceUUID: string,
+    characteristicUUID: string,
+    valueBase64: string
+  ): Promise<{ value: string | null }> {
+    if (this.webPort) {
+      const value = base64ToBytes(valueBase64)
+      await this.getDeviceOperationQueue().enqueue(deviceId, () =>
+        this.webPort!.writeCharacteristicBytes(deviceId, serviceUUID, characteristicUUID, value, {
+          withResponse: false
+        })
+      )
+      return { value: valueBase64 }
+    }
+    return super.writeCharacteristicWithoutResponseForDevice(
+      deviceId,
+      serviceUUID,
+      characteristicUUID,
+      valueBase64
+    )
+  }
+
+  async writeCharacteristicWithoutResponseForDeviceFromBytes(
+    deviceId: PortDeviceId,
+    serviceUUID: string,
+    characteristicUUID: string,
+    value: Uint8Array
+  ): Promise<{ value: Uint8Array | null }> {
+    if (this.webPort) {
+      await this.getDeviceOperationQueue().enqueue(deviceId, () =>
+        this.webPort!.writeCharacteristicBytes(deviceId, serviceUUID, characteristicUUID, value, {
+          withResponse: false
+        })
+      )
+      return { value }
+    }
+    return super.writeCharacteristicWithoutResponseForDeviceFromBytes(
+      deviceId,
+      serviceUUID,
+      characteristicUUID,
+      value
+    )
   }
 }
 

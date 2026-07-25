@@ -38,9 +38,15 @@ public class CharacteristicToJsObjectConverter extends JSObjectConverter<Charact
     js.putBoolean(Metadata.IS_NOTIFIABLE, characteristic.isNotifiable());
     js.putBoolean(Metadata.IS_INDICATABLE, characteristic.isIndicatable());
     js.putBoolean(Metadata.IS_NOTIFYING, characteristic.isNotifying());
-    js.putString(Metadata.VALUE,
-      characteristic.getValue() != null ?
-        Base64Converter.encode(characteristic.getValue()) : null);
+    // Prefer pre-encoded Base64 from binder/background (notify hot path R2-F021).
+    String preEncoded = characteristic.getValueBase64();
+    if (preEncoded != null) {
+      js.putString(Metadata.VALUE, preEncoded);
+    } else {
+      js.putString(Metadata.VALUE,
+        characteristic.getValue() != null ?
+          Base64Converter.encode(characteristic.getValue()) : null);
+    }
     return js;
   }
 }

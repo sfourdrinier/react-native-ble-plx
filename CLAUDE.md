@@ -9,10 +9,9 @@ This project uses **pnpm**, not npm or yarn. All package manager commands should
 ## Common Commands
 
 ### Testing
-- `pnpm test:package` - Run main package tests (80 tests in `__tests__/BleManager.js`)
-- `pnpm test:plugin` - Run Expo config plugin tests (8 tests)
-- `pnpm test` - Run all tests (package + example)
-- `pnpm test:example` - Run example app tests
+- `pnpm test:package` - Run main package tests (`__tests__/` including BleManager + host/port suites)
+- `pnpm test:plugin` - Run Expo config plugin tests
+- `pnpm test` - Alias for `pnpm test:package`
 - `pnpm test:expo` - Test Expo example app prebuild
 
 ### Building
@@ -82,14 +81,15 @@ The plugin configures native projects for Expo managed workflow:
 - `withBLEBackgroundModes.ts` - Configures iOS background modes
 - `withBLERestorationPodfile.ts` - Adds optional iOS BLE state restoration subspec
 
-**Important**: The Podfile plugin strips npm scope from package name (e.g., `@sfourdrinier/react-native-ble-plx` → `react-native-ble-plx`) when generating CocoaPods pod references.
+**Important**: CocoaPods / plugin identity on 4.0 is **`unified-ble-manager`** (Restoration: `unified-ble-manager/Restoration`). The npm shim `@sfourdrinier/react-native-ble-plx` re-exports only; prefer the canonical package name in Podfile and plugin config.
 
 ### iOS State Restoration (Optional Feature)
 
 When `iosEnableRestoration: true` in plugin config:
-- Plugin adds `react-native-ble-plx/Restoration` subspec to Podfile
+- Plugin adds `unified-ble-manager/Restoration` subspec to Podfile
 - Writes `BlePlxRestoreIdentifier` to Info.plist
-- Swift adapter (`BlePlxRestorationAdapter.swift`) registers with host app's restoration registry
+- Owned CoreBluetooth path handles `willRestoreState` on `OwnedCoreBluetoothAdapter` (reporting only; host reconnects)
+- Optional Restoration subspec adapter registers with host restoration registry when present
 - JS must pass same identifier to `BleManager` constructor's `restoreStateIdentifier` option
 
 ### Testing Strategy
@@ -111,22 +111,22 @@ When `iosEnableRestoration: true` in plugin config:
 
 ## Key Technical Details
 
-### Dependencies
-- React 19.1.1
-- React Native 0.81.4
-- Expo 54
-- @expo/config-plugins 54.0.0
-- TypeScript 5.2.2
+### Dependencies (modernization floor)
+- React ~19.2
+- React Native ~0.86 (peer `>=0.86.0`)
+- Expo SDK 57 (`expo` ^57, `@expo/config-plugins` ^57)
+- TypeScript 5.2.2+
 
 ### Node Compatibility
-- Requires Node >= 18.0.0
+- Requires Node `^20.19.4 || ^22.13.0 || ^24.3.0 || >=25.0.0` (see `package.json` engines / `.nvmrc`)
 
 ### Package Structure
-- Main package: `@sfourdrinier/react-native-ble-plx` (scoped npm package)
+- Main package: **`unified-ble-manager`** (4.0 train; npm + CocoaPods + Android + Expo plugin)
+- npm shim only: `@sfourdrinier/react-native-ble-plx` under `packages/react-native-ble-plx-shim/`
 - TypeScript source in `src/`, compiled output in `lib/`
-- Native code in `android/` (Java) and `ios/` (Objective-C/Swift)
+- Native code in `android/` (Kotlin/Java) and `ios/` (owned Swift CoreBluetooth + ObjC++ bridge)
 - Config plugin in `plugin/` (TypeScript, compiled to `plugin/build/`)
-- Example apps in `example/` (bare RN) and `example-expo/` (Expo)
+- Example apps in `example/` (bare RN), `example-expo/` (Expo), `example-web/`, `example-electron/`
 
 ### Commit Conventions
 - `fix:` - Bug fixes (patch version bump)

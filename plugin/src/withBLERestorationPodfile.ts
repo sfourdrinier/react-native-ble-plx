@@ -6,6 +6,30 @@ const toPodName = (pkgName: string) => {
   return last || pkgName
 }
 
+/**
+ * Autolinking dependency keys that may host the native podspec.
+ * Canonical 4.0 package is `unified-ble-manager`; Path B may only install the
+ * shim `@sfourdrinier/react-native-ble-plx` (which depends on the canonical
+ * package). Search both identities so Restoration injection finds podspecPath.
+ */
+export function buildJsPackageCandidates(pkgName: string, podName: string): string[] {
+  const ordered = [
+    podName,
+    pkgName,
+    'unified-ble-manager',
+    '@sfourdrinier/react-native-ble-plx',
+    'react-native-ble-plx'
+  ]
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const name of ordered) {
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    out.push(name)
+  }
+  return out
+}
+
 const MARKER_START = '# >>> BLEPLX_RESTORATION_SUBSPEC'
 const MARKER_END = '# <<< BLEPLX_RESTORATION_SUBSPEC'
 
@@ -84,7 +108,9 @@ function indentBlock(block: string, indent: string): string {
 }
 
 /**
- * Inject opt-in `react-native-ble-plx/Restoration` into a Podfile.
+ * Inject opt-in `unified-ble-manager/Restoration` into a Podfile.
+ * `pkgName` is usually the package name (`unified-ble-manager` on Path A; dual-identity
+ * candidates still resolve Path B bare names via {@link buildJsPackageCandidates}).
  * Pure string transform — unit-tested without pod install.
  */
 export function injectRestorationPodLine(podfile: string, pkgName: string): string {
@@ -114,7 +140,7 @@ export function injectRestorationPodLine(podfile: string, pkgName: string): stri
 
   const rubySnippet = buildRubySnippet({
     podName,
-    jsPackageCandidates: [podName, pkgName]
+    jsPackageCandidates: buildJsPackageCandidates(pkgName, podName)
   })
 
   if (useMatch?.index != null) {

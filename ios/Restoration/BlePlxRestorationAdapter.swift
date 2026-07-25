@@ -2,7 +2,7 @@
 //  BlePlxRestorationAdapter.swift
 //  react-native-ble-plx
 //
-//  Generic restoration adapter for react-native-ble-plx.
+//  Generic restoration adapter for unified-ble-manager / react-native-ble-plx.
 //  Lives in an optional subspec so host apps can opt-in to iOS BLE state restoration.
 //
 //  This adapter uses PURE REFLECTION to interact with BleRestorationRegistry.
@@ -13,13 +13,14 @@
 //    1. "BleRestorationRegistry" (host app's implementation) - if present
 //    2. "BlePlxBundledRestorationRegistry" (bundled fallback) - standalone use
 //
+//  4.0: hands off an OwnedCoreBluetoothAdapter that *adopts* the system-restored
+//  CBCentralManager (same restore ID) — never constructs a second central or MBA manager.
+//
 
 import Foundation
 import CoreBluetooth
-// MultiplatformBleAdapter is vendored into this pod's own module, so BleClientManager
-// is available in-module without an external import.
 
-/// Restoration adapter for react-native-ble-plx that handles iOS BLE state restoration.
+/// Restoration adapter for unified-ble-manager that handles iOS BLE state restoration.
 ///
 /// When iOS terminates your app in the background while connected to BLE devices,
 /// this adapter **reports** restored peripherals (payload + manager reuse). It does
@@ -30,7 +31,7 @@ import CoreBluetooth
 /// {
 ///   "expo": {
 ///     "plugins": [
-///       ["@sfourdrinier/react-native-ble-plx", {
+///       ["unified-ble-manager", {
 ///         "iosEnableRestoration": true,
 ///         "iosRestorationIdentifier": "com.yourapp.bleplx"
 ///       }]
@@ -126,8 +127,10 @@ public final class BlePlxRestorationAdapter: NSObject {
       "[BlePlxRestorationAdapter] Reporting \(peripherals.count) restored peripheral(s) (no reconnect — D5 host policy)"
     )
 
-    // Recreate a BleClientManager bound to the same restoration ID (CB continuity for JS).
-    let manager = BleClientManager(
+    // Adopt the system-restored central (same restore ID) — do not spin a second CBCentralManager.
+    let adapter = OwnedCoreBluetoothAdapter(
+      adoptingRestoredCentral: central,
+      restoredPeripherals: peripherals,
       queue: .main,
       restoreIdentifierKey: restorationIdentifier
     )
@@ -137,17 +140,16 @@ public final class BlePlxRestorationAdapter: NSObject {
     // D5: restoration is a *reporting* event, not a reconnect authority.
     // JS payload comes from willRestoreState (authoritative). Host decides whether/when
     // to reconnect via getRestoredState + attemptConnectOnce or explicit auto mode.
-    // (3.8.x adapter called connectToDevice here — intentional 3.9 correctness change.)
     let restorePayload: [AnyHashable: Any] = [
       "connectedPeripherals": peripherals.map { Self.jsDeviceDictionary(from: $0) }
     ]
-    BlePlxRestorationState.storeRestoredManager(manager, restoreStatePayload: restorePayload)
+    BlePlxRestorationState.storeRestoredManager(adapter, restoreStatePayload: restorePayload)
 
     guard !deviceIds.isEmpty else { return }
 
     // Best-effort native cache fill so isDeviceConnected can reflect OS-live links when
     // the central is already powered on. May no-op if still .unknown — that is fine.
-    manager.seedRestoredPeripherals(withIdentifiers: deviceIds)
+    adapter.seedRestoredPeripherals(withIdentifiers: deviceIds)
 
     // Device→adapter routes for host registries only (no connectToDevice).
     for deviceId in deviceIds {
@@ -155,13 +157,19 @@ public final class BlePlxRestorationAdapter: NSObject {
     }
   }
 
-  /// Minimal JS Device shape matching `Peripheral.asJSObject` field set.
+  /// Minimal JS Device shape matching owned `deviceJs` field set.
   private static func jsDeviceDictionary(from peripheral: CBPeripheral) -> [AnyHashable: Any] {
-    [
+    let mtu: Int
+    if peripheral.state == .connected {
+      mtu = peripheral.maximumWriteValueLength(for: .withoutResponse) + 3
+    } else {
+      mtu = 23
+    }
+    return [
       "id": peripheral.identifier.uuidString,
       "name": peripheral.name as Any,
       "rssi": NSNull(),
-      "mtu": 23,
+      "mtu": mtu,
       "manufacturerData": NSNull(),
       "serviceData": NSNull(),
       "serviceUUIDs": NSNull(),

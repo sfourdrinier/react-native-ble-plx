@@ -1,11 +1,14 @@
+import * as fs from 'fs'
+import * as path from 'path'
 import {
+  buildJsPackageCandidates,
   clearBlePlxRestoreIdentifier,
   injectRestorationPodLine,
   removeRestorationPodLine,
   setBlePlxRestoreIdentifier
 } from '../withBLERestorationPodfile'
 
-// Podfile without explicit react-native-ble-plx pod line (typical Expo autolinking)
+// Podfile without explicit pod line (typical Expo autolinking)
 const SAMPLE_PODFILE_AUTOLINKING = `require_relative '../node_modules/react-native/scripts/react_native_pods'
 require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
 
@@ -28,7 +31,7 @@ post_install do |installer|
 end
 `
 
-// Podfile with explicit react-native-ble-plx pod line (monorepo scenario)
+// Podfile with explicit legacy pod line (3.x monorepo / manual path)
 const SAMPLE_PODFILE_EXPLICIT = `require_relative '../node_modules/react-native/scripts/react_native_pods'
 
 platform :ios, '13.0'
@@ -37,6 +40,26 @@ target 'AwesomeApp' do
   config = use_native_modules!
 
   pod 'react-native-ble-plx', :path => "../../../node_modules/@sfourdrinier/react-native-ble-plx"
+
+  use_react_native!(
+    :path => config[:reactNativePath]
+  )
+end
+
+post_install do |installer|
+  react_native_post_install(installer)
+end
+`
+
+// Podfile with explicit 4.0 canonical pod (Path A bare RN)
+const SAMPLE_PODFILE_EXPLICIT_UNIFIED = `require_relative '../node_modules/react-native/scripts/react_native_pods'
+
+platform :ios, '13.0'
+
+target 'AwesomeApp' do
+  config = use_native_modules!
+
+  pod 'unified-ble-manager', :path => "../node_modules/unified-ble-manager"
 
   use_react_native!(
     :path => config[:reactNativePath]
@@ -76,11 +99,43 @@ describe('withBLERestorationPodfile', () => {
       expect(result).toContain("'@sfourdrinier/react-native-ble-plx'")
     })
 
+    it('injects unified-ble-manager/Restoration when pkgName is the 4.0 product (F054/R2-F118)', () => {
+      // Source JSDoc must name Path A pod (not stale 3.x react-native-ble-plx/Restoration)
+      const src = fs.readFileSync(path.join(__dirname, '..', 'withBLERestorationPodfile.ts'), 'utf8')
+      expect(src).toMatch(/Inject opt-in `unified-ble-manager\/Restoration`/)
+      expect(src).not.toMatch(/Inject opt-in `react-native-ble-plx\/Restoration`/)
+
+      const result = injectRestorationPodLine(SAMPLE_PODFILE_AUTOLINKING, 'unified-ble-manager')
+      expect(result).toContain("bleplx_pod_name = 'unified-ble-manager'")
+      expect(result).toContain('pod "#{bleplx_pod_name}/Restoration"')
+      // Dual-identity candidates so shim-only autolinking keys still resolve
+      expect(result).toContain("'unified-ble-manager'")
+      expect(result).toContain("'@sfourdrinier/react-native-ble-plx'")
+      expect(result).toContain("'react-native-ble-plx'")
+    })
+
     it('uses autolinking config instead of Node resolution', () => {
       const result = injectRestorationPodLine(SAMPLE_PODFILE_AUTOLINKING, 'react-native-ble-plx')
       expect(result).toContain('config[:dependencies]')
       expect(result).not.toContain('Pod::Executable')
       expect(result).not.toContain('Dir.chdir')
+    })
+  })
+
+  describe('buildJsPackageCandidates (F054)', () => {
+    it('includes dual identity names for canonical package', () => {
+      const c = buildJsPackageCandidates('unified-ble-manager', 'unified-ble-manager')
+      expect(c[0]).toBe('unified-ble-manager')
+      expect(c).toContain('@sfourdrinier/react-native-ble-plx')
+      expect(c).toContain('react-native-ble-plx')
+      expect(new Set(c).size).toBe(c.length)
+    })
+
+    it('includes dual identity names for shim package', () => {
+      const c = buildJsPackageCandidates('@sfourdrinier/react-native-ble-plx', 'react-native-ble-plx')
+      expect(c).toContain('react-native-ble-plx')
+      expect(c).toContain('@sfourdrinier/react-native-ble-plx')
+      expect(c).toContain('unified-ble-manager')
     })
   })
 
@@ -101,6 +156,16 @@ describe('withBLERestorationPodfile', () => {
 
       expect(restorationPodIndex).toBeGreaterThan(basePodIndex)
       expect(restorationPodIndex).toBeLessThan(useReactNativeIndex)
+    })
+
+    it('uses the same path for unified-ble-manager explicit pod (F054)', () => {
+      const result = injectRestorationPodLine(SAMPLE_PODFILE_EXPLICIT_UNIFIED, 'unified-ble-manager')
+      expect(result).toContain(
+        'pod \'unified-ble-manager/Restoration\', :path => "../node_modules/unified-ble-manager"'
+      )
+      const basePodIndex = result.indexOf("pod 'unified-ble-manager', :path =>")
+      const restorationPodIndex = result.indexOf("pod 'unified-ble-manager/Restoration'")
+      expect(restorationPodIndex).toBeGreaterThan(basePodIndex)
     })
   })
 

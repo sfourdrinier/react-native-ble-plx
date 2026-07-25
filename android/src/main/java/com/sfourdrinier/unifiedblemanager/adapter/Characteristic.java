@@ -26,10 +26,28 @@ public class Characteristic {
   final private UUID serviceUUID;
   final private String deviceID;
   private byte[] value;
+  /** Optional Base64 of [value] pre-encoded off the main thread (notify hot path). */
+  @Nullable
+  private String valueBase64;
   final BluetoothGattCharacteristic gattCharacteristic;
 
   public void setValue(byte[] value) {
     this.value = value;
+    this.valueBase64 = null;
+  }
+
+  /**
+   * Set raw bytes and a pre-encoded Base64 string (R2-F021 notify hot path).
+   * Converter prefers [valueBase64] so main-thread encode is skipped.
+   */
+  public void setValue(@Nullable byte[] value, @Nullable String valueBase64) {
+    this.value = value;
+    this.valueBase64 = valueBase64;
+  }
+
+  @Nullable
+  public String getValueBase64() {
+    return valueBase64;
   }
 
   public Characteristic(@NonNull Service service, @NonNull BluetoothGattCharacteristic gattCharacteristic) {
@@ -54,6 +72,7 @@ public class Characteristic {
     serviceUUID = other.serviceUUID;
     deviceID = other.deviceID;
     if (other.value != null) value = other.value.clone();
+    valueBase64 = other.valueBase64;
     gattCharacteristic = other.gattCharacteristic;
   }
 

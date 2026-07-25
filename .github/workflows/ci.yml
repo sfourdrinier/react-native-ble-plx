@@ -38,15 +38,25 @@ permissions:
   pull-requests: read
 
 jobs:
-  # Always run package checks — including labeled events — so required checks
+  # Always run JS/package tests — including labeled events — so required checks
   # never get replaced by a skipped success from an unrelated label.
   # Multi-OS matrix: pure TS / Jest port+host tests run on Ubuntu, Windows, macOS.
+  # Linux also matrices Node 20.19.4 (engines floor) and Node 24 (publish line).
+  # Job name is honest: lint/prepack/multi-host smoke run only on Linux (R2-F096).
   package:
-    name: Package checks (${{ matrix.os }})
+    name: JS tests (${{ matrix.os }}, Node ${{ matrix.node }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            node: '20.19.4'
+          - os: ubuntu-latest
+            node: '24'
+          - os: windows-latest
+            node: '20.19.4'
+          - os: macos-latest
+            node: '20.19.4'
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -56,6 +66,7 @@ jobs:
         uses: ./.github/actions/setup-js-package
         with:
           prepack: 'false'
+          node-version: ${{ matrix.node }}
 
       - name: Run package tests
         run: pnpm test:package
@@ -72,12 +83,107 @@ jobs:
         if: runner.os == 'Linux'
         run: pnpm prepack
 
-      - name: Electron host smoke (mock port)
+      # L1 only: Fake multi-device demo under Node (not Electron binary / native radio).
+      - name: Electron Fake multi-device demo smoke (L1)
         if: runner.os == 'Linux'
-        run: node example-electron/main.js
+        run: node example-electron/smoke.js
 
-      - name: Electron native backend contract tests
+      - name: Electron native backend contract tests (L1 Fake + fail-closed requireNative)
         run: pnpm exec jest --config jest.config.js --testPathPattern='BluezBlePort|ElectronNative|OwnedCore|DeviceQueueAndLongWrite|CompatRegression|CodemodBytesPath'
+
+      # L2 needs compiled hosts (src/*.ts is not resolvable by plain Node). prepack is Linux-only above;
+      # emit lib/ here before requireNative probes (R2-F005).
+      - name: Build package artifacts (macOS/Windows L2 hosts)
+        if: runner.os == 'macOS' || runner.os == 'Windows'
+        run: pnpm prepack
+
+      # L2: compile CoreBluetooth Node-API addon, then requireNative must succeed (no soft-pass).
+      # Require compiled CJS only — never ./src/hosts/electron (TypeScript; Node cannot load it).
+      - name: Electron CoreBluetooth native L2 (node-gyp Node ABI + requireNative)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          pnpm run build:electron:macos
+          test -f native/electron/corebluetooth/build/Release/unified_ble_corebluetooth.node
+          node -e "
+            const { createCoreBluetoothBlePort } = require('./lib/commonjs/hosts/electron');
+            const port = createCoreBluetoothBlePort({ requireNative: true });
+            if (!port || typeof port.startScan !== 'function') {
+              throw new Error('CoreBluetooth L2 requireNative did not return a BlePort');
+            }
+            console.log('Electron CoreBluetooth L2 ok:', port.id);
+            if (typeof port.destroy === 'function') port.destroy();
+          "
+
+      # L3: Node ABI ≠ Electron ABI. Rebuild for Electron, then headless main-process Fake smoke (R2-F037).
+      # Not radio L4 — no BrowserWindow, no live Polar.
+      - name: Electron ABI rebuild + main-process smoke (L3, Node ABI ≠ Electron ABI)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          npx --yes @electron/rebuild -f -w native/electron/corebluetooth
+          ./node_modules/.bin/electron scripts/ci/electron-main-smoke.js
+
+      # L2 honesty: WinRT addon is not shipped (GAP-E-WIN-NAPI). Fail closed only — never greenwash.
+      - name: Electron WinRT L2 status (fail-closed until GAP-E-WIN-NAPI)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "
+            const { createWinRtBlePort } = require('./lib/commonjs/hosts/electron');
+            let threw = false;
+            try {
+              createWinRtBlePort({ requireNative: true });
+            } catch (e) {
+              threw = true;
+              console.log('WinRT L2 fail-closed (expected until GAP-E-WIN-NAPI):', String(e.message || e));
+            }
+            if (!threw) {
+              throw new Error('WinRT requireNative unexpectedly succeeded without a real addon');
+            }
+          "
+
+      # L2 packaging: host export resolve after prepack; vite builds shared UI (radio is L4 lab).
+      - name: Web host export + vite build smoke (L2)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          node scripts/ci/check-host-exports.js
+          npx --yes vite build --config example-web/vite.config.js --outDir /tmp/example-web-dist
+
+      # L3 wiring under Electron binary on Linux (Fake only; no BlueZ radio). Proves electron binary loads (R2-F037).
+      - name: Electron main-process Fake smoke under Electron binary (L3, Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/electron scripts/ci/electron-main-smoke.js
+
+      # BlueZ soft-probe: never silent success; skip explicitly when daemon/adapter absent (R2-F038 / GAP-CI-LIN).
+      - name: BlueZ system soft-probe (L2/L3 soft; mock Jest remains L1)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          if ! command -v systemctl >/dev/null 2>&1; then
+            echo "systemctl missing — skipped BlueZ L3 soft-probe (mock Jest remains L1)"
+            exit 0
+          fi
+          if ! systemctl is-active --quiet bluetooth 2>/dev/null; then
+            echo "bluetooth service inactive — skipped BlueZ L3 (mock Jest remains L1)"
+            exit 0
+          fi
+          if command -v dbus-send >/dev/null 2>&1; then
+            if ! dbus-send --system --dest=org.bluez --print-reply / org.freedesktop.DBus.Introspectable.Introspect >/dev/null 2>&1; then
+              echo "BlueZ D-Bus soft-probe failed (daemon flagged active but no reply) — skipped L3"
+              exit 0
+            fi
+          fi
+          node scripts/ci/bluez-soft-probe.js
+
+      # Real pack+install (not dry-run) — proves files allowlist + host/shim exports (R2-F039).
+      - name: Dual npm pack + install export smoke
+        if: runner.os == 'Linux'
+        run: node scripts/ci/pack-install-smoke.js
 
       - name: Optional bytes-path codemod fixture check
         if: runner.os == 'Linux'
@@ -123,7 +229,6 @@ jobs:
               - 'example-expo/**'
               - 'plugin/**'
               - 'app.plugin.js'
-              - 'react-native-ble-plx.podspec'
               - 'unified-ble-manager.podspec'
               - 'src/**'
               - 'scripts/ci/**'
@@ -132,6 +237,8 @@ jobs:
               - '.github/workflows/ci.yml'
               - '.github/workflows/apple-ci.yml'
               - '.github/actions/**'
+              - 'native/electron/**'
+              - 'example-electron/**'
 
   expo-cng-android:
     name: Expo CNG Android build

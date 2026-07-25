@@ -87,6 +87,20 @@ describe('Android modernization defaults', () => {
     expect(safePromise).not.toContain('public void reject(String message)')
   })
 
+  test('exports ServicesChangedEvent in TurboModule constants (R2-F032)', () => {
+    const moduleJava = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxModule.java')
+    expect(moduleJava).toMatch(
+      /getTypedExportedConstants[\s\S]*ServicesChangedEvent[\s\S]*return constants/
+    )
+  })
+
+  test('FGS stack includes POST_NOTIFICATIONS for Android 13+ (R2-F031)', () => {
+    const manifest = read('android/src/main/AndroidManifest.xml')
+    expect(manifest).toContain('android.permission.POST_NOTIFICATIONS')
+    const fgsPlugin = read('plugin/src/withBLEAndroidForegroundService.ts')
+    expect(fgsPlugin).toContain('POST_NOTIFICATIONS')
+  })
+
   test('keeps Android promise rejection paths null-safe', () => {
     const safePromise = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/utils/SafePromise.java')
     const errorDefaults = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/utils/ErrorDefaults.java')

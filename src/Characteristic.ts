@@ -111,7 +111,7 @@ export class Characteristic implements NativeCharacteristic {
    * discovered for this {@link Characteristic}.
    */
   descriptors(): Promise<Array<Descriptor>> {
-    return this._manager._descriptorsForCharacteristic(this.id)
+    return this._manager._descriptorsForCharacteristic(this.deviceID, this.id)
   }
 
   /**
@@ -123,7 +123,7 @@ export class Characteristic implements NativeCharacteristic {
    * inside returned object.
    */
   read(transactionId?: TransactionId): Promise<Characteristic> {
-    return this._manager._readCharacteristic(this.id, transactionId)
+    return this._manager._readCharacteristic(this.deviceID, this.id, transactionId)
   }
 
   /**
@@ -136,7 +136,7 @@ export class Characteristic implements NativeCharacteristic {
    * not be stored inside returned object.
    */
   writeWithResponse(valueBase64: Base64, transactionId?: TransactionId): Promise<Characteristic> {
-    return this._manager._writeCharacteristicWithResponse(this.id, valueBase64, transactionId)
+    return this._manager._writeCharacteristicWithResponse(this.deviceID, this.id, valueBase64, transactionId)
   }
 
   /**
@@ -149,7 +149,7 @@ export class Characteristic implements NativeCharacteristic {
    * not be stored inside returned object.
    */
   writeWithoutResponse(valueBase64: Base64, transactionId?: TransactionId): Promise<Characteristic> {
-    return this._manager._writeCharacteristicWithoutResponse(this.id, valueBase64, transactionId)
+    return this._manager._writeCharacteristicWithoutResponse(this.deviceID, this.id, valueBase64, transactionId)
   }
 
   /**
@@ -167,7 +167,7 @@ export class Characteristic implements NativeCharacteristic {
     transactionId: TransactionId | null = null,
     subscriptionType: CharacteristicSubscriptionType | null = null
   ): Subscription {
-    if (isIOS) {
+    if (isIOS()) {
       return this._manager._monitorCharacteristic(this.id, listener, transactionId ?? undefined)
     }
     return this._manager._monitorCharacteristic(this.id, listener, transactionId ?? undefined, subscriptionType)
@@ -183,7 +183,7 @@ export class Characteristic implements NativeCharacteristic {
    * UUID paths. Latest value of {@link Descriptor} will be stored inside returned object.
    */
   async readDescriptor(descriptorUUID: UUID, transactionId?: TransactionId): Promise<Descriptor> {
-    return this._manager._readDescriptorForCharacteristic(this.id, descriptorUUID, transactionId)
+    return this._manager._readDescriptorForCharacteristic(this.deviceID, this.id, descriptorUUID, transactionId)
   }
 
   /**
@@ -195,7 +195,13 @@ export class Characteristic implements NativeCharacteristic {
    * @returns {Promise<Descriptor>} Descriptor which saved passed value.
    */
   async writeDescriptor(descriptorUUID: UUID, valueBase64: Base64, transactionId?: TransactionId): Promise<Descriptor> {
-    return this._manager._writeDescriptorForCharacteristic(this.id, descriptorUUID, valueBase64, transactionId)
+    return this._manager._writeDescriptorForCharacteristic(
+      this.deviceID,
+      this.id,
+      descriptorUUID,
+      valueBase64,
+      transactionId
+    )
   }
 
   // --- 4.0 parallel bytes path (existing .value stays Base64) ---

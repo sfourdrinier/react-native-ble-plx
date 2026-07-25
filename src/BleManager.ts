@@ -27,11 +27,14 @@ import type {
 import { isIOS } from './Utils'
 import { Platform } from 'react-native'
 import { base64ToBytes, bytesToBase64 } from './encoding'
+import { DeviceOperationQueue, deviceQueueCancelledError } from './DeviceOperationQueue'
+import { writeLongCharacteristicFromBytes, type LongWriteOptions, type LongWriteResult } from './longWrite'
 import { supports as supportsCapability, type BleCapability } from './supports'
 import { rejectUnsupported } from './unsupported'
 import {
   checkBluetoothPermissions,
   requestBluetoothPermissions,
+  type BluetoothPermissionOptions,
   type PermissionCheckResult
 } from './permissions'
 
@@ -42,6 +45,15 @@ import {
 export type CharacteristicAsBytes = {
   deviceID: DeviceId
   serviceUUID: UUID
+  uuid: UUID
+  value: Uint8Array | null
+}
+
+/** Byte-path descriptor snapshot (parallel to Base64 {@link Descriptor}.value). */
+export type DescriptorAsBytes = {
+  deviceID: DeviceId
+  serviceUUID: UUID
+  characteristicUUID: UUID
   uuid: UUID
   value: Uint8Array | null
 }
@@ -89,6 +101,22 @@ export class BleManager {
    */
   _restoreStateWaiters!: Array<(value: BleRestoredState | null) => void>
 
+  /**
+   * Per-device GATT serialization (4.0 Phase-2 / GAP-RN-Q).
+   * @private
+   */
+  _deviceQueue!: DeviceOperationQueue
+  /**
+   * When false, device ops are not serialized (tests / escape hatch).
+   * @private
+   */
+  _serializeDeviceOps!: boolean
+  /**
+   * Services-changed listeners (GAP-RN-SC).
+   * @private
+   */
+  _servicesResetListeners!: Set<(deviceId: string) => void>
+
   static sharedInstance: BleManager | null = null
 
   /**
@@ -111,6 +139,9 @@ export class BleManager {
     this._scanEventSubscription = null
     this._restoredState = undefined
     this._restoreStateWaiters = []
+    this._deviceQueue = new DeviceOperationQueue()
+    this._serializeDeviceOps = (options as BleManagerOptions & { serializeDeviceOps?: boolean }).serializeDeviceOps !== false
+    this._servicesResetListeners = new Set()
 
     // Empty/whitespace identifier is treated as unconfigured (matches native createClient
     // which coerces "" → nil). Otherwise getRestoredState would wait forever for an event
@@ -158,6 +189,22 @@ export class BleManager {
       // Restoration not configured — immediate null for getRestoredState
       this._restoredState = null
     }
+
+    // GAP-RN-SC: native ATT Services Changed / didModifyServices / onServiceChanged (API 31+)
+    // Event name is stable "ServicesChangedEvent" (also on BleModule when codegen exports it).
+    const servicesChangedEvent =
+      typeof BleModule.ServicesChangedEvent === 'string' && BleModule.ServicesChangedEvent.length > 0
+        ? BleModule.ServicesChangedEvent
+        : 'ServicesChangedEvent'
+    this._activeSubscriptions[this._nextUniqueID()] = this._eventEmitter.addListener(
+      servicesChangedEvent,
+      (payload: unknown) => {
+        const deviceId = this._parseServicesChangedPayload(payload)
+        if (deviceId) {
+          this.emitServicesReset(deviceId)
+        }
+      }
+    )
 
     BleModule.createClient(restoreStateIdentifier)
     BleManager.sharedInstance = this
@@ -224,6 +271,22 @@ export class BleManager {
       }
 
       this._destroyPromises()
+      // Epoch-bump every device key so queued-not-started ops fail closed (R2-F084).
+      this._deviceQueue.cancelAll(
+        new BleError(
+          {
+            errorCode: BleErrorCode.BluetoothManagerDestroyed,
+            attErrorCode: null,
+            iosErrorCode: null,
+            androidErrorCode: null,
+            reason: null
+          },
+          this._errorCodesToMessagesMapping
+        )
+      )
+      this._servicesResetListeners.clear()
+      // Drop any residual settled device-queue tails (F093).
+      this._deviceQueue.prune()
     }
   }
 
@@ -294,9 +357,134 @@ export class BleManager {
       return value
     } catch (error) {
       delete this._activePromises[id]
+      // Preserve structured BleError (destroy race / queue cancel) — do not re-parse (R2-F083).
+      // Duck-type as well as instanceof so dual module copies of BleError still pass through.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const err: any = error
+      if (
+        error instanceof BleError ||
+        (err && err.name === 'BleError' && typeof err.errorCode === 'number')
+      ) {
+        throw error
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       throw parseBleError((error as any).message, this._errorCodesToMessagesMapping)
     }
+  }
+
+  /**
+   * Run a device-scoped GATT op through the per-device queue (GAP-RN-Q).
+   * @private
+   */
+  _runForDevice<T>(deviceId: DeviceId, fn: () => Promise<T>): Promise<T> {
+    if (!this._serializeDeviceOps) {
+      return fn()
+    }
+    return this._deviceQueue.enqueue(deviceId, fn)
+  }
+
+  /**
+   * Priority disconnect path: bump queue epoch so pending ops fail, then run `fn`
+   * after the current in-flight op settles (GAP-RN-Q cancel preemption).
+   * @private
+   */
+  _runCancelForDevice<T>(deviceId: DeviceId, fn: () => Promise<T>): Promise<T> {
+    if (!this._serializeDeviceOps) {
+      return fn()
+    }
+    return this._deviceQueue.enqueueCancel(deviceId, fn)
+  }
+
+  /**
+   * Expose the per-device queue for tests and advanced hosts (GAP-RN-Q).
+   */
+  getDeviceOperationQueue(): DeviceOperationQueue {
+    return this._deviceQueue
+  }
+
+  /**
+   * Subscribe to GATT services-changed / cache-reset signals for any device (GAP-RN-SC).
+   * Native: iOS `peripheral(_:didModifyServices:)`, Android API 31+ `onServiceChanged`.
+   * Software: {@link emitServicesReset}.
+   */
+  onServicesReset(listener: (deviceId: string) => void): Subscription {
+    this._servicesResetListeners.add(listener)
+    return {
+      remove: () => {
+        this._servicesResetListeners.delete(listener)
+      }
+    }
+  }
+
+  /**
+   * Notify listeners that a device's GATT services may have changed (re-discover required).
+   * Host bridges and tests call this; apps normally only use {@link onServicesReset}.
+   */
+  emitServicesReset(deviceId: string): void {
+    for (const listener of this._servicesResetListeners) {
+      listener(deviceId)
+    }
+  }
+
+  /**
+   * Chunked long-write on the bytes path (GAP-RN-LW). Serialized per device.
+   * Uses direct native writes inside the queue to avoid re-entrant queue deadlock.
+   * Cooperative with {@link cancelDeviceConnection}: queue epoch abort between chunks.
+   *
+   * **Interim (F036 / GAP-GA-PERF):** each chunk is still Base64-encoded for the 3.x
+   * native bridge. A native TurboModule bytes path (ArrayBuffer/Uint8Array) is required
+   * before bytes hot-path latency matches PortBleManager; keep Base64 methods as the
+   * source-compat edge until that lands.
+   */
+  async writeLongCharacteristicForDeviceFromBytes(
+    deviceIdentifier: DeviceId,
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    value: Uint8Array,
+    options: LongWriteOptions & { withResponse?: boolean } = {}
+  ): Promise<LongWriteResult> {
+    if (!(value instanceof Uint8Array)) {
+      throw new TypeError('writeLongCharacteristicForDeviceFromBytes expects Uint8Array')
+    }
+    const withResponse = options.withResponse !== false
+    return this._runForDevice(deviceIdentifier, () => {
+      const epoch = this._deviceQueue.currentEpoch(deviceIdentifier)
+      return writeLongCharacteristicFromBytes(
+        value,
+        async chunk => {
+          if (this._serializeDeviceOps && this._deviceQueue.isCancelled(deviceIdentifier, epoch)) {
+            throw deviceQueueCancelledError()
+          }
+          const transactionId = this._nextUniqueID()
+          await this._callPromise(
+            BleModule.writeCharacteristicForDevice(
+              deviceIdentifier,
+              serviceUUID,
+              characteristicUUID,
+              bytesToBase64(chunk),
+              withResponse,
+              transactionId
+            )
+          )
+        },
+        { chunkSize: options.chunkSize, stopOnError: options.stopOnError }
+      )
+    })
+  }
+
+  /** @private */
+  _parseServicesChangedPayload(payload: unknown): string | null {
+    if (typeof payload === 'string' && payload.length > 0) {
+      return payload
+    }
+    if (Array.isArray(payload) && typeof payload[0] === 'string') {
+      return payload[0]
+    }
+    if (payload && typeof payload === 'object' && 'deviceId' in payload) {
+      const id = (payload as { deviceId?: unknown }).deviceId
+      if (typeof id === 'string' && id.length > 0) return id
+    }
+    return null
   }
 
   // Mark: Common ------------------------------------------------------------------------------------------------------
@@ -483,7 +671,7 @@ export class BleManager {
     options: FindAndConnectOptions = {}
   ): Promise<Device> {
     const timeoutMs = options.scanTimeoutMs ?? 10000
-    const serviceUUIDs = null
+    const serviceUUIDs = options.serviceUUIDs ?? null
     return new Promise<Device>((resolve, reject) => {
       let settled = false
       const timer = setTimeout(() => {
@@ -559,13 +747,24 @@ export class BleManager {
     connectionPriority: ConnectionPriority,
     transactionId?: TransactionId
   ): Promise<Device> {
+    // Android-only; iOS owned path must not no-op success (F025).
+    if (!this.supports('connectionPriority')) {
+      return rejectUnsupported(
+        'requestConnectionPriorityForDevice',
+        Platform.OS === 'ios'
+          ? 'connection priority is Android-only'
+          : 'connectionPriority requires Android react-native host'
+      )
+    }
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeDevice = await this._callPromise(
-      BleModule.requestConnectionPriorityForDevice(deviceIdentifier, connectionPriority, transactionId)
-    )
-    return new Device(nativeDevice, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeDevice = await this._callPromise(
+        BleModule.requestConnectionPriorityForDevice(deviceIdentifier, connectionPriority, transactionId)
+      )
+      return new Device(nativeDevice, this)
+    })
   }
 
   /**
@@ -579,8 +778,10 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeDevice = await this._callPromise(BleModule.readRSSIForDevice(deviceIdentifier, transactionId))
-    return new Device(nativeDevice, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeDevice = await this._callPromise(BleModule.readRSSIForDevice(deviceIdentifier, transactionId))
+      return new Device(nativeDevice, this)
+    })
   }
 
   /**
@@ -594,11 +795,23 @@ export class BleManager {
    * @returns {Promise<Device>} Device with updated MTU size. Default value is 23 (517 since Android 14)..
    */
   async requestMTUForDevice(deviceIdentifier: DeviceId, mtu: number, transactionId?: TransactionId): Promise<Device> {
+    if (!this.supports('requestMtu')) {
+      return rejectUnsupported(
+        'requestMTUForDevice',
+        Platform.OS === 'ios'
+          ? 'iOS negotiates MTU automatically; requestMTU is Android-only'
+          : 'requestMtu requires Android react-native host'
+      )
+    }
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeDevice = await this._callPromise(BleModule.requestMTUForDevice(deviceIdentifier, mtu, transactionId))
-    return new Device(nativeDevice, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeDevice = await this._callPromise(
+        BleModule.requestMTUForDevice(deviceIdentifier, mtu, transactionId)
+      )
+      return new Device(nativeDevice, this)
+    })
   }
 
   // Mark: Connection management ---------------------------------------------------------------------------------------
@@ -639,11 +852,13 @@ export class BleManager {
    * @returns {Promise<Device>} Connected {@link Device} object if successful.
    */
   async connectToDevice(deviceIdentifier: DeviceId, options?: ConnectionOptions): Promise<Device> {
-    if (Platform.OS === 'android' && (await this.isDeviceConnected(deviceIdentifier))) {
-      await this.cancelDeviceConnection(deviceIdentifier)
-    }
-    const nativeDevice = await this._callPromise(BleModule.connectToDevice(deviceIdentifier, options || null))
-    return new Device(nativeDevice, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      if (Platform.OS === 'android' && (await this._callPromise(BleModule.isDeviceConnected(deviceIdentifier)))) {
+        await this._callPromise(BleModule.cancelDeviceConnection(deviceIdentifier))
+      }
+      const nativeDevice = await this._callPromise(BleModule.connectToDevice(deviceIdentifier, options || null))
+      return new Device(nativeDevice, this)
+    })
   }
 
   /**
@@ -653,8 +868,11 @@ export class BleManager {
    * @returns {Promise<Device>} Returns closed {@link Device} when operation is successful.
    */
   async cancelDeviceConnection(deviceIdentifier: DeviceId): Promise<Device> {
-    const nativeDevice = await this._callPromise(BleModule.cancelDeviceConnection(deviceIdentifier))
-    return new Device(nativeDevice, this)
+    // Priority lane: preempt pending GATT/long-write ops for this device (F042).
+    return this._runCancelForDevice(deviceIdentifier, async () => {
+      const nativeDevice = await this._callPromise(BleModule.cancelDeviceConnection(deviceIdentifier))
+      return new Device(nativeDevice, this)
+    })
   }
 
   /**
@@ -722,17 +940,19 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeDevice = await this._callPromise(
-      BleModule.discoverAllServicesAndCharacteristicsForDevice(deviceIdentifier, transactionId)
-    )
-    const services = await this._callPromise(BleModule.servicesForDevice(deviceIdentifier))
-    const serviceUUIDs = (services || []).map(service => service.uuid)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeDevice = await this._callPromise(
+        BleModule.discoverAllServicesAndCharacteristicsForDevice(deviceIdentifier, transactionId)
+      )
+      const services = await this._callPromise(BleModule.servicesForDevice(deviceIdentifier))
+      const serviceUUIDs = (services || []).map(service => service.uuid)
 
-    const device = {
-      ...nativeDevice,
-      serviceUUIDs
-    }
-    return new Device(device as NativeDevice, this)
+      const device = {
+        ...nativeDevice,
+        serviceUUIDs
+      }
+      return new Device(device as NativeDevice, this)
+    })
   }
 
   // Mark: Service and characteristic getters --------------------------------------------------------------------------
@@ -745,9 +965,11 @@ export class BleManager {
    * {@link Device}.
    */
   async servicesForDevice(deviceIdentifier: DeviceId): Promise<Array<Service>> {
-    const services = await this._callPromise(BleModule.servicesForDevice(deviceIdentifier))
-    return services.map(nativeService => {
-      return new Service(nativeService, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const services = await this._callPromise(BleModule.servicesForDevice(deviceIdentifier))
+      return services.map(nativeService => {
+        return new Service(nativeService, this)
+      })
     })
   }
 
@@ -760,19 +982,27 @@ export class BleManager {
    * discovered for a {@link Device} in specified {@link Service}.
    */
   characteristicsForDevice(deviceIdentifier: DeviceId, serviceUUID: UUID): Promise<Array<Characteristic>> {
-    return this._handleCharacteristics(BleModule.characteristicsForDevice(deviceIdentifier, serviceUUID))
+    return this._runForDevice(deviceIdentifier, () =>
+      this._handleCharacteristics(BleModule.characteristicsForDevice(deviceIdentifier, serviceUUID))
+    )
   }
 
   /**
    * List of discovered {@link Characteristic}s for unique {@link Service}.
    *
+   * @param {DeviceId} deviceIdentifier {@link Device} identifier (queue key).
    * @param {Identifier} serviceIdentifier {@link Service} ID.
    * @returns {Promise<Array<Characteristic>>} Promise which emits array of {@link Characteristic} objects which are
    * discovered in unique {@link Service}.
    * @private
    */
-  _characteristicsForService(serviceIdentifier: Identifier): Promise<Array<Characteristic>> {
-    return this._handleCharacteristics(BleModule.characteristicsForService(serviceIdentifier))
+  _characteristicsForService(
+    deviceIdentifier: DeviceId,
+    serviceIdentifier: Identifier
+  ): Promise<Array<Characteristic>> {
+    return this._runForDevice(deviceIdentifier, () =>
+      this._handleCharacteristics(BleModule.characteristicsForService(serviceIdentifier))
+    )
   }
 
   /**
@@ -806,32 +1036,47 @@ export class BleManager {
     serviceUUID: UUID,
     characteristicUUID: UUID
   ): Promise<Array<Descriptor>> {
-    return this._handleDescriptors(BleModule.descriptorsForDevice(deviceIdentifier, serviceUUID, characteristicUUID))
+    return this._runForDevice(deviceIdentifier, () =>
+      this._handleDescriptors(BleModule.descriptorsForDevice(deviceIdentifier, serviceUUID, characteristicUUID))
+    )
   }
 
   /**
    * List of discovered {@link Descriptor}s for given {@link Service} and {@link Characteristic}.
    *
+   * @param {DeviceId} deviceIdentifier {@link Device} identifier (queue key).
    * @param {Identifier} serviceIdentifier {@link Service} identifier.
    * @param {UUID} characteristicUUID {@link Characteristic} UUID.
    * @returns {Promise<Array<Descriptor>>} Promise which emits array of {@link Descriptor} objects which are
    * discovered for a {@link Service} in specified {@link Characteristic}.
    * @private
    */
-  _descriptorsForService(serviceIdentifier: Identifier, characteristicUUID: UUID): Promise<Array<Descriptor>> {
-    return this._handleDescriptors(BleModule.descriptorsForService(serviceIdentifier, characteristicUUID))
+  _descriptorsForService(
+    deviceIdentifier: DeviceId,
+    serviceIdentifier: Identifier,
+    characteristicUUID: UUID
+  ): Promise<Array<Descriptor>> {
+    return this._runForDevice(deviceIdentifier, () =>
+      this._handleDescriptors(BleModule.descriptorsForService(serviceIdentifier, characteristicUUID))
+    )
   }
 
   /**
    * List of discovered {@link Descriptor}s for given {@link Characteristic}.
    *
+   * @param {DeviceId} deviceIdentifier {@link Device} identifier (queue key).
    * @param {Identifier} characteristicIdentifier {@link Characteristic} identifier.
    * @returns {Promise<Array<Descriptor>>} Promise which emits array of {@link Descriptor} objects which are
    * discovered in specified {@link Characteristic}.
    * @private
    */
-  _descriptorsForCharacteristic(characteristicIdentifier: Identifier): Promise<Array<Descriptor>> {
-    return this._handleDescriptors(BleModule.descriptorsForCharacteristic(characteristicIdentifier))
+  _descriptorsForCharacteristic(
+    deviceIdentifier: DeviceId,
+    characteristicIdentifier: Identifier
+  ): Promise<Array<Descriptor>> {
+    return this._runForDevice(deviceIdentifier, () =>
+      this._handleDescriptors(BleModule.descriptorsForCharacteristic(characteristicIdentifier))
+    )
   }
 
   /**
@@ -870,15 +1115,18 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeCharacteristic = await this._callPromise(
-      BleModule.readCharacteristicForDevice(deviceIdentifier, serviceUUID, characteristicUUID, transactionId)
-    )
-    return new Characteristic(nativeCharacteristic, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeCharacteristic = await this._callPromise(
+        BleModule.readCharacteristicForDevice(deviceIdentifier, serviceUUID, characteristicUUID, transactionId)
+      )
+      return new Characteristic(nativeCharacteristic, this)
+    })
   }
 
   /**
    * Read {@link Characteristic} value.
    *
+   * @param {DeviceId} deviceIdentifier {@link Device} identifier (queue key).
    * @param {Identifier} serviceIdentifier {@link Service} ID.
    * @param {UUID} characteristicUUID {@link Characteristic} UUID.
    * @param {?TransactionId} transactionId optional `transactionId` which can be used in
@@ -888,6 +1136,7 @@ export class BleManager {
    * @private
    */
   async _readCharacteristicForService(
+    deviceIdentifier: DeviceId,
     serviceIdentifier: Identifier,
     characteristicUUID: UUID,
     transactionId?: TransactionId
@@ -895,15 +1144,18 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeCharacteristic = await this._callPromise(
-      BleModule.readCharacteristicForService(serviceIdentifier, characteristicUUID, transactionId)
-    )
-    return new Characteristic(nativeCharacteristic, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeCharacteristic = await this._callPromise(
+        BleModule.readCharacteristicForService(serviceIdentifier, characteristicUUID, transactionId)
+      )
+      return new Characteristic(nativeCharacteristic, this)
+    })
   }
 
   /**
    * Read {@link Characteristic} value.
    *
+   * @param {DeviceId} deviceIdentifier {@link Device} identifier (queue key).
    * @param {Identifier} characteristicIdentifier {@link Characteristic} ID.
    * @param {?TransactionId} transactionId optional `transactionId` which can be used in
    * {@link #blemanagercanceltransaction|cancelTransaction()} function.
@@ -912,16 +1164,19 @@ export class BleManager {
    * @private
    */
   async _readCharacteristic(
+    deviceIdentifier: DeviceId,
     characteristicIdentifier: Identifier,
     transactionId?: TransactionId
   ): Promise<Characteristic> {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeCharacteristic = await this._callPromise(
-      BleModule.readCharacteristic(characteristicIdentifier, transactionId)
-    )
-    return new Characteristic(nativeCharacteristic, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeCharacteristic = await this._callPromise(
+        BleModule.readCharacteristic(characteristicIdentifier, transactionId)
+      )
+      return new Characteristic(nativeCharacteristic, this)
+    })
   }
 
   /**
@@ -946,22 +1201,25 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeCharacteristic = await this._callPromise(
-      BleModule.writeCharacteristicForDevice(
-        deviceIdentifier,
-        serviceUUID,
-        characteristicUUID,
-        base64Value,
-        true,
-        transactionId
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeCharacteristic = await this._callPromise(
+        BleModule.writeCharacteristicForDevice(
+          deviceIdentifier,
+          serviceUUID,
+          characteristicUUID,
+          base64Value,
+          true,
+          transactionId
+        )
       )
-    )
-    return new Characteristic(nativeCharacteristic, this)
+      return new Characteristic(nativeCharacteristic, this)
+    })
   }
 
   /**
    * Write {@link Characteristic} value with response.
    *
+   * @param {DeviceId} deviceIdentifier {@link Device} identifier (queue key).
    * @param {Identifier} serviceIdentifier {@link Service} ID.
    * @param {UUID} characteristicUUID {@link Characteristic} UUID.
    * @param {Base64} base64Value Value in Base64 format.
@@ -972,6 +1230,7 @@ export class BleManager {
    * @private
    */
   async _writeCharacteristicWithResponseForService(
+    deviceIdentifier: DeviceId,
     serviceIdentifier: Identifier,
     characteristicUUID: UUID,
     base64Value: Base64,
@@ -980,15 +1239,18 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeCharacteristic = await this._callPromise(
-      BleModule.writeCharacteristicForService(serviceIdentifier, characteristicUUID, base64Value, true, transactionId)
-    )
-    return new Characteristic(nativeCharacteristic, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeCharacteristic = await this._callPromise(
+        BleModule.writeCharacteristicForService(serviceIdentifier, characteristicUUID, base64Value, true, transactionId)
+      )
+      return new Characteristic(nativeCharacteristic, this)
+    })
   }
 
   /**
    * Write {@link Characteristic} value with response.
    *
+   * @param {DeviceId} deviceIdentifier {@link Device} identifier (queue key).
    * @param {Identifier} characteristicIdentifier {@link Characteristic} ID.
    * @param {Base64} base64Value Value in Base64 format.
    * @param {?TransactionId} transactionId optional `transactionId` which can be used in
@@ -998,6 +1260,7 @@ export class BleManager {
    * @private
    */
   async _writeCharacteristicWithResponse(
+    deviceIdentifier: DeviceId,
     characteristicIdentifier: Identifier,
     base64Value: Base64,
     transactionId?: TransactionId
@@ -1005,10 +1268,12 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeCharacteristic = await this._callPromise(
-      BleModule.writeCharacteristic(characteristicIdentifier, base64Value, true, transactionId)
-    )
-    return new Characteristic(nativeCharacteristic, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeCharacteristic = await this._callPromise(
+        BleModule.writeCharacteristic(characteristicIdentifier, base64Value, true, transactionId)
+      )
+      return new Characteristic(nativeCharacteristic, this)
+    })
   }
 
   /**
@@ -1033,22 +1298,25 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeCharacteristic = await this._callPromise(
-      BleModule.writeCharacteristicForDevice(
-        deviceIdentifier,
-        serviceUUID,
-        characteristicUUID,
-        base64Value,
-        false,
-        transactionId
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeCharacteristic = await this._callPromise(
+        BleModule.writeCharacteristicForDevice(
+          deviceIdentifier,
+          serviceUUID,
+          characteristicUUID,
+          base64Value,
+          false,
+          transactionId
+        )
       )
-    )
-    return new Characteristic(nativeCharacteristic, this)
+      return new Characteristic(nativeCharacteristic, this)
+    })
   }
 
   /**
    * Write {@link Characteristic} value without response.
    *
+   * @param {DeviceId} deviceIdentifier {@link Device} identifier (queue key).
    * @param {Identifier} serviceIdentifier {@link Service} ID.
    * @param {UUID} characteristicUUID {@link Characteristic} UUID.
    * @param {Base64} base64Value Value in Base64 format.
@@ -1059,6 +1327,7 @@ export class BleManager {
    * @private
    */
   async _writeCharacteristicWithoutResponseForService(
+    deviceIdentifier: DeviceId,
     serviceIdentifier: Identifier,
     characteristicUUID: UUID,
     base64Value: Base64,
@@ -1067,15 +1336,24 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeCharacteristic = await this._callPromise(
-      BleModule.writeCharacteristicForService(serviceIdentifier, characteristicUUID, base64Value, false, transactionId)
-    )
-    return new Characteristic(nativeCharacteristic, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeCharacteristic = await this._callPromise(
+        BleModule.writeCharacteristicForService(
+          serviceIdentifier,
+          characteristicUUID,
+          base64Value,
+          false,
+          transactionId
+        )
+      )
+      return new Characteristic(nativeCharacteristic, this)
+    })
   }
 
   /**
    * Write {@link Characteristic} value without response.
    *
+   * @param {DeviceId} deviceIdentifier {@link Device} identifier (queue key).
    * @param {Identifier} characteristicIdentifier {@link Characteristic} UUID.
    * @param {Base64} base64Value Value in Base64 format.
    * @param {?TransactionId} transactionId optional `transactionId` which can be used in
@@ -1085,6 +1363,7 @@ export class BleManager {
    * @private
    */
   async _writeCharacteristicWithoutResponse(
+    deviceIdentifier: DeviceId,
     characteristicIdentifier: Identifier,
     base64Value: Base64,
     transactionId?: TransactionId
@@ -1092,10 +1371,12 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeCharacteristic = await this._callPromise(
-      BleModule.writeCharacteristic(characteristicIdentifier, base64Value, false, transactionId)
-    )
-    return new Characteristic(nativeCharacteristic, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeCharacteristic = await this._callPromise(
+        BleModule.writeCharacteristic(characteristicIdentifier, base64Value, false, transactionId)
+      )
+      return new Characteristic(nativeCharacteristic, this)
+    })
   }
 
   /**
@@ -1126,7 +1407,7 @@ export class BleManager {
       serviceUUID,
       characteristicUUID,
       filledTransactionId,
-      isIOS ? null : (subscriptionType ?? null)
+      isIOS() ? null : (subscriptionType ?? null)
     )
 
     return this._handleMonitorCharacteristic(promise, filledTransactionId, listener)
@@ -1157,7 +1438,7 @@ export class BleManager {
       serviceIdentifier,
       characteristicUUID,
       filledTransactionId,
-      isIOS ? null : (subscriptionType ?? null)
+      isIOS() ? null : (subscriptionType ?? null)
     )
 
     return this._handleMonitorCharacteristic(promise, filledTransactionId, listener)
@@ -1186,7 +1467,7 @@ export class BleManager {
     const promise = BleModule.monitorCharacteristic(
       characteristicIdentifier,
       filledTransactionId,
-      isIOS ? null : (subscriptionType ?? null)
+      isIOS() ? null : (subscriptionType ?? null)
     )
 
     return this._handleMonitorCharacteristic(promise, filledTransactionId, listener)
@@ -1277,21 +1558,24 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeDescriptor = await this._callPromise(
-      BleModule.readDescriptorForDevice(
-        deviceIdentifier,
-        serviceUUID,
-        characteristicUUID,
-        descriptorUUID,
-        transactionId
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeDescriptor = await this._callPromise(
+        BleModule.readDescriptorForDevice(
+          deviceIdentifier,
+          serviceUUID,
+          characteristicUUID,
+          descriptorUUID,
+          transactionId
+        )
       )
-    )
-    return new Descriptor(nativeDescriptor, this)
+      return new Descriptor(nativeDescriptor, this)
+    })
   }
 
   /**
    * Read {@link Descriptor} value.
    *
+   * @param {DeviceId} deviceIdentifier {@link Device} identifier (queue key).
    * @param {Identifier} serviceIdentifier {@link Service} identifier.
    * @param {UUID} characteristicUUID {@link Characteristic} UUID.
    * @param {UUID} descriptorUUID {@link Descriptor} UUID.
@@ -1302,6 +1586,7 @@ export class BleManager {
    * @private
    */
   async _readDescriptorForService(
+    deviceIdentifier: DeviceId,
     serviceIdentifier: Identifier,
     characteristicUUID: UUID,
     descriptorUUID: UUID,
@@ -1310,15 +1595,18 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeDescriptor = await this._callPromise(
-      BleModule.readDescriptorForService(serviceIdentifier, characteristicUUID, descriptorUUID, transactionId)
-    )
-    return new Descriptor(nativeDescriptor, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeDescriptor = await this._callPromise(
+        BleModule.readDescriptorForService(serviceIdentifier, characteristicUUID, descriptorUUID, transactionId)
+      )
+      return new Descriptor(nativeDescriptor, this)
+    })
   }
 
   /**
    * Read {@link Descriptor} value.
    *
+   * @param {DeviceId} deviceIdentifier {@link Device} identifier (queue key).
    * @param {Identifier} characteristicIdentifier {@link Characteristic} identifier.
    * @param {UUID} descriptorUUID {@link Descriptor} UUID.
    * @param {?TransactionId} transactionId optional `transactionId` which can be used in
@@ -1328,6 +1616,7 @@ export class BleManager {
    * @private
    */
   async _readDescriptorForCharacteristic(
+    deviceIdentifier: DeviceId,
     characteristicIdentifier: Identifier,
     descriptorUUID: UUID,
     transactionId?: TransactionId
@@ -1335,15 +1624,18 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeDescriptor = await this._callPromise(
-      BleModule.readDescriptorForCharacteristic(characteristicIdentifier, descriptorUUID, transactionId)
-    )
-    return new Descriptor(nativeDescriptor, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeDescriptor = await this._callPromise(
+        BleModule.readDescriptorForCharacteristic(characteristicIdentifier, descriptorUUID, transactionId)
+      )
+      return new Descriptor(nativeDescriptor, this)
+    })
   }
 
   /**
    * Read {@link Descriptor} value.
    *
+   * @param {DeviceId} deviceIdentifier {@link Device} identifier (queue key).
    * @param {Identifier} descriptorIdentifier {@link Descriptor} identifier.
    * @param {?TransactionId} transactionId optional `transactionId` which can be used in
    * {@link #blemanagercanceltransaction|cancelTransaction()} function.
@@ -1351,12 +1643,18 @@ export class BleManager {
    * UUID paths. Latest value of {@link Descriptor} will be stored inside returned object.
    * @private
    */
-  async _readDescriptor(descriptorIdentifier: Identifier, transactionId?: TransactionId): Promise<Descriptor> {
+  async _readDescriptor(
+    deviceIdentifier: DeviceId,
+    descriptorIdentifier: Identifier,
+    transactionId?: TransactionId
+  ): Promise<Descriptor> {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeDescriptor = await this._callPromise(BleModule.readDescriptor(descriptorIdentifier, transactionId))
-    return new Descriptor(nativeDescriptor, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeDescriptor = await this._callPromise(BleModule.readDescriptor(descriptorIdentifier, transactionId))
+      return new Descriptor(nativeDescriptor, this)
+    })
   }
 
   /**
@@ -1381,22 +1679,25 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeDescriptor = await this._callPromise(
-      BleModule.writeDescriptorForDevice(
-        deviceIdentifier,
-        serviceUUID,
-        characteristicUUID,
-        descriptorUUID,
-        valueBase64,
-        transactionId
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeDescriptor = await this._callPromise(
+        BleModule.writeDescriptorForDevice(
+          deviceIdentifier,
+          serviceUUID,
+          characteristicUUID,
+          descriptorUUID,
+          valueBase64,
+          transactionId
+        )
       )
-    )
-    return new Descriptor(nativeDescriptor, this)
+      return new Descriptor(nativeDescriptor, this)
+    })
   }
 
   /**
    * Write {@link Descriptor} value.
    *
+   * @param {DeviceId} deviceIdentifier {@link Device} identifier (queue key).
    * @param {Identifier} serviceIdentifier Service identifier
    * @param {UUID} characteristicUUID Characteristic UUID
    * @param {UUID} descriptorUUID Descriptor UUID
@@ -1406,6 +1707,7 @@ export class BleManager {
    * @private
    */
   async _writeDescriptorForService(
+    deviceIdentifier: DeviceId,
     serviceIdentifier: Identifier,
     characteristicUUID: UUID,
     descriptorUUID: UUID,
@@ -1415,21 +1717,24 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeDescriptor = await this._callPromise(
-      BleModule.writeDescriptorForService(
-        serviceIdentifier,
-        characteristicUUID,
-        descriptorUUID,
-        valueBase64,
-        transactionId
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeDescriptor = await this._callPromise(
+        BleModule.writeDescriptorForService(
+          serviceIdentifier,
+          characteristicUUID,
+          descriptorUUID,
+          valueBase64,
+          transactionId
+        )
       )
-    )
-    return new Descriptor(nativeDescriptor, this)
+      return new Descriptor(nativeDescriptor, this)
+    })
   }
 
   /**
    * Write {@link Descriptor} value.
    *
+   * @param {DeviceId} deviceIdentifier {@link Device} identifier (queue key).
    * @param {Identifier} characteristicIdentifier Characteristic identifier
    * @param {UUID} descriptorUUID Descriptor UUID
    * @param {Base64} valueBase64 Value to be set coded in Base64
@@ -1438,6 +1743,7 @@ export class BleManager {
    * @private
    */
   async _writeDescriptorForCharacteristic(
+    deviceIdentifier: DeviceId,
     characteristicIdentifier: Identifier,
     descriptorUUID: UUID,
     valueBase64: Base64,
@@ -1446,15 +1752,23 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeDescriptor = await this._callPromise(
-      BleModule.writeDescriptorForCharacteristic(characteristicIdentifier, descriptorUUID, valueBase64, transactionId)
-    )
-    return new Descriptor(nativeDescriptor, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeDescriptor = await this._callPromise(
+        BleModule.writeDescriptorForCharacteristic(
+          characteristicIdentifier,
+          descriptorUUID,
+          valueBase64,
+          transactionId
+        )
+      )
+      return new Descriptor(nativeDescriptor, this)
+    })
   }
 
   /**
    * Write {@link Descriptor} value.
    *
+   * @param {DeviceId} deviceIdentifier {@link Device} identifier (queue key).
    * @param {Identifier} descriptorIdentifier Descriptor identifier
    * @param {Base64} valueBase64 Value to be set coded in Base64
    * @param {?TransactionId} transactionId Transaction handle used to cancel operation
@@ -1462,6 +1776,7 @@ export class BleManager {
    * @private
    */
   async _writeDescriptor(
+    deviceIdentifier: DeviceId,
     descriptorIdentifier: Identifier,
     valueBase64: Base64,
     transactionId?: TransactionId
@@ -1469,10 +1784,12 @@ export class BleManager {
     if (!transactionId) {
       transactionId = this._nextUniqueID()
     }
-    const nativeDescriptor = await this._callPromise(
-      BleModule.writeDescriptor(descriptorIdentifier, valueBase64, transactionId)
-    )
-    return new Descriptor(nativeDescriptor, this)
+    return this._runForDevice(deviceIdentifier, async () => {
+      const nativeDescriptor = await this._callPromise(
+        BleModule.writeDescriptor(descriptorIdentifier, valueBase64, transactionId)
+      )
+      return new Descriptor(nativeDescriptor, this)
+    })
   }
 
   // Mark: Background Mode (Android) ---------------------------------------------------------------------------------
@@ -1497,13 +1814,12 @@ export class BleManager {
    * @returns {Promise<boolean>} True if background mode was enabled successfully.
    */
   async enableBackgroundMode(options?: BackgroundModeOptions): Promise<boolean> {
-    if (isIOS) {
-      // iOS uses UIBackgroundModes and state restoration instead
+    if (isIOS()) {
+      // iOS uses UIBackgroundModes — native returns whether bluetooth-central is configured (R2-F110).
       console.warn(
         'enableBackgroundMode: iOS uses UIBackgroundModes in Info.plist for background support. ' +
-          'This method is only needed on Android.'
+          'This method is only needed on Android to start a foreground service.'
       )
-      return true
     }
     return this._callPromise(BleModule.enableBackgroundMode(options || null))
   }
@@ -1521,7 +1837,7 @@ export class BleManager {
    * @returns {Promise<boolean>} True if background mode was disabled successfully.
    */
   async disableBackgroundMode(): Promise<boolean> {
-    if (isIOS) {
+    if (isIOS()) {
       return true
     }
     return this._callPromise(BleModule.disableBackgroundMode())
@@ -1544,7 +1860,7 @@ export class BleManager {
    * @returns {Promise<boolean>} True if notification was updated successfully.
    */
   async updateBackgroundNotification(options: BackgroundModeOptions): Promise<boolean> {
-    if (isIOS) {
+    if (isIOS()) {
       return true
     }
     return this._callPromise(BleModule.updateBackgroundNotification(options || null))
@@ -1562,33 +1878,50 @@ export class BleManager {
    * @returns {Promise<boolean>} True if background mode (foreground service) is running.
    */
   async isBackgroundModeEnabled(): Promise<boolean> {
-    if (isIOS) {
-      // On iOS, background mode is always "enabled" if UIBackgroundModes is configured
-      return true
-    }
+    // iOS native reads UIBackgroundModes for bluetooth-central (R2-F110 honesty).
+    // Do not hardcode true — TurboModule/native callers and JS share the same truth.
     return this._callPromise(BleModule.isBackgroundModeEnabled())
   }
 
   /**
    * Honest capability query for the React Native host.
    * Web/Electron use their own manager.supports() with host-specific matrix.
+   *
+   * OS-gated caps are filtered even though the host matrix marks the RN host as
+   * capable — so callers that branch on supports() do not hit OperationNotSupported
+   * (F025/F095/R2-F027):
+   * - Android-only: bonding, connectionPriority, requestMtu, androidForegroundService
+   * - iOS-only: iosStateRestoration
    */
   supports(capability: BleCapability): boolean {
+    if (
+      capability === 'bonding' ||
+      capability === 'connectionPriority' ||
+      capability === 'requestMtu' ||
+      capability === 'androidForegroundService'
+    ) {
+      return Platform.OS === 'android' && supportsCapability(capability, 'react-native')
+    }
+    if (capability === 'iosStateRestoration') {
+      return Platform.OS === 'ios' && supportsCapability(capability, 'react-native')
+    }
     return supportsCapability(capability, 'react-native')
   }
 
   /**
    * Check Android/iOS BLE runtime permissions (no prompt).
+   * Pass `{ neverForLocation: true }` only when the Expo plugin sets neverForLocation.
    */
-  checkBluetoothPermissions(): Promise<PermissionCheckResult> {
-    return checkBluetoothPermissions()
+  checkBluetoothPermissions(options?: BluetoothPermissionOptions): Promise<PermissionCheckResult> {
+    return checkBluetoothPermissions(options)
   }
 
   /**
    * Request Android BLE runtime permissions (iOS no-op grant).
+   * Default requests ACCESS_FINE_LOCATION on API 31+ (plugin neverForLocation default false).
    */
-  requestBluetoothPermissions(): Promise<PermissionCheckResult> {
-    return requestBluetoothPermissions()
+  requestBluetoothPermissions(options?: BluetoothPermissionOptions): Promise<PermissionCheckResult> {
+    return requestBluetoothPermissions(options)
   }
 
   /**
@@ -1638,14 +1971,41 @@ export class BleManager {
     return state as BondState
   }
 
+  /**
+   * List devices currently bonded (paired) with the OS Bluetooth adapter.
+   * **Android only.** iOS has no public bonded list API; Web/Electron return unsupported
+   * unless a Port implements `listBondedDevices` (see {@link PortBleManager#bondedDevices}).
+   */
+  async bondedDevices(): Promise<Array<Device>> {
+    if (!this.supports('bonding') || Platform.OS !== 'android') {
+      return rejectUnsupported(
+        'bondedDevices',
+        Platform.OS === 'ios'
+          ? 'iOS has no bonded-devices list API'
+          : 'bondedDevices requires Android react-native host'
+      )
+    }
+    const nativeDevices = await this._callPromise(BleModule.bondedDevices())
+    return nativeDevices.map(d => new Device(d, this))
+  }
+
   // ---------------------------------------------------------------------------
   // 4.0 parallel bytes path (AsBytes / FromBytes). Existing Base64 methods unchanged.
-  // Interim: edge-convert via encoding helpers until native bytes TurboModule lands.
+  //
+  // INTERIM (F036 / F092 / GAP-GA-PERF): On the React Native host, AsBytes/FromBytes
+  // still cross the 3.x Base64 native bridge:
+  //   FromBytes → bytesToBase64 → BleModule.write*(Base64)
+  //   AsBytes   → BleModule.read/monitor*(Base64) → base64ToBytes
+  // Preferred internal hot path is bytes end-to-end (PortBleManager / Fake already);
+  // native TurboModule ArrayBuffer methods are required before RN matches that.
+  // Source-compatible Base64 public APIs remain the 3.x edge and must not change.
   // ---------------------------------------------------------------------------
 
   /**
    * Read characteristic value as {@link Uint8Array} (parallel to
    * {@link #blemanagerreadcharacteristicfordevice|readCharacteristicForDevice}).
+   *
+   * Interim: decodes Base64 from the native bridge (see class bytes-path note).
    */
   async readCharacteristicForDeviceAsBytes(
     deviceIdentifier: DeviceId,
@@ -1747,6 +2107,68 @@ export class BleManager {
       deviceID: characteristic.deviceID,
       serviceUUID: characteristic.serviceUUID,
       uuid: characteristic.uuid,
+      value
+    }
+  }
+
+  /**
+   * Read descriptor value as {@link Uint8Array} (parallel to
+   * {@link #blemanagerreaddescriptorfordevice|readDescriptorForDevice}).
+   */
+  async readDescriptorForDeviceAsBytes(
+    deviceIdentifier: DeviceId,
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    descriptorUUID: UUID,
+    transactionId?: TransactionId
+  ): Promise<DescriptorAsBytes> {
+    const descriptor = await this.readDescriptorForDevice(
+      deviceIdentifier,
+      serviceUUID,
+      characteristicUUID,
+      descriptorUUID,
+      transactionId
+    )
+    return this._descriptorAsBytes(descriptor)
+  }
+
+  /**
+   * Write descriptor from {@link Uint8Array} (parallel to
+   * {@link #blemanagerwritedescriptorfordevice|writeDescriptorForDevice}).
+   */
+  async writeDescriptorForDeviceFromBytes(
+    deviceIdentifier: DeviceId,
+    serviceUUID: UUID,
+    characteristicUUID: UUID,
+    descriptorUUID: UUID,
+    value: Uint8Array,
+    transactionId?: TransactionId
+  ): Promise<DescriptorAsBytes> {
+    if (!(value instanceof Uint8Array)) {
+      throw new TypeError('writeDescriptorForDeviceFromBytes expects Uint8Array')
+    }
+    const descriptor = await this.writeDescriptorForDevice(
+      deviceIdentifier,
+      serviceUUID,
+      characteristicUUID,
+      descriptorUUID,
+      bytesToBase64(value),
+      transactionId
+    )
+    return this._descriptorAsBytes(descriptor, value)
+  }
+
+  /** @private */
+  _descriptorAsBytes(descriptor: Descriptor, prefer?: Uint8Array): DescriptorAsBytes {
+    let value: Uint8Array | null = prefer ? new Uint8Array(prefer) : null
+    if (value == null && descriptor.value != null) {
+      value = base64ToBytes(descriptor.value)
+    }
+    return {
+      deviceID: descriptor.deviceID,
+      serviceUUID: descriptor.serviceUUID,
+      characteristicUUID: descriptor.characteristicUUID,
+      uuid: descriptor.uuid,
       value
     }
   }

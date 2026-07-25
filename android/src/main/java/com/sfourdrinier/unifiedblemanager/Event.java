@@ -6,7 +6,9 @@ public enum Event {
   ReadEvent("ReadEvent"),
   StateChangeEvent("StateChangeEvent"),
   RestoreStateEvent("RestoreStateEvent"),
-  DisconnectionEvent("DisconnectionEvent");
+  DisconnectionEvent("DisconnectionEvent"),
+  /** GATT DB out of sync — API 31+ BluetoothGattCallback.onServiceChanged */
+  ServicesChangedEvent("ServicesChangedEvent");
 
   public String name;
 

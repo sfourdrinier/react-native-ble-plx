@@ -6,13 +6,16 @@ For more detail:
 
 - [Migration 4.0](../MIGRATION_4.0.md) — **zero-change JS upgrade** + one-time package/Podfile rename
 - [Platforms](./PLATFORMS.md) — honest capability matrix; use `supports()`
-- [Web](./WEB.md) · [Electron](./ELECTRON.md) — multi-host previews
+- [Performance](./PERFORMANCE.md) — dual-path honesty + benchmark harness (GAP-GA-PERF)
+- [Web](./WEB.md) · [Electron](./ELECTRON.md) · [Node](./NODE.md) — multi-host previews
 - [Fork notes](./FORK.md) — platforms, floors (current stable **3.9.2** on `master`)
 - [Expo config plugin](./EXPO_PLUGIN.md) — plugin options and CNG
 - [ConnectionManager](./CONNECTION_MANAGER.md) — retries, auto-reconnect, and `attemptConnectOnce`
 - [Background / iOS restoration](./BACKGROUND.md)
+- [Bonding](./BONDING.md) — Android bond APIs; iOS OS-honest `manager.supports('bonding') === false`
 - [tvOS](./TVOS.md) · [Changelog](../CHANGELOG.md) · [Tutorials](./TUTORIALS.md)
 - Examples: `example/`, `example-expo/`, `example-web/`, `example-electron/`
+- Discovery helpers & Heart Rate profile: [DISCOVERY_AND_PROFILES.md](./DISCOVERY_AND_PROFILES.md)
 
 ### Install and prepare package
 
@@ -62,7 +65,7 @@ First step is to create a `BleManager` instance, the entry point to all APIs. Cr
 #### Ex.1
 
 ```ts
-import { BleManager } from '@sfourdrinier/react-native-ble-plx'
+import { BleManager } from 'unified-ble-manager'
 
 // create your own singleton class
 class BLEServiceInstance {
@@ -79,72 +82,58 @@ export const BLEService = new BLEServiceInstance()
 #### Ex.2
 
 ```ts
-import { BleManager } from '@sfourdrinier/react-native-ble-plx'
+import { BleManager } from 'unified-ble-manager'
 
 export const manager = new BleManager()
 ```
 
+#### Multi-host (optional)
+
+Same dual-path / `supports()` surface; **inject** OS ports for desktop. Full recipes:
+
+| Host | Entry | Docs |
+| ---- | ----- | ---- |
+| Web | `unified-ble-manager/web` | [WEB.md](./WEB.md) — chooser via `requestDevice` after a user gesture |
+| Electron main | `unified-ble-manager/electron` | [ELECTRON.md](./ELECTRON.md) — macOS CoreBluetooth L2, BlueZ partial, WinRT placeholder |
+| Node (headless) | `unified-ble-manager/node` | [NODE.md](./NODE.md) — inject `BlePort` / Fake; `allowMockFallback: false` fail-closed |
+
+```ts
+// Web (chooser — call requestDevice after a user gesture):
+import { BleManager as WebBleManager } from 'unified-ble-manager/web'
+// Electron main (inject BlePort; see docs/ELECTRON.md):
+import { BleManager as ElectronBleManager } from 'unified-ble-manager/electron'
+// Node headless (inject BlePort or allowMockFallback for tests; see docs/NODE.md):
+import { BleManager as NodeBleManager } from 'unified-ble-manager/node'
+```
+
 When you don't need BLE functionality you can destroy the instance with `manager.destroy()`. You can recreate `BleManager` later.
 
-> Note: `BleManager` is a singleton. Constructing again returns the existing instance until `destroy()` is called.
+> Note: `BleManager` is a singleton on the React Native path. Constructing again returns the existing instance until `destroy()` is called.
 
 ### Ask for permissions
 
-On Android, request the permissions your target SDK requires, typically including:
-
-- `PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION` (older Android / scan rules)
-- `PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN` (API 31+)
-- `PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT` (API 31+)
-
-Example:
+Prefer the package helpers (aligned with the Expo plugin default `neverForLocation: false`):
 
 ```js
-import { PermissionsAndroid, Platform } from 'react-native'
+import { requestBluetoothPermissions } from 'unified-ble-manager'
 
-const requestBluetoothPermission = async () => {
-  if (Platform.OS === 'ios') {
-    return true
-  }
-  if (Platform.OS === 'android' && PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION) {
-    const apiLevel = parseInt(Platform.Version.toString(), 10)
-
-    if (apiLevel < 31) {
-      const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION)
-      return granted === PermissionsAndroid.RESULTS.GRANTED
-    }
-    if (PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN && PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT) {
-      const result = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-      ])
-
-      return (
-        result['android.permission.BLUETOOTH_CONNECT'] === PermissionsAndroid.RESULTS.GRANTED &&
-        result['android.permission.BLUETOOTH_SCAN'] === PermissionsAndroid.RESULTS.GRANTED &&
-        result['android.permission.ACCESS_FINE_LOCATION'] === PermissionsAndroid.RESULTS.GRANTED
-      )
-    }
-  }
-
-  console.warn('Bluetooth permissions have not been granted')
-  return false
+// API 31+: requests BLUETOOTH_SCAN + BLUETOOTH_CONNECT + ACCESS_FINE_LOCATION
+// so scan results are usable when the plugin does not set neverForLocation.
+const result = await requestBluetoothPermissions()
+if (!result.granted) {
+  console.warn('Bluetooth permissions have not been granted', result)
+  // result.neverAskAgain is true when the user selected "Don't ask again"
 }
 ```
 
-With the plugin `neverForLocation` flag (and matching manifest flags), you can omit the location permission request on modern Android — test carefully:
+Only pass `{ neverForLocation: true }` when the Expo plugin sets `neverForLocation: true` (manifest `usesPermissionFlags=neverForLocation`) **and** you do not need location-derived scan results:
 
 ```js
-const result = await PermissionsAndroid.requestMultiple([
-  PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-  PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT
-])
-
-return (
-  result['android.permission.BLUETOOTH_CONNECT'] === PermissionsAndroid.RESULTS.GRANTED &&
-  result['android.permission.BLUETOOTH_SCAN'] === PermissionsAndroid.RESULTS.GRANTED
-)
+await requestBluetoothPermissions({ neverForLocation: true })
+// API 31+: SCAN + CONNECT only
 ```
+
+On iOS the helpers report `granted: true` (CoreBluetooth owns the system prompt). Manual `PermissionsAndroid` lists remain valid; the helper is the supported default for 4.0.
 
 ### Waiting for Powered On state
 

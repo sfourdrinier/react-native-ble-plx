@@ -157,12 +157,14 @@ static NSDictionary *NSDictionaryFromConnectionOptions(JS::NativeBlePlx::Connect
 }
 
 - (facebook::react::ModuleConstants<JS::NativeBlePlx::Constants>)getConstants {
+    // Typed Constants mirror NativeBlePlx.ts (including ServicesChangedEvent).
     return facebook::react::typedConstants<JS::NativeBlePlx::Constants>({
         .ScanEvent = [BleEvent scanEvent],
         .ReadEvent = [BleEvent readEvent],
         .StateChangeEvent = [BleEvent stateChangeEvent],
         .RestoreStateEvent = [BleEvent restoreStateEvent],
-        .DisconnectionEvent = [BleEvent disconnectionEvent]
+        .DisconnectionEvent = [BleEvent disconnectionEvent],
+        .ServicesChangedEvent = [BleEvent servicesChangedEvent]
     });
 }
 #else
@@ -725,19 +727,29 @@ RCT_EXPORT_METHOD(writeDescriptor:(double)descriptorIdentifier
 
 // Mark: Background mode -----------------------------------------------------------------------------------------------
 
+/// R2-F110: Honest read of UIBackgroundModes for bluetooth-central.
+static BOOL BlePlxIsBluetoothCentralBackgroundModeConfigured(void) {
+    id modes = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"UIBackgroundModes"];
+    if (![modes isKindOfClass:[NSArray class]]) {
+        return NO;
+    }
+    return [(NSArray *)modes containsObject:@"bluetooth-central"];
+}
+
 #ifdef RCT_NEW_ARCH_ENABLED
 RCT_EXPORT_METHOD(enableBackgroundMode:(JS::NativeBlePlx::BackgroundModeOptions &)options
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
-    // iOS background BLE is configured through UIBackgroundModes and restoration.
-    resolve(@YES);
+    // iOS has no runtime FGS toggle — background BLE is Info.plist UIBackgroundModes.
+    // Do not claim success when bluetooth-central is missing (R2-F110).
+    resolve(@(BlePlxIsBluetoothCentralBackgroundModeConfigured()));
 }
 #else
 RCT_EXPORT_METHOD(enableBackgroundMode:(NSDictionary*)options
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
-    // iOS background BLE is configured through UIBackgroundModes and restoration.
-    resolve(@YES);
+    // iOS has no runtime FGS toggle — background BLE is Info.plist UIBackgroundModes.
+    resolve(@(BlePlxIsBluetoothCentralBackgroundModeConfigured()));
 }
 #endif
 
@@ -765,8 +777,8 @@ RCT_EXPORT_METHOD(updateBackgroundNotification:(NSDictionary*)options
 
 RCT_EXPORT_METHOD(isBackgroundModeEnabled:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
-    // Runtime support depends on the host app Info.plist configuration.
-    resolve(@YES);
+    // Honest: true only when host Info.plist declares bluetooth-central (R2-F110).
+    resolve(@(BlePlxIsBluetoothCentralBackgroundModeConfigured()));
 }
 
 // Mark: Bonding (Android-only surface; iOS is OS-driven) ---------------------------------------------------------------

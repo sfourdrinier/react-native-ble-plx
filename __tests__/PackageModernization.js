@@ -126,7 +126,9 @@ describe('package modernization targets', () => {
       path.join(__dirname, '..', '.github/actions/setup-js-package/action.yml')
     )
     // Node pin lives in the shared composite action
-    expect(setupJsAction).toContain('node-version: 20.19.4')
+    // Default floor remains 20.19.4; input allows matrix override (Node 24 publish line).
+    expect(setupJsAction).toMatch(/default:\s*['"]20\.19\.4['"]/)
+    expect(setupJsAction).toContain('inputs.node-version')
     expect(setupJsAction).toContain('actions/setup-node@v6.4.0')
     expect(ciWorkflow).toContain('uses: ./.github/actions/setup-js-package')
     expect(ciWorkflow).toContain('java-version: 21')
@@ -205,7 +207,8 @@ describe('package modernization targets', () => {
     expect(ciWorkflow).toMatch(/permissions:\s*\n\s*contents:\s*read\s*\n\s*pull-requests:\s*read/)
     // example app deps feed ios-example pod install — include in apple path filter.
     expect(ciWorkflow).toContain("example/package.json")
-    // Package checks always run (no skip-on-unrelated-label if).
+    // JS tests always run (no skip-on-unrelated-label if). Honest name: not "Package checks".
+    expect(ciWorkflow).toMatch(/name:\s*JS tests \(\$\{\{ matrix\.os \}\}/)
     expect(ciWorkflow).not.toMatch(
       /package:\s*\n\s*name: Package checks\s*\n\s*if:[\s\S]*label\.name == 'ci:apple'/
     )
@@ -227,7 +230,40 @@ describe('package modernization targets', () => {
     expect(ciWorkflow).toMatch(/CompatRegression|CodemodBytesPath|DeviceQueueAndLongWrite/)
   })
 
-  test('publish workflow uses tag-triggered OIDC trusted publishing with provenance', () => {
+  test('CI labels Fake electron smoke L1 and gates electron native L2 + web vite', () => {
+    // Honest L1 labeling — not claimed as Electron binary / native radio
+    expect(ciWorkflow).toContain('Electron Fake multi-device demo smoke (L1)')
+    expect(ciWorkflow).toContain('node example-electron/smoke.js')
+    // L2 CoreBluetooth compile + hard requireNative on macOS
+    expect(ciWorkflow).toContain('Electron CoreBluetooth native L2')
+    expect(ciWorkflow).toContain('pnpm run build:electron:macos')
+    expect(ciWorkflow).toContain('requireNative: true')
+    // WinRT fail-closed honesty (GAP-E-WIN-NAPI)
+    expect(ciWorkflow).toContain('GAP-E-WIN-NAPI')
+    expect(ciWorkflow).toContain('createWinRtBlePort')
+    // Web packaging L2 after prepack (shared host-export checker — R2-F097)
+    expect(ciWorkflow).toMatch(/vite build --config example-web\/vite\.config\.js/)
+    expect(ciWorkflow).toContain('scripts/ci/check-host-exports.js')
+    // L2 electron hosts must use compiled CJS, never TypeScript src (R2-F005)
+    expect(ciWorkflow).toContain("require('./lib/commonjs/hosts/electron')")
+    expect(ciWorkflow).not.toMatch(/require\(['"]\.\/src\/hosts\/electron['"]\)/)
+    // Apple filter: live podspec only; electron paths listed for honesty when L2 jobs exist
+    expect(ciWorkflow).toContain('unified-ble-manager.podspec')
+    expect(ciWorkflow).not.toContain('react-native-ble-plx.podspec')
+    expect(ciWorkflow).toContain('native/electron/**')
+    expect(ciWorkflow).toContain('example-electron/**')
+  })
+
+  test('test:package hard-fails on zero tests (no passWithNoTests)', () => {
+    expect(rootPackage.scripts['test:package']).toBe('jest --config jest.config.js')
+    expect(rootPackage.scripts['test:package']).not.toContain('passWithNoTests')
+    // Combined test suite does not vacuous-pass on empty example tests
+    expect(rootPackage.scripts.test).toBe('pnpm test:package')
+    // R2-F117: no dead example test script (classic example has zero tests)
+    expect(rootPackage.scripts).not.toHaveProperty('test:example')
+  })
+
+  test('publish workflow uses tag-triggered OIDC dual-package trusted publishing with provenance', () => {
     const publishWorkflowPath = path.join(__dirname, '..', '.github/workflows/publish.yml')
     expect(fs.existsSync(publishWorkflowPath)).toBe(true)
     const publishWorkflow = readText(publishWorkflowPath)
@@ -245,6 +281,21 @@ describe('package modernization targets', () => {
     expect(publishWorkflow).toContain('pnpm prepack')
     expect(publishWorkflow).toContain('npm pack --dry-run')
     expect(publishWorkflow).toContain('npm publish --provenance --access public')
+    // Dual identity: canonical + shim (never publish old name alone as product root)
+    expect(publishWorkflow).toContain('npm view "unified-ble-manager@${VER}"')
+    expect(publishWorkflow).toContain('npm view "@sfourdrinier/react-native-ble-plx@${VER}"')
+    expect(publishWorkflow).toContain('prepare-shim-pack.js')
+    expect(publishWorkflow).toContain('Publish unified-ble-manager')
+    expect(publishWorkflow).toContain('@sfourdrinier/react-native-ble-plx shim')
+    expect(publishWorkflow).toMatch(/unified-ble-manager@\$\{VER\}/)
+    expect(publishWorkflow).toMatch(/@sfourdrinier\/react-native-ble-plx@\$\{VER\}/)
+    // GA gates beyond Ubuntu Jest alone (aligned with verify-release)
+    expect(publishWorkflow).toContain('Electron Fake multi-device demo smoke (L1)')
+    expect(publishWorkflow).toContain('node example-electron/smoke.js')
+    expect(publishWorkflow).toContain('scripts/ci/check-host-exports.js')
+    expect(publishWorkflow).toMatch(/vite build --config example-web\/vite\.config\.js/)
+    expect(publishWorkflow).toContain('Assemble classic RN Android debug APK')
+    expect(publishWorkflow).toContain('Assemble Expo CNG Android debug APK')
     expect(publishWorkflow).toContain('Create GitHub Release')
     expect(publishWorkflow).toContain('gh release create')
     expect(publishWorkflow).toContain('contents: write')
@@ -267,6 +318,11 @@ describe('package modernization targets', () => {
     expect(releaseDoc).toContain('npm publish --access public')
     expect(releaseDoc).toContain('gh release create')
     expect(releaseDoc).toContain('Prefer **Path A (CI)**')
+    // 4.0 product identity
+    expect(releaseDoc).toContain('unified-ble-manager')
+    expect(releaseDoc).toContain('unified-ble-manager.podspec')
+    expect(releaseDoc).not.toContain('react-native-ble-plx.podspec')
+    expect(releaseDoc).toContain('prepare-shim-pack.js')
   })
 
   test('Dependabot keeps GitHub Actions and package ecosystems current', () => {
@@ -334,6 +390,17 @@ describe('package modernization targets', () => {
     expect(releaseVerifyScript).toContain('npx expo prebuild --clean --no-install')
     expect(releaseVerifyScript).toContain('./gradlew :app:assembleDebug --no-daemon --console=plain')
     expect(releaseVerifyScript).toContain('npm pack --dry-run')
+    // Multi-host 4.0 gate: electron L1, host exports (shared checker), dual pack
+    expect(releaseVerifyScript).toContain('node example-electron/smoke.js')
+    expect(releaseVerifyScript).toContain('scripts/ci/check-host-exports.js')
+    expect(releaseVerifyScript).toContain("require('./lib/commonjs/hosts/electron')")
+    expect(releaseVerifyScript).toContain('prepare-shim-pack.js')
+    expect(releaseVerifyScript).toContain('VERIFY_RELEASE_SKIP_CLASSIC_ANDROID')
+    expect(releaseDoc).toContain('node example-electron/smoke.js')
+    expect(releaseDoc).toContain('./web')
+    expect(releaseDoc).toContain('./electron')
+    expect(releaseDoc).toContain('./node')
+    expect(releaseDoc).toContain('native/')
   })
 
   test('example apps use Expo SDK 57 and React Native 0.86 defaults', () => {
@@ -363,6 +430,12 @@ describe('package modernization targets', () => {
     expect(exampleExpoPackage.devDependencies).not.toHaveProperty('prettier')
     expect(examplePackage.dependencies['unified-ble-manager']).toBe('file:..')
     expect(exampleExpoPackage.dependencies['unified-ble-manager']).toBe('file:..')
+    // R2-F007: committed Expo lock must pin unified-ble-manager (not stale scoped library dep)
+    const expoLock = fs.readFileSync(path.join(__dirname, '..', 'example-expo/pnpm-lock.yaml'), 'utf8')
+    expect(expoLock).toMatch(/unified-ble-manager/)
+    expect(expoLock).not.toMatch(
+      /importers:[\s\S]*?['"]@sfourdrinier\/react-native-ble-plx['"]:\s*\n\s+specifier:\s*file:\.\./
+    )
     expect(rangeAllowsMajor(examplePackage.devDependencies['@react-native-community/cli'], 20)).toBe(true)
     expect(rangeAllowsMajor(examplePackage.devDependencies['@react-native-community/cli-platform-android'], 20)).toBe(
       true
@@ -428,6 +501,35 @@ describe('package modernization targets', () => {
         androidEnableForegroundService: true
       }
     ])
+  })
+
+  test('example-expo lock pins unified-ble-manager (not scoped 3.x identity) (R2-F007)', () => {
+    const lockPath = path.join(__dirname, '..', 'example-expo/pnpm-lock.yaml')
+    const lock = readText(lockPath)
+    // Importer dependency must match package.json Path A product name
+    expect(lock).toMatch(/unified-ble-manager:\s*\n\s+specifier:\s+file:\.\./)
+    expect(lock).toContain('unified-ble-manager@file:..')
+    // Must not still pin the pre-4.0 scoped library as the example's file:.. dependency
+    expect(lock).not.toMatch(
+      /importers:[\s\S]*?^  \.:[\s\S]*?['"]@sfourdrinier\/react-native-ble-plx['"]:\s*\n\s+specifier:\s+file:\.\./m
+    )
+    expect(exampleExpoPackage.dependencies['unified-ble-manager']).toBe('file:..')
+    expect(exampleExpoPackage.dependencies).not.toHaveProperty('@sfourdrinier/react-native-ble-plx')
+  })
+
+  test('react / react-native peers are optional for multi-host installs (R2-F043)', () => {
+    expect(rootPackage.peerDependencies.react).toBe('*')
+    expect(rootPackage.peerDependencies['react-native']).toBe('>=0.86.0')
+    expect(rootPackage.peerDependenciesMeta?.react?.optional).toBe(true)
+    expect(rootPackage.peerDependenciesMeta?.['react-native']?.optional).toBe(true)
+
+    const shimPackage = JSON.parse(
+      fs.readFileSync(path.join(__dirname, '..', 'packages/react-native-ble-plx-shim/package.json'), 'utf8')
+    )
+    expect(shimPackage.peerDependencies.react).toBe('*')
+    expect(shimPackage.peerDependencies['react-native']).toBe('>=0.86.0')
+    expect(shimPackage.peerDependenciesMeta?.react?.optional).toBe(true)
+    expect(shimPackage.peerDependenciesMeta?.['react-native']?.optional).toBe(true)
   })
 
   test('native module is accessed through the React Native codegen TurboModule spec', () => {
@@ -516,7 +618,7 @@ describe('package modernization targets', () => {
 
     expect(gettingStartedDoc).toMatch(/@sfourdrinier\/react-native-ble-plx|unified-ble-manager/)
     expect(gettingStartedDoc).toMatch(/EXPO_PLUGIN\.md/)
-    expect(gettingStartedDoc).toContain('const requestBluetoothPermission')
+    expect(gettingStartedDoc).toContain('requestBluetoothPermissions')
     expect(gettingStartedDoc).not.toContain('github.com/dotintent/react-native-ble-plx?tab=readme-ov-file#expo-sdk-43')
     expect(gettingStartedDoc).not.toContain('withintent.com')
 

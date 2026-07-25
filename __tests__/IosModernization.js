@@ -111,7 +111,9 @@ describe('iOS modernization defaults', () => {
       'getConstants',
       'facebook::react::typedConstants<JS::NativeBlePlx::Constants>',
       '[BleEvent scanEvent]',
-      '[BleEvent disconnectionEvent]'
+      '[BleEvent disconnectionEvent]',
+      '[BleEvent servicesChangedEvent]',
+      '.ServicesChangedEvent = [BleEvent servicesChangedEvent]'
     ]
 
     expect(hasBondStubs).toBe(true)

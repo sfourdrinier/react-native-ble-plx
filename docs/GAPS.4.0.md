@@ -58,19 +58,21 @@ Do **not** re-open these as greenfield unless regressions appear.
 | Area | State |
 | ---- | ----- |
 | Identity `unified-ble-manager` (npm/pod/Android ns) | Done |
-| Dual path Base64 + AsBytes/FromBytes | Done (TS + tests) |
+| Dual path Base64 + AsBytes/FromBytes | Done (TS + tests). **RN interim (F092):** public `*AsBytes`/`*FromBytes` still cross the 3.x **Base64 native bridge** (`bytesToBase64`/`base64ToBytes` at the JS edge). Prefer single encode on write (`prefer` bytes on return avoids re-decode). Full native ArrayBuffer TurboModule is **not** shipped — do not claim zero-copy RN bytes. Port hosts (Electron/Web/Fake) are bytes end-to-end. |
 | `BlePort` / Fake / `PortBleManager` | Done |
 | `/web`, `/electron`, `/node` exports | Done |
 | Owned Android Kotlin default (no RxAndroidBle) | Done (compile CI) |
 | Owned iOS Swift CoreBluetooth default (no MBA runtime) | Done (compile CI) |
-| BlueZ `BluezBlePort` + mock D-Bus contracts | Done (Linux path) |
-| `supports()` fail-closed honesty | Done (RN queue/services/longWrite **false** until wired) |
+| BlueZ `BluezBlePort` + mock D-Bus contracts | Done (Linux path; L4 lab open) |
+| `supports()` fail-closed honesty | Done (RN queue/services/longWrite **true** — GAP-RN-Q/SC/LW wired L1–L2) |
 | Compat regression + optional codemod (reads) | Done |
-| Phase-2 **TS** queue / long-write / `onServicesReset` on **PortBleManager only** | Done |
-| CI: package Ubuntu/Windows/macOS; Expo + classic Android; Apple iOS/Expo/tvOS | Done on tip |
-| Win/mac Electron **native radio** | **Placeholders only** |
-| RN `BleManager` queue / services-changed / long-write | **Not wired** |
+| Phase-2 queue / long-write / `onServicesReset` | Done on **RN `BleManager`** + `PortBleManager` (port hosts: services-changed is software/listener API until OS bridge) |
+| CI: package Ubuntu/Windows/macOS; Expo + classic Android; Apple iOS/Expo/tvOS | Done on tip (Jest + Linux prepack/smoke). **Electron L2** on macOS/Windows uses `pnpm prepack` + `require('./lib/commonjs/hosts/electron')` (not raw `src/*.ts`). Residual: Electron **binary**/ABI rebuild L3 (`GAP-E-MAC-CI` / `GAP-CI-*`) and BlueZ system D-Bus probe still open. |
+| Electron **native radio** | **macOS:** full CoreBluetooth BlePort **done (L2 software)** — not “still open”; L4 live Polar lab open (`GAP-E-MAC-LAB`) · **Win:** WinRT placeholder · **Linux:** BlueZ contracts (not full L4) · Fake = CI/tests only |
+| RN `BleManager` queue / services-changed / long-write | **Wired** (GAP-RN-Q/LW/SC) + iOS/Android native `ServicesChangedEvent` |
 | Device lab L4/L5 | **Not done** |
+
+**Rule:** When a PR flips `supports()` or marks a GAP done, update this baseline table in the **same** PR.
 
 ---
 
@@ -106,25 +108,26 @@ Mac workstation owns **M2 + M3** first after M0/M1 (M1 is pure TS and can run on
 | ID | Title | Missing work | Proof | Primary machine |
 | -- | ----- | ------------ | ----- | --------------- |
 | **GAP-TRACK** | Living backlog + milestones | Keep this file + GitHub milestone/issues in sync; close issues only when proof levels met | L0 | Any |
-| **GAP-CI-MAC** | Mac-first CI matrix | Ensure every Mac-touching PR triggers Apple + package macos; optional Electron macOS addon build job | L2 | Actions + Mac |
-| **GAP-CI-WIN** | Windows Electron native build job | windows-latest builds WinRT addon (even if no radio) | L2 | Actions |
-| **GAP-CI-LIN** | Linux BlueZ optional system probe job | Optional real D-Bus probe without failing when no adapter | L2–L3 | Actions |
+| **GAP-CI-MAC** | Mac-first CI matrix | **partial** — package macos + Electron CoreBluetooth L2 (`build:electron:macos` + lib requireNative). Residual: Electron binary/ABI L3, Apple path gates | L2 partial | Actions + Mac |
+| **GAP-CI-WIN** | Windows Electron native build job | **partial (fail-closed)** — package windows + WinRT `requireNative` throws until GAP-E-WIN-NAPI; no real WinRT addon compile yet | L2 fail-closed | Actions |
+| **GAP-CI-LIN** | Linux BlueZ optional system probe job | **open (mock only)** — BlueZ covered by mock-bus Jest; no system D-Bus / adapter soft-probe | L2–L3 open | Actions |
 
 #### React Native — wire Phase-2 to `BleManager` (unlocks honest `supports()`)
 
 | ID | Title | Missing work | Proof | Primary machine |
 | -- | ----- | ------------ | ----- | --------------- |
-| **GAP-RN-Q** | Per-device op queue on RN path | Integrate `DeviceOperationQueue` (or native equivalent) into `BleManager` GATT ops; flip `supports('deviceOperationQueue')` for RN | L1 | Any |
-| **GAP-RN-SC** | Services Changed / onServicesReset on RN | JS subscription API on `BleManager`; native ATT Services Changed → event on iOS + Android owned radios; flip `supports('servicesChanged')` | L1–L4 | Mac (iOS) + Android device |
-| **GAP-RN-LW** | Long-write on RN `BleManager` | Public long-write methods using `writeLongCharacteristicFromBytes` + native chunk/prepare where required; flip `supports('longWrite')` | L1–L4 | Any + devices |
+| **GAP-RN-Q** | Per-device op queue on RN path | **done (L1)** — `DeviceOperationQueue` on `BleManager`; `supports('deviceOperationQueue')` true | L1 | Any |
+| **GAP-RN-SC** | Services Changed / onServicesReset on RN | **done (L1–L2)** — JS `onServicesReset` + native `ServicesChangedEvent` (iOS `didModifyServices`, Android API 31+ `onServiceChanged`); L4 lab still open | L1–L2 done; L4 open | Mac (iOS) + Android device |
+| **GAP-RN-LW** | Long-write on RN `BleManager` | **done (L1)** — `writeLongCharacteristicForDeviceFromBytes`; `supports('longWrite')` true; L4 device lab open | L1 done; L4 open | Any + devices |
+| **GAP-RN-BYTES** | Native bytes TurboModule on RN | **open (interim Base64 edge)** — AsBytes/FromBytes API shipped but still encode/decode at BleModule; long-write encodes once per chunk. Native ArrayBuffer methods = follow-up (F092 / GAP-GA-PERF) | L1 API done; native bytes open | Any + RN |
 
 #### Owned iOS CoreBluetooth (RN) — depth beyond compile
 
 | ID | Title | Missing work | Proof | Primary machine |
 | -- | ----- | ------------ | ----- | --------------- |
-| **GAP-IOS-PARITY** | BleAdapter surface completeness | Audit vs `BleAdapter.swift` / 3.9 behavior: descriptors R/W, cancelTransaction, MTU honesty (CB limit), RSSI (done), errors, identifiers | L1–L2 | Mac |
-| **GAP-IOS-DESC** | Descriptors full path | Implement real descriptor read/write/discover if still empty stubs | L1–L4 | Mac + peripheral |
-| **GAP-IOS-RESTORE** | State restoration end-to-end | Owned path + Restoration subspec: willRestoreState, getRestoredState, ConnectionManager handoff; kill/relaunch lab | L2 + **L5** | Mac + device |
+| **GAP-IOS-PARITY** | BleAdapter surface completeness | Audit vs `BleAdapter.swift` / 3.9 behavior: descriptors R/W, cancelTransaction, **MTU report-only** (`maximumWriteValueLength+3`; `requestMTUForDevice` cannot negotiate on iOS — F080), RSSI (done), errors, identifiers | L1–L2 | Mac |
+| **GAP-IOS-DESC** | Descriptors full path | **done (L2 software)** — owned path discoverDescriptors + R/W; L4 device lab open | L2 done; L4 open | Mac + peripheral |
+| **GAP-IOS-RESTORE** | State restoration end-to-end | **partial (L2)** — owned `willRestoreState` emits restore payload; Restoration subspec + L5 kill/relaunch lab still open | L2 partial; L5 open | Mac + device |
 | **GAP-IOS-BG** | Background modes matrix | Document + example + plugin options; lab checklist rows for background central | L0 + L5 | Mac + device |
 | **GAP-IOS-TVOS** | tvOS product path | Beyond typecheck: example or library smoke; capability honesty | L2–L3 | Mac |
 
@@ -142,11 +145,11 @@ Mac workstation owns **M2 + M3** first after M0/M1 (M1 is pure TS and can run on
 
 | ID | Title | Missing work | Proof | Primary machine |
 | -- | ----- | ------------ | ----- | --------------- |
-| **GAP-E-MAC-SPEC** | Design note: Electron CB vs RN CB | ADR: process model, IPC, entitlements, not sharing iOS RN binary | L0 | Mac |
-| **GAP-E-MAC-NAPI** | Node-API / native module scaffold | Package under `native/electron/corebluetooth` that **builds** on macOS (Xcode); load from `createCoreBluetoothBlePort({ requireNative: true })` | L2 | Mac + Actions macos |
-| **GAP-E-MAC-PORT** | `CoreBluetoothBlePort` real implementation | BlePort: scan, connect, discover, R/W, notify, disconnect, adapter state | L1 mocks + L2 + **L4** | Mac |
-| **GAP-E-MAC-PKG** | Packaging & electron-rebuild | Document install; optionalDependency or postinstall; example-electron mac path | L2–L3 | Mac |
-| **GAP-E-MAC-CI** | CI job builds addon | macos-latest compiles addon; package tests still use Fake when no radio | L2 | Actions |
+| **GAP-E-MAC-SPEC** | Design note: Electron CB vs RN CB | **done (L0)** — `docs/ADR/2026-07-4.0-electron-macos-corebluetooth.md` | L0 | Mac |
+| **GAP-E-MAC-NAPI** | Node-API / native module scaffold | **done (L2)** — builds on darwin | L2 | Mac |
+| **GAP-E-MAC-PORT** | `CoreBluetoothBlePort` real implementation | **done (L2 software)** — full BlePort wrap in `native/electron/corebluetooth` (scan/connect/discover/R/W/notify/disconnect/adapter state); live Polar via `example-electron/live-polar.js`. **L4 deferred to GAP-E-MAC-LAB** (do not re-open this ID for lab) | L2 done; L4 → GAP-E-MAC-LAB | Mac |
+| **GAP-E-MAC-PKG** | Packaging & electron-rebuild | **done (L0 docs)** — `docs/ELECTRON.md` install steps: `build:electron:macos` (node-gyp / Node ABI) + `npx @electron/rebuild` (Electron ABI), entitlements, Fake CI-only, no silent postinstall. Residual optionalDependency/postinstall automation deferred (explicit rebuild is supported path) | L0 done; optional auto-build later | Mac |
+| **GAP-E-MAC-CI** | CI job builds addon | **partial (L2 software)** — macos-latest runs `build:electron:macos` + `require('./lib/commonjs/hosts/electron')` requireNative after prepack. Residual: Electron ABI/`@electron/rebuild` + main-process binary load (L3) | L2 partial | Actions |
 | **GAP-E-MAC-LAB** | Polar/H10 vertical slice on Mac Electron | Document steps; capture log under lab notes | **L4** | Mac + BLE adapter |
 
 #### Electron — Windows WinRT
@@ -184,7 +187,7 @@ Mac workstation owns **M2 + M3** first after M0/M1 (M1 is pure TS and can run on
 | -- | ----- | ------------ | ----- | --------------- |
 | **GAP-B1** | L2CAP CoC | API + iOS/Android (and desktop if feasible) | L1–L4 | Mac + Android |
 | **GAP-B2** | Android preferred PHY | API + owned radio | L1–L4 | Android |
-| **GAP-B3** | Long-write helpers (complete) | Overlaps GAP-RN-LW; ensure docs + all hosts | L1–L4 | Any |
+| **GAP-B3** | Long-write helpers (complete) | **open** — overlaps **GAP-RN-LW** (RN L1 done) + port hosts; close when docs + all hosts have complete long-write proof (or fold residual into GAP-GA-PERF with explicit close rules). L4 device lab still open | L1–L4 | Any |
 | **GAP-B4** | Global multi-device events | JS API + native where needed | L1–L3 | Any |
 | **GAP-B5** | React hooks | `useBleManager` / connection hooks | L1 | Any |
 | **GAP-B6** | Peripheral mode | **Lower priority** — only after GA unless escalated | L0+ | Later |
@@ -204,7 +207,7 @@ Mac workstation owns **M2 + M3** first after M0/M1 (M1 is pure TS and can run on
 | -- | ----- | ------------ | ----- | --------------- |
 | **GAP-GA-COMPAT** | Compat suite required + expanded | 3.x golden patterns complete; CI required | L1 | Actions |
 | **GAP-GA-CODEMOD** | Codemod v1 | Safe write transforms (bytes args) or explicit docs that writes stay manual | L1 | Any |
-| **GAP-GA-PERF** | Benchmark table in docs | Base64 vs bytes numbers (harness + optional device) | L1 (+ L4 optional) | Any / devices |
+| **GAP-GA-PERF** | Benchmark table in docs + **RN native bytes path** | RN `AsBytes`/`FromBytes`/long-write still edge-convert via Base64 native bridge (F036/F092); need TurboModule ArrayBuffer methods + Base64≤3.8 / bytes-better numbers (harness + optional device). Port hosts already bytes-internal. | L1 (+ L4 optional) | Any / devices |
 | **GAP-GA-DOCS** | GETTING_STARTED / MIGRATION final | Zero-change + bytes opt-in everywhere | L0 | Any |
 | **GAP-GA-LEGACY** | Legacy Rx/MBA unreachable | Confirm default path forever; archive policy | L1–L2 | Actions |
 | **GAP-GA-BETA** | `4.0.0-beta.x` soak | Version, changelog, freeze new API | L0–L2 | Any |
@@ -284,7 +287,7 @@ Do **not** reuse `ios/Owned/OwnedCoreBluetoothAdapter.swift` as an RN TurboModul
    - `package.json` / build script: `npm run build:electron:macos`  
    - Output: loadable `.node` or equivalent next to `native/electron/corebluetooth/`  
 3. **GAP-E-MAC-PORT** — implement BlePort methods; unit-test pure glue; integration with mock CB if feasible; else L3 smoke without peripheral.  
-4. **GAP-E-MAC-PKG** — `createCoreBluetoothBlePort` loads real addon; Fake only when `allowMockFallback`.  
+4. **GAP-E-MAC-PKG** — **done (L0 docs)** — install + `@electron/rebuild` + entitlements in `docs/ELECTRON.md`; Fake only for CI/`allowMockFallback`.  
 5. **GAP-E-MAC-CI** — macos-latest builds addon (may skip radio).  
 6. **GAP-E-MAC-LAB** — Polar H10: scan → connect → discover → HR notify; store log in issue or `docs/lab/`.
 
@@ -349,10 +352,16 @@ Prefer **Xcode** for OwnedCoreBluetooth debugging and Restoration.
 ### 5.3 Electron macOS
 
 ```bash
-# after GAP-E-MAC-NAPI lands:
-pnpm run build:electron:macos   # to be added
-node example-electron/main.js   # with real port injection
+pnpm run build:electron:macos   # native/electron/corebluetooth Node-API addon (Node ABI)
+pnpm prepack                    # package lib/ for host require
+# For Electron main (not bare Node), rebuild against Electron ABI — see docs/ELECTRON.md:
+#   npx --yes @electron/rebuild -f -w native/electron/corebluetooth
+pnpm run example:electron          # shared UI window (Fake only when .node absent / ELECTRON_BLE_FAKE=1)
+pnpm run example:electron:live     # headless live Polar CLI (Node ABI + live-polar.js)
+pnpm run example:electron:ui:live  # Electron UI + @electron/rebuild + ELECTRON_BLE_REQUIRE_NATIVE=1
 ```
+
+Fake is **CI / smoke / explicit fallback only** — not production radio. Full packaging + entitlements: [ELECTRON.md](./ELECTRON.md).
 
 ### 5.4 Lab
 
@@ -442,9 +451,10 @@ Create **one GitHub Issue per row** below (plus optional epic parents).
 | 2 | GAP-CI-MAC | CI: Mac-first Apple + Electron macOS addon build jobs |
 | 3 | GAP-CI-WIN | CI: Windows Electron WinRT addon compile job |
 | 4 | GAP-CI-LIN | CI: optional Linux BlueZ system probe |
-| 5 | GAP-RN-Q | RN: wire DeviceOperationQueue into BleManager |
-| 6 | GAP-RN-SC | RN: Services Changed / onServicesReset (JS + native) |
-| 7 | GAP-RN-LW | RN: long-write APIs on BleManager |
+| 5 | GAP-RN-Q | RN: wire DeviceOperationQueue into BleManager (**done L1** — keep issue for audit/close) |
+| 6 | GAP-RN-SC | RN: Services Changed / onServicesReset (JS + native) (**done L1–L2**; L4 lab open) |
+| 7 | GAP-RN-LW | RN: long-write APIs on BleManager (**done L1**; L4 lab open) |
+| 7a | GAP-RN-BYTES | RN: native TurboModule ArrayBuffer bytes path (**open** — interim Base64 edge; F092 / GAP-GA-PERF) |
 | 8 | GAP-IOS-PARITY | iOS owned CoreBluetooth: BleAdapter parity audit + fixes |
 | 9 | GAP-IOS-DESC | iOS owned: full descriptor R/W path |
 | 10 | GAP-IOS-RESTORE | iOS: state restoration E2E on owned path |
@@ -477,6 +487,7 @@ Create **one GitHub Issue per row** below (plus optional epic parents).
 | 37 | GAP-WEB-SEC | Web: secure context / error mapping docs |
 | 38 | GAP-B1 | L2CAP CoC |
 | 39 | GAP-B2 | Android preferred PHY |
+| 39a | GAP-B3 | Long-write helpers complete across hosts (**open**; fold residual with GAP-RN-LW / GAP-GA-PERF when closing) |
 | 40 | GAP-B4 | Global multi-device events |
 | 41 | GAP-B5 | React hooks |
 | 42 | GAP-B6 | Peripheral mode (lower priority) |
@@ -512,12 +523,12 @@ Optional **epic issues** (parent tracking only):
 | Order | GAP IDs | Why |
 | ----- | ------- | --- |
 | 1 | GAP-TRACK, labels, milestone | Tracking works before code flood |
-| 2 | GAP-RN-Q, GAP-RN-LW | Fast TS wins; unblocks honesty matrix |
-| 3 | GAP-E-MAC-SPEC → NAPI → PORT → PKG → CI → LAB | Full Electron Mac |
-| 4 | GAP-IOS-PARITY → DESC → RESTORE → LAB-IOS | Full RN iOS |
-| 5 | GAP-RN-SC (needs native) | Services changed with real radios |
-| 6 | GAP-AND-* + LAB-AND | Android (Linux CI + device; Mac optional) |
-| 7 | GAP-E-WIN-* | Windows machine or remote |
+| 2 | GAP-RN-BYTES, labs for Q/LW/SC | **GAP-RN-Q / GAP-RN-LW / GAP-RN-SC are done (L1–L2)** — next TS work is native bytes + L4 labs, not re-wiring queue/long-write |
+| 3 | GAP-E-MAC-CI → LAB (PORT/PKG software done L2) | Electron Mac L2 software landed; finish CI lib require + L4 Polar |
+| 4 | GAP-IOS-PARITY → RESTORE cold-null → LAB-IOS | Full RN iOS depth |
+| 5 | GAP-AND-* + LAB-AND | Android (Linux CI + device; Mac optional) |
+| 6 | GAP-E-WIN-* | Windows machine or remote |
+| 7 | GAP-B3 residual / GAP-GA-PERF | Long-write completeness + RN ArrayBuffer + benchmark table |
 | 8 | GAP-E-LIN-* | Linux host with BlueZ |
 | 9 | GAP-WEB-*, GAP-B*, GAP-GA-* | Finish GA |
 | 10 | GAP-4X-* | After GA |
@@ -591,9 +602,10 @@ Filter: `is:issue milestone:"4.0.0 complete" label:gap`
 | [#44](https://github.com/sfourdrinier/react-native-ble-plx/issues/44) | GAP-CI-MAC |
 | [#45](https://github.com/sfourdrinier/react-native-ble-plx/issues/45) | GAP-CI-WIN |
 | [#46](https://github.com/sfourdrinier/react-native-ble-plx/issues/46) | GAP-CI-LIN |
-| [#47](https://github.com/sfourdrinier/react-native-ble-plx/issues/47) | GAP-RN-Q |
-| [#48](https://github.com/sfourdrinier/react-native-ble-plx/issues/48) | GAP-RN-SC |
-| [#49](https://github.com/sfourdrinier/react-native-ble-plx/issues/49) | GAP-RN-LW |
+| [#47](https://github.com/sfourdrinier/react-native-ble-plx/issues/47) | GAP-RN-Q (**done L1** in catalog) |
+| [#48](https://github.com/sfourdrinier/react-native-ble-plx/issues/48) | GAP-RN-SC (**done L1–L2** in catalog; L4 open) |
+| [#49](https://github.com/sfourdrinier/react-native-ble-plx/issues/49) | GAP-RN-LW (**done L1** in catalog; L4 open) |
+| catalog / file under GA | **GAP-RN-BYTES** — native ArrayBuffer TurboModule (**open**; track with [#91](https://github.com/sfourdrinier/react-native-ble-plx/issues/91) GAP-GA-PERF until a dedicated issue exists) |
 | [#50](https://github.com/sfourdrinier/react-native-ble-plx/issues/50) | GAP-IOS-PARITY |
 | [#51](https://github.com/sfourdrinier/react-native-ble-plx/issues/51) | GAP-IOS-DESC |
 | [#52](https://github.com/sfourdrinier/react-native-ble-plx/issues/52) | GAP-IOS-RESTORE |
@@ -626,6 +638,7 @@ Filter: `is:issue milestone:"4.0.0 complete" label:gap`
 | [#79](https://github.com/sfourdrinier/react-native-ble-plx/issues/79) | GAP-WEB-SEC |
 | [#80](https://github.com/sfourdrinier/react-native-ble-plx/issues/80) | GAP-B1 |
 | [#81](https://github.com/sfourdrinier/react-native-ble-plx/issues/81) | GAP-B2 |
+| catalog / fold | **GAP-B3** — long-write complete across hosts (**open**; residual with GAP-RN-LW [#49](https://github.com/sfourdrinier/react-native-ble-plx/issues/49) + GAP-GA-PERF [#91](https://github.com/sfourdrinier/react-native-ble-plx/issues/91) until dedicated issue) |
 | [#82](https://github.com/sfourdrinier/react-native-ble-plx/issues/82) | GAP-B4 |
 | [#83](https://github.com/sfourdrinier/react-native-ble-plx/issues/83) | GAP-B5 |
 | [#84](https://github.com/sfourdrinier/react-native-ble-plx/issues/84) | GAP-B6 |
@@ -647,9 +660,10 @@ Filter: `is:issue milestone:"4.0.0 complete" label:gap`
 ### Mac-first start (recommended first issues on the Mac)
 
 1. [#43](https://github.com/sfourdrinier/react-native-ble-plx/issues/43) GAP-TRACK (process)  
-2. [#47](https://github.com/sfourdrinier/react-native-ble-plx/issues/47) / [#49](https://github.com/sfourdrinier/react-native-ble-plx/issues/49) RN queue + long-write (any machine)  
-3. Epic [#38](https://github.com/sfourdrinier/react-native-ble-plx/issues/38) → [#60](https://github.com/sfourdrinier/react-native-ble-plx/issues/60)–[#65](https://github.com/sfourdrinier/react-native-ble-plx/issues/65) Electron Mac  
-4. Epic [#39](https://github.com/sfourdrinier/react-native-ble-plx/issues/39) → [#50](https://github.com/sfourdrinier/react-native-ble-plx/issues/50)–[#54](https://github.com/sfourdrinier/react-native-ble-plx/issues/54), [#86](https://github.com/sfourdrinier/react-native-ble-plx/issues/86) iOS  
+2. **GAP-RN-BYTES** / [#91](https://github.com/sfourdrinier/react-native-ble-plx/issues/91) GAP-GA-PERF (native ArrayBuffer + perf table) — **not** GAP-RN-Q/LW (already **done L1** in catalog)  
+3. Epic [#38](https://github.com/sfourdrinier/react-native-ble-plx/issues/38) → finish [#64](https://github.com/sfourdrinier/react-native-ble-plx/issues/64) GAP-E-MAC-CI (lib-based L2) + [#65](https://github.com/sfourdrinier/react-native-ble-plx/issues/65) GAP-E-MAC-LAB (PORT/PKG software already L2 done)  
+4. Epic [#39](https://github.com/sfourdrinier/react-native-ble-plx/issues/39) → [#50](https://github.com/sfourdrinier/react-native-ble-plx/issues/50)–[#54](https://github.com/sfourdrinier/react-native-ble-plx/issues/54), [#86](https://github.com/sfourdrinier/react-native-ble-plx/issues/86) iOS (parity, restore cold-null, L5 lab)  
+
 
 ---
 

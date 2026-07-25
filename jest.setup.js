@@ -4,7 +4,8 @@ const nativeBlePlx = {
     ReadEvent: 'read_event',
     StateChangeEvent: 'state_change_event',
     RestoreStateEvent: 'restore_state_event',
-    DisconnectionEvent: 'disconnection_event'
+    DisconnectionEvent: 'disconnection_event',
+    ServicesChangedEvent: 'services_changed_event'
   })
 }
 

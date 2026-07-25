@@ -14,8 +14,11 @@ import { FakeBlePort } from '../port/BlePort'
 import { PortBleManager } from '../port/PortBleManager'
 import { supports as supportsCapability, type BleCapability } from '../supports'
 import { BluezBlePort, BLUEZ_RADIO_ID, isBluezAvailable } from './native/bluez/BluezBlePort'
-import { createWinRtBlePort } from './native/winrt/WinRtBlePort'
-import { createCoreBluetoothBlePort } from './native/corebluetooth/CoreBluetoothBlePort'
+import { createWinRtBlePort, WINRT_RADIO_ID } from './native/winrt/WinRtBlePort'
+import {
+  createCoreBluetoothBlePort,
+  COREBLUETOOTH_RADIO_ID
+} from './native/corebluetooth/CoreBluetoothBlePort'
 
 export type ElectronNativeBackend =
   | 'mock'
@@ -50,7 +53,41 @@ function detectPlatform(): string {
 }
 
 /**
+ * Honest backend label for a port. Never claim corebluetooth/winrt/bluez for Fake/fallback ports.
+ */
+export function honestBackendForPort(
+  port: BlePort,
+  preferredWhenReal: ElectronNativeBackend = 'mock'
+): ElectronNativeBackend {
+  const id = (port?.id || '').toLowerCase()
+  if (
+    !id ||
+    id === 'fake' ||
+    id.includes('fallback') ||
+    id.includes('mock') ||
+    id.startsWith('fake-') ||
+    id.includes('-fake')
+  ) {
+    return 'mock'
+  }
+  // Infer from real port id (wins over preferred).
+  if (id.includes('bluez')) return 'bluez'
+  if (id.includes('winrt')) return 'winrt'
+  if (id.includes('corebluetooth')) return 'corebluetooth'
+  // Unknown real-ish id: trust preferred when it names a live radio family.
+  if (
+    preferredWhenReal === 'bluez' ||
+    preferredWhenReal === 'winrt' ||
+    preferredWhenReal === 'corebluetooth'
+  ) {
+    return preferredWhenReal
+  }
+  return preferredWhenReal === 'unavailable' ? 'unavailable' : 'mock'
+}
+
+/**
  * Select a platform native BlePort for Electron main.
+ * Fail-closed: when allowMockFallback is false and native is absent, throws on all OS branches.
  */
 export async function createPlatformElectronPort(options: {
   allowMockFallback?: boolean
@@ -82,12 +119,11 @@ export async function createPlatformElectronPort(options: {
     } catch {
       if (allowMock) {
         return {
-          port: createWinRtBlePort({ allowMockFallback: true } as never) as BlePort,
+          port: new FakeBlePort({ id: `${WINRT_RADIO_ID}-fallback` }),
           backend: 'mock'
         }
       }
-      // createWinRtBlePort without requireNative returns Fake
-      return { port: createWinRtBlePort({}), backend: 'mock' }
+      throw new Error('WinRT not available and mock fallback disabled')
     }
   }
 
@@ -96,7 +132,13 @@ export async function createPlatformElectronPort(options: {
       const port = createCoreBluetoothBlePort({ requireNative: true })
       return { port, backend: 'corebluetooth' }
     } catch {
-      return { port: createCoreBluetoothBlePort({}), backend: allowMock ? 'mock' : 'unavailable' }
+      if (allowMock) {
+        return {
+          port: new FakeBlePort({ id: `${COREBLUETOOTH_RADIO_ID}-fallback` }),
+          backend: 'mock'
+        }
+      }
+      throw new Error('CoreBluetooth not available and mock fallback disabled')
     }
   }
 
@@ -145,16 +187,28 @@ export class BleManager extends PortBleManager {
 
     if (!port) {
       if (options.autoDetectNative) {
-        // Sync constructor cannot await; use platform-specific sync factories with mock fallback
+        // Sync constructor cannot await ensureBus / async probes (R2-F060).
+        // Prefer requireNative factories; label Fake/fallback as mock — never claim
+        // live bluez without a successful bus probe (use createPlatformElectronPort).
         if (platform === 'linux') {
-          port = new BluezBlePort()
-          backend = 'bluez'
+          port = new FakeBlePort({ id: `${BLUEZ_RADIO_ID}-mock` })
+          backend = 'mock'
         } else if (platform === 'win32') {
-          port = createWinRtBlePort({})
-          backend = 'winrt'
+          try {
+            port = createWinRtBlePort({ requireNative: true })
+            backend = honestBackendForPort(port, 'winrt')
+          } catch {
+            port = new FakeBlePort({ id: `${WINRT_RADIO_ID}-fallback` })
+            backend = 'mock'
+          }
         } else if (platform === 'darwin') {
-          port = createCoreBluetoothBlePort({})
-          backend = 'corebluetooth'
+          try {
+            port = createCoreBluetoothBlePort({ requireNative: true })
+            backend = honestBackendForPort(port, 'corebluetooth')
+          } catch {
+            port = new FakeBlePort({ id: `${COREBLUETOOTH_RADIO_ID}-fallback` })
+            backend = 'mock'
+          }
         }
       }
       if (!port) {
@@ -170,15 +224,11 @@ export class BleManager extends PortBleManager {
         }
       }
     } else if (options.backend) {
+      // Explicit backend is trusted for injected test/prod ports.
       backend = options.backend
-    } else if (port.id.includes('bluez')) {
-      backend = 'bluez'
-    } else if (port.id.includes('winrt')) {
-      backend = 'winrt'
-    } else if (port.id.includes('corebluetooth')) {
-      backend = 'corebluetooth'
     } else {
-      backend = 'mock'
+      // Infer from port id — never claim live radio for Fake/fallback ids.
+      backend = honestBackendForPort(port, 'mock')
     }
 
     super({ port, host: 'electron' })
@@ -186,8 +236,20 @@ export class BleManager extends PortBleManager {
     this.platform = platform
   }
 
+  /**
+   * Backend-honest capabilities (R2-F012): continuousScan only when a real radio is
+   * live (corebluetooth / bluez). servicesChanged stays false until OS events are
+   * forwarded. Mock / winrt-placeholder / unavailable fail closed for continuousScan.
+   */
   supports(capability: BleCapability): boolean {
     if (this.backend === 'unavailable') return false
+    if (capability === 'continuousScan') {
+      return this.backend === 'corebluetooth' || this.backend === 'bluez'
+    }
+    if (capability === 'servicesChanged') {
+      // Software emitServicesReset exists on PortBleManager; OS events not wired yet.
+      return false
+    }
     return supportsCapability(capability, 'electron')
   }
 
@@ -214,5 +276,8 @@ export { base64ToBytes, bytesToBase64 } from '../encoding'
 export { supports } from '../supports'
 export { BluezBlePort, BLUEZ_RADIO_ID, isBluezAvailable } from './native/bluez/BluezBlePort'
 export { createWinRtBlePort, WINRT_RADIO_ID } from './native/winrt/WinRtBlePort'
-export { createCoreBluetoothBlePort, COREBLUETOOTH_RADIO_ID } from './native/corebluetooth/CoreBluetoothBlePort'
+export {
+  createCoreBluetoothBlePort,
+  COREBLUETOOTH_RADIO_ID
+} from './native/corebluetooth/CoreBluetoothBlePort'
 export type { BlePort }
