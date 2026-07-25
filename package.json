@@ -61,6 +61,7 @@
     "build:plugin": "tsc --build plugin",
     "clean:plugin": "del-cli plugin/build",
     "test:plugin": "jest --config plugin/jest.config.js",
+    "test:codemod": "node scripts/codemod/transform-bytes-path.js --check scripts/codemod/fixtures/before-read.js",
     "prepare": "pnpm clean:plugin && pnpm build:plugin",
     "lint:plugin": "eslint plugin/src/*"
   },

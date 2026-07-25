@@ -1,23 +1,42 @@
 # Getting started
 
-This guide introduces the BLE stack and APIs exported by **`@sfourdrinier/react-native-ble-plx`**.
+This guide introduces the BLE stack. **Stable production (3.9.x)** still publishes as **`@sfourdrinier/react-native-ble-plx`**. The **4.0 train** (branch `4.0`, package **`unified-ble-manager`**) keeps the same public JS shapes for a **zero-change upgrade** of 3.x Base64 call sites, plus optional bytes APIs.
 
 For more detail:
 
-- [Fork notes](./FORK.md) — platforms, floors, and what this fork owns (current stable **3.9.2**)
-- [Expo config plugin](./EXPO_PLUGIN.md) — plugin options and CNG (incl. true opt-in `iosEnableRestoration`)
+- [Migration 4.0](../MIGRATION_4.0.md) — **zero-change JS upgrade** + one-time package/Podfile rename
+- [Platforms](./PLATFORMS.md) — honest capability matrix; use `supports()`
+- [Web](./WEB.md) · [Electron](./ELECTRON.md) — multi-host previews
+- [Fork notes](./FORK.md) — platforms, floors (current stable **3.9.2** on `master`)
+- [Expo config plugin](./EXPO_PLUGIN.md) — plugin options and CNG
 - [ConnectionManager](./CONNECTION_MANAGER.md) — retries, auto-reconnect, and `attemptConnectOnce`
-- [Background / iOS restoration](./BACKGROUND.md) — `getRestoredState`, host resume recipes (D5), Restoration subspec opt-in
-- [tvOS](./TVOS.md) — Apple TV notes
-- [Changelog](../CHANGELOG.md) — release notes and 3.8 → 3.9.x migration
-- [Tutorials](./TUTORIALS.md)
-- Example apps in this repository (`example/`, `example-expo/`)
+- [Background / iOS restoration](./BACKGROUND.md)
+- [tvOS](./TVOS.md) · [Changelog](../CHANGELOG.md) · [Tutorials](./TUTORIALS.md)
+- Examples: `example/`, `example-expo/`, `example-web/`, `example-electron/`
 
 ### Install and prepare package
 
+**3.9 stable:**
+
 ```bash
 pnpm add @sfourdrinier/react-native-ble-plx
-# or: npm install @sfourdrinier/react-native-ble-plx
+```
+
+**4.0 alpha (zero-change API for existing Base64 call sites):**
+
+```bash
+pnpm add unified-ble-manager
+# optional thin shim if you keep the old import path:
+# pnpm add @sfourdrinier/react-native-ble-plx  # re-exports unified-ble-manager on 4.0
+```
+
+```js
+import { BleManager } from 'unified-ble-manager'
+// Optional bytes path (additive — not required to upgrade):
+// await manager.readCharacteristicForDeviceAsBytes(...)
+// Optional host entries:
+// import { BleManager as WebBle } from 'unified-ble-manager/web'
+// import { BleManager as ElectronBle } from 'unified-ble-manager/electron'
 ```
 
 **Expo (SDK 57+):** add the config plugin and rebuild native code. Full options: [EXPO_PLUGIN.md](./EXPO_PLUGIN.md). Minimal config:
@@ -25,10 +44,12 @@ pnpm add @sfourdrinier/react-native-ble-plx
 ```json
 {
   "expo": {
-    "plugins": ["@sfourdrinier/react-native-ble-plx"]
+    "plugins": ["unified-ble-manager"]
   }
 }
 ```
+
+3.9 apps may still use `"@sfourdrinier/react-native-ble-plx"` in the plugin array.
 
 This package cannot run in Expo Go (custom native code is required).
 

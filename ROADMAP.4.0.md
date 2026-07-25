@@ -541,7 +541,7 @@ Electron/desktop: document process lifetime only—never mobile FGS/restore clai
 
 **Status (branch `4.0`):** Phase 0 scaffold landed — identity rename, shim package, `MIGRATION_4.0.md`, exports `/web` `/electron` `/node`, encoding + `FakeBlePort` + compat Base64 skeleton tests, milestone `4.0.0-alpha`.
 
-**Also landed (testable alpha, Linux-first):** full `BlePort` lifecycle + dual binary store; RN `AsBytes`/`FromBytes` (TS edge wrap); real `/web` (chooser + GATT) + `/electron` (main-process injectable); `supports()` + PLATFORMS/WEB/ELECTRON; CI package matrix Ubuntu/Windows/macOS; adversarial ADR. Still open for Phase 1 exit: Android bonding, scan filters/`findAndConnect`, permission helpers, benchmark harness, codemod.
+**Also landed (testable alpha, Linux-first):** full `BlePort` lifecycle + dual binary store; RN `AsBytes`/`FromBytes` (TS edge wrap); real `/web` (chooser + GATT) + `/electron` (main-process injectable); `supports()` + PLATFORMS/WEB/ELECTRON; CI package matrix Ubuntu/Windows/macOS; adversarial ADR. Phase 1 software items closed below; device lab remains open.
 
 ---
 
@@ -558,7 +558,7 @@ Electron/desktop: document process lifetime only—never mobile FGS/restore clai
 | `supports()` boolean contract + typed unsupported-operation failures | **Done** — OperationNotSupported |
 | BACKGROUND.md v1 | Exists from 3.9; keep current |
 | Notify/connect **benchmark harness** (Base64 mode vs bytes mode) | **Done** — package Benchmark.harness.test |
-| Optional codemod v0 on fixtures only | Open (optional) |
+| Optional codemod v0 on fixtures only | **Done** — `scripts/codemod/` + fixture CI (`pnpm test:codemod`) |
 
 **Exit:**
 - Unmodified 3.8-style sample still works.
@@ -570,14 +570,14 @@ Electron/desktop: document process lifetime only—never mobile FGS/restore clai
 
 ### Phase 2 — Reliability at scale
 
-| Work |
-| ---- |
-| Services-changed; per-device queues; long-write helpers |
-| Global events; hooks |
-| Background hardening (restore, FGS, storms) |
-| Multi-device example |
+| Work | Status |
+| ---- | ------ |
+| Services-changed; per-device queues; long-write helpers | **Software done** — `DeviceOperationQueue`, `onServicesReset`/`emitServicesReset`, `writeLongCharacteristicFromBytes` + PortBleManager long-write; tests |
+| Global events; hooks | Open (later 4.x) |
+| Background hardening (restore, FGS, storms) | **Structure/CI only** — physical lab remains device-lab-only |
+| Multi-device example | Partial (shared CentralDemo multi-device Fake path) |
 
-**Exit:** Background matrix filled; queues default-safe; no Base64 default change.
+**Exit:** Background matrix filled; queues default-safe; no Base64 default change. Software queue/long-write exit met on TS path; physical FGS/restore still open.
 
 ---
 
@@ -609,7 +609,7 @@ Electron/desktop: document process lifetime only—never mobile FGS/restore clai
 | ---- | ------ |
 | Backend interface + PLATFORMS.md | **Done (alpha)** — `BlePort` + docs |
 | Web Bluetooth preview with explicit `requestDevice()` chooser, bytes-native GATT, and Base64 adapter for shared app code | **Done (alpha)** — mock + WebBT port; live radio env-dependent |
-| Electron **native main** previews in locked order: macOS/CoreBluetooth first → Windows/WinRT second → Linux/BlueZ third | **Partial** — injectable main + mock; OS natives open |
+| Electron **native main** previews in locked order: macOS/CoreBluetooth first → Windows/WinRT second → Linux/BlueZ third | **Partial** — Linux BlueZ shipped; Win/mac factories + Fake CI contracts + requireNative fail-closed; live WinRT/CoreBluetooth radio still open |
 | Single-package explicit `/web`, `/electron`, and `/node` exports + resolver isolation tests | **Done (alpha)** — Jest + consumer import |
 | `example-electron/`, `example-web/` | **Done (alpha)** |
 | ELECTRON.md / WEB.md | **Done** |
@@ -651,13 +651,13 @@ Each desktop preview must be useful for real bug discovery: its package entrypoi
 
 ### `4.0.0-alpha`
 
-- [ ] Dual binary path live; **Base64 default behavior matches 3.8 for existing methods**
-- [ ] Bytes path documented and tested
-- [ ] Encoding helpers + tests
-- [ ] Bonding (Android); non-throwing `supports()`; typed unsupported-operation failures; BACKGROUND.md
-- [ ] Benchmark harness exists
-- [ ] MIGRATION_4.0.md leads with **zero-change upgrade**
-- [ ] Multi-host architecture sketched (exports / backend interface)
+- [x] Dual binary path live; **Base64 default behavior matches 3.8 for existing methods**
+- [x] Bytes path documented and tested
+- [x] Encoding helpers + tests
+- [x] Bonding (Android); non-throwing `supports()`; typed unsupported-operation failures; BACKGROUND.md
+- [x] Benchmark harness exists
+- [x] MIGRATION_4.0.md leads with **zero-change upgrade**
+- [x] Multi-host architecture sketched (exports / backend interface)
 
 ### `4.0.0` GA
 

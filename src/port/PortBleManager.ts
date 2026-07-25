@@ -3,7 +3,9 @@
  * Used by web / electron / node / tests — mirrors RN method names for shared apps.
  */
 
+import { DeviceOperationQueue } from '../DeviceOperationQueue'
 import { base64ToBytes, bytesToBase64 } from '../encoding'
+import { writeLongCharacteristicFromBytes } from '../longWrite'
 import type { BleCapability, HostKind } from '../supports'
 import { supports as supportsCapability } from '../supports'
 import { rejectUnsupported } from '../unsupported'
@@ -20,16 +22,22 @@ export type PortSubscription = { remove: () => void }
 export type PortBleManagerOptions = {
   port: BlePort
   host?: HostKind
+  /** Disable per-device serialization (default: enabled). */
+  serializeDeviceOps?: boolean
 }
 
 /**
  * Minimal multi-host manager implementing the central vertical slice.
  * Base64 methods preserve 3.x-shaped values; AsBytes/FromBytes are parallel.
+ * GATT ops against the same device are serialized via {@link DeviceOperationQueue}.
  */
 export class PortBleManager {
   private readonly port: BlePort
   readonly host: HostKind
   private scanActive = false
+  private readonly deviceQueue = new DeviceOperationQueue()
+  private readonly serializeDeviceOps: boolean
+  private readonly servicesResetListeners = new Set<(deviceId: string) => void>()
 
   constructor(options: PortBleManagerOptions) {
     if (!options?.port) {
@@ -37,6 +45,17 @@ export class PortBleManager {
     }
     this.port = options.port
     this.host = options.host ?? 'fake'
+    this.serializeDeviceOps = options.serializeDeviceOps !== false
+  }
+
+  /** Expose queue for tests (ordering proofs). */
+  getDeviceOperationQueue(): DeviceOperationQueue {
+    return this.deviceQueue
+  }
+
+  private runForDevice<T>(deviceId: string, fn: () => Promise<T>): Promise<T> {
+    if (!this.serializeDeviceOps) return fn()
+    return this.deviceQueue.enqueue(deviceId, fn)
   }
 
   /** Honest capability query for this host. */
@@ -73,12 +92,61 @@ export class PortBleManager {
   }
 
   async connectToDevice(deviceId: PortDeviceId): Promise<PortDevice> {
-    await this.port.connect(deviceId)
-    return { id: deviceId, name: null, rssi: null }
+    return this.runForDevice(deviceId, async () => {
+      await this.port.connect(deviceId)
+      return { id: deviceId, name: null, rssi: null }
+    })
   }
 
   async cancelDeviceConnection(deviceId: PortDeviceId): Promise<void> {
-    await this.port.disconnect(deviceId)
+    return this.runForDevice(deviceId, async () => {
+      await this.port.disconnect(deviceId)
+    })
+  }
+
+  /**
+   * Subscribe to services-changed / cache-reset signals for a device.
+   * Software path: listeners are invoked via {@link emitServicesReset}.
+   * Native hosts may forward ATT Services Changed into the same surface later.
+   */
+  onServicesReset(listener: (deviceId: string) => void): PortSubscription {
+    this.servicesResetListeners.add(listener)
+    return {
+      remove: () => {
+        this.servicesResetListeners.delete(listener)
+      }
+    }
+  }
+
+  /** Test / host bridge: notify apps that GATT services may have changed. */
+  emitServicesReset(deviceId: string): void {
+    for (const listener of this.servicesResetListeners) {
+      listener(deviceId)
+    }
+  }
+
+  /**
+   * Long-write helper on the bytes path (chunked sequential writes, per-device queued).
+   */
+  async writeLongCharacteristicForDeviceFromBytes(
+    deviceId: PortDeviceId,
+    serviceUUID: string,
+    characteristicUUID: string,
+    value: Uint8Array,
+    options: { chunkSize?: number } = {}
+  ): Promise<{ bytesWritten: number; chunks: number }> {
+    if (!(value instanceof Uint8Array)) {
+      throw new TypeError('writeLongCharacteristicForDeviceFromBytes expects Uint8Array')
+    }
+    return this.runForDevice(deviceId, () =>
+      writeLongCharacteristicFromBytes(
+        value,
+        async chunk => {
+          await this.port.writeCharacteristicBytes(deviceId, serviceUUID, characteristicUUID, chunk)
+        },
+        { chunkSize: options.chunkSize }
+      )
+    )
   }
 
   async isDeviceConnected(deviceId: PortDeviceId): Promise<boolean> {
@@ -169,34 +237,40 @@ export class PortBleManager {
   }
 
   async discoverAllServicesAndCharacteristicsForDevice(deviceId: PortDeviceId): Promise<PortDevice> {
-    const services = await this.port.discoverServices(deviceId)
-    for (const svc of services) {
-      await this.port.discoverCharacteristics(deviceId, svc)
-    }
-    return { id: deviceId, name: null, rssi: null }
+    return this.runForDevice(deviceId, async () => {
+      const services = await this.port.discoverServices(deviceId)
+      for (const svc of services) {
+        await this.port.discoverCharacteristics(deviceId, svc)
+      }
+      return { id: deviceId, name: null, rssi: null }
+    })
   }
 
   async servicesForDevice(deviceId: PortDeviceId): Promise<Array<{ uuid: string }>> {
-    const services = await this.port.discoverServices(deviceId)
-    return services.map(uuid => ({ uuid }))
+    return this.runForDevice(deviceId, async () => {
+      const services = await this.port.discoverServices(deviceId)
+      return services.map(uuid => ({ uuid }))
+    })
   }
 
   async characteristicsForDevice(
     deviceId: PortDeviceId,
     serviceUUID: string
   ): Promise<Array<{ uuid: string; value: string | null }>> {
-    const chars = await this.port.discoverCharacteristics(deviceId, serviceUUID)
-    const out: Array<{ uuid: string; value: string | null }> = []
-    for (const c of chars) {
-      let value: string | null = null
-      try {
-        value = await this.port.readCharacteristicBase64(deviceId, serviceUUID, c.uuid)
-      } catch {
-        value = null
+    return this.runForDevice(deviceId, async () => {
+      const chars = await this.port.discoverCharacteristics(deviceId, serviceUUID)
+      const out: Array<{ uuid: string; value: string | null }> = []
+      for (const c of chars) {
+        let value: string | null = null
+        try {
+          value = await this.port.readCharacteristicBase64(deviceId, serviceUUID, c.uuid)
+        } catch {
+          value = null
+        }
+        out.push({ uuid: c.uuid, value })
       }
-      out.push({ uuid: c.uuid, value })
-    }
-    return out
+      return out
+    })
   }
 
   // --- Base64 path (3.x shape) ---
@@ -206,8 +280,10 @@ export class PortBleManager {
     serviceUUID: string,
     characteristicUUID: string
   ): Promise<{ value: string | null }> {
-    const value = await this.port.readCharacteristicBase64(deviceId, serviceUUID, characteristicUUID)
-    return { value }
+    return this.runForDevice(deviceId, async () => {
+      const value = await this.port.readCharacteristicBase64(deviceId, serviceUUID, characteristicUUID)
+      return { value }
+    })
   }
 
   async writeCharacteristicWithResponseForDevice(
@@ -216,8 +292,10 @@ export class PortBleManager {
     characteristicUUID: string,
     valueBase64: string
   ): Promise<{ value: string | null }> {
-    await this.port.writeCharacteristicBase64(deviceId, serviceUUID, characteristicUUID, valueBase64)
-    return { value: valueBase64 }
+    return this.runForDevice(deviceId, async () => {
+      await this.port.writeCharacteristicBase64(deviceId, serviceUUID, characteristicUUID, valueBase64)
+      return { value: valueBase64 }
+    })
   }
 
   async writeCharacteristicWithoutResponseForDevice(
@@ -267,8 +345,10 @@ export class PortBleManager {
     serviceUUID: string,
     characteristicUUID: string
   ): Promise<{ value: Uint8Array | null }> {
-    const value = await this.port.readCharacteristicBytes(deviceId, serviceUUID, characteristicUUID)
-    return { value }
+    return this.runForDevice(deviceId, async () => {
+      const value = await this.port.readCharacteristicBytes(deviceId, serviceUUID, characteristicUUID)
+      return { value }
+    })
   }
 
   async writeCharacteristicWithResponseForDeviceFromBytes(
@@ -277,8 +357,10 @@ export class PortBleManager {
     characteristicUUID: string,
     value: Uint8Array
   ): Promise<{ value: Uint8Array | null }> {
-    await this.port.writeCharacteristicBytes(deviceId, serviceUUID, characteristicUUID, value)
-    return { value }
+    return this.runForDevice(deviceId, async () => {
+      await this.port.writeCharacteristicBytes(deviceId, serviceUUID, characteristicUUID, value)
+      return { value }
+    })
   }
 
   async writeCharacteristicWithoutResponseForDeviceFromBytes(

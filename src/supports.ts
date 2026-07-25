@@ -22,6 +22,9 @@ export type BleCapability =
   | 'androidForegroundService'
   | 'l2cap'
   | 'preferredPhy'
+  | 'deviceOperationQueue'
+  | 'servicesChanged'
+  | 'longWrite'
 
 export type HostKind = 'react-native' | 'web' | 'electron' | 'node' | 'fake'
 
@@ -45,7 +48,10 @@ const MATRIX: Record<HostKind, Partial<Record<BleCapability, boolean>>> = {
     iosStateRestoration: true,
     androidForegroundService: true,
     l2cap: false,
-    preferredPhy: false
+    preferredPhy: false,
+    deviceOperationQueue: true,
+    servicesChanged: true,
+    longWrite: true
   },
   web: {
     central: true,
@@ -65,7 +71,10 @@ const MATRIX: Record<HostKind, Partial<Record<BleCapability, boolean>>> = {
     iosStateRestoration: false,
     androidForegroundService: false,
     l2cap: false,
-    preferredPhy: false
+    preferredPhy: false,
+    deviceOperationQueue: true,
+    servicesChanged: true,
+    longWrite: true
   },
   electron: {
     central: true,
@@ -85,7 +94,10 @@ const MATRIX: Record<HostKind, Partial<Record<BleCapability, boolean>>> = {
     iosStateRestoration: false,
     androidForegroundService: false,
     l2cap: false,
-    preferredPhy: false
+    preferredPhy: false,
+    deviceOperationQueue: true,
+    servicesChanged: true,
+    longWrite: true
   },
   node: {
     central: true,
@@ -105,7 +117,10 @@ const MATRIX: Record<HostKind, Partial<Record<BleCapability, boolean>>> = {
     iosStateRestoration: false,
     androidForegroundService: false,
     l2cap: false,
-    preferredPhy: false
+    preferredPhy: false,
+    deviceOperationQueue: true,
+    servicesChanged: true,
+    longWrite: true
   },
   fake: {
     central: true,
@@ -125,7 +140,10 @@ const MATRIX: Record<HostKind, Partial<Record<BleCapability, boolean>>> = {
     iosStateRestoration: false,
     androidForegroundService: false,
     l2cap: false,
-    preferredPhy: false
+    preferredPhy: false,
+    deviceOperationQueue: true,
+    servicesChanged: true,
+    longWrite: true
   }
 }
 

@@ -44,7 +44,15 @@ Requires BlueZ + optional `dbus-next`. CI/contract tests inject a mock bus. `sup
 
 ## Windows (WinRT) / macOS (CoreBluetooth)
 
-`createWinRtBlePort()` / `createCoreBluetoothBlePort()` load optional native addons under `native/electron/{winrt,corebluetooth}` when built; otherwise FakeBlePort fallback with backend `mock` for CI honesty.
+`createWinRtBlePort()` / `createCoreBluetoothBlePort()` load optional native addons under `native/electron/{winrt,corebluetooth}` when built; otherwise **FakeBlePort** fallback (backend `mock`) for CI honesty.
+
+| Mode | Behavior |
+| ---- | -------- |
+| Default / CI | Fake-backed port; vertical-slice contracts pass on windows-latest / macos-latest package jobs |
+| `requireNative: true` | Throws if the Node-API addon is not linked — never silent “connected” without radio |
+| Production target | Ship/link the OS addon; inject the real port into `BleManager` |
+
+Linux **BlueZ** (`BluezBlePort` + optional `dbus-next`) is the implemented desktop-native path today.
 
 ## Dual path
 

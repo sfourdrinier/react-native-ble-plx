@@ -77,7 +77,11 @@ jobs:
         run: node example-electron/main.js
 
       - name: Electron native backend contract tests
-        run: pnpm exec jest --config jest.config.js --testPathPattern='BluezBlePort|ElectronNative|OwnedCore'
+        run: pnpm exec jest --config jest.config.js --testPathPattern='BluezBlePort|ElectronNative|OwnedCore|DeviceQueueAndLongWrite|CompatRegression|CodemodBytesPath'
+
+      - name: Optional bytes-path codemod fixture check
+        if: runner.os == 'Linux'
+        run: pnpm test:codemod
 
   changes:
     name: Detect path changes
@@ -180,6 +184,44 @@ jobs:
       - name: Build generated Android project
         working-directory: example-expo/android
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
+
+  # Classic RN example Android compile — same android/ library sources as Expo,
+  # wired through the bare example app (not only CNG). Gated by android path filter.
+  classic-rn-android:
+    name: Classic RN Android assemble
+    needs: changes
+    if: |
+      always() &&
+      needs.changes.result == 'success' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        needs.changes.outputs.android == 'true'
+      )
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=8192
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
+      - name: Setup JS package
+        uses: ./.github/actions/setup-js-package
+
+      - name: Setup Java
+        uses: actions/setup-java@v5.5.0
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4.0.1
+
+      - name: Install classic example dependencies
+        run: pnpm --dir example install --no-frozen-lockfile
+
+      - name: Assemble classic example debug APK
+        working-directory: example/android
+        run: ./gradlew :app:assembleDebug --no-daemon --console=plain -PreactNativeArchitectures=arm64-v8a
 
   # --- Apple compile checks (#20) ---
   # Compile/link only. No simulator boot, no BLE runtime (see #14).

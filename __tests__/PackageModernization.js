@@ -219,6 +219,14 @@ describe('package modernization targets', () => {
     expect(script).toContain('OWNED_COREBLUETOOTH_RADIO')
   })
 
+  test('CI includes classic RN Android assemble and codemod fixture check', () => {
+    expect(ciWorkflow).toContain('classic-rn-android:')
+    expect(ciWorkflow).toContain('Classic RN Android assemble')
+    expect(ciWorkflow).toContain("working-directory: example/android")
+    expect(ciWorkflow).toContain('pnpm test:codemod')
+    expect(ciWorkflow).toMatch(/CompatRegression|CodemodBytesPath|DeviceQueueAndLongWrite/)
+  })
+
   test('publish workflow uses tag-triggered OIDC trusted publishing with provenance', () => {
     const publishWorkflowPath = path.join(__dirname, '..', '.github/workflows/publish.yml')
     expect(fs.existsSync(publishWorkflowPath)).toBe(true)
