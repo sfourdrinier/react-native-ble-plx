@@ -284,8 +284,54 @@ describe('4.0 docs honesty (docs batch)', () => {
     const platforms = read('docs/PLATFORMS.md')
     expect(platforms).toMatch(/report-only|cannot negotiate|maximumWriteValueLength/i)
     expect(platforms).toMatch(/request MTU[\s\S]{0,220}Android/)
-    expect(platforms).toMatch(/servicesChanged contract|Listener API present only|listener API only/i)
+    expect(platforms).toMatch(/servicesChanged contract|fail-closed|test inject/i)
     expect(platforms).toMatch(/supports\('servicesChanged'\)[\s\S]{0,120}false|Web[\s\S]{0,60}false/)
+  })
+
+  // R3-F013: servicesChanged fail-closed on electron/node matrix + docs
+  test('R3-F013 servicesChanged fail-closed for electron/node (manager.supports truth)', () => {
+    expect(supports('servicesChanged', 'electron')).toBe(false)
+    expect(supports('servicesChanged', 'node')).toBe(false)
+    expect(supports('servicesChanged', 'web')).toBe(false)
+    expect(supports('servicesChanged', 'react-native')).toBe(true)
+    const platforms = read('docs/PLATFORMS.md')
+    const node = read('docs/NODE.md')
+    expect(platforms).not.toMatch(/Electron \/ Node[\s\S]{0,40}\*\*true \(partial\)\*\*/)
+    expect(platforms).toMatch(/Electron \/ Node[\s\S]{0,80}\*\*false\*\*/)
+    expect(node).toMatch(/servicesChanged.*false|servicesChanged` \*\*false\*\*/)
+  })
+
+  // R3-F014: ROADMAP requestDevice is PortAdvertisement handle, not Promise<Device>
+  test('R3-F014 ROADMAP requestDevice is PortAdvertisement handle (not Promise<Device>)', () => {
+    const roadmap40 = read('ROADMAP.4.0.md')
+    const roadmap = read('ROADMAP.md')
+    expect(roadmap40).not.toMatch(/requestDevice\([^)]*\):\s*Promise<\s*Device\s*>/)
+    expect(roadmap).not.toMatch(/requestDevice\([^)]*\):\s*Promise<\s*Device\s*>/)
+    expect(roadmap40).toMatch(/PortAdvertisement|id,\s*name,\s*rssi|connectToDevice/)
+    expect(roadmap).toMatch(/PortAdvertisement|id;\s*name;\s*rssi|connectToDevice/)
+  })
+
+  // R3-F060: WEB disconnect honesty
+  test('R3-F060 WEB.md documents onDeviceDisconnected not wired', () => {
+    const web = read('docs/WEB.md')
+    expect(web).toMatch(/onDeviceDisconnected/)
+    expect(web).toMatch(/onDisconnect|not yet wired|poll isDeviceConnected/i)
+  })
+
+  // R3-F070: GAPS done GAPs not re-opened as implement steps
+  test('R3-F070 GAPS M2/M3 residual L4; issue title uses open GAP', () => {
+    const gaps = read('docs/GAPS.4.0.md')
+    expect(gaps).toMatch(/GAP-IOS-DESC[\s\S]{0,120}done \(L2|L4 device lab/)
+    expect(gaps).toMatch(/GAP-E-MAC-PORT[\s\S]{0,120}done \(L2|GAP-E-MAC-LAB/)
+    expect(gaps).toMatch(/\[GAP-E-MAC-LAB\]/)
+    expect(gaps).not.toMatch(/\[GAP-E-MAC-PORT\] Electron macOS: implement real CoreBluetooth BlePort/)
+  })
+
+  // R3-F074: codemod GA bullets checked
+  test('R3-F074 ROADMAP.4.0 GA codemod bullets marked done', () => {
+    const roadmap40 = read('ROADMAP.4.0.md')
+    expect(roadmap40).toMatch(/- \[x\] Optional codemod \+ fixtures in CI/)
+    expect(roadmap40).toMatch(/- \[x\] No .must run codemod to upgrade. messaging/)
   })
 
   // R2-F068: BACKGROUND cold-null vs optional Restoration subspec

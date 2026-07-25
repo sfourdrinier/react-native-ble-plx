@@ -144,7 +144,7 @@ Use `manager.supports(capability)` and [PLATFORMS.md](./PLATFORMS.md).
 - No L2CAP / PHY control
 - Secure context (HTTPS or localhost) required by browsers
 - Chromium-class browsers primarily; Safari/Firefox gaps are browser policy
-- Peer disconnect: `gattserverdisconnected` purges local GATT cache/monitors for that device
+- Peer disconnect: `gattserverdisconnected` purges local GATT cache/monitors for that device. **`onDeviceDisconnected` requires `WebBluetoothPort.onDisconnect` (not yet wired)** — until that bridge lands, subscriptions will not fire on peer drop; poll `isDeviceConnected` or treat notify silence as a soft signal (R3-F060)
 
 ## Example
 

@@ -85,6 +85,31 @@ function getAssignedBindingName(call) {
 }
 
 /**
+ * R3-F040: call result used immediately as `.value` without a binding
+ * e.g. `(await mgr.readCharacteristicForDevice(...)).value` or `void (await …).value`.
+ * @param {ts.CallExpression} call
+ * @returns {boolean}
+ */
+function callResultUsedAsBase64Value(call) {
+  let node = call
+  // unwrap: await call
+  if (node.parent && ts.isAwaitExpression(node.parent)) {
+    node = node.parent
+  }
+  // unwrap: (expr)
+  if (node.parent && ts.isParenthesizedExpression(node.parent)) {
+    node = node.parent
+  }
+  // expr.value
+  if (node.parent && ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node) {
+    if (node.parent.name && node.parent.name.text === 'value') {
+      return isValueAccessBase64Shaped(node.parent) || true
+    }
+  }
+  return false
+}
+
+/**
  * Nearest function-like body containing `node`, or source file.
  * @param {ts.Node} node
  * @returns {ts.Node}
@@ -233,9 +258,10 @@ function analyzeReadCalls(source) {
         if (binding) {
           const scope = getEnclosingScope(node)
           skip = bindingUsesValueAsStringLike(scope, binding)
+        } else if (callResultUsedAsBase64Value(node)) {
+          // R3-F040: chained `.value` without binding — treat as Base64 consumer
+          skip = true
         }
-        // Unassigned: leave alone only if whole remaining file is Base64-shaped
-        // (rare bare fire-and-forget reads are treated as safe to rename).
         decisions.push({
           start: nameNode.getStart(sf),
           end: nameNode.getEnd(),

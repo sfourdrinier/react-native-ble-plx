@@ -120,7 +120,8 @@ class BLEServiceInstance {
       .cancelDeviceConnection(this.device.id)
       .then(() => this.showSuccessToast('Device disconnected'))
       .catch(error => {
-        if (error?.code !== BleErrorCode.DeviceDisconnected) {
+        // R3-F033: BleError exposes errorCode (not code)
+        if (error?.errorCode !== BleErrorCode.DeviceDisconnected) {
           this.onError(error)
         }
       })
@@ -131,7 +132,8 @@ class BLEServiceInstance {
       .cancelDeviceConnection(id)
       .then(() => this.showSuccessToast('Device disconnected'))
       .catch(error => {
-        if (error?.code !== BleErrorCode.DeviceDisconnected) {
+        // R3-F033: BleError exposes errorCode (not code)
+        if (error?.errorCode !== BleErrorCode.DeviceDisconnected) {
           this.onError(error)
         }
       })
@@ -411,7 +413,10 @@ class BLEServiceInstance {
       characteristicUUID,
       (error, characteristic) => {
         if (error) {
-          if (error.errorCode === 2 && this.isCharacteristicMonitorDisconnectExpected) {
+          if (
+            error.errorCode === BleErrorCode.OperationCancelled &&
+            this.isCharacteristicMonitorDisconnectExpected
+          ) {
             this.isCharacteristicMonitorDisconnectExpected = false
             return
           }
@@ -474,8 +479,10 @@ class BLEServiceInstance {
       this.showErrorToast(deviceNotConnectedErrorText)
       throw new Error(deviceNotConnectedErrorText)
     }
+    // R3-F034: rethrow after onError so callers are not left with silent undefined
     return this.manager.servicesForDevice(this.device.id).catch(error => {
       this.onError(error)
+      throw error
     })
   }
 
@@ -486,6 +493,7 @@ class BLEServiceInstance {
     }
     return this.manager.characteristicsForDevice(this.device.id, serviceUUID).catch(error => {
       this.onError(error)
+      throw error
     })
   }
 
@@ -496,6 +504,7 @@ class BLEServiceInstance {
     }
     return this.manager.descriptorsForDevice(this.device.id, serviceUUID, characteristicUUID).catch(error => {
       this.onError(error)
+      throw error
     })
   }
 
@@ -516,6 +525,7 @@ class BLEServiceInstance {
     }
     return this.manager.connectedDevices(expectedServices).catch(error => {
       this.onError(error)
+      throw error
     })
   }
 
@@ -526,6 +536,7 @@ class BLEServiceInstance {
     }
     return this.manager.requestMTUForDevice(this.device.id, mtu).catch(error => {
       this.onError(error)
+      throw error
     })
   }
 
@@ -547,6 +558,7 @@ class BLEServiceInstance {
     }
     return this.manager.readRSSIForDevice(this.device.id).catch(error => {
       this.onError(error)
+      throw error
     })
   }
 
@@ -557,6 +569,7 @@ class BLEServiceInstance {
     }
     return this.manager.devices([this.device.id]).catch(error => {
       this.onError(error)
+      throw error
     })
   }
 
@@ -565,6 +578,7 @@ class BLEServiceInstance {
   getState = () =>
     this.manager.state().catch(error => {
       this.onError(error)
+      throw error
     })
 
   onError = (error: BleError) => {

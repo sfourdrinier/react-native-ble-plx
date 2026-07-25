@@ -4,6 +4,10 @@
 
 This document covers the **one-time rename** to the 4.0 product identity.
 
+## Intentional behavior fixes (not silent compat)
+
+`supports()` is **additive** (new API). Unsupported ops reject/report **`BleErrorCode.OperationNotSupported` once** — never silent success. That is an intentional 4.0 honesty fix vs any 3.x path that may have no-op’d (R3-F039). Branch on `manager.supports('…')` before calling optional surfaces (bonding, continuous scan, servicesChanged, long-write, host-only APIs). See [docs/PLATFORMS.md](./docs/PLATFORMS.md).
+
 ## What changed (identity)
 
 | Surface | 3.9.x | 4.0+ |
@@ -13,7 +17,7 @@ This document covers the **one-time rename** to the 4.0 product identity.
 | CocoaPods | `react-native-ble-plx` | **`unified-ble-manager`** |
 | Restoration subspec | `react-native-ble-plx/Restoration` | **`unified-ble-manager/Restoration`** |
 | Android module / namespace | `com.bleplx` | **`com.sfourdrinier.unifiedblemanager`** |
-| Android FGS `android:name` | `com.bleplx.BlePlxForegroundService` | **`com.sfourdrinier.unifiedblemanager.BlePlxForegroundService`** (Expo plugin injects this when FGS is enabled) |
+| Android FGS `android:name` | `com.bleplx.BlePlxForegroundService` | **`com.sfourdrinier.unifiedblemanager.BlePlxForegroundService`** (Expo plugin injects this when FGS is enabled; sticky-manifest rewrites legacy/`./BlePlxForegroundService` names to the 4.0 FQCN — R3-F011) |
 | Expo plugin | `@sfourdrinier/react-native-ble-plx` | **`unified-ble-manager`** |
 | Version train | `3.9.x` | **`4.0.0-alpha.*` → `4.0.0`** (not 1.x) |
 

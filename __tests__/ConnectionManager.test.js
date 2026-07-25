@@ -13,10 +13,13 @@ const createDeferred = () => {
 
 const createMockSubscription = () => ({ remove: jest.fn() });
 
+/** Match ConnectionManager / DeviceOperationQueue device-id contract (R3-F019). */
+const normId = (deviceId) => String(deviceId).trim().toUpperCase();
+
 const createMockBleManager = () => {
   const disconnectCallbacks = new Map();
   const subscriptions = new Map();
-  const pending = new Map(); // deviceId -> deferred
+  const pending = new Map(); // normalized deviceId -> deferred
   const connectCalls = [];
   // iOS mid-connect: cancel rejects (never connected, no disconnect).
   // 'resolve' models Android dispose success where DISCONNECTED may still follow.
@@ -36,52 +39,58 @@ const createMockBleManager = () => {
 
   return {
     connectToDevice: jest.fn((deviceId, options) => {
+      const key = normId(deviceId);
       const d = createDeferred();
-      pending.set(deviceId, d);
-      connectCalls.push({ deviceId, options, deferred: d });
+      pending.set(key, d);
+      connectCalls.push({ deviceId: key, options, deferred: d });
       return d.promise;
     }),
 
     cancelDeviceConnection: jest.fn((deviceId) => {
-      const d = pending.get(deviceId);
+      const key = normId(deviceId);
+      const d = pending.get(key);
       if (d) {
-        d.reject(cancelledError(deviceId));
-        pending.delete(deviceId);
+        d.reject(cancelledError(key));
+        pending.delete(key);
         if (cancelMidConnectOutcome === 'resolve') {
           return Promise.resolve();
         }
-        return Promise.reject(cancelledError(deviceId));
+        return Promise.reject(cancelledError(key));
       }
       return Promise.resolve();
     }),
 
     onDeviceDisconnected: jest.fn((deviceId, callback) => {
-      disconnectCallbacks.set(deviceId, callback);
+      const key = normId(deviceId);
+      disconnectCallbacks.set(key, callback);
       const sub = createMockSubscription();
-      subscriptions.set(deviceId, sub);
+      subscriptions.set(key, sub);
       return sub;
     }),
 
     _resolveConnect: (deviceId, device) => {
-      const d = pending.get(deviceId);
+      const key = normId(deviceId);
+      const d = pending.get(key);
       if (!d) throw new Error(`No pending connect for ${deviceId}`);
       d.resolve(device);
-      pending.delete(deviceId);
+      pending.delete(key);
     },
 
     _rejectConnect: (deviceId, err) => {
-      const d = pending.get(deviceId);
+      const key = normId(deviceId);
+      const d = pending.get(key);
       if (!d) throw new Error(`No pending connect for ${deviceId}`);
       d.reject(err);
-      pending.delete(deviceId);
+      pending.delete(key);
     },
 
     _simulateDisconnect: (deviceId, error) => {
-      const cb = disconnectCallbacks.get(deviceId);
-      if (cb) cb(error, { id: deviceId });
+      const key = normId(deviceId);
+      const cb = disconnectCallbacks.get(key);
+      if (cb) cb(error, { id: key });
     },
 
-    _getSubscription: (deviceId) => subscriptions.get(deviceId),
+    _getSubscription: (deviceId) => subscriptions.get(normId(deviceId)),
     _connectCalls: connectCalls,
     /** @param {'reject' | 'resolve'} outcome */
     _setCancelMidConnectOutcome: (outcome) => {
@@ -106,10 +115,8 @@ const createBleError = (code, reason) =>
     BleErrorCodeMessage
   );
 
-const flushMicrotasks = async () => {
-  await Promise.resolve();
-  await Promise.resolve();
-};
+// R3-F038: shared async helper (deeper microtask drain than two Promise.resolve hops)
+const { flushMicrotasks } = require('./helpers/async');
 
 describe('ConnectionManager', () => {
   let ble;
@@ -162,7 +169,39 @@ describe('ConnectionManager', () => {
     await flushMicrotasks();
 
     await expect(p).rejects.toMatchObject({ errorCode: BleErrorCode.OperationTimedOut });
-    expect(ble.cancelDeviceConnection).toHaveBeenCalledWith('d1');
+    expect(ble.cancelDeviceConnection).toHaveBeenCalledWith('D1');
+  });
+
+
+  test('normalizes mixed-case deviceId for connect cancel and disconnect (R3-F019)', async () => {
+    const manager = createMockBleManager();
+    const cm = new ConnectionManager(manager);
+    const lower = 'aa:bb:cc:dd:ee:ff';
+    const upper = 'AA:BB:CC:DD:EE:FF';
+
+    const connectP = cm.connect(lower);
+    await flushMicrotasks();
+    expect(manager.connectToDevice).toHaveBeenCalledWith(upper, undefined);
+    manager._resolveConnect(upper, createDevice(upper));
+    await connectP;
+
+    // Disconnect subscription registered with normalized key; mixed-case event matches
+    cm.enableAutoReconnect(lower);
+    expect(manager.onDeviceDisconnected).toHaveBeenCalled();
+    const subDeviceId = manager.onDeviceDisconnected.mock.calls.at(-1)[0];
+    expect(subDeviceId).toBe(upper);
+
+    const onDisc = jest.fn();
+    cm.setGlobalCallbacks({ onDisconnect: onDisc });
+    // Simulate native emitting upper-case id while app used lower
+    manager._simulateDisconnect(upper, createBleError(BleErrorCode.DeviceDisconnected, 'gone'));
+    await flushMicrotasks();
+    expect(onDisc).toHaveBeenCalled();
+    expect(onDisc.mock.calls[0][0]).toBe(upper);
+
+    cm.cancel(lower);
+    expect(manager.cancelDeviceConnection).toHaveBeenCalledWith(upper);
+    cm.destroy();
   });
 
   test('BUG2: destroy() removes auto-reconnect disconnect subscription', () => {
@@ -272,7 +311,7 @@ describe('ConnectionManager', () => {
     jest.runOnlyPendingTimers();
     await flushMicrotasks();
 
-    expect(ble.connectToDevice).toHaveBeenCalledWith('d1', { autoConnect: true });
+    expect(ble.connectToDevice).toHaveBeenCalledWith('D1', { autoConnect: true });
 
     const reconnect = ble._connectCalls[ble._connectCalls.length - 1];
     reconnect.deferred.reject(createBleError(BleErrorCode.DeviceDisconnected, 'cleanup'));
@@ -293,7 +332,7 @@ describe('ConnectionManager', () => {
     jest.runOnlyPendingTimers();
     await flushMicrotasks();
 
-    expect(ble.connectToDevice).toHaveBeenCalledWith('d1', { autoConnect: true });
+    expect(ble.connectToDevice).toHaveBeenCalledWith('D1', { autoConnect: true });
 
     const reconnect = ble._connectCalls[ble._connectCalls.length - 1];
     reconnect.deferred.reject(createBleError(BleErrorCode.DeviceDisconnected, 'cleanup'));
@@ -315,7 +354,7 @@ describe('ConnectionManager', () => {
     jest.advanceTimersByTime(1000);
     await flushMicrotasks();
 
-    expect(ble.connectToDevice).toHaveBeenCalledWith('d1', { autoConnect: true });
+    expect(ble.connectToDevice).toHaveBeenCalledWith('D1', { autoConnect: true });
 
     const reconnect = ble._connectCalls[ble._connectCalls.length - 1];
     reconnect.deferred.reject(createBleError(BleErrorCode.DeviceDisconnected, 'cleanup'));
@@ -428,7 +467,7 @@ describe('ConnectionManager', () => {
       jest.advanceTimersByTime(120);
       await flushMicrotasks();
       await expect(p).rejects.toMatchObject({ errorCode: BleErrorCode.OperationTimedOut });
-      expect(ble.cancelDeviceConnection).toHaveBeenCalledWith('d1');
+      expect(ble.cancelDeviceConnection).toHaveBeenCalledWith('D1');
     });
 
     test('callback order: onConnecting then onConnect', async () => {

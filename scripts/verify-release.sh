@@ -3,6 +3,7 @@
 # Shared checklist with publish.yml (R2-F040):
 #   - package/plugin/lint/prepack
 #   - host export typeof BleManager (scripts/ci/check-host-exports.js)
+#   - web vite build smoke (example-web packaging; radio is L4)
 #   - electron Fake L1 smoke
 #   - Expo CNG Android (always)
 #   - classic RN Android assemble (required when Android SDK available;
@@ -54,6 +55,9 @@ pnpm prepack
 echo "== host export resolution (post-prepack, typeof BleManager) =="
 node scripts/ci/check-host-exports.js
 
+echo "== Web vite build smoke (L2 packaging; radio is L4 lab) =="
+npx --yes vite build --config example-web/vite.config.js --outDir /tmp/example-web-dist-verify-release
+
 echo "== Electron Fake multi-device demo smoke (L1) =="
 node example-electron/smoke.js
 
@@ -79,6 +83,8 @@ echo "== Expo CNG Android path =="
 rm -rf "$ROOT_DIR/example-expo/node_modules/.pnpm/unified-ble-manager@file+.."*
 rm -rf "$ROOT_DIR/example-expo/node_modules/unified-ble-manager"
 pnpm --dir example-expo install --no-frozen-lockfile
+# R3-F043: match publish.yml / package.json test:expo — fix peer versions before tsc/doctor
+pnpm --dir example-expo exec expo install --fix
 pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json
 
 (
@@ -111,6 +117,9 @@ else
   echo "  to opt out intentionally (document the skip in the release PR)." >&2
   exit 1
 fi
+
+echo "== dual pack+install export smoke (R3-F044) =="
+node scripts/ci/pack-install-smoke.js
 
 echo "== npm pack (canonical unified-ble-manager) =="
 npm pack --dry-run

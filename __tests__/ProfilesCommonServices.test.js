@@ -75,10 +75,11 @@ const {
   PortBleManager
 } = require('unified-ble-manager')
 
-const { useFakeTimers, useRealTimers, advanceTimers } = require('./helpers/async')
+const { useFakeTimers, useRealTimers, flushScan } = require('./helpers/async')
 
+// R3-F065: shared FakeBlePort scan/notify flush (not ad-hoc 10ms advance)
 const flush = async () => {
-  await advanceTimers(10)
+  await flushScan()
 }
 
 describe('IEEE-11073 FLOAT / SFLOAT', () => {
@@ -289,6 +290,14 @@ describe('Device Information Service', () => {
     expect(Array.from(encodeSystemId({ manufacturerId: 0xfffe9abcde, organizationallyUniqueId: 0x123456 }))).toEqual(
       Array.from(sigWire)
     )
+    // R3-F054: overflow fails closed (no silent truncate)
+    expect(() =>
+      encodeSystemId({ manufacturerId: 0x10000000000n, organizationallyUniqueId: 0x123456 })
+    ).toThrow(/uint40|manufacturerId/)
+    expect(() => encodeSystemId({ manufacturerId: 1, organizationallyUniqueId: 0x1000000 })).toThrow(
+      /uint24|organizationallyUniqueId/
+    )
+    expect(() => encodeSystemId({ manufacturerId: -1, organizationallyUniqueId: 1 })).toThrow(/uint40|manufacturerId/)
   })
 
   test('isSystemId / isPnpId + PnP encode/parse', () => {
@@ -364,7 +373,12 @@ describe('Health Thermometer', () => {
     expect(p.fahrenheit).toBe(true)
     expect(p.temperature).toBeCloseTo(98.6, 1)
     expect(p.temperatureSpecial).toBe(null)
-    expect(p.timestamp).toEqual(ts)
+    expect(p.timestamp).toEqual({
+      ...ts,
+      yearUnknown: false,
+      monthUnknown: false,
+      dayUnknown: false
+    })
   })
 
   test('NRes FLOAT on wire is classified (not just NaN)', () => {
@@ -449,7 +463,12 @@ describe('Blood Pressure', () => {
     const p = parseBloodPressureMeasurement(raw)
     expect(p.kilopascal).toBe(true)
     expect(p.systolic).toBeCloseTo(16, 1)
-    expect(p.timestamp).toEqual(ts)
+    expect(p.timestamp).toEqual({
+      ...ts,
+      yearUnknown: false,
+      monthUnknown: false,
+      dayUnknown: false
+    })
   })
 
   test('SFLOAT NRes on systolic is classified', () => {
@@ -648,4 +667,64 @@ describe('Multi-profile FakeBlePort (Polar-like + clinical devices)', () => {
     expect(bpNotes[0].diastolic).toBeCloseTo(80, 0)
     bpSub.remove()
   })
+
+  test('BleTimestamp marks year/month/day 0 as unknown (R3-F021)', () => {
+    const { parseBleTimestamp, appendBleTimestamp } = require('../src/profiles/types')
+    const bytes = new Uint8Array(7)
+    // year=0, month=0, day=0, h/m/s = 12:30:45
+    bytes[0] = 0
+    bytes[1] = 0
+    bytes[2] = 0
+    bytes[3] = 0
+    bytes[4] = 12
+    bytes[5] = 30
+    bytes[6] = 45
+    const { ts } = parseBleTimestamp(bytes, 0)
+    expect(ts.year).toBe(0)
+    expect(ts.month).toBe(0)
+    expect(ts.day).toBe(0)
+    expect(ts.yearUnknown).toBe(true)
+    expect(ts.monthUnknown).toBe(true)
+    expect(ts.dayUnknown).toBe(true)
+    expect(ts.hours).toBe(12)
+
+    const known = parseBleTimestamp(
+      (() => {
+        const out = []
+        appendBleTimestamp(out, {
+          year: 2026,
+          month: 7,
+          day: 25,
+          hours: 1,
+          minutes: 2,
+          seconds: 3
+        })
+        return new Uint8Array(out)
+      })(),
+      0
+    ).ts
+    expect(known.yearUnknown).toBe(false)
+    expect(known.monthUnknown).toBe(false)
+    expect(known.dayUnknown).toBe(false)
+    expect(known.year).toBe(2026)
+  })
+
+  test('SFLOAT encode avoids reserved mantissas near specials (R3-F055)', () => {
+    // Values whose exp=0 mantissa is reserved must not mis-encode as coarser wrong values
+    for (const v of [2044, 2045, 2046, 2047, -2045, -2046, -2047, -2048]) {
+      const encoded = encodeIeee11073Sfloat(v)
+      const decoded = parseIeee11073Sfloat(encoded)
+      if (Number.isNaN(decoded)) {
+        // NRes is acceptable fail-closed for unrepresentable reserved neighborhood
+        continue
+      }
+      // Prefer accurate alternate representation over large error (e.g. 2047→2050)
+      expect(Math.abs(decoded - v)).toBeLessThanOrEqual(4)
+    }
+    // Classic health range still exact
+    for (const v of [0, 72, 80, 120, 100]) {
+      expect(parseIeee11073Sfloat(encodeIeee11073Sfloat(v))).toBe(v)
+    }
+  })
+
 })

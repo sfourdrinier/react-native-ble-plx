@@ -371,33 +371,36 @@ That is stricter and safer than “force codemod everyone.”
 | **Advanced transport** | Where OS allows |
 | **Bit-identical** | Not a goal |
 
-### Matrix (target end-state of 4.x)
+### Matrix (aspirational 4.x end-state only)
+
+**Runtime truth lives in [docs/PLATFORMS.md](./docs/PLATFORMS.md)** and `manager.supports()` — not this charter sketch (R3-F049). Rows below are long-horizon targets, not alpha claims.
 
 | Capability | RN iOS/Android | Electron (native main) | Web Bluetooth |
 | ---------- | -------------- | ---------------------- | ------------- |
-| Continuous scan | Y | Y | N; explicit chooser instead |
+| Continuous scan | Y | Backend-dependent (CB/BlueZ Y; mock/WinRT N) | N; explicit chooser instead |
 | User-gesture device chooser | N | N | Y; `requestDevice()` |
 | Connect / GATT / notify | Y | Y | Y |
 | Base64 values (compat) | Y | Y (adapter ok) | Y (adapter ok) |
 | `Uint8Array` values | Y | Y | Y |
-| Bonding APIs | Android Y; iOS OS | Platform partial | N |
+| Bonding APIs | Android Y; iOS OS | **N** on production Electron (`supports('bonding')` false); Fake host only for demos | N |
 | ConnectionManager | Y | Y | P |
 | Background FGS / restore | **Y** | N (desktop lifecycle) | N |
-| Services-changed / queues | Y | Y where OS allows | P |
+| Services-changed / queues | Y | Queue Y; servicesChanged **false** until OS events | N (fail-closed) |
 | L2CAP / PHY | Where OS allows | Where OS allows | N |
 
-Living table → `docs/PLATFORMS.md`.
+Living runtime table → `docs/PLATFORMS.md`.
 
 ### Web device selection contract (locked)
 
 ```ts
-requestDevice(options: DeviceRequestOptions): Promise<Device>
+requestDevice(options: DeviceRequestOptions): Promise<{ id: string; name: string | null; rssi: number | null }>
+// PortAdvertisement-shaped handle (not a full library Device) — pass id to connectToDevice(id)
 ```
 
 Web Bluetooth device discovery is an explicit permission-granting chooser, not a continuous scan:
 
 - `requestDevice()` is the canonical Web entrypoint for selecting a new device. It wraps `navigator.bluetooth.requestDevice()` and must be called directly from a browser user gesture.
-- It resolves with the library's ordinary `Device` wrapper for the single selected device. Selection does not imply a GATT connection; the existing connection API remains explicit.
+- It resolves with a **PortAdvertisement-shaped handle** `{ id, name, rssi }` (not a full library `Device`). Selection does not imply a GATT connection; pass `id` to `connectToDevice(id)`. See [docs/WEB.md](./docs/WEB.md).
 - `DeviceRequestOptions` mirrors the browser contract closely: `filters`, `exclusionFilters`, `optionalServices`, `optionalManufacturerData`, and `acceptAllDevices`.
 - Exactly one selection mode is valid: a non-empty `filters` array, or `acceptAllDevices: true`. `exclusionFilters` require `filters`. Empty or contradictory filters fail before opening the chooser.
 - Every service the application may access must be declared through filter services or `optionalServices`; the library never silently broadens browser permissions.
@@ -666,8 +669,8 @@ Each desktop preview must be useful for real bug discovery: its package entrypoi
 - [ ] Performance: Base64 mode ≥ 3.8; bytes mode clearly better on notify bench
 - [ ] A2–A7 quality; background demoable
 - [ ] Multi-host **preview**: Web + Electron native on macOS, Windows, and Linux, each with the required reference-device vertical slice
-- [ ] Optional codemod + fixtures in CI
-- [ ] No “must run codemod to upgrade” messaging
+- [x] Optional codemod + fixtures in CI (`scripts/codemod/` + `pnpm test:codemod`; consumer-published codemod package still optional / not required)
+- [x] No “must run codemod to upgrade” messaging (zero-change Path B; monorepo-only experimental codemod)
 
 ### `4.x` ambition complete
 

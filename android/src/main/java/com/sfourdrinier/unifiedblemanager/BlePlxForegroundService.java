@@ -18,6 +18,7 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Foreground Service for maintaining BLE connections in the background.
@@ -49,6 +50,11 @@ public class BlePlxForegroundService extends Service {
 
   private final IBinder binder = new LocalBinder();
   private boolean isRunning = false;
+  /**
+   * Process-wide FGS liveness for [BlePlxModule.isBackgroundModeEnabled]
+   * without dumping the system running-service list (R3-F077).
+   */
+  private static final AtomicBoolean runningStatic = new AtomicBoolean(false);
   private String currentTitle = DEFAULT_TITLE;
   private String currentText = DEFAULT_TEXT;
 
@@ -84,7 +90,7 @@ public class BlePlxForegroundService extends Service {
           startForeground(NOTIFICATION_ID, notification);
         }
 
-        isRunning = true;
+        setRunning(true);
       }
       return START_STICKY;
     }
@@ -120,7 +126,7 @@ public class BlePlxForegroundService extends Service {
 
   @Override
   public void onDestroy() {
-    isRunning = false;
+    setRunning(false);
     super.onDestroy();
   }
 
@@ -158,14 +164,14 @@ public class BlePlxForegroundService extends Service {
       startForeground(NOTIFICATION_ID, notification);
     }
 
-    isRunning = true;
+    setRunning(true);
   }
 
   /**
    * Handle the stop foreground service action
    */
   private void handleStopAction() {
-    isRunning = false;
+    setRunning(false);
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
       stopForeground(STOP_FOREGROUND_REMOVE);
     } else {
@@ -272,10 +278,22 @@ public class BlePlxForegroundService extends Service {
   }
 
   /**
-   * Check if the service is currently running
+   * Check if the service is currently running (instance).
    */
   public boolean isServiceRunning() {
     return isRunning;
+  }
+
+  /**
+   * Process-wide FGS liveness (R3-F077) — preferred over the deprecated running-services probe.
+   */
+  public static boolean isServiceRunningStatic() {
+    return runningStatic.get();
+  }
+
+  private void setRunning(boolean running) {
+    isRunning = running;
+    runningStatic.set(running);
   }
 
   /**

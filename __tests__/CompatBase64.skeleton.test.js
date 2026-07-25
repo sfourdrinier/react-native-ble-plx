@@ -18,6 +18,7 @@ const {
   createMockCharacteristic,
   createMockDescriptor
 } = require('./helpers/nativeBleModule')
+const { flushMicrotasks } = require('./helpers/async')
 
 Native.EventEmitter = NativeEventEmitter
 
@@ -222,6 +223,8 @@ describe('compat Base64 RN BleManager golden APIs (3.x call sites)', () => {
       listener,
       'tx-compat'
     )
+    // R3-F018: monitor setup is device-queued
+    await flushMicrotasks(8)
     expect(Native.BleModule.monitorCharacteristicForDevice).toHaveBeenCalledWith(
       deviceId,
       serviceUUID,

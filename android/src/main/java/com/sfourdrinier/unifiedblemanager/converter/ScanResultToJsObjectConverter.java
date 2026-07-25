@@ -42,11 +42,24 @@ public class ScanResultToJsObjectConverter extends JSObjectConverter<ScanResult>
     result.putBoolean(Metadata.IS_CONNECTABLE, scanResult.isConnectable());
 
     AdvertisementData advData = scanResult.getAdvertisementData();
-    result.putString(Metadata.MANUFACTURER_DATA,
-      advData.getManufacturerData() != null ?
-        Base64Converter.encode(advData.getManufacturerData()) : null);
+    // Prefer Base64 pre-encoded off-main (R3-F050); fall back to encode here if missing.
+    String preMfg = scanResult.getManufacturerDataBase64();
+    if (preMfg != null) {
+      result.putString(Metadata.MANUFACTURER_DATA, preMfg);
+    } else {
+      result.putString(Metadata.MANUFACTURER_DATA,
+        advData.getManufacturerData() != null ?
+          Base64Converter.encode(advData.getManufacturerData()) : null);
+    }
 
-    if (advData.getServiceData() != null) {
+    Map<String, String> preServiceData = scanResult.getServiceDataBase64();
+    if (preServiceData != null) {
+      WritableMap serviceData = Arguments.createMap();
+      for (Map.Entry<String, String> entry : preServiceData.entrySet()) {
+        serviceData.putString(entry.getKey(), entry.getValue());
+      }
+      result.putMap(Metadata.SERVICE_DATA, serviceData);
+    } else if (advData.getServiceData() != null) {
       WritableMap serviceData = Arguments.createMap();
       for (Map.Entry<UUID, byte[]> entry : advData.getServiceData().entrySet()) {
         serviceData.putString(UUIDConverter.fromUUID(entry.getKey()),
@@ -89,7 +102,10 @@ public class ScanResultToJsObjectConverter extends JSObjectConverter<ScanResult>
       result.putNull(Metadata.SOLICITED_SERVICE_UUIDS);
     }
 
-    if (advData.getRawScanRecord() != null) {
+    String preRaw = scanResult.getRawScanRecordBase64();
+    if (preRaw != null) {
+      result.putString(Metadata.RAW_SCAN_RECORD, preRaw);
+    } else if (advData.getRawScanRecord() != null) {
       result.putString(Metadata.RAW_SCAN_RECORD, Base64Converter.encode(advData.getRawScanRecord()));
     } else {
       result.putNull(Metadata.RAW_SCAN_RECORD);

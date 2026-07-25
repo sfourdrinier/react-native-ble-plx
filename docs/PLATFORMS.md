@@ -23,32 +23,33 @@ Honest matrix. Prefer `manager.supports(capability)` at runtime.
 | L2CAP | N (later) | N | N | N |
 | preferred PHY | N (later) | N | N | N |
 | per-device operation queue | **Y** on RN `BleManager` (`DeviceOperationQueue`, GAP-RN-Q) and `PortBleManager` | Y (`PortBleManager`) | Y | Y |
-| services-changed surface | **Y** on RN (`onServicesReset` + native `ServicesChangedEvent`; iOS `didModifyServices`, Android API 31+ `onServiceChanged`) | **N** — `supports('servicesChanged')` **false** (software `emitServicesReset` is test inject only; no ATT bridge) | **Partial** — see contract below | **Partial** — see contract below |
+| services-changed surface | **Y** on RN (`onServicesReset` + native `ServicesChangedEvent`; iOS `didModifyServices`, Android API 31+ `onServiceChanged`) | **N** — `supports('servicesChanged')` **false** (software `emitServicesReset` is test inject only; no ATT bridge) | **N** — `supports('servicesChanged')` **false** (fail-closed until OS events; `emitServicesReset` test inject only) | **N** — same fail-closed desktop policy as Electron |
 | long-write helper | **Y** on RN `BleManager` (`writeLongCharacteristicForDeviceFromBytes`) + free helper + `PortBleManager` | Y (`PortBleManager`; browser MTU limits still apply) | Y | Y |
 
 ### Electron continuous scan (backend honesty)
 
-`supports('continuousScan')` is **host-level true** for Electron/Node so apps can branch on “port hosts can scan,” but **backend reality differs**:
+**Runtime source of truth:** prefer `manager.supports('continuousScan')` on the live `BleManager` instance (backend-aware). The free `supports(capability, 'electron')` host matrix is a coarse default only (R3-F030 / R3-F045).
 
-| Backend | Continuous scan | Proof | Notes |
-| ------- | --------------- | ----- | ----- |
-| **macOS CoreBluetooth** | **Y** (full BlePort) | L2 software; **L4 lab open** | `pnpm run build:electron:macos` + Electron ABI rebuild (`@electron/rebuild`) for main process; `createCoreBluetoothBlePort({ requireNative: true })`; live Polar: `pnpm run example:electron:live` — see [ELECTRON.md](./ELECTRON.md) packaging |
-| **Linux BlueZ** | **Partial / preview** | L1 mock D-Bus contracts; L4 open | `BluezBlePort` + optional `dbus-next`; not full production discovery/GATT yet (GAP-E-LIN-*) |
-| **Windows WinRT** | **N / placeholder** | Fake only | `createWinRtBlePort` / native addon throws or falls back; do not claim radio scan |
+| Backend | `manager.supports('continuousScan')` | Proof | Notes |
+| ------- | ------------------------------------ | ----- | ----- |
+| **macOS CoreBluetooth** | **true** when real CB port is injected | L2 software; **L4 lab open** | `pnpm run build:electron:macos` + Electron ABI rebuild (`@electron/rebuild`) for main process; `createCoreBluetoothBlePort({ requireNative: true })`; live Polar: `pnpm run example:electron:live` — see [ELECTRON.md](./ELECTRON.md) packaging |
+| **Linux BlueZ** | **true** when BlueZ port is real | L1 mock D-Bus contracts; L4 open | `BluezBlePort` + optional `dbus-next`; not full production discovery/GATT yet (GAP-E-LIN-*) |
+| **Windows WinRT** | **false** (placeholder / Fake) | Fake only | `createWinRtBlePort` / native addon throws or falls back; do not claim radio scan |
+| **Fake / mock backend** | **false** (or host inject only) | CI smoke | Headless `example-electron:smoke` / unit tests |
 
 **FakeBlePort** is for **CI / unit tests / headless smoke only** when the `.node` addon is absent (Linux/Windows package jobs, `example-electron:smoke`). Production Electron main must inject a real OS port with `allowMockFallback: false`.
 
 ### servicesChanged contract (what `supports` means)
 
-**Product rule (4.0 alpha):** `supports('servicesChanged')` is **not** a single boolean across hosts with one meaning.
+**Product rule (4.0 alpha):** `manager.supports('servicesChanged')` is the runtime source of truth. Desktop is **fail-closed** until OS events are forwarded (R3-F013).
 
 | Host | `supports('servicesChanged')` | Meaning |
 | ---- | ----------------------------- | ------- |
 | **RN** | **true** | Full meaning: native radio Services Changed / `didModifyServices` / `onServiceChanged` → `onServicesReset` |
 | **Web** | **false** | Fail-closed until a WebBT ATT Services Changed bridge lands. `PortBleManager.emitServicesReset` may still exist as **test inject only** — do not treat as radio fidelity ([WEB.md](./WEB.md)) |
-| **Electron / Node** | **true (partial)** | **Listener API present only** (`onServicesReset` / `emitServicesReset`). OS/backend events are **not** forwarded yet. Apps that need radio-driven cache invalidation must not rely on this alone |
+| **Electron / Node** | **false** | Fail-closed until OS/backend Services Changed events are forwarded. `onServicesReset` / `emitServicesReset` may still exist as **test inject / software listener only** — never document `true` while Electron `manager.supports` returns false |
 
-**Do not** assume `supports('servicesChanged') === true` means ATT Services Changed is wired on desktop. Prefer PLATFORMS partial notes + backend status. Aligning web/electron to one policy (all fail-closed vs all listener-true) is a follow-up; until then this table is the contract.
+**Do not** treat software `emitServicesReset` as radio Services Changed fidelity on web/desktop.
 
 ### request MTU honesty
 

@@ -169,6 +169,9 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
         device.mtu = 23
         val adv = AdvertisementData.parseScanResponseData(raw ?: ByteArray(0))
         val result = ScanResult(id, name, rssi, 23, connectable, null, adv)
+        // R3-F050: Base64-encode manufacturer/service/raw scan fields on the scanner/binder
+        // thread so main only posts a ready payload (mirrors R2-F021 notify path).
+        result.preEncodeBase64Fields()
         mainHandler.post { onEventCallback.onEvent(result) }
       }
       radio.onScanFailed = { errorCode ->
@@ -553,6 +556,7 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     onSuccessCallback: OnSuccessCallback<Void>,
     onErrorCallback: OnErrorCallback
   ) {
+    // R3-F025: wait for ACTION_BOND_STATE_CHANGED → BOND_NONE (mirror createBond).
     try {
       val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager).adapter
       val device = adapter.getRemoteDevice(deviceIdentifier)
@@ -560,9 +564,76 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
         onSuccessCallback.onSuccess(null)
         return
       }
+      val finished = AtomicBoolean(false)
+      lateinit var receiver: BroadcastReceiver
+      val timeoutRunnable =
+        Runnable {
+          if (finished.compareAndSet(false, true)) {
+            try {
+              context.unregisterReceiver(receiver)
+            } catch (_: Exception) {
+            }
+            try {
+              if (device.bondState == BluetoothDevice.BOND_NONE) {
+                onSuccessCallback.onSuccess(null)
+              } else {
+                onErrorCallback.onError(
+                  BleError(BleErrorCode.DeviceUnbondFailed, "unbond timed out", null)
+                )
+              }
+            } catch (t: Throwable) {
+              onErrorCallback.onError(
+                BleError(BleErrorCode.DeviceUnbondFailed, "unbond timed out: ${t.message}", null)
+              )
+            }
+          }
+        }
+      receiver =
+        object : BroadcastReceiver() {
+          override fun onReceive(ctx: Context?, intent: Intent?) {
+            if (intent?.action != BluetoothDevice.ACTION_BOND_STATE_CHANGED) return
+            val d =
+              if (Build.VERSION.SDK_INT >= 33) {
+                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+              } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+              } ?: return
+            if (!d.address.equals(deviceIdentifier, true)) return
+            val state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)
+            if (state == BluetoothDevice.BOND_NONE && finished.compareAndSet(false, true)) {
+              mainHandler.removeCallbacks(timeoutRunnable)
+              try {
+                context.unregisterReceiver(this)
+              } catch (_: Exception) {
+              }
+              onSuccessCallback.onSuccess(null)
+            }
+          }
+        }
+      val filter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+      if (Build.VERSION.SDK_INT >= 33) {
+        context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+      } else {
+        @Suppress("UnspecifiedRegisterReceiverFlag")
+        context.registerReceiver(receiver, filter)
+      }
+      mainHandler.postDelayed(timeoutRunnable, CREATE_BOND_TIMEOUT_MS)
       val m = device.javaClass.getMethod("removeBond")
-      m.invoke(device)
-      onSuccessCallback.onSuccess(null)
+      val invoked = m.invoke(device)
+      // Hidden removeBond returns Boolean on many OEM builds — treat false as fail-closed.
+      if (invoked is Boolean && !invoked) {
+        if (finished.compareAndSet(false, true)) {
+          mainHandler.removeCallbacks(timeoutRunnable)
+          try {
+            context.unregisterReceiver(receiver)
+          } catch (_: Exception) {
+          }
+          onErrorCallback.onError(
+            BleError(BleErrorCode.DeviceUnbondFailed, "removeBond returned false", null)
+          )
+        }
+      }
     } catch (t: Throwable) {
       onErrorCallback.onError(BleError(BleErrorCode.DeviceUnbondFailed, t.message, null))
     }

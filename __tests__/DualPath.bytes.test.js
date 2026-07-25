@@ -16,6 +16,7 @@ import {
   createMockDevice,
   createMockDescriptor
 } from './helpers/nativeBleModule'
+import { flushMicrotasks } from './helpers/async'
 
 Native.EventEmitter = NativeEventEmitter
 
@@ -330,33 +331,37 @@ describe('Dual path AsBytes/FromBytes on shipped BleManager', () => {
 
   // R2-F079/F025: Characteristic.monitor / monitorAsBytes subscriptionType platform branch
 
-  test('Characteristic.monitorAsBytes forwards subscriptionType on Android', () => {
+  test('Characteristic.monitorAsBytes forwards subscriptionType on Android', async () => {
     Platform.OS = 'android'
     Native.BleModule.monitorCharacteristic = jest.fn().mockReturnValue(new Promise(() => {}))
     const c = new Characteristic(createMockCharacteristic({ id: 42 }), bleManager)
     const listener = jest.fn()
     const sub = c.monitorAsBytes(listener, 'char-sub-tx', 'indication')
+    // R3-F018: monitor setup is device-queued
+    await flushMicrotasks(8)
     expect(Native.BleModule.monitorCharacteristic).toBeCalledWith(42, 'char-sub-tx', 'indication')
     sub.remove()
   })
 
-  test('Characteristic.monitor strips subscriptionType on iOS (4th arg not passed to manager)', () => {
+  test('Characteristic.monitor strips subscriptionType on iOS (4th arg not passed to manager)', async () => {
     Platform.OS = 'ios'
     Native.BleModule.monitorCharacteristic = jest.fn().mockReturnValue(new Promise(() => {}))
     const c = new Characteristic(createMockCharacteristic({ id: 42 }), bleManager)
     const listener = jest.fn()
     const sub = c.monitor(listener, 'char-ios-tx', 'notification')
+    await flushMicrotasks(8)
     // iOS branch omits subscriptionType; manager then passes null to native
     expect(Native.BleModule.monitorCharacteristic).toBeCalledWith(42, 'char-ios-tx', null)
     sub.remove()
   })
 
-  test('Characteristic.monitorAsBytes strips subscriptionType on iOS', () => {
+  test('Characteristic.monitorAsBytes strips subscriptionType on iOS', async () => {
     Platform.OS = 'ios'
     Native.BleModule.monitorCharacteristic = jest.fn().mockReturnValue(new Promise(() => {}))
     const c = new Characteristic(createMockCharacteristic({ id: 99 }), bleManager)
     const listener = jest.fn()
     const sub = c.monitorAsBytes(listener, 'char-bytes-ios', 'indication')
+    await flushMicrotasks(8)
     expect(Native.BleModule.monitorCharacteristic).toBeCalledWith(99, 'char-bytes-ios', null)
     sub.remove()
   })
@@ -383,6 +388,20 @@ describe('Dual path AsBytes/FromBytes on shipped BleManager', () => {
       new Uint8Array([0x11, 0x22])
     )
     expect(Array.from(written.value)).toEqual([0x11, 0x22])
+    // R3-F064: WWR FromBytes passes withResponse:false to native
+    await device.writeCharacteristicWithoutResponseForServiceFromBytes(
+      '0000180f-0000-1000-8000-00805f9b34fb',
+      '00002a19-0000-1000-8000-00805f9b34fb',
+      new Uint8Array([0xaa])
+    )
+    expect(Native.BleModule.writeCharacteristicForDevice).toHaveBeenCalledWith(
+      'device-1',
+      '0000180f-0000-1000-8000-00805f9b34fb',
+      '00002a19-0000-1000-8000-00805f9b34fb',
+      expect.any(String),
+      false,
+      expect.anything()
+    )
   })
 
   test('Service dual-path wrappers (R2-F008)', async () => {

@@ -27,8 +27,6 @@ import com.sfourdrinier.unifiedblemanager.converter.ScanResultToJsObjectConverte
 import com.sfourdrinier.unifiedblemanager.converter.ServiceToJsObjectConverter;
 import com.sfourdrinier.unifiedblemanager.utils.ReadableArrayConverter;
 import com.sfourdrinier.unifiedblemanager.utils.SafePromise;
-import android.app.ActivityManager;
-import android.content.Context;
 
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Promise;
@@ -92,6 +90,15 @@ public class BlePlxModule extends NativeBlePlxSpec {
 
   @ReactMethod
   public void createClient(String restoreStateIdentifier) {
+    // R3-F023: destroy prior adapter before replacing (JS reload / double createClient leak).
+    if (bleAdapter != null) {
+      try {
+        bleAdapter.destroyClient();
+      } catch (Exception e) {
+        // Best-effort teardown — still replace with a fresh adapter below.
+      }
+      bleAdapter = null;
+    }
     bleAdapter = BleAdapterFactory.getNewAdapter(reactContext);
     if (bleAdapter instanceof com.sfourdrinier.unifiedblemanager.radio.OwnedBleAdapter) {
       ((com.sfourdrinier.unifiedblemanager.radio.OwnedBleAdapter) bleAdapter).setServicesChangedListener(
@@ -1111,7 +1118,8 @@ public class BlePlxModule extends NativeBlePlxSpec {
   @ReactMethod
   public void isBackgroundModeEnabled(final Promise promise) {
     try {
-      boolean isRunning = isServiceRunning(BlePlxForegroundService.class);
+      // R3-F077: use FGS static liveness flag (avoids deprecated running-services dump).
+      boolean isRunning = BlePlxForegroundService.isServiceRunningStatic();
       promise.resolve(isRunning);
     } catch (Exception e) {
       promise.reject("BACKGROUND_MODE_ERROR", "Failed to check background mode status: " + e.getMessage(), e);
@@ -1174,21 +1182,6 @@ public class BlePlxModule extends NativeBlePlxSpec {
       },
       error -> promise.reject(DEFAULT_ERROR_CODE, errorConverter.toJs(error))
     );
-  }
-
-  /**
-   * Check if a service is running
-   */
-  private boolean isServiceRunning(Class<?> serviceClass) {
-    ActivityManager manager = (ActivityManager) reactContext.getSystemService(Context.ACTIVITY_SERVICE);
-    if (manager != null) {
-      for (ActivityManager.RunningServiceInfo service : manager.getRunningServices(Integer.MAX_VALUE)) {
-        if (serviceClass.getName().equals(service.service.getClassName())) {
-          return true;
-        }
-      }
-    }
-    return false;
   }
 
   @ReactMethod

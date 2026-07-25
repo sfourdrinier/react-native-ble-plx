@@ -260,7 +260,7 @@ Do not start multiplatform backends on top of MultiplatformBleAdapter / RxAndroi
 
 | Topic | Best practice |
 | ----- | ------------- |
-| Device selection | First-class `requestDevice(options): Promise<Device>`; chooser requires a user gesture and returns one selected, not-yet-connected library `Device` |
+| Device selection | First-class `requestDevice(options): Promise<{ id; name; rssi }>` (PortAdvertisement handle, not a full library `Device`); chooser requires a user gesture; pass `id` to `connectToDevice(id)` |
 | Reconnect | Use `getDevices()` / permitted devices where available; document user-gesture requirements |
 | Scan API mapping | `startDeviceScan` keeps continuous-scan semantics and reports `OperationNotSupported` once through its listener on Web; it never opens a chooser |
 | Binary values | `DataView` / `Uint8Array` from characteristic values; align with Phase 1 bytes API |

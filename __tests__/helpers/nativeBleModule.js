@@ -130,6 +130,7 @@ function createBleModuleMock(overrides = {}) {
     createBond: jest.fn().mockResolvedValue(undefined),
     removeBond: jest.fn().mockResolvedValue(undefined),
     getBondState: jest.fn().mockResolvedValue('none'),
+    bondedDevices: jest.fn().mockResolvedValue([]),
     enableBackgroundMode: jest.fn(),
     disableBackgroundMode: jest.fn(),
     updateBackgroundNotification: jest.fn(),
@@ -165,13 +166,63 @@ function assertBleModuleEventConstants(bleModule) {
   }
 }
 
+/** Required BleModule methods for a complete mock (R3-F037). */
+const BLE_MODULE_REQUIRED_METHODS = [
+  'createClient',
+  'destroyClient',
+  'cancelTransaction',
+  'state',
+  'startDeviceScan',
+  'stopDeviceScan',
+  'connectToDevice',
+  'cancelDeviceConnection',
+  'isDeviceConnected',
+  'discoverAllServicesAndCharacteristicsForDevice',
+  'servicesForDevice',
+  'characteristicsForDevice',
+  'readCharacteristicForDevice',
+  'writeCharacteristicForDevice',
+  'monitorCharacteristicForDevice',
+  'readDescriptorForDevice',
+  'writeDescriptorForDevice',
+  'devices',
+  'connectedDevices'
+]
+
+/**
+ * Assert installed mock has required methods (R3-F037 — partial mocks cause false greens).
+ * @param {object} bleModule
+ */
+function assertBleModuleMethods(bleModule) {
+  for (const m of BLE_MODULE_REQUIRED_METHODS) {
+    if (typeof bleModule[m] !== 'function') {
+      throw new Error(`BleModule mock missing method ${m} (typeof ${typeof bleModule[m]})`)
+    }
+  }
+}
+
+/**
+ * Install mock and assert event constants + required methods (R3-F037).
+ * @param {typeof import('../../src/BleModule')} Native
+ * @param {object} [overrides]
+ */
+function installBleModuleMockStrict(Native, overrides = {}) {
+  const mock = installBleModuleMock(Native, overrides)
+  assertBleModuleEventConstants(mock)
+  assertBleModuleMethods(mock)
+  return mock
+}
+
 module.exports = {
   BLE_MODULE_EVENT_CONSTANTS,
+  BLE_MODULE_REQUIRED_METHODS,
   createMockDevice,
   createMockService,
   createMockCharacteristic,
   createMockDescriptor,
   createBleModuleMock,
   installBleModuleMock,
-  assertBleModuleEventConstants
+  installBleModuleMockStrict,
+  assertBleModuleEventConstants,
+  assertBleModuleMethods
 }

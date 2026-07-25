@@ -11,7 +11,19 @@
  */
 
 import type { UUID } from '../TypeDefinition'
-import { expandBluetoothUuid } from './uuidMatch'
+import { expandBluetoothUuid, looksLikeBluetoothUuid } from './uuidMatch'
+
+/**
+ * Package-shipped SIG service assigned names → 128-bit UUID for continuous scan.
+ * Web chooser may keep assigned names; continuous-scan matchers are hex-only (R3-F020).
+ */
+const ASSIGNED_SERVICE_UUIDS: Readonly<Record<string, string>> = {
+  heart_rate: '0000180d-0000-1000-8000-00805f9b34fb',
+  battery_service: '0000180f-0000-1000-8000-00805f9b34fb',
+  device_information: '0000180a-0000-1000-8000-00805f9b34fb',
+  health_thermometer: '00001809-0000-1000-8000-00805f9b34fb',
+  blood_pressure: '00001810-0000-1000-8000-00805f9b34fb'
+}
 
 /** One Web Bluetooth `requestDevice` filter object (subset of the browser API). */
 export type DeviceRequestFilter = {
@@ -58,9 +70,15 @@ export type ResolvedDiscoveryScan = {
  * lowercases, and dedupes (first-seen order). Returns `null` when empty
  * (meaning “no service filter”).
  *
+ * **Assigned names (R3-F020):** known package SIG aliases (`heart_rate`, …) expand to
+ * 128-bit UUIDs so continuous-scan matchers work. Unknown non-hex tokens are
+ * **warned and dropped** — use profile `resolve*ScanUUIDs` / hex forms, or Web
+ * `requestDeviceFiltersFromServices` which keeps assigned names for the chooser.
+ * {@link serviceUuidMatchesFilters} stays hex-only for false-positive safety.
+ *
  * Profile helpers may still expose both short and full forms from
  * `*ScanServiceUUIDs()` for radios that prefer either; after this resolve path
- * they collapse to unique expanded 128-bit (or lowercased assigned-name) tokens.
+ * they collapse to unique expanded 128-bit tokens.
  */
 export function resolveScanServiceUUIDs(serviceUUIDs?: readonly UUID[] | null): UUID[] | null {
   if (!serviceUUIDs?.length) return null
@@ -69,7 +87,23 @@ export function resolveScanServiceUUIDs(serviceUUIDs?: readonly UUID[] | null): 
   for (const raw of serviceUUIDs) {
     const trimmed = String(raw).trim()
     if (!trimmed) continue
-    const expanded = expandBluetoothUuid(trimmed)
+    let expanded: string | null = null
+    if (looksLikeBluetoothUuid(trimmed)) {
+      expanded = expandBluetoothUuid(trimmed)
+    } else {
+      const alias = trimmed.toLowerCase()
+      const mapped = ASSIGNED_SERVICE_UUIDS[alias]
+      if (mapped) {
+        expanded = mapped
+      } else {
+        console.warn(
+          `[discovery] resolveScanServiceUUIDs: dropping non-hex token "${trimmed}" ` +
+            `(Web Bluetooth assigned names need package mapping or hex/UUID form for continuous scan; ` +
+            `use profile resolve*ScanUUIDs or requestDeviceFiltersFromServices for chooser aliases)`
+        )
+        continue
+      }
+    }
     if (!expanded || seen.has(expanded)) continue
     seen.add(expanded)
     out.push(expanded)

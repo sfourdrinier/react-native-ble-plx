@@ -40,6 +40,7 @@ let findings_schema = #{
         "findings": #{
             "type": "array",
             "maxItems": 10,
+            "description": "Hard CAP only — do NOT pad to 10. Prefer 0–few real findings over filler.",
             "items": finding_item,
         },
     },
@@ -257,11 +258,13 @@ for lane in selected {
     p += "Primary paths (start here; follow imports as needed): " + lane.paths + "\n";
     p += "Operator focus: " + focus + "\n";
     p += "MANDATORY: use read_file, grep, list_dir (and git if useful). Do NOT answer from memory.\n";
-    p += "Hunt: bugs, edge cases, test gaps, DRY, compat breaks, docs lies, security/perf, modernization (deprecated APIs).\n";
-    p += "ALL severities matter: file critical, high, medium, low, AND nit. Do not self-censor nits or docs.\n";
-    p += "At most 10 findings. Prefer covering the severity range (not 10 criticals only). Each needs file, issue, severity, kind, proposed_fix, evidence.\n";
-    p += "Empty findings array is valid ONLY after you inspected the paths and found nothing material.\n";
-    p += "Set lane to \"" + lane.id + "\". notes = short coverage statement of what you read.\n";
+    p += "Hunt REAL issues only: bugs, edge cases, test gaps, DRY, compat breaks, docs lies, security/perf, modernization.\n";
+    p += "ALL severities matter (critical→nit) when REAL — do not self-censor real nits. Do NOT invent nits to fill a quota.\n";
+    p += "HARD CAP 10 findings per lane (anti-flood). This is a MAXIMUM, not a TARGET. Prefer fewer high-quality findings.\n";
+    p += "Each finding MUST have concrete evidence from code you read (path + behavior). No speculative 'might' without proof.\n";
+    p += "Empty findings: [] is a SUCCESS when the lane is clean after inspection. Do not pad.\n";
+    p += "If you have more than 10 real issues, report the worst 10 by severity and note overflow in notes.\n";
+    p += "Set lane to \"" + lane.id + "\". notes = what you read + whether the lane looked clean or truncated.\n";
     if diff_ctx != "" {
         p += "Optional recent diff context (truncated):\n";
         p += diff_ctx;
@@ -279,26 +282,46 @@ for lane in selected {
     });
 }
 
-log("Launching " + lane_jobs.len().to_string() + " surface lanes");
+log("Launching " + lane_jobs.len().to_string() + " surface lanes (cap 10 real findings each; empty=ok)");
 let lane_results = parallel(lane_jobs);
 
 // Collect findings
 let all_findings = [];
 let lane_fail = 0;
+let lanes_clean = 0;
+let lanes_full = 0;
 let li = 0;
 for r in lane_results {
     if r == () || !r.success || r.output == () || r.output.findings == () {
         lane_fail += 1;
     } else {
+        let n = r.output.findings.len();
+        if n == 0 {
+            lanes_clean += 1;
+        }
+        if n >= 10 {
+            lanes_full += 1;
+            log("Lane at CAP (10): may have overflow real issues — re-run focused if needed");
+        }
         for f in r.output.findings {
-            // Attach lane id if missing
             let row = f;
             all_findings.push(row);
         }
     }
     li += 1;
 }
-log("Collected " + all_findings.len().to_string() + " raw findings; failed/empty lanes=" + lane_fail.to_string());
+log(
+    "Collected " + all_findings.len().to_string()
+        + " raw findings (cap not quota); clean_lanes=" + lanes_clean.to_string()
+        + " cap_full_lanes=" + lanes_full.to_string()
+        + " failed_lanes=" + lane_fail.to_string()
+);
+if lanes_full > 0 {
+    log(
+        "WARNING: " + lanes_full.to_string()
+            + " lane(s) hit the 10-finding cap — treat as possible under-report; re-run those lanes after fixes"
+    );
+}
 
 // Rank for verification: critical > high > medium > low > nit; cap max_verify
 fn severity_rank(s) {

@@ -249,8 +249,17 @@ export function encodeSystemId(parts: {
   manufacturerId: string | number | bigint
   organizationallyUniqueId: string | number
 }): Uint8Array {
-  const mfg = bigIntToLeBytes(toBigInt(parts.manufacturerId), 5)
-  const oui = bigIntToLeBytes(toBigInt(parts.organizationallyUniqueId), 3)
+  // R3-F054: fail closed on overflow (uint40 manufacturer, uint24 OUI) instead of silent truncate.
+  const mfgN = toBigInt(parts.manufacturerId)
+  const ouiN = toBigInt(parts.organizationallyUniqueId)
+  if (mfgN < 0n || mfgN > 0xffffffffffn) {
+    throw new RangeError('manufacturerId must fit uint40 (0..2^40-1)')
+  }
+  if (ouiN < 0n || ouiN > 0xffffffn) {
+    throw new RangeError('organizationallyUniqueId must fit uint24 (0..2^24-1)')
+  }
+  const mfg = bigIntToLeBytes(mfgN, 5)
+  const oui = bigIntToLeBytes(ouiN, 3)
   const out = new Uint8Array(8)
   out.set(mfg, 0)
   out.set(oui, 5)

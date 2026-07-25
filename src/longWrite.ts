@@ -10,8 +10,9 @@ export type LongWriteOptions = {
   chunkSize?: number
   /**
    * When true (default), stop on first write failure.
-   * Cancel/disconnect errors (OperationCancelled / DeviceQueueCancelled / destroy)
-   * are always rethrown regardless of this flag.
+   * Cancel/disconnect/link-loss errors (OperationCancelled / DeviceQueueCancelled /
+   * destroy / DeviceNotConnected / DeviceDisconnected / port "Not connected")
+   * are always rethrown regardless of this flag (R2-F085 / R3-F001).
    */
   stopOnError?: boolean
 }

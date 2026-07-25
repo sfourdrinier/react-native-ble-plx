@@ -53,7 +53,8 @@ public final class BlePlxBundledRestorationRegistry: NSObject, CBCentralManagerD
 
   /// Early-wake central retained so system willRestoreState can fire before createClient (R2-F020).
   private var earlyCentral: CBCentralManager?
-  private let centralQueue = DispatchQueue(label: "com.reactnativebleplx.bundled.restoration.central")
+  /// Same serial radio queue Owned/BlePlx use end-to-end (R3-F015 / R3-F027). Never main.
+  private var centralQueue: DispatchQueue { BlePlxRadioQueue.shared }
 
   // MARK: - Required Selectors
 

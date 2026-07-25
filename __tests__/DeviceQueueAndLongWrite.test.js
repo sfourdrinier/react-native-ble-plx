@@ -337,10 +337,14 @@ describe('PortBleManager device queue + services-changed + long-write', () => {
   })
 
   test('supports deviceOperationQueue longWrite servicesChanged', () => {
+    // Electron host: queue + longWrite yes; servicesChanged fail-closed until OS events (R3-F013)
     const manager = new PortBleManager({ port: new FakeBlePort(), host: 'electron' })
     expect(manager.supports('deviceOperationQueue')).toBe(true)
     expect(manager.supports('longWrite')).toBe(true)
-    expect(manager.supports('servicesChanged')).toBe(true)
+    expect(manager.supports('servicesChanged')).toBe(false)
+    // Fake host still reports servicesChanged for inject/test paths
+    const fakeMgr = new PortBleManager({ port: new FakeBlePort(), host: 'fake' })
+    expect(fakeMgr.supports('servicesChanged')).toBe(true)
   })
 
   test('writeWithoutResponse passes withResponse:false to port (F043)', async () => {
@@ -561,6 +565,85 @@ describe('PortBleManager device queue + services-changed + long-write', () => {
     await manager.startDeviceScan(null, null, () => {})
     expect(manager.isDeviceScanActive()).toBe(true)
     await manager.stopDeviceScan()
+  })
+
+  test('emitDisconnect preempts long-write even with stopOnError:false (R3-F001)', async () => {
+    const port = new FakeBlePort({
+      characteristics: {
+        [deviceId]: {
+          [service]: {
+            [characteristic]: bytesToBase64(new Uint8Array([0]))
+          }
+        }
+      }
+    })
+    let writeCount = 0
+    let release
+    const gate = new Promise(r => {
+      release = r
+    })
+    const orig = port.writeCharacteristicBytes.bind(port)
+    port.writeCharacteristicBytes = async (id, s, c, value, opts) => {
+      writeCount += 1
+      if (writeCount === 1) await gate
+      return orig(id, s, c, value, opts)
+    }
+    const manager = new PortBleManager({ port, host: 'fake' })
+    await manager.connectToDevice(deviceId)
+    const longWrite = manager.writeLongCharacteristicForDeviceFromBytes(
+      deviceId,
+      service,
+      characteristic,
+      new Uint8Array([1, 2, 3, 4, 5, 6]),
+      { chunkSize: 2, stopOnError: false }
+    )
+    await flushMicrotasks(4)
+    // Unexpected link-loss must bump queue epoch and fail closed
+    port.emitDisconnect(deviceId, 'link loss')
+    await flushMicrotasks(4)
+    release()
+    await flushMicrotasks(8)
+    await expect(longWrite).rejects.toBeTruthy()
+    expect(writeCount).toBe(1)
+  })
+
+  test('longWrite pure helper rethrows not-connected / link-loss regardless of stopOnError (R3-F001)', async () => {
+    let n = 0
+    await expect(
+      writeLongCharacteristicFromBytes(
+        new Uint8Array([1, 2, 3, 4]),
+        async () => {
+          n += 1
+          if (n === 1) return
+          throw new Error('Not connected to device')
+        },
+        { chunkSize: 2, stopOnError: false }
+      )
+    ).rejects.toThrow(/Not connected/i)
+    expect(n).toBe(2)
+
+    n = 0
+    const disc = new BleError(
+      {
+        errorCode: BleErrorCode.DeviceNotConnected,
+        attErrorCode: null,
+        iosErrorCode: null,
+        androidErrorCode: null,
+        reason: 'gone'
+      },
+      require('../src/BleError').BleErrorCodeMessage
+    )
+    await expect(
+      writeLongCharacteristicFromBytes(
+        new Uint8Array([1, 2, 3, 4]),
+        async () => {
+          n += 1
+          if (n === 1) return
+          throw disc
+        },
+        { chunkSize: 2, stopOnError: false }
+      )
+    ).rejects.toMatchObject({ errorCode: BleErrorCode.DeviceNotConnected })
   })
 
   test('writeLongCharacteristicFromBytes rejects empty/invalid chunkSize edges', async () => {

@@ -37,11 +37,26 @@ export function isDeviceQueueCancelError(error: unknown): boolean {
   if (error instanceof BleError) {
     return (
       error.errorCode === BleErrorCode.OperationCancelled ||
-      error.errorCode === BleErrorCode.BluetoothManagerDestroyed
+      error.errorCode === BleErrorCode.BluetoothManagerDestroyed ||
+      // Link-loss / not-connected must fail closed in long-write even with stopOnError:false (R3-F001).
+      error.errorCode === BleErrorCode.DeviceNotConnected ||
+      error.errorCode === BleErrorCode.DeviceDisconnected
     )
   }
   if (error && typeof error === 'object' && 'name' in error) {
-    return (error as { name: string }).name === DEVICE_QUEUE_CANCELLED
+    if ((error as { name: string }).name === DEVICE_QUEUE_CANCELLED) return true
+  }
+  // Port-level plain Errors (e.g. FakeBlePort assertConnected) after link-loss.
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase()
+    if (
+      msg.includes('not connected') ||
+      msg.includes('link loss') ||
+      msg.includes('link-loss') ||
+      msg.includes('disconnected')
+    ) {
+      return true
+    }
   }
   return false
 }
@@ -128,6 +143,15 @@ export class DeviceOperationQueue {
   }
 
   /**
+   * Bump cancel epoch for a single device so queued-not-started ops fail and
+   * cooperative long-writes abort between chunks. Used by unexpected disconnect
+   * fan-out (R3-F001) without waiting for a disconnect write to enqueue.
+   */
+  cancelDevice(deviceId: string, error: Error = deviceQueueCancelledError()): void {
+    this.bumpEpoch(this.normalizeKey(deviceId), error)
+  }
+
+  /**
    * Bump cancel epoch for every known device key so queued-not-started ops fail.
    * Used by BleManager.destroy to fail closed with BluetoothManagerDestroyed.
    */
@@ -164,6 +188,9 @@ export class DeviceOperationQueue {
       this.pending.delete(key)
       // No remaining ops: drop tail so activeDeviceCount shrinks (F093).
       this.tails.delete(key)
+      // R3-F052: drop cancel bookkeeping for idle keys (many-device GC).
+      this.cancelErrors.delete(key)
+      // Keep epoch counter (monotonic) but allow prune() to clear idle epochs too.
     } else {
       this.pending.set(key, n)
     }
@@ -184,6 +211,13 @@ export class DeviceOperationQueue {
       if ((this.pending.get(key) ?? 0) <= 0) {
         this.tails.delete(key)
         this.pending.delete(key)
+        this.cancelErrors.delete(key)
+      }
+    }
+    // Drop cancelErrors for keys with no pending/tail (R3-F052).
+    for (const key of [...this.cancelErrors.keys()]) {
+      if ((this.pending.get(key) ?? 0) <= 0 && !this.tails.has(key)) {
+        this.cancelErrors.delete(key)
       }
     }
   }

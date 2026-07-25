@@ -805,30 +805,31 @@ End-to-end review grounded in **[ROADMAP.4.0.md](ROADMAP.4.0.md)** and **[docs/G
 | Web host | CI / package / plugin floors |
 | Tests + docs/GAPS honesty | Security / performance |
 
-**Design budget:** **160** agents for a full pass (1 ground + 12 lanes + **up to 120 verify-all-severities** + 1 report).  
-**Default `max_verify` is 120** — every severity (critical → nit) is adversarially verified when budget allows. Fail-closed. Nothing is “too small.”
+**Findings are real only — not a quota.** Each of 12 lanes may report **at most 10** issues (anti-flood **ceiling**). Agents must **not pad** to 10; `[]` means the lane looked clean. If many lanes hit 10, that can mean **under-reporting** (overflow) — re-run those lanes after fixes.
+
+**Default `max_verify` is 120** so *every* filed finding (critical → nit) can get an adversarial skeptic when budget allows — not “only the top 8 highs.” Fail-closed.  
+**Budget for full pass:** ~**160** agents (1 ground + 12 lanes + up to 120 verifyifiers + 1 report).
 
 #### How to run (Grok Build / TUI)
 
 ```text
-# Full tree — verify ALL severities (recommended; needs agent_budget 160)
+# Full tree — skeptic-verify every filed finding (recommended)
 /workflow roadmap-4-e2e-review {"focus":"all","max_verify":120}
 
-# Quick smoke only (NOT a full bar — do not use to claim “clean”)
-/workflow roadmap-4-e2e-review {"focus":"all","max_verify":16}
-
-# Focus one surface
+# Focus one surface (after a cap-full lane warning)
 /workflow roadmap-4-e2e-review {"focus":"android","max_verify":40}
 ```
 
 Pass **`agent_budget: 160`** for full verify-all. Watch **`/workflows`**. Report: `roadmap-4-e2e-review.md`.
+
+**Loop:** fix confirmed findings → re-run review until raw count drops and few/no lanes hit the 10-cap.
 
 #### Args
 
 | Arg | Default | Meaning |
 | --- | ------- | ------- |
 | `focus` | `"all"` | `"all"`, a lane id, or a path fragment |
-| `max_verify` | `120` | Cap on findings that get an independent skeptic (1–120; **all severities**) |
+| `max_verify` | `120` | Max findings to skeptic-verify (1–120). Default = verify **all filed** findings when ≤120 |
 | `since` | _(omit)_ | Git ref/commit for optional `git_diff_since` context |
 
 #### When to use

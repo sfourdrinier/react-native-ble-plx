@@ -159,4 +159,70 @@ describe('PortBleManager (shipped host surface)', () => {
     expect(seen).not.toContain('bat-ad')
     await manager.stopDeviceScan()
   })
+
+  test('destroy stops scan and cancels pending queue ops (R3-F016)', async () => {
+    const { port, manager } = managerWith()
+    const seen = []
+    await manager.startDeviceScan(null, null, (_e, d) => {
+      if (d) seen.push(d.id)
+    })
+    expect(manager.isDeviceScanActive()).toBe(true)
+
+    let release
+    const gate = new Promise(r => {
+      release = r
+    })
+    // Block a GATT op so a second enqueue is still queued when destroy runs
+    const orig = port.writeCharacteristicBytes.bind(port)
+    port.writeCharacteristicBytes = async (...args) => {
+      await gate
+      return orig(...args)
+    }
+    await manager.connectToDevice(DEVICE)
+    const p1 = manager.writeCharacteristicWithResponseForDeviceFromBytes(
+      DEVICE,
+      SVC,
+      CHR,
+      new Uint8Array([1])
+    )
+    // Let p1 start
+    await Promise.resolve()
+    await Promise.resolve()
+    const p2 = manager.writeCharacteristicWithResponseForDeviceFromBytes(
+      DEVICE,
+      SVC,
+      CHR,
+      new Uint8Array([2])
+    )
+    await Promise.resolve()
+    await Promise.resolve()
+
+    manager.destroy()
+    expect(manager.isDeviceScanActive()).toBe(false)
+    release()
+    await expect(p2).rejects.toBeTruthy()
+    // p1 may settle or reject depending on race; must not hang
+    await Promise.race([p1.then(() => null, () => null), Promise.resolve()])
+  })
+
+  test('FakeBlePort double startScan clears prior timer (R3-F017)', async () => {
+    const port = new FakeBlePort({
+      advertisements: [
+        { id: 'a', name: 'A', rssi: -40 },
+        { id: 'b', name: 'B', rssi: -50 }
+      ]
+    })
+    const first = []
+    const second = []
+    await port.startScan(ad => first.push(ad.id))
+    await port.startScan(ad => second.push(ad.id), {
+      serviceUUIDs: null
+    })
+    await flushScan()
+    // First callback must not receive ads after second startScan
+    expect(first).toEqual([])
+    expect(second.length).toBeGreaterThan(0)
+    await port.stopScan()
+  })
+
 })

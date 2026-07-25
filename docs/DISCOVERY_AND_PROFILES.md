@@ -42,9 +42,14 @@ import {
 
 // Continuous scan (RN / Electron / Fake): pass service UUIDs as first arg.
 // resolveScanServiceUUIDs expands 0x / braces / undashed forms and dedupes.
-const uuids = resolveScanServiceUUIDs(['0x180d', '0000180d-0000-1000-8000-00805f9b34fb'])
+// Known package SIG assigned names (heart_rate, battery_service, …) expand to 128-bit;
+// unknown non-hex tokens are warned + dropped. serviceUuidMatchesFilters stays hex-only.
+const uuids = resolveScanServiceUUIDs(['0x180d', 'heart_rate'])
 // → ['0000180d-0000-1000-8000-00805f9b34fb']
 manager.startDeviceScan(uuids, { deviceNamePrefix: 'Polar' }, (error, device) => { /* … */ })
+
+// Web chooser may keep assigned names; continuous scan must use expanded hex/UUIDs
+// (or resolveScanServiceUUIDs / profile resolve*ScanUUIDs).
 
 // Or map a DiscoveryScanFilter → startDeviceScan args
 const { serviceUUIDs, scanOptions } = resolveDiscoveryScanFilter({
@@ -190,6 +195,7 @@ const temp = parseTemperatureMeasurement(bytes)
 const bp = parseBloodPressureMeasurement(bytes)
 // bp.systolic / bp.systolicSpecial (and diastolic / MAP); bp.pulseRate
 // bp.userId; bp.userIdUnknown === true when userId is 0xFF (SIG Unknown User)
+// timestamp.yearUnknown / monthUnknown / dayUnknown when SIG date_time field is 0
 ```
 
 ### Profile export shape

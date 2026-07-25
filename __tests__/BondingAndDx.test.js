@@ -81,6 +81,31 @@ describe('Android bonding via BleManager', () => {
     expect(Native.BleModule.getBondState).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF')
   })
 
+
+  test('bondedDevices maps native devices to Device[] (R3-F010)', async () => {
+    Native.BleModule.bondedDevices = jest.fn().mockResolvedValue([
+      mockDevice({ id: 'AA:BB:CC:DD:EE:01', name: 'Bonded-1' }),
+      mockDevice({ id: 'AA:BB:CC:DD:EE:02', name: 'Bonded-2' })
+    ])
+    const list = await bleManager.bondedDevices()
+    expect(Native.BleModule.bondedDevices).toHaveBeenCalled()
+    expect(list).toHaveLength(2)
+    expect(list[0].id).toBe('AA:BB:CC:DD:EE:01')
+    expect(list[0].name).toBe('Bonded-1')
+    expect(list[1].id).toBe('AA:BB:CC:DD:EE:02')
+  })
+
+  test('iOS bondedDevices rejects OperationNotSupported without native call (R3-F010)', async () => {
+    Platform.OS = 'ios'
+    const mgr = new BleManager()
+    Native.BleModule.bondedDevices = jest.fn().mockResolvedValue([])
+    await expect(mgr.bondedDevices()).rejects.toMatchObject({
+      errorCode: BleErrorCode.OperationNotSupported
+    })
+    expect(Native.BleModule.bondedDevices).not.toHaveBeenCalled()
+    await mgr.destroy()
+  })
+
   test('iOS rejects bonding with OperationNotSupported without calling native', async () => {
     Platform.OS = 'ios'
     const mgr = new BleManager()

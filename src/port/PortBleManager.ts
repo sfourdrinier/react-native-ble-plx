@@ -3,6 +3,7 @@
  * Used by web / electron / node / tests — mirrors RN method names for shared apps.
  */
 
+import { BleError, BleErrorCode, BleErrorCodeMessage } from '../BleError'
 import {
   DeviceOperationQueue,
   deviceQueueCancelledError
@@ -70,8 +71,36 @@ export class PortBleManager {
     }
   }
 
-  /** Tear down port disconnect bridge and clear listeners (test / host shutdown). */
+  /**
+   * Tear down port disconnect bridge, stop active scan, cancel device queue,
+   * and clear listeners (align with RN BleManager.destroy — R3-F016).
+   */
   destroy(): void {
+    // Stop continuous scan so ads cannot deliver after destroy.
+    if (this.scanActive) {
+      this.scanActive = false
+      try {
+        void this.port.stopScan()
+      } catch {
+        // ignore
+      }
+    }
+
+    // Fail closed: queued-not-started ops reject; cooperative long-writes abort.
+    this.deviceQueue.cancelAll(
+      new BleError(
+        {
+          errorCode: BleErrorCode.BluetoothManagerDestroyed,
+          attErrorCode: null,
+          iosErrorCode: null,
+          androidErrorCode: null,
+          reason: 'PortBleManager was destroyed'
+        },
+        BleErrorCodeMessage
+      )
+    )
+    this.deviceQueue.prune()
+
     const unsub = this.portDisconnectUnsub
     this.portDisconnectUnsub = null
     if (unsub) {
@@ -107,6 +136,11 @@ export class PortBleManager {
   }
 
   private fanoutDisconnect(deviceId: string, errMsg: string | null): void {
+    // Preempt per-device queue so long-writes abort between chunks (R3-F001).
+    this.deviceQueue.cancelDevice(
+      deviceId,
+      deviceQueueCancelledError(errMsg ?? 'Device disconnected')
+    )
     const error = errMsg ? new Error(errMsg) : null
     const device: PortDevice = { id: deviceId, name: null, rssi: null }
     const key = deviceId.trim().toUpperCase()
@@ -493,7 +527,11 @@ export class PortBleManager {
           Promise.resolve(u()).catch(ignore)
         }
       })
-      .catch(err => listener(err instanceof Error ? err : new Error(String(err)), null))
+      // R3-F053: do not deliver setup errors after remove()
+      .catch(err => {
+        if (removed) return
+        listener(err instanceof Error ? err : new Error(String(err)), null)
+      })
     return {
       remove: () => {
         removed = true
@@ -567,7 +605,11 @@ export class PortBleManager {
           Promise.resolve(u()).catch(ignore)
         }
       })
-      .catch(err => listener(err instanceof Error ? err : new Error(String(err)), null))
+      // R3-F053: do not deliver setup errors after remove()
+      .catch(err => {
+        if (removed) return
+        listener(err instanceof Error ? err : new Error(String(err)), null)
+      })
     return {
       remove: () => {
         removed = true

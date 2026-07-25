@@ -94,11 +94,32 @@ describe('Android modernization defaults', () => {
     )
   })
 
-  test('FGS stack includes POST_NOTIFICATIONS for Android 13+ (R2-F031)', () => {
+  test('FGS stack includes POST_NOTIFICATIONS for Android 13+ (R2-F031 / R3-F002)', () => {
+    // Active AGP 8 manifest path (build.gradle sourceSets → AndroidManifestNew.xml)
+    const manifestNew = read('android/src/main/AndroidManifestNew.xml')
+    expect(manifestNew).toContain('android.permission.POST_NOTIFICATIONS')
+    expect(manifestNew).toContain('BlePlxForegroundService')
+    expect(manifestNew).toContain('BLUETOOTH_CONNECT')
+    expect(manifestNew).toContain('FOREGROUND_SERVICE_CONNECTED_DEVICE')
     const manifest = read('android/src/main/AndroidManifest.xml')
     expect(manifest).toContain('android.permission.POST_NOTIFICATIONS')
     const fgsPlugin = read('plugin/src/withBLEAndroidForegroundService.ts')
     expect(fgsPlugin).toContain('POST_NOTIFICATIONS')
+    // build.gradle still points AGP-namespace builds at the New manifest
+    const buildGradle = read('android/build.gradle')
+    expect(buildGradle).toContain('AndroidManifestNew.xml')
+  })
+
+  test('R3-F026 example AndroidManifest declares library FGS FQCN', () => {
+    const example = read('example/android/app/src/main/AndroidManifest.xml')
+    expect(example).toContain('com.sfourdrinier.unifiedblemanager.BlePlxForegroundService')
+    expect(example).toContain('POST_NOTIFICATIONS')
+  })
+
+  test('R3-F077 module does not call getRunningServices', () => {
+    const moduleJava = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxModule.java')
+    expect(moduleJava).not.toContain('getRunningServices')
+    expect(moduleJava).toContain('isServiceRunningStatic')
   })
 
   test('keeps Android promise rejection paths null-safe', () => {

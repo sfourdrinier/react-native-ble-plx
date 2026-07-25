@@ -97,6 +97,24 @@ describe('discovery helpers (generic)', () => {
     expect(serviceUuidMatchesFilters('180d', heartRateScanServiceUUIDs())).toBe(true)
   })
 
+
+  test('resolveScanServiceUUIDs expands known assigned names for continuous scan (R3-F020)', () => {
+    const resolved = resolveScanServiceUUIDs(['heart_rate'])
+    expect(resolved).toEqual([HR_SERVICE_UUID])
+    // Expanded form matches Fake continuous-scan filters
+    expect(serviceUuidMatchesFilters(HR_SERVICE_UUID, resolved)).toBe(true)
+    // Raw assigned name still does not match hex-only matcher (false-positive safety)
+    expect(serviceUuidMatchesFilters(HR_SERVICE_UUID, ['heart_rate'])).toBe(false)
+  })
+
+  test('resolveScanServiceUUIDs warns and drops unknown non-hex tokens (R3-F020)', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(resolveScanServiceUUIDs(['not_a_real_service_name'])).toBe(null)
+    expect(warn).toHaveBeenCalled()
+    expect(String(warn.mock.calls[0][0])).toMatch(/assigned name|continuous scan|hex/i)
+    warn.mockRestore()
+  })
+
   test('serviceUuidMatchesFilters ignores Web Bluetooth assigned names (profile concern)', () => {
     expect(serviceUuidMatchesFilters('heart_rate', [HR_SERVICE_UUID])).toBe(false)
     expect(serviceUuidMatchesFilters(HR_SERVICE_UUID, ['heart_rate'])).toBe(false)

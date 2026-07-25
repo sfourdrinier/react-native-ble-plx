@@ -42,23 +42,30 @@ describe("Test if Characteristic is properly calling BleManager's utility functi
   test('monitor', async () => {
     const listener = jest.fn()
     await characteristic.monitor(listener, 'id')
-    expect(bleManager._monitorCharacteristic).toBeCalledWith('cId', listener, 'id', null)
+    // R3-F018: deviceID first so CCCD setup can serialize on the device queue
+    expect(bleManager._monitorCharacteristic).toBeCalledWith('deviceId', 'cId', listener, 'id', null)
   })
 
   test('monitor forwards subscriptionType on Android', () => {
     Platform.OS = 'android'
     const listener = jest.fn()
     characteristic.monitor(listener, 'id', 'indication')
-    expect(bleManager._monitorCharacteristic).toBeCalledWith('cId', listener, 'id', 'indication')
+    expect(bleManager._monitorCharacteristic).toBeCalledWith(
+      'deviceId',
+      'cId',
+      listener,
+      'id',
+      'indication'
+    )
   })
 
   test('monitor omits subscriptionType arg on iOS', () => {
     Platform.OS = 'ios'
     const listener = jest.fn()
     characteristic.monitor(listener, 'id', 'notification')
-    // iOS branch: 3-arg call only (no 4th subscriptionType)
-    expect(bleManager._monitorCharacteristic).toBeCalledWith('cId', listener, 'id')
-    expect(bleManager._monitorCharacteristic.mock.calls[0]).toHaveLength(3)
+    // iOS branch: no subscriptionType (deviceID + id + listener + tx)
+    expect(bleManager._monitorCharacteristic).toBeCalledWith('deviceId', 'cId', listener, 'id')
+    expect(bleManager._monitorCharacteristic.mock.calls[0]).toHaveLength(4)
   })
 
   test('readAsBytes / write*FromBytes / monitorAsBytes delegate to Base64 methods', async () => {
@@ -97,6 +104,7 @@ describe("Test if Characteristic is properly calling BleManager's utility functi
     const listener = jest.fn()
     characteristic.monitorAsBytes(listener, 'tx-m', 'notification')
     expect(bleManager._monitorCharacteristic).toBeCalledWith(
+      'deviceId',
       'cId',
       expect.any(Function),
       'tx-m',

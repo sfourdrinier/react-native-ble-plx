@@ -1,10 +1,16 @@
 jest.mock('../src/BleManager')
 const { BleManager } = require('../src/BleManager')
 const { Service } = require('../src/Service')
+const { Platform } = require('react-native')
 
 describe("Test if Service is properly calling BleManager's utility function:", () => {
   const bleManager = new BleManager()
   const service = new Service({ id: 'serviceId', uuid: 'serviceUUID', deviceID: 'deviceId' }, bleManager)
+
+  beforeEach(() => {
+    Platform.OS = 'android'
+    jest.clearAllMocks()
+  })
 
   test('characteristics', async () => {
     await service.characteristics()
@@ -46,7 +52,29 @@ describe("Test if Service is properly calling BleManager's utility function:", (
   test('monitorCharacteristic', async () => {
     const listener = jest.fn()
     await service.monitorCharacteristic('bbbb', listener, 'id')
-    expect(bleManager._monitorCharacteristicForService).toBeCalledWith('serviceId', 'bbbb', listener, 'id')
+    // R3-F018: deviceID first for device-queue serialization of CCCD setup
+    expect(bleManager._monitorCharacteristicForService).toBeCalledWith(
+      'deviceId',
+      'serviceId',
+      'bbbb',
+      listener,
+      'id',
+      null
+    )
+  })
+
+  test('monitorCharacteristic omits subscriptionType on iOS', () => {
+    Platform.OS = 'ios'
+    const listener = jest.fn()
+    service.monitorCharacteristic('bbbb', listener, 'id', 'notification')
+    expect(bleManager._monitorCharacteristicForService).toBeCalledWith(
+      'deviceId',
+      'serviceId',
+      'bbbb',
+      listener,
+      'id'
+    )
+    expect(bleManager._monitorCharacteristicForService.mock.calls[0]).toHaveLength(5)
   })
 
   test('readDescriptorForCharacteristic', async () => {

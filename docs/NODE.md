@@ -46,7 +46,7 @@ Share factories documented in [ELECTRON.md](./ELECTRON.md) when loading OS ports
 ## Dual path + supports
 
 Same Base64 + `*AsBytes` / `*FromBytes` surface via `PortBleManager`.  
-`supports()` uses the **node** host matrix ([PLATFORMS.md](./PLATFORMS.md)): continuous scan host-level true, backend-dependent in practice; `servicesChanged` true for **listener API only** (partial).
+`supports()` uses the **node** host matrix ([PLATFORMS.md](./PLATFORMS.md)): continuous scan host-level true, backend-dependent in practice; `servicesChanged` **false** (fail-closed until OS events are forwarded; software `emitServicesReset` is test inject only — R3-F013).
 
 ## Smoke checklist
 

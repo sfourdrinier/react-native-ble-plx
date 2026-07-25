@@ -128,10 +128,11 @@ public final class BlePlxRestorationAdapter: NSObject {
     )
 
     // Adopt the system-restored central (same restore ID) — do not spin a second CBCentralManager.
+    // R3-F027: self.queue must match the CBCentralManager callback queue (BlePlxRadioQueue).
     let adapter = OwnedCoreBluetoothAdapter(
       adoptingRestoredCentral: central,
       restoredPeripherals: peripherals,
-      queue: .main,
+      queue: BlePlxRadioQueue.shared,
       restoreIdentifierKey: restorationIdentifier
     )
 

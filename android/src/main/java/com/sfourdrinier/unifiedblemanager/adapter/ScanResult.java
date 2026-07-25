@@ -3,9 +3,15 @@ package com.sfourdrinier.unifiedblemanager.adapter;
 
 import androidx.annotation.Nullable;
 
+import com.sfourdrinier.unifiedblemanager.adapter.utils.Base64Converter;
+import com.sfourdrinier.unifiedblemanager.adapter.utils.UUIDConverter;
+
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+
 
 /**
  * @noinspection unused
@@ -21,6 +27,14 @@ public class ScanResult {
   private UUID[] overflowServiceUUIDs;
   private AdvertisementData advertisementData;
 
+  /** Pre-encoded Base64 fields (R3-F050) — filled off-main before converter runs. */
+  @Nullable
+  private String manufacturerDataBase64;
+  @Nullable
+  private Map<String, String> serviceDataBase64;
+  @Nullable
+  private String rawScanRecordBase64;
+
   public ScanResult(String deviceId, String deviceName, int rssi, int mtu, boolean isConnectable, @Nullable UUID[] overflowServiceUUIDs, AdvertisementData advertisementData) {
     this.deviceId = deviceId;
     this.deviceName = deviceName;
@@ -29,6 +43,44 @@ public class ScanResult {
     this.isConnectable = isConnectable;
     this.overflowServiceUUIDs = overflowServiceUUIDs;
     this.advertisementData = advertisementData;
+  }
+
+  /**
+   * Encode advertisement binary fields to Base64 on the current (scanner/binder) thread
+   * so the JS converter can skip Base64 work on the main thread (R3-F050).
+   */
+  public void preEncodeBase64Fields() {
+    if (advertisementData == null) {
+      return;
+    }
+    byte[] mfg = advertisementData.getManufacturerData();
+    manufacturerDataBase64 = mfg != null ? Base64Converter.encode(mfg) : null;
+    if (advertisementData.getServiceData() != null) {
+      Map<String, String> encoded = new HashMap<>();
+      for (Map.Entry<UUID, byte[]> entry : advertisementData.getServiceData().entrySet()) {
+        encoded.put(UUIDConverter.fromUUID(entry.getKey()), Base64Converter.encode(entry.getValue()));
+      }
+      serviceDataBase64 = encoded;
+    } else {
+      serviceDataBase64 = null;
+    }
+    byte[] raw = advertisementData.getRawScanRecord();
+    rawScanRecordBase64 = raw != null ? Base64Converter.encode(raw) : null;
+  }
+
+  @Nullable
+  public String getManufacturerDataBase64() {
+    return manufacturerDataBase64;
+  }
+
+  @Nullable
+  public Map<String, String> getServiceDataBase64() {
+    return serviceDataBase64;
+  }
+
+  @Nullable
+  public String getRawScanRecordBase64() {
+    return rawScanRecordBase64;
   }
 
   public String getDeviceId() {

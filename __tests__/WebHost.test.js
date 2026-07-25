@@ -379,6 +379,23 @@ describe('unified-ble-manager/web (shipped host)', () => {
     })
   })
 
+  test('insecure context (no bluetooth) → BluetoothUnauthorized (R3-F059)', async () => {
+    const prev = Object.getOwnPropertyDescriptor(globalThis, 'isSecureContext')
+    Object.defineProperty(globalThis, 'isSecureContext', {
+      configurable: true,
+      get: () => false
+    })
+    try {
+      const port = new WebBluetoothPort({ navigator: {}, optionalServices: [SVC] })
+      await expect(port.requestDevice([{ services: [SVC] }])).rejects.toMatchObject({
+        errorCode: BleErrorCode.BluetoothUnauthorized
+      })
+    } finally {
+      if (prev) Object.defineProperty(globalThis, 'isSecureContext', prev)
+      else delete globalThis.isSecureContext
+    }
+  })
+
   test('user cancel NotFoundError → OperationCancelled', async () => {
     const stack = mockGattStack({
       requestDevice: async () => {
@@ -490,6 +507,40 @@ describe('unified-ble-manager/web (shipped host)', () => {
     await port.disconnect(DEVICE)
     expect(port.hasCachedCharacteristic(DEVICE, SVC, CHR)).toBe(false)
     expect(port.getConnectionState(DEVICE)).toBe('disconnected')
+  })
+
+
+  test('WebBluetoothPort.onDisconnect fires on gattserverdisconnected (R3-F009)', async () => {
+    const stack = mockGattStack()
+    const port = new WebBluetoothPort({ navigator: stack.navigator, optionalServices: [SVC] })
+    const seen = []
+    const unsub = port.onDisconnect((deviceId, errMsg) => {
+      seen.push({ deviceId, errMsg })
+    })
+    await port.requestDevice([{ services: [SVC] }])
+    await port.connect(DEVICE)
+    expect(port.getConnectionState(DEVICE)).toBe('connected')
+
+    stack.device.fireDisconnected()
+    expect(seen).toEqual([{ deviceId: DEVICE, errMsg: 'gattserverdisconnected' }])
+    expect(port.getConnectionState(DEVICE)).toBe('disconnected')
+    expect(port.hasCachedCharacteristic(DEVICE, SVC, CHR)).toBe(false)
+
+    // Manager bridge: PortBleManager wires onDeviceDisconnected
+    const stack2 = mockGattStack()
+    const { PortBleManager } = require('../src/port/PortBleManager')
+    const port2 = new WebBluetoothPort({ navigator: stack2.navigator, optionalServices: [SVC] })
+    const manager = new PortBleManager({ port: port2, host: 'web' })
+    const mgrSeen = []
+    manager.onDeviceDisconnected(DEVICE, (err, device) => {
+      mgrSeen.push({ err: err && err.message, id: device && device.id })
+    })
+    await port2.requestDevice([{ services: [SVC] }])
+    await port2.connect(DEVICE)
+    stack2.device.fireDisconnected()
+    expect(mgrSeen).toEqual([{ err: 'gattserverdisconnected', id: DEVICE }])
+    unsub()
+    manager.destroy()
   })
 
   test('purgeDeviceGatt removes notify listeners and stopNotifications (R2-F090)', async () => {

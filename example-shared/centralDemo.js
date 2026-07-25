@@ -43,24 +43,9 @@ function createCentralDemo(manager, hr, options = {}) {
 
   function resolveBondingCapability() {
     if (typeof options.bonding === 'boolean') return options.bonding
-    // Fail-closed: honest supports() first (charter).
-    if (manager.supports('bonding') === true) return true
-    // Electron Fake demos: host matrix is bonding:false for live OS, but mock backend
-    // implements createBond/listBonded via FakeBlePort — surface that for Pair UI.
-    try {
-      const info = typeof manager.getHostInfo === 'function' ? manager.getHostInfo() : null
-      if (
-        info &&
-        info.backend === 'mock' &&
-        typeof manager.createBond === 'function' &&
-        typeof manager.bondedDevices === 'function'
-      ) {
-        return true
-      }
-    } catch {
-      // ignore
-    }
-    return false
+    // Fail-closed: honest supports() only (R3-F007). Electron matrix stays bonding:false
+    // even with FakeBlePort mock backends — PortBleManager.createBond rejects.
+    return manager.supports('bonding') === true
   }
 
   function capabilities() {
@@ -359,10 +344,9 @@ function createCentralDemo(manager, hr, options = {}) {
    * valueBase64 is always null here — use readCommonProfiles for known SIG reads.
    */
   async function listCharacteristicsMeta(deviceId, serviceUUID) {
-    // Prefer BlePort.discoverCharacteristics when the manager exposes a port (PortBleManager).
-    const port = manager.port
-    if (port && typeof port.discoverCharacteristics === 'function') {
-      const metas = await port.discoverCharacteristics(deviceId, serviceUUID)
+    // R3-F032: prefer public characteristicsMetaForDevice; never touch manager.port.
+    if (typeof manager.characteristicsMetaForDevice === 'function') {
+      const metas = await manager.characteristicsMetaForDevice(deviceId, serviceUUID)
       return metas.map(c => ({
         uuid: c.uuid,
         isReadable: c.isReadable,
@@ -545,6 +529,8 @@ function createCentralDemo(manager, hr, options = {}) {
     getBondState,
     getDevice,
     clearDevices,
+    /** Register a device entry (chooser / permitted reconnect — R3-F061). */
+    rememberDevice: remember,
     startScan,
     stopScan,
     pickDevice,

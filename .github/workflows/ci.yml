@@ -41,7 +41,7 @@ jobs:
   # Always run JS/package tests — including labeled events — so required checks
   # never get replaced by a skipped success from an unrelated label.
   # Multi-OS matrix: pure TS / Jest port+host tests run on Ubuntu, Windows, macOS.
-  # Linux also matrices Node 20.19.4 (engines floor) and Node 24 (publish line).
+  # Linux matrices Node 20.19.4 (engines floor), Node 22 (engines mid), Node 24 (publish line).
   # Job name is honest: lint/prepack/multi-host smoke run only on Linux (R2-F096).
   package:
     name: JS tests (${{ matrix.os }}, Node ${{ matrix.node }})
@@ -51,6 +51,8 @@ jobs:
         include:
           - os: ubuntu-latest
             node: '20.19.4'
+          - os: ubuntu-latest
+            node: '22'
           - os: ubuntu-latest
             node: '24'
           - os: windows-latest
@@ -88,8 +90,8 @@ jobs:
         if: runner.os == 'Linux'
         run: node example-electron/smoke.js
 
-      - name: Electron native backend contract tests (L1 Fake + fail-closed requireNative)
-        run: pnpm exec jest --config jest.config.js --testPathPattern='BluezBlePort|ElectronNative|OwnedCore|DeviceQueueAndLongWrite|CompatRegression|CodemodBytesPath'
+      # R3-F075: full `pnpm test:package` above already covers BluezBlePort|ElectronNative|
+      # OwnedCore|DeviceQueueAndLongWrite|CompatRegression|CodemodBytesPath — no re-run.
 
       # L2 needs compiled hosts (src/*.ts is not resolvable by plain Node). prepack is Linux-only above;
       # emit lib/ here before requireNative probes (R2-F005).
@@ -115,8 +117,9 @@ jobs:
             if (typeof port.destroy === 'function') port.destroy();
           "
 
-      # L3: Node ABI ≠ Electron ABI. Rebuild for Electron, then headless main-process Fake smoke (R2-F037).
-      # Not radio L4 — no BrowserWindow, no live Polar.
+      # L3: Node ABI ≠ Electron ABI. Rebuild for Electron, then headless main-process smoke (R2-F037).
+      # electron-main-smoke: Fake path always + CoreBluetooth requireNative under Electron on darwin (R3-F012).
+      # Not radio L4 — no BrowserWindow, no live Polar. Non-darwin L3 remains Fake-only residual.
       - name: Electron ABI rebuild + main-process smoke (L3, Node ABI ≠ Electron ABI)
         if: runner.os == 'macOS'
         run: |

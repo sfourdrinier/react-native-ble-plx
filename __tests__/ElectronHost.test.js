@@ -62,6 +62,30 @@ describe('unified-ble-manager/electron (shipped host)', () => {
     expect(() => new ElectronBleManager({ allowMockFallback: false })).toThrow(/injected BlePort/)
   })
 
+  // R3-F008: autoDetectNative must not silent-mock when allowMockFallback:false
+  test('autoDetectNative + allowMockFallback:false never silent-mocks (R3-F008)', () => {
+    // Without a live native addon, constructor must throw — never backend mock.
+    // (darwin with built requireNative may succeed with real corebluetooth — still not mock.)
+    try {
+      const manager = new ElectronBleManager({ autoDetectNative: true, allowMockFallback: false })
+      const info = manager.getHostInfo()
+      expect(info.backend).not.toBe('mock')
+      expect(['bluez', 'winrt', 'corebluetooth']).toContain(info.backend)
+      expect(info.portId).not.toMatch(/fallback|mock/i)
+    } catch (e) {
+      expect(String(e.message || e)).toMatch(/injected BlePort|native main backend|allowMockFallback/i)
+    }
+  })
+
+  // R3-F007: electron bonding stays false even with Fake mock backend
+  test('electron mock backend keeps supports(bonding) false (R3-F007)', () => {
+    const manager = new ElectronBleManager({
+      port: new FakeBlePort({ id: 'electron-mock-fallback' }),
+      backend: 'mock'
+    })
+    expect(manager.supports('bonding')).toBe(false)
+  })
+
   test('createElectronBleManager runs vertical slice on injected FakeBlePort', async () => {
     const port = new FakeBlePort({
       id: 'bluez-mock',

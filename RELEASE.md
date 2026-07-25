@@ -47,7 +47,7 @@ Both paths share the same preparation steps (release branch, gate, PR, merge). T
 - Prefer **Path A (CI)** so consumers get provenance. Path B is fully supported but will not produce provenance.
 - Use `npm publish` (not `pnpm publish`) for any local publish. It matches the packer validated by `npm pack --dry-run`.
 - Never unpublish in an attempt to reuse a version.
-- **Apple compile** (`ci:apple` label on the release PR, or master/4.0 path-filter jobs) is a **pre-merge** gate. `publish.yml` re-runs package tests, electron Fake L1 smoke, web export/vite, and classic RN Android assemble on Ubuntu; it does **not** re-run Xcode. Do not treat Ubuntu Jest alone as multi-host GA proof.
+- **Apple compile** (`ci:apple` label on the release PR, or master/4.0 path-filter jobs) is a **pre-merge** gate. `publish.yml` re-runs package tests, electron Fake L1 smoke, web export/vite, Expo CNG Android assemble, and classic RN Android assemble on Ubuntu; it does **not** re-run Xcode. Do not treat Ubuntu Jest alone as multi-host GA proof.
 
 ## One-time setup (CI provenance — Path A)
 
@@ -109,6 +109,7 @@ Shared checklist with `publish.yml` (keep these gates aligned):
 |------|----------------------|-------------------------|
 | package/plugin/lint/prepack | always | always |
 | host export `typeof BleManager` (`scripts/ci/check-host-exports.js`) | always | always |
+| Web vite build smoke (`example-web/vite.config.js`) | always | always |
 | Electron Fake L1 (`example-electron/smoke.js`) | always | always |
 | Expo CNG Android prebuild+assemble | always | always |
 | Classic RN Android assemble | required when `ANDROID_HOME` set; else fail with install hint (opt out: `VERIFY_RELEASE_SKIP_CLASSIC_ANDROID=1`) | always |

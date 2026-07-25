@@ -145,6 +145,10 @@ jobs:
         working-directory: example-expo/android
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
 
+      # R3-F044: same dual pack+install export smoke as PR CI / verify-release
+      - name: Dual pack+install export smoke
+        run: node scripts/ci/pack-install-smoke.js
+
       - name: Inspect npm pack contents (canonical + shim)
         run: |
           set -euo pipefail

@@ -241,8 +241,17 @@ export function parseIeee11073Sfloat(data: Uint8Array | ArrayLike<number>, offse
 }
 
 /**
+ * Max finite SFLOAT magnitude at exp=0 after excluding reserved mantissas
+ * (0x07FD–0x07FF and 0x0800–0x0802): signed mantissas in [-2045, 2044].
+ */
+export const SFLOAT_MAX_FINITE_MANTISSA = 2044
+export const SFLOAT_MIN_FINITE_MANTISSA = -2045
+
+/**
  * Encode a finite number as IEEE-11073 SFLOAT (2 bytes LE).
  * Out-of-range values encode as NRes (not NaN).
+ * Finite search excludes reserved mantissas so values near specials
+ * (e.g. 2046/2047) pick the nearest honest representation (R3-F055).
  */
 export function encodeIeee11073Sfloat(value: number): Uint8Array {
   if (Number.isNaN(value)) {
@@ -270,22 +279,28 @@ export function encodeIeee11073Sfloat(value: number): Uint8Array {
   for (let exp = -8; exp <= 7; exp++) {
     const scale = Math.pow(10, exp)
     if (!Number.isFinite(scale) || scale === 0) continue
-    const mant = Math.round(value / scale)
-    if (mant < -2048 || mant > 2047) continue
-    const u = signedToUnsigned12(mant)
-    if (isReservedSfloatMantissaUnsigned(u)) continue
-    const recon = mant * scale
-    if (!Number.isFinite(recon)) continue
-    const err = Math.abs(value - recon)
-    if (
-      !found ||
-      err < bestErr ||
-      (err === bestErr && Math.abs(exp) < Math.abs(bestExp))
-    ) {
-      found = true
-      bestErr = err
-      bestExp = exp
-      bestMant = mant
+    const exact = value / scale
+    // Try round and neighbors so reserved-mantissa collisions still get a finite rep.
+    const base = Math.round(exact)
+    for (const delta of [0, -1, 1, -2, 2]) {
+      const mant = base + delta
+      // Finite non-reserved signed range (exclude 0x07FD–0x07FF / 0x0800–0x0802).
+      if (mant < SFLOAT_MIN_FINITE_MANTISSA || mant > SFLOAT_MAX_FINITE_MANTISSA) continue
+      const u = signedToUnsigned12(mant)
+      if (isReservedSfloatMantissaUnsigned(u)) continue
+      const recon = mant * scale
+      if (!Number.isFinite(recon)) continue
+      const err = Math.abs(value - recon)
+      if (
+        !found ||
+        err < bestErr ||
+        (err === bestErr && Math.abs(exp) < Math.abs(bestExp))
+      ) {
+        found = true
+        bestErr = err
+        bestExp = exp
+        bestMant = mant
+      }
     }
   }
 

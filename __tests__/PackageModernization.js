@@ -227,7 +227,50 @@ describe('package modernization targets', () => {
     expect(ciWorkflow).toContain('Classic RN Android assemble')
     expect(ciWorkflow).toContain("working-directory: example/android")
     expect(ciWorkflow).toContain('pnpm test:codemod')
-    expect(ciWorkflow).toMatch(/CompatRegression|CodemodBytesPath|DeviceQueueAndLongWrite/)
+    // R3-F075: full test:package covers these suites once — no redundant testPathPattern re-run
+    expect(ciWorkflow).not.toMatch(
+      /testPathPattern=['"]BluezBlePort\|ElectronNative\|OwnedCore\|DeviceQueueAndLongWrite\|CompatRegression\|CodemodBytesPath['"]/
+    )
+    // Suites still exist in the package test tree
+    expect(fs.existsSync(path.join(__dirname, 'CompatRegression.test.js'))).toBe(true)
+    expect(fs.existsSync(path.join(__dirname, 'CodemodBytesPath.test.js'))).toBe(true)
+    expect(fs.existsSync(path.join(__dirname, 'DeviceQueueAndLongWrite.test.js'))).toBe(true)
+  })
+
+  // R3-F069: Node 22 engines mid-line is CI-tested on Linux
+  test('CI Linux matrix includes Node 22 engines mid-line (R3-F069)', () => {
+    expect(ciWorkflow).toMatch(/node:\s*['"]22['"]/)
+    expect(ciWorkflow).toContain("node: '20.19.4'")
+    expect(ciWorkflow).toContain("node: '24'")
+  })
+
+  // R3-F076: no dead cpp packaging surface
+  test('package.json files allowlist omits missing cpp/ (R3-F076)', () => {
+    expect(rootPackage.files).not.toContain('cpp')
+    expect(fs.existsSync(path.join(__dirname, '..', 'cpp'))).toBe(false)
+  })
+
+  // R3-F068: verify-release includes vite build smoke
+  test('verify-release runs web vite build smoke (R3-F068)', () => {
+    expect(releaseVerifyScript).toMatch(/vite build --config example-web\/vite\.config\.js/)
+    expect(releaseDoc).toMatch(/Web vite|vite build smoke|example-web\/vite/)
+  })
+
+  // R3-F062 / R3-F073: bare + expo BLEService stay parity; no magic errorCode 2
+  test('bare and expo BLEService parity + OperationCancelled (R3-F062/F073)', () => {
+    const bare = readText(path.join(__dirname, '..', 'example/src/services/BLEService/BLEService.ts'))
+    const expo = readText(path.join(__dirname, '..', 'example-expo/src/services/BLEService/BLEService.ts'))
+    expect(bare).toContain('BleErrorCode.OperationCancelled')
+    expect(expo).toContain('BleErrorCode.OperationCancelled')
+    expect(bare).not.toMatch(/error\.errorCode === 2/)
+    expect(expo).not.toMatch(/error\.errorCode === 2/)
+    // Structural parity: same setupMonitor cancellation gate (hash of that region)
+    const extract = src => {
+      const m = src.match(/setupMonitor[\s\S]{0,800}OperationCancelled[\s\S]{0,200}/)
+      return m ? m[0].replace(/\s+/g, ' ') : ''
+    }
+    expect(extract(bare).length).toBeGreaterThan(20)
+    expect(extract(bare)).toBe(extract(expo))
   })
 
   test('CI labels Fake electron smoke L1 and gates electron native L2 + web vite', () => {

@@ -98,6 +98,38 @@ export async function createWebBleBridge() {
       return demo.listDevices(opts || {})
     },
 
+    /**
+     * R3-F061: Chromium multi-session reconnect surface.
+     * Returns permitted devices from manager.getDevices() when available; registers them in demo.
+     * Handles OperationNotSupported without throwing for UI callers.
+     */
+    async getPermittedDevices() {
+      if (typeof manager.getDevices !== 'function') {
+        return []
+      }
+      try {
+        const devices = await manager.getDevices()
+        const list = Array.isArray(devices) ? devices : []
+        for (const d of list) {
+          if (d && d.id && typeof demo.rememberDevice === 'function') {
+            demo.rememberDevice(d, 'permitted')
+          }
+        }
+        return list.map(d => ({
+          id: d.id,
+          name: d.name != null ? d.name : null,
+          rssi: d.rssi != null ? d.rssi : null,
+          source: 'permitted'
+        }))
+      } catch (err) {
+        const msg = String((err && err.message) || err)
+        if (/OperationNotSupported|not supported|not available/i.test(msg)) {
+          return []
+        }
+        throw err
+      }
+    },
+
     async listPairedDevices() {
       // Web has no bond list — always empty (honest)
       return []

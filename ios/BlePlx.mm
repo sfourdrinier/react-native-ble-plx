@@ -126,9 +126,22 @@ static NSDictionary *NSDictionaryFromConnectionOptions(JS::NativeBlePlx::Connect
 
 
 - (void)dispatchEvent:(NSString * _Nonnull)name value:(id _Nonnull)value {
-    if (hasListeners) {
-        [self sendEventWithName:name body:value];
+    // CB callbacks + Base64 encode run on BlePlxRadioQueue (R3-F015). Hop to main for RN events.
+    if (!hasListeners) {
+        return;
     }
+    if ([NSThread isMainThread]) {
+        [self sendEventWithName:name body:value];
+        return;
+    }
+    __weak BlePlx *weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BlePlx *strongSelf = weakSelf;
+        if (strongSelf == nil || !strongSelf->hasListeners) {
+            return;
+        }
+        [strongSelf sendEventWithName:name body:value];
+    });
 }
 
 - (void)startObserving {
@@ -181,11 +194,32 @@ static NSDictionary *NSDictionaryFromConnectionOptions(JS::NativeBlePlx::Connect
 RCT_EXPORT_METHOD(checkRestorationStatus:(RCTPromiseResolveBlock)resolve
                                 reject:(RCTPromiseRejectBlock)reject) {
     Class adapterClass = NSClassFromString(@"BlePlxRestorationAdapter");
-    Class registryClass = NSClassFromString(@"BleRestorationRegistry");
+    // Host multi-SDK registry (optional) vs bundled fallback (Restoration subspec).
+    Class hostRegistryClass = NSClassFromString(@"BleRestorationRegistry");
+    Class bundledRegistryClass = NSClassFromString(@"BlePlxBundledRestorationRegistry");
+    BOOL hostFound = hostRegistryClass != nil;
+    BOOL bundledFound = bundledRegistryClass != nil;
+    NSInteger bundledAdapterCount = 0;
+    if (bundledFound) {
+        id shared = nil;
+        if ([bundledRegistryClass respondsToSelector:@selector(shared)]) {
+            #pragma clang diagnostic push
+            #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            shared = [bundledRegistryClass performSelector:@selector(shared)];
+            #pragma clang diagnostic pop
+        }
+        if (shared != nil && [shared respondsToSelector:@selector(adapterCount)]) {
+            bundledAdapterCount = (NSInteger)[[shared valueForKey:@"adapterCount"] integerValue];
+        }
+    }
 
+    // R3-F056: bleRestorationRegistryFound is true for host *or* bundled registry.
     NSDictionary *status = @{
         @"blePlxRestorationAdapterFound": @(adapterClass != nil),
-        @"bleRestorationRegistryFound": @(registryClass != nil),
+        @"bleRestorationRegistryFound": @(hostFound || bundledFound),
+        @"bleRestorationRegistryHostFound": @(hostFound),
+        @"blePlxBundledRestorationRegistryFound": @(bundledFound),
+        @"bundledAdapterCount": @(bundledAdapterCount),
         @"hasRegisterSelector": @(adapterClass && [adapterClass respondsToSelector:@selector(register)]),
         @"initializeWasCalled": @YES  // If this method is reachable, BlePlx was loaded
     };
@@ -245,7 +279,9 @@ RCT_EXPORT_METHOD(createClient:(id)restoreIdentifierKey) {
       [self dispatchEvent:[BleEvent restoreStateEvent] value:restorePayload];
     }
   } else {
-    _manager = [BleAdapterFactory getNewAdapterWithQueue:dispatch_get_main_queue()
+    // R3-F015: dedicated serial radio queue (not main) for CB callbacks + Base64 encode.
+    dispatch_queue_t radioQueue = BlePlxRadioQueue.shared;
+    _manager = [BleAdapterFactory getNewAdapterWithQueue:radioQueue
                                       restoreIdentifierKey:restoreIdentifierKey];
     // Always set the delegate to receive events after JS attaches.
     _manager.delegate = self;

@@ -57,6 +57,12 @@ class OwnedAndroidGattRadio(private val context: Context) {
   private val pendingDescRead = ConcurrentHashMap<String, (Result<ByteArray?>) -> Unit>()
   /** Stashed write payloads so API-33 callbacks need not read deprecated characteristic.value. */
   private val pendingWriteValues = ConcurrentHashMap<String, ByteArray>()
+  /**
+   * Stashed descriptor/CCCD payloads for API 33+ [BluetoothGatt.writeDescriptor] which does not
+   * update the local [BluetoothGattDescriptor.getValue] cache. Used so [Characteristic.isNotifying]
+   * stays correct after monitor arm (R3-F022).
+   */
+  private val pendingDescValues = ConcurrentHashMap<String, ByteArray>()
 
   /** Per-device connection lifecycle listeners (multi-device safe). */
   private val connectionListeners =
@@ -64,6 +70,15 @@ class OwnedAndroidGattRadio(private val context: Context) {
 
   /** Per-device FIFO for outstanding GATT ops. */
   private val deviceQueues = ConcurrentHashMap<String, GattSerialQueue>()
+
+  /**
+   * autoConnect flag for a reconnect that must wait until the prior GATT reports
+   * [BluetoothProfile.STATE_DISCONNECTED] before [BluetoothDevice.connectGatt] (R3-F003).
+   */
+  private val pendingReconnect = ConcurrentHashMap<String, Boolean>()
+
+  /** Safety-timeout runnables that force-close a GATT if DISCONNECTED never arrives (R3-F003). */
+  private val closeTimeouts = ConcurrentHashMap<String, Runnable>()
 
   var onAdapterState: ((String) -> Unit)? = null
   var onScanResult: ((deviceId: String, name: String?, rssi: Int, connectable: Boolean, raw: ByteArray?) -> Unit)? = null
@@ -202,39 +217,102 @@ class OwnedAndroidGattRadio(private val context: Context) {
 
   fun connect(deviceId: String, autoConnect: Boolean) {
     val key = deviceId.uppercase()
-    // Close any prior GATT client for this address (reconnect / double-connect leak).
-    gatts.remove(key)?.let { prior ->
-      try {
-        prior.disconnect()
-        prior.close()
-      } catch (t: Throwable) {
-        OwnedAndroidLog.e("connect close prior gatt", t)
-      }
+    val prior = gatts[key]
+    if (prior != null) {
+      // R3-F003: never close() before STATE_DISCONNECTED — disconnect prior and reconnect
+      // from the DISCONNECTED callback (or safety timeout). Immediate close→connectGatt is a
+      // common cause of GATT status 133 / flaky reconnect.
       failPendingForDevice(key, "reconnect")
       clearCharCacheForDevice(key)
       deviceQueues.remove(key)?.clear()
       discovered.remove(key)
+      pendingReconnect[key] = autoConnect
+      scheduleSafeClose(key, prior)
+      try {
+        prior.disconnect()
+      } catch (t: Throwable) {
+        OwnedAndroidLog.e("connect disconnect prior gatt", t)
+        completeGattTeardown(key, prior)
+        openGatt(deviceId, key, autoConnect)
+      }
+      return
     }
+    openGatt(deviceId, key, autoConnect)
+  }
+
+  fun disconnect(deviceId: String) {
+    val key = deviceId.uppercase()
+    // Explicit user/app disconnect cancels any pending reconnect-after-teardown.
+    pendingReconnect.remove(key)
+    failPendingForDevice(key, "disconnected")
+    clearCharCacheForDevice(key)
+    deviceQueues.remove(key)?.clear()
+    val g = gatts[key]
+    if (g == null) {
+      discovered.remove(key)
+      return
+    }
+    // R3-F003: only disconnect(); close() waits for STATE_DISCONNECTED (or safety timeout).
+    scheduleSafeClose(key, g)
+    try {
+      g.disconnect()
+    } catch (t: Throwable) {
+      OwnedAndroidLog.e("disconnect", t)
+      completeGattTeardown(key, g)
+    }
+  }
+
+  private fun openGatt(deviceId: String, key: String, autoConnect: Boolean) {
+    pendingReconnect.remove(key)
     val a = adapter ?: throw IllegalStateException("Bluetooth adapter unavailable")
     val device = a.getRemoteDevice(deviceId)
     val gatt = device.connectGatt(context, autoConnect, gattCallback, BluetoothDevice.TRANSPORT_LE)
     gatts[key] = gatt
   }
 
-  fun disconnect(deviceId: String) {
-    val key = deviceId.uppercase()
-    failPendingForDevice(key, "disconnected")
-    clearCharCacheForDevice(key)
-    deviceQueues.remove(key)?.clear()
-    gatts.remove(key)?.let { g ->
-      try {
-        g.disconnect()
-        g.close()
-      } catch (t: Throwable) {
-        OwnedAndroidLog.e("disconnect", t)
-      }
+  /**
+   * Force-close [gatt] and drop local state. Cancels any pending safety timeout.
+   * Safe to call from DISCONNECTED callback or after a failed disconnect.
+   */
+  private fun completeGattTeardown(key: String, gatt: BluetoothGatt) {
+    cancelSafeClose(key)
+    try {
+      gatt.close()
+    } catch (_: Exception) {
+    }
+    if (gatts[key] === gatt) {
+      gatts.remove(key)
     }
     discovered.remove(key)
+    clearCharCacheForDevice(key)
+    deviceQueues.remove(key)?.clear()
+  }
+
+  private fun scheduleSafeClose(key: String, gatt: BluetoothGatt) {
+    cancelSafeClose(key)
+    val r =
+      Runnable {
+        if (gatts[key] === gatt) {
+          OwnedAndroidLog.e("GATT close safety timeout for $key (DISCONNECTED never arrived)")
+          failPendingForDevice(key, "disconnected timeout")
+          completeGattTeardown(key, gatt)
+          // If a reconnect was queued, attempt it after forced teardown.
+          pendingReconnect.remove(key)?.let { autoConnect ->
+            try {
+              // device address is the key uppercased; openGatt needs original or upper — both OK.
+              openGatt(key, key, autoConnect)
+            } catch (t: Throwable) {
+              OwnedAndroidLog.e("reconnect after close timeout", t)
+            }
+          }
+        }
+      }
+    closeTimeouts[key] = r
+    mainHandler.postDelayed(r, GATT_CLOSE_TIMEOUT_MS)
+  }
+
+  private fun cancelSafeClose(key: String) {
+    closeTimeouts.remove(key)?.let { mainHandler.removeCallbacks(it) }
   }
 
   fun isConnected(deviceId: String): Boolean {
@@ -443,6 +521,8 @@ class OwnedAndroidGattRadio(private val context: Context) {
       }
       // Must wait for onDescriptorWrite — reporting success before CCCD is armed is a race.
       val key = pendingCharKey("cccd", deviceId, serviceUuid, charUuid)
+      // Stash so onDescriptorWrite can mirror into local descriptor cache (API 33+ / R3-F022).
+      pendingDescValues[key] = payload
       pendingDesc[key] = { r ->
         onResult(r)
         done()
@@ -451,6 +531,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
         val status = gatt.writeDescriptor(cccd, payload)
         if (status != BluetoothGatt.GATT_SUCCESS) {
           pendingDesc.remove(key)
+          pendingDescValues.remove(key)
           onResult(Result.failure(IllegalStateException("writeDescriptor failed to start status=$status")))
           done()
         }
@@ -459,6 +540,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
         cccd.value = payload
         if (!gatt.writeDescriptor(cccd)) {
           pendingDesc.remove(key)
+          pendingDescValues.remove(key)
           onResult(Result.failure(IllegalStateException("writeDescriptor failed to start")))
           done()
         }
@@ -513,6 +595,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
         return@enqueue
       }
       val key = pendingDescKey("descWrite", deviceId, serviceUuid, charUuid, descUuid)
+      pendingDescValues[key] = value
       pendingDesc[key] = { r ->
         onResult(r)
         done()
@@ -521,6 +604,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
         val status = gatt.writeDescriptor(desc, value)
         if (status != BluetoothGatt.GATT_SUCCESS) {
           pendingDesc.remove(key)
+          pendingDescValues.remove(key)
           onResult(Result.failure(IllegalStateException("writeDescriptor failed to start status=$status")))
           done()
         }
@@ -529,6 +613,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
         desc.value = value
         if (!gatt.writeDescriptor(desc)) {
           pendingDesc.remove(key)
+          pendingDescValues.remove(key)
           onResult(Result.failure(IllegalStateException("writeDescriptor failed to start")))
           done()
         }
@@ -568,7 +653,12 @@ class OwnedAndroidGattRadio(private val context: Context) {
   fun destroy() {
     stopScan()
     unregisterAdapterStateReceiver()
-    gatts.keys.toList().forEach { disconnect(it) }
+    pendingReconnect.clear()
+    // Force-close immediately on destroy — no need to wait for DISCONNECTED callbacks.
+    gatts.keys.toList().forEach { key ->
+      val g = gatts[key] ?: return@forEach
+      completeGattTeardown(key, g)
+    }
     gatts.clear()
     discovered.clear()
     charCache.clear()
@@ -580,6 +670,9 @@ class OwnedAndroidGattRadio(private val context: Context) {
     pendingDesc.clear()
     pendingDescRead.clear()
     pendingWriteValues.clear()
+    pendingDescValues.clear()
+    closeTimeouts.values.forEach { mainHandler.removeCallbacks(it) }
+    closeTimeouts.clear()
   }
 
   private fun enqueue(deviceId: String, op: (done: () -> Unit) -> Unit) {
@@ -611,6 +704,9 @@ class OwnedAndroidGattRadio(private val context: Context) {
     }
     pendingWriteValues.keys.filter { it.contains(deviceKeyUpper) }.toList().forEach { k ->
       pendingWriteValues.remove(k)
+    }
+    pendingDescValues.keys.filter { it.contains(deviceKeyUpper) }.toList().forEach { k ->
+      pendingDescValues.remove(k)
     }
   }
 
@@ -684,28 +780,23 @@ class OwnedAndroidGattRadio(private val context: Context) {
         } else {
           // Non-success while "connected" is a failed connect — surface status and tear down.
           dispatchConnectionState(id, false, status)
-          try {
-            gatt.close()
-          } catch (_: Exception) {
-          }
           failPendingForDevice(key, "connect failed status=$status")
-          clearCharCacheForDevice(key)
-          deviceQueues.remove(key)?.clear()
-          gatts.remove(key)
-          discovered.remove(key)
+          completeGattTeardown(key, gatt)
         }
       } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
         // Always pass gatt status: status 133 etc. means failed connect, not clean disconnect.
+        // R3-F003: close() only after STATE_DISCONNECTED (not from disconnect()/connect prior).
         dispatchConnectionState(id, false, status)
-        try {
-          gatt.close()
-        } catch (_: Exception) {
-        }
         failPendingForDevice(key, "disconnected status=$status")
-        clearCharCacheForDevice(key)
-        deviceQueues.remove(key)?.clear()
-        gatts.remove(key)
-        discovered.remove(key)
+        completeGattTeardown(key, gatt)
+        // Reconnect that waited for a clean prior teardown.
+        pendingReconnect.remove(key)?.let { autoConnect ->
+          try {
+            openGatt(id, key, autoConnect)
+          } catch (t: Throwable) {
+            OwnedAndroidLog.e("reconnect after DISCONNECTED", t)
+          }
+        }
       }
     }
 
@@ -720,8 +811,23 @@ class OwnedAndroidGattRadio(private val context: Context) {
       // Prefer specific descWrite key, then CCCD key from setNotify.
       val descKey = "descWrite:$id:$serviceUuid:${ch.uuid}:${descriptor.uuid}"
       val cccdKey = "cccd:$id:$serviceUuid:${ch.uuid}"
-      val cb = pendingDesc.remove(descKey) ?: pendingDesc.remove(cccdKey)
+      val matchedKey =
+        when {
+          pendingDesc.containsKey(descKey) -> descKey
+          pendingDesc.containsKey(cccdKey) -> cccdKey
+          else -> null
+        }
+      val cb = matchedKey?.let { pendingDesc.remove(it) }
+      val stashed = matchedKey?.let { pendingDescValues.remove(it) }
+        ?: pendingDescValues.remove(descKey)
+        ?: pendingDescValues.remove(cccdKey)
       if (status == BluetoothGatt.GATT_SUCCESS) {
+        // R3-F022: API 33+ writeDescriptor(desc, payload) does not set local descriptor.value;
+        // mirror stashed payload so Characteristic.isNotifying() / getValue() stay correct.
+        if (stashed != null) {
+          @Suppress("DEPRECATION")
+          descriptor.value = stashed
+        }
         cb?.invoke(Result.success(Unit))
       } else {
         cb?.invoke(Result.failure(IllegalStateException("onDescriptorWrite status=$status")))
@@ -886,6 +992,8 @@ class OwnedAndroidGattRadio(private val context: Context) {
 
   /**
    * Per-device FIFO: only one GATT request outstanding until [done] is invoked.
+   * All pumps run on [handler] (main) so BluetoothGatt is never touched from mixed
+   * binder/JS threads (R3-F024).
    */
   internal class GattSerialQueue(private val handler: Handler) {
     private val lock = Any()
@@ -901,7 +1009,8 @@ class OwnedAndroidGattRadio(private val context: Context) {
         }
       }
       if (startNow) {
-        pump()
+        // R3-F024: never pump() inline on the caller thread (binder/JS).
+        handler.post { pump() }
       }
     }
 
@@ -940,6 +1049,9 @@ class OwnedAndroidGattRadio(private val context: Context) {
   companion object {
     /** Build marker for tests / evidence that owned radio is on the classpath. */
     const val RADIO_ID = "owned-android-gatt-v1"
+
+    /** Safety close if onConnectionStateChange(DISCONNECTED) never arrives (R3-F003). */
+    const val GATT_CLOSE_TIMEOUT_MS = 5_000L
 
     val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 

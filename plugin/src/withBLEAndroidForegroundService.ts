@@ -120,17 +120,34 @@ export function addForegroundServiceDeclaration(androidManifest: AndroidConfig.M
     app.service = []
   }
 
+  // R3-F011: migrate sticky legacy/relative service names to the 4.0 FQCN instead of
+  // treating them as "already present" (class was renamed; dead entry would skip inject).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const serviceExists = app.service.some((service: any) => {
+  let hasCanonical = false
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const service of app.service as any[]) {
     const name = service.$?.['android:name']
-    return (
-      name === BLE_PLX_FOREGROUND_SERVICE_NAME ||
-      name === '.BlePlxForegroundService' ||
-      name === BLE_PLX_FOREGROUND_SERVICE_NAME_LEGACY
-    )
-  })
+    if (name === BLE_PLX_FOREGROUND_SERVICE_NAME) {
+      hasCanonical = true
+      // Ensure required attributes on an already-canonical entry.
+      service.$['android:enabled'] = service.$['android:enabled'] ?? 'true'
+      service.$['android:exported'] = service.$['android:exported'] ?? 'false'
+      service.$['android:foregroundServiceType'] =
+        service.$['android:foregroundServiceType'] ?? 'connectedDevice'
+      continue
+    }
+    if (name === BLE_PLX_FOREGROUND_SERVICE_NAME_LEGACY || name === '.BlePlxForegroundService') {
+      AndroidConfig.Manifest.ensureToolsAvailable(androidManifest)
+      service.$['android:name'] = BLE_PLX_FOREGROUND_SERVICE_NAME
+      service.$['android:enabled'] = 'true'
+      service.$['android:exported'] = 'false'
+      service.$['android:foregroundServiceType'] = 'connectedDevice'
+      service.$['tools:targetApi'] = service.$['tools:targetApi'] ?? '29'
+      hasCanonical = true
+    }
+  }
 
-  if (!serviceExists) {
+  if (!hasCanonical) {
     AndroidConfig.Manifest.ensureToolsAvailable(androidManifest)
     app.service.push({
       $: {

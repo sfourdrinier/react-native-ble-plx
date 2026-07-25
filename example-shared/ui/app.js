@@ -392,6 +392,41 @@ export function bootApp(bleBridge) {
     })
   }
 
+  // R3-F061: Chromium permitted-devices reconnect (getDevices) without forcing chooser
+  const btnPermitted = document.getElementById('btn-permitted')
+  if (btnPermitted) {
+    btnPermitted.onclick = async () => {
+      if (typeof bleBridge.getPermittedDevices !== 'function') {
+        log('getPermittedDevices not available on this host')
+        setStatus('Permitted reconnect not available')
+        return
+      }
+      try {
+        const permitted = (await bleBridge.getPermittedDevices()) || []
+        if (typeof bleBridge.listDevices === 'function') {
+          devices = (await bleBridge.listDevices({ sortBy, order: 'desc' })) || devices
+        } else {
+          // Merge permitted into local list
+          const byId = new Map(devices.map(d => [d.id, d]))
+          for (const d of permitted) {
+            if (d && d.id) byId.set(d.id, { ...byId.get(d.id), ...d })
+          }
+          devices = Array.from(byId.values())
+        }
+        renderDeviceList()
+        log('permitted devices', permitted.length)
+        setStatus(
+          permitted.length
+            ? `Permitted: ${permitted.length} device(s) — select + Connect`
+            : 'No permitted devices (grant via Discover chooser first)'
+        )
+      } catch (e) {
+        log('permitted error', String(e.message || e))
+        setStatus(`Permitted failed: ${e.message || e}`)
+      }
+    }
+  }
+
   const btnRefreshPaired = document.getElementById('btn-refresh-paired')
   if (btnRefreshPaired) {
     btnRefreshPaired.onclick = () => {

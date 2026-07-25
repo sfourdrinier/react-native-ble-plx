@@ -42,7 +42,7 @@ describe('example-shared CentralDemo', () => {
 
     expect(demo.capabilities().continuousScan).toBe(true)
     expect(demo.capabilities().requestDevice).toBe(false)
-    // Fail-closed: electron host matrix supports notify/bytes; bonding only on fake / mock backend
+    // Fail-closed: electron host matrix supports notify/bytes; bonding only on host:'fake'
     expect(demo.capabilities().notify).toBe(true)
     expect(demo.capabilities().bytesPath).toBe(true)
     // PortBleManager host=electron without getHostInfo → bonding false (honest matrix)
@@ -267,6 +267,19 @@ describe('example-shared CentralDemo', () => {
     const demo = createCentralDemo(manager, profiles, { bonding: false })
     expect(demo.capabilities().bonding).toBe(false)
     await expect(demo.pairDevice('x')).rejects.toThrow(/createBond is not available/)
+  })
+
+  // R3-F007: no mock-backend bonding exception on electron (charter fail-closed)
+  test('electron mock backend does not advertise bonding (R3-F007)', () => {
+    const { FakeBlePort } = require('../src/port/BlePort')
+    const { BleManager: ElectronBleManager } = require('../src/hosts/electron')
+    const manager = new ElectronBleManager({
+      port: new FakeBlePort({ id: 'electron-mock-fallback' }),
+      backend: 'mock'
+    })
+    const demo = createCentralDemo(manager, profiles)
+    expect(manager.supports('bonding')).toBe(false)
+    expect(demo.capabilities().bonding).toBe(false)
   })
 
   test('centralDemo never requires package main for sortDevices (R2-F015)', () => {

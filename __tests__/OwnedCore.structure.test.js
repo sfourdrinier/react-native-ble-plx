@@ -825,8 +825,159 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
     expect(reg).toMatch(/CBCentralManagerDelegate/)
     // Call path from willRestoreState → dispatchRestoration exists in-tree
     expect(reg).toMatch(/dispatchRestoration\s*\(/)
-    // createClient adopt path: takeEarlyCentral or equivalent handoff
-    expect(reg).toMatch(/takeEarlyCentral|earlyCentral|adoptEarly/)
+    // createClient adopt path: takeEarlyCentralManager handoff (R3-F004 / R3-F057)
+    expect(reg).toMatch(/func takeEarlyCentralManager\s*\(/)
+  })
+
+  // --- R3-F004 / R3-F057: Owned ↔ Registry early-central selector parity ---
+  test('R3-F004/R3-F057 Owned takeEarlyCentralManager selector matches registry method', () => {
+    const owned = fs.readFileSync(path.join(root, 'ios/Owned/OwnedCoreBluetoothAdapter.swift'), 'utf8')
+    const reg = fs.readFileSync(path.join(root, 'ios/Restoration/BleRestorationRegistry.swift'), 'utf8')
+    // Exact @objc method name on the registry
+    expect(reg).toMatch(/func takeEarlyCentralManager\s*\(/)
+    // Owned performSelector must use the same symbol (not bare takeEarlyCentral)
+    expect(owned).toContain('NSSelectorFromString("takeEarlyCentralManager")')
+    expect(owned).not.toMatch(/NSSelectorFromString\("takeEarlyCentral"\)/)
+    // takeBundledEarlyCentral path must probe the Manager-suffixed selector
+    const takeFn = owned.slice(
+      owned.indexOf('func takeBundledEarlyCentral'),
+      owned.indexOf('func takeBundledEarlyCentral') + 900
+    )
+    expect(takeFn).toContain('takeEarlyCentralManager')
+  })
+
+  // --- R3-F005: GATT JS UUIDs use fullUUIDString (128-bit Bluetooth base form) ---
+  test('R3-F005 Owned serviceJs/characteristicJs/descriptorJs emit fullUUIDString', () => {
+    const src = fs.readFileSync(path.join(root, 'ios/Owned/OwnedCoreBluetoothAdapter.swift'), 'utf8')
+    const serviceJs = src.slice(src.indexOf('func serviceJs'), src.indexOf('func characteristicJs'))
+    const characteristicJs = src.slice(
+      src.indexOf('func characteristicJs('),
+      src.indexOf('func characteristicJsFromCache')
+    )
+    const descriptorJs = src.slice(src.indexOf('func descriptorJs'), src.indexOf('// MARK: - Stable id maps'))
+    const monitorCache = src.slice(
+      src.indexOf('monitorNotifyCache[key] = MonitorNotifyCache'),
+      src.indexOf('monitorNotifyCache[key] = MonitorNotifyCache') + 700
+    )
+    expect(serviceJs).toMatch(/fullUUIDString/)
+    expect(serviceJs).not.toMatch(/uuidString\.lowercased\(\)/)
+    expect(characteristicJs).toMatch(/fullUUIDString/)
+    expect(characteristicJs).not.toMatch(/uuidString\.lowercased\(\)/)
+    expect(descriptorJs).toMatch(/fullUUIDString/)
+    expect(descriptorJs).not.toMatch(/uuidString\.lowercased\(\)/)
+    // Monitor cache UUID fields also full form so notify packets match list APIs
+    expect(monitorCache).toMatch(/fullUUIDString/)
+  })
+
+  // --- R3-F006: safe CBUUID parse — never CBUUID(string:) on untrusted JS ---
+  test('R3-F006 Owned never calls CBUUID(string:) on untrusted JS UUID strings', () => {
+    const src = fs.readFileSync(path.join(root, 'ios/Owned/OwnedCoreBluetoothAdapter.swift'), 'utf8')
+    // Safe parser must exist (UUID(uuidString:) after 16/32-bit expansion)
+    expect(src).toMatch(/func safeCBUUID|func toCBUUID|safeParseCBUUID/)
+    expect(src).toMatch(/UUID\(uuidString:/)
+    // Untrusted JS entry points must not use crashing CBUUID(string:)
+    const startScan = src.slice(src.indexOf('func startDeviceScan'), src.indexOf('func stopDeviceScan'))
+    // Ignore comments: only count live code initializers
+    const codeOnly = (s) =>
+      s
+        .split('\n')
+        .filter((line) => !/^\s*\/\//.test(line) && !/^\s*\*/.test(line))
+        .join('\n')
+    expect(codeOnly(startScan)).not.toMatch(/CBUUID\(string:/)
+    expect(startScan).toMatch(/safeCBUUID|toCBUUID|safeParseCBUUID/)
+    // Invalid scan filters surface InvalidIdentifiers (code 5) via ScanEvent
+    expect(startScan).toMatch(/code:\s*5|errorCode.*5|InvalidIdentifiers|invalidIdentifiers/i)
+    // Prefer zero live CBUUID(string:) — safe parser covers all paths
+    const allStringInits = [...codeOnly(src).matchAll(/CBUUID\(string:/g)]
+    expect(allStringInits.length).toBe(0)
+  })
+
+  // --- R3-F015: dedicated serial CB queue (not main) + encode off-main ---
+  test('R3-F015 createClient uses dedicated serial queue not dispatch_get_main_queue', () => {
+    const mm = fs.readFileSync(path.join(root, 'ios/BlePlx.mm'), 'utf8')
+    // createClient factory path must not pass main queue for CB callbacks
+    const createStart = mm.indexOf('createClient:')
+    expect(createStart).toBeGreaterThan(-1)
+    const createBody = mm.slice(createStart, createStart + 2500)
+    expect(createBody).not.toMatch(
+      /getNewAdapterWithQueue:\s*dispatch_get_main_queue\s*\(\s*\)/
+    )
+    // Dedicated radio queue (shared label or BlePlxRadioQueue)
+    expect(mm + fs.readFileSync(path.join(root, 'ios/Owned/OwnedCoreBluetoothAdapter.swift'), 'utf8')).toMatch(
+      /BlePlxRadioQueue|com\.sfourdrinier\.unifiedblemanager\.cb|unifiedblemanager\.cb/
+    )
+    // Structure guard: radio queue source exists
+    const ownedDir = path.join(root, 'ios/Owned')
+    const radioQueueFile = ['BlePlxRadioQueue.swift', 'OwnedCoreBluetoothAdapter.swift']
+      .map((f) => path.join(ownedDir, f))
+      .find((p) => fs.existsSync(p) && fs.readFileSync(p, 'utf8').match(/BlePlxRadioQueue|unifiedblemanager\.cb/))
+    expect(radioQueueFile).toBeTruthy()
+  })
+
+  // --- R3-F027: early-wake central shares radio queue end-to-end ---
+  test('R3-F027 restoration early central + adopt path use shared radio queue (not .main alone)', () => {
+    const reg = fs.readFileSync(path.join(root, 'ios/Restoration/BleRestorationRegistry.swift'), 'utf8')
+    const adapter = fs.readFileSync(path.join(root, 'ios/Restoration/BlePlxRestorationAdapter.swift'), 'utf8')
+    // Early CM and adopt path share BlePlxRadioQueue.shared (or same label helper)
+    expect(reg).toMatch(/BlePlxRadioQueue\.shared|radioQueue/)
+    expect(adapter).toMatch(/BlePlxRadioQueue\.shared|radioQueue/)
+    expect(adapter).not.toMatch(/queue:\s*\.main/)
+  })
+
+  // --- R3-F028: second discover rejects prior pendingDiscover ---
+  test('R3-F028 discoverAllServices rejects prior pendingDiscover before replace', () => {
+    const src = fs.readFileSync(path.join(root, 'ios/Owned/OwnedCoreBluetoothAdapter.swift'), 'utf8')
+    const body = src.slice(
+      src.indexOf('func discoverAllServicesAndCharacteristicsForDevice'),
+      src.indexOf('func servicesForDevice')
+    )
+    expect(body).toMatch(/pendingDiscover/)
+    // Must reject prior when overwriting (OperationCancelled code 2)
+    expect(body).toMatch(/pendingDiscover\.removeValue|if let previous|if let pending/)
+    expect(body).toMatch(/code:\s*2|Operation cancelled/)
+  })
+
+  // --- R3-F029: didModifyServices tears down monitors + pending GATT ---
+  test('R3-F029 didModifyServices fails pending GATT and clears monitors (not only caches)', () => {
+    const src = fs.readFileSync(path.join(root, 'ios/Owned/OwnedCoreBluetoothAdapter.swift'), 'utf8')
+    const modifyStart = src.indexOf('func peripheral(_ peripheral: CBPeripheral, didModifyServices')
+    expect(modifyStart).toBeGreaterThan(-1)
+    const modifyEnd = src.indexOf('didUpdateNotificationStateFor characteristic', modifyStart)
+    const modify = src.slice(modifyStart, modifyEnd > 0 ? modifyEnd : modifyStart + 1500)
+    expect(modify).toContain('clearCachesForDevice')
+    // Must tear down monitors / pending ops, not only discover + caches
+    expect(modify).toMatch(/failPendingGattAndMonitors|tearDownDevice/)
+    // Helper must cover monitors + pending read/write (stale numeric ids)
+    const helperStart = src.indexOf('func failPendingGattAndMonitors')
+    expect(helperStart).toBeGreaterThan(-1)
+    const helperEnd = src.indexOf('func tearDownDevice', helperStart)
+    const helper = src.slice(helperStart, helperEnd > 0 ? helperEnd : helperStart + 4000)
+    expect(helper).toMatch(/pendingRead/)
+    expect(helper).toMatch(/pendingWrite/)
+    expect(helper).toMatch(/monitors/)
+    expect(helper).toMatch(/disableNotify|monitorNotifyCache/)
+  })
+
+  // --- R3-F051: iOS Base64 write size cap (512 KiB) ---
+  test('R3-F051 Owned iOS enforces MAX_DECODE_BYTES (512 KiB) on Base64 writes', () => {
+    const src = fs.readFileSync(path.join(root, 'ios/Owned/OwnedCoreBluetoothAdapter.swift'), 'utf8')
+    expect(src).toMatch(/MAX_DECODE_BYTES|maxDecodeBytes|512\s*\*\s*1024/)
+    expect(src).toMatch(/decodeBase64|base64Capped|maxDecode|MAX_DECODE/)
+    // CharacteristicInvalidDataFormat 406 / DescriptorInvalidDataFormat 505
+    expect(src).toMatch(/code:\s*406/)
+    expect(src).toMatch(/code:\s*505/)
+  })
+
+  // --- R3-F056: checkRestorationStatus reports bundled registry ---
+  test('R3-F056 checkRestorationStatus detects BlePlxBundledRestorationRegistry', () => {
+    const mm = fs.readFileSync(path.join(root, 'ios/BlePlx.mm'), 'utf8')
+    const start = mm.indexOf('checkRestorationStatus:')
+    expect(start).toBeGreaterThan(-1)
+    const body = mm.slice(start, start + 1200)
+    expect(body).toContain('BlePlxBundledRestorationRegistry')
+    expect(body).toMatch(/blePlxBundledRestorationRegistryFound|bundledFound|bundledRegistry/)
+    // Host registry key retained for multi-SDK apps
+    expect(body).toContain('BleRestorationRegistry')
   })
 
   // --- R2-F074: notify hot path reverse map ---
@@ -850,11 +1001,19 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
       src.indexOf('// MARK: - CBPeripheralDelegate')
     )
     expect(didDisconnect).toContain('tearDownDevice')
-    // Monitors + pending maps cleaned
+    // Monitors + pending maps cleaned (inline or via failPendingGattAndMonitors)
     const tearDown = src.slice(src.indexOf('func tearDownDevice'), src.indexOf('func clearCachesForDevice'))
-    expect(tearDown).toMatch(/pendingRead|pendingWrite|pendingDiscover/)
-    expect(tearDown).toContain('monitors')
-    expect(tearDown).toContain('disableNotify')
+    expect(tearDown).toMatch(/pendingRead|pendingWrite|pendingDiscover|failPendingGattAndMonitors/)
+    if (tearDown.includes('failPendingGattAndMonitors')) {
+      const helperStart = src.indexOf('func failPendingGattAndMonitors')
+      const helper = src.slice(helperStart, src.indexOf('func tearDownDevice', helperStart))
+      expect(helper).toMatch(/pendingRead|pendingWrite|pendingDiscover/)
+      expect(helper).toContain('monitors')
+      expect(helper).toContain('disableNotify')
+    } else {
+      expect(tearDown).toContain('monitors')
+      expect(tearDown).toContain('disableNotify')
+    }
   })
 
   // --- R2-F070: stable serviceIds on rediscover ---
@@ -888,8 +1047,8 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
     expect(modify).toContain('clearCachesForDevice')
     // Honest API: no proactive discoverServices(nil)
     expect(modify).not.toMatch(/discoverServices\s*\(\s*nil\s*\)/)
-    // Must not leave pendingDiscover hanging — reject or clear
-    expect(modify).toMatch(/pendingDiscover/)
+    // Must not leave pendingDiscover hanging — reject via helper or inline clear
+    expect(modify).toMatch(/pendingDiscover|failPendingGattAndMonitors/)
   })
 
   // --- R2-F110: isBackgroundModeEnabled reads UIBackgroundModes ---
@@ -1146,7 +1305,7 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
     expect(constants).toMatch(/constants\.put\(Event\.ServicesChangedEvent/)
   })
 
-  test('R2-F033 connect closes prior GATT for same address', () => {
+  test('R2-F033 / R3-F003 connect disconnects prior GATT without immediate close()', () => {
     const radio = fs.readFileSync(
       path.join(
         root,
@@ -1155,9 +1314,14 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
       'utf8'
     )
     const connect = radio.slice(radio.indexOf('fun connect('), radio.indexOf('fun disconnect('))
-    expect(connect).toMatch(/gatts\.remove/)
-    expect(connect).toMatch(/\.close\(\)/)
-    expect(connect).toContain('connectGatt')
+    // Prior GATT is disconnected; close waits for STATE_DISCONNECTED (R3-F003).
+    expect(connect).toMatch(/prior\.disconnect\(\)/)
+    expect(connect).not.toMatch(/prior\.close\(\)/)
+    expect(connect).toContain('pendingReconnect')
+    expect(connect).toContain('openGatt')
+    expect(radio).toContain('GATT_CLOSE_TIMEOUT_MS')
+    expect(radio).toContain('completeGattTeardown')
+    expect(radio).toContain('scheduleSafeClose')
   })
 
   test('R2-F035 rediscover clearDeviceCaches before cacheServices', () => {
@@ -1197,7 +1361,20 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
     expect(readChar).toMatch(/pendingCharKey\(\s*"read"/)
   })
 
-  test('R2-F031 FGS path declares POST_NOTIFICATIONS + docs note', () => {
+  test('R2-F031 / R3-F002 FGS path declares POST_NOTIFICATIONS on active AGP8 manifest', () => {
+    // AGP 8 uses AndroidManifestNew.xml (build.gradle sourceSets) — assert the live path.
+    const manifestNew = fs.readFileSync(
+      path.join(root, 'android/src/main/AndroidManifestNew.xml'),
+      'utf8'
+    )
+    expect(manifestNew).toContain('android.permission.POST_NOTIFICATIONS')
+    expect(manifestNew).toContain('BLUETOOTH_SCAN')
+    expect(manifestNew).toContain('BLUETOOTH_CONNECT')
+    expect(manifestNew).toContain('FOREGROUND_SERVICE')
+    expect(manifestNew).toContain('FOREGROUND_SERVICE_CONNECTED_DEVICE')
+    expect(manifestNew).toContain('BlePlxForegroundService')
+    expect(manifestNew).not.toMatch(/^\s*<manifest>\s*<\/manifest>\s*$/)
+    // Legacy package-bearing manifest stays in sync for pre-namespace AGP.
     const manifest = fs.readFileSync(path.join(root, 'android/src/main/AndroidManifest.xml'), 'utf8')
     expect(manifest).toContain('android.permission.POST_NOTIFICATIONS')
     const plugin = fs.readFileSync(
@@ -1251,5 +1428,156 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
     )
     expect(charJava).toContain('getValueBase64')
     expect(charJava).toMatch(/setValue\([^)]*String valueBase64/)
+  })
+
+  // --- Round-3 android CONFIRMED findings ---
+
+  test('R3-F003 disconnect does not close() before STATE_DISCONNECTED', () => {
+    const radio = fs.readFileSync(
+      path.join(
+        root,
+        'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedAndroidGattRadio.kt'
+      ),
+      'utf8'
+    )
+    const disconnect = radio.slice(radio.indexOf('fun disconnect('), radio.indexOf('fun isConnected('))
+    expect(disconnect).toMatch(/g\.disconnect\(\)/)
+    expect(disconnect).not.toMatch(/g\.close\(\)/)
+    expect(disconnect).toContain('scheduleSafeClose')
+    // close only after DISCONNECTED callback via completeGattTeardown
+    const onState = radio.slice(
+      radio.indexOf('override fun onConnectionStateChange'),
+      radio.indexOf('override fun onDescriptorWrite')
+    )
+    expect(onState).toContain('STATE_DISCONNECTED')
+    expect(onState).toContain('completeGattTeardown')
+  })
+
+  test('R3-F022 setNotify stashes CCCD payload for API 33+ isNotifying local cache', () => {
+    const radio = fs.readFileSync(
+      path.join(
+        root,
+        'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedAndroidGattRadio.kt'
+      ),
+      'utf8'
+    )
+    expect(radio).toContain('pendingDescValues')
+    const setNotify = radio.slice(radio.indexOf('fun setNotify'), radio.indexOf('fun readDescriptor'))
+    expect(setNotify).toMatch(/pendingDescValues\[key\]\s*=\s*payload/)
+    const onDescWrite = radio.slice(
+      radio.indexOf('override fun onDescriptorWrite'),
+      radio.indexOf('override fun onDescriptorRead')
+    )
+    expect(onDescWrite).toMatch(/descriptor\.value\s*=\s*stashed/)
+    const charJava = fs.readFileSync(
+      path.join(
+        root,
+        'android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/Characteristic.java'
+      ),
+      'utf8'
+    )
+    expect(charJava).toContain('isNotifying')
+    expect(charJava).toMatch(/descriptor\.getValue\(\)/)
+  })
+
+  test('R3-F023 createClient destroys prior bleAdapter before replace', () => {
+    const module = fs.readFileSync(
+      path.join(root, 'android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxModule.java'),
+      'utf8'
+    )
+    const create = module.slice(module.indexOf('public void createClient'), module.indexOf('public void checkRestorationStatus'))
+    expect(create).toMatch(/if\s*\(\s*bleAdapter\s*!=\s*null\s*\)/)
+    expect(create).toContain('destroyClient()')
+    // destroy happens before getNewAdapter
+    expect(create.indexOf('destroyClient()')).toBeLessThan(create.indexOf('getNewAdapter'))
+  })
+
+  test('R3-F024 GattSerialQueue always schedules pump via handler.post', () => {
+    const radio = fs.readFileSync(
+      path.join(
+        root,
+        'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedAndroidGattRadio.kt'
+      ),
+      'utf8'
+    )
+    const queue = radio.slice(radio.indexOf('internal class GattSerialQueue'), radio.indexOf('companion object'))
+    const submit = queue.slice(queue.indexOf('fun submit'), queue.indexOf('fun clear'))
+    // Must not call pump() synchronously from submit — only via handler.post
+    expect(submit).toMatch(/handler\.post\s*\{\s*pump\(\)\s*\}/)
+    expect(submit).not.toMatch(/if\s*\(\s*startNow\s*\)\s*\{\s*pump\(\)\s*\}/)
+  })
+
+  test('R3-F025 removeBond waits for BOND_NONE via bond-state receiver', () => {
+    const adapter = fs.readFileSync(
+      path.join(root, 'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedBleAdapter.kt'),
+      'utf8'
+    )
+    const remove = adapter.slice(
+      adapter.indexOf('override fun removeBond'),
+      adapter.indexOf('override fun getBondState')
+    )
+    expect(remove).toContain('ACTION_BOND_STATE_CHANGED')
+    expect(remove).toContain('BOND_NONE')
+    expect(remove).toContain('CREATE_BOND_TIMEOUT_MS')
+    expect(remove).toContain('registerReceiver')
+    // Must not succeed immediately after invoke alone
+    expect(remove).not.toMatch(/m\.invoke\(device\)\s*\n\s*onSuccessCallback\.onSuccess/)
+  })
+
+  test('R3-F050 scan Base64 pre-encoded off main before post', () => {
+    const adapter = fs.readFileSync(
+      path.join(root, 'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedBleAdapter.kt'),
+      'utf8'
+    )
+    const scan = adapter.slice(
+      adapter.indexOf('override fun startDeviceScan'),
+      adapter.indexOf('override fun stopDeviceScan')
+    )
+    expect(scan).toContain('preEncodeBase64Fields')
+    expect(scan.indexOf('preEncodeBase64Fields')).toBeLessThan(scan.indexOf('mainHandler.post'))
+    const scanResult = fs.readFileSync(
+      path.join(root, 'android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/ScanResult.java'),
+      'utf8'
+    )
+    expect(scanResult).toContain('preEncodeBase64Fields')
+    expect(scanResult).toContain('getManufacturerDataBase64')
+    const converter = fs.readFileSync(
+      path.join(
+        root,
+        'android/src/main/java/com/sfourdrinier/unifiedblemanager/converter/ScanResultToJsObjectConverter.java'
+      ),
+      'utf8'
+    )
+    expect(converter).toContain('getManufacturerDataBase64')
+    expect(converter).toContain('getRawScanRecordBase64')
+  })
+
+  test('R3-F077 isBackgroundModeEnabled uses FGS static flag, not getRunningServices', () => {
+    const module = fs.readFileSync(
+      path.join(root, 'android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxModule.java'),
+      'utf8'
+    )
+    expect(module).not.toContain('getRunningServices')
+    expect(module).toContain('isServiceRunningStatic')
+    const fgs = fs.readFileSync(
+      path.join(
+        root,
+        'android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxForegroundService.java'
+      ),
+      'utf8'
+    )
+    expect(fgs).toContain('isServiceRunningStatic')
+    expect(fgs).toContain('runningStatic')
+  })
+
+  test('R3-F026 bare example declares BlePlxForegroundService + FGS permissions', () => {
+    const example = fs.readFileSync(
+      path.join(root, 'example/android/app/src/main/AndroidManifest.xml'),
+      'utf8'
+    )
+    expect(example).toContain('com.sfourdrinier.unifiedblemanager.BlePlxForegroundService')
+    expect(example).toContain('FOREGROUND_SERVICE')
+    expect(example).toContain('FOREGROUND_SERVICE_CONNECTED_DEVICE')
+    expect(example).toContain('POST_NOTIFICATIONS')
   })
 })

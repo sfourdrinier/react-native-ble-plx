@@ -119,6 +119,48 @@ describe('Electron native backends', () => {
     }
   })
 
+  // R3-F008: sync autoDetect respects allowMockFallback:false (parity with createPlatformElectronPort)
+  test('autoDetectNative + allowMockFallback:false fails closed without live native (R3-F008)', () => {
+    try {
+      const m = new BleManager({ autoDetectNative: true, allowMockFallback: false })
+      const info = m.getHostInfo()
+      expect(info.backend).not.toBe('mock')
+      expect(info.portId).not.toMatch(/fallback|mock/i)
+      expect(['bluez', 'winrt', 'corebluetooth']).toContain(info.backend)
+    } catch (e) {
+      expect(String(e.message || e)).toMatch(/injected BlePort|native main backend|allowMockFallback/i)
+    }
+  })
+
+  // R3-F071: CoreBluetooth glue rejects invalid Base64 like src/encoding.ts
+  test('CoreBluetooth glue writeCharacteristicBase64 rejects invalid Base64 (R3-F071)', async () => {
+    const radio = mockRadioBase({
+      writeCharacteristic: async () => {}
+    })
+    const port = cbtGlue.wrapAsBlePort(radio)
+    await expect(port.writeCharacteristicBase64('dev', 'svc', 'chr', '!!!!')).rejects.toThrow(
+      /Invalid Base64/i
+    )
+    await expect(port.writeCharacteristicBase64('dev', 'svc', 'chr', 'aGk')).rejects.toThrow(
+      /Invalid Base64/i
+    )
+    // Valid Base64 still works
+    await expect(
+      port.writeCharacteristicBase64('dev', 'svc', 'chr', Buffer.from([1, 2, 3]).toString('base64'))
+    ).resolves.toBeUndefined()
+  })
+
+  // R3-F012 / R3-F067: electron-main-smoke requires Electron runtime + darwin requireNative
+  test('electron-main-smoke requires process.versions.electron and darwin requireNative (R3-F012/F067)', () => {
+    const smoke = fs.readFileSync(path.join(__dirname, '../scripts/ci/electron-main-smoke.js'), 'utf8')
+    expect(smoke).toMatch(/process\.versions\.electron/)
+    expect(smoke).toMatch(/must run under the Electron binary/)
+    expect(smoke).toMatch(/createCoreBluetoothBlePort/)
+    expect(smoke).toMatch(/requireNative:\s*true/)
+    expect(smoke).toMatch(/process\.platform === 'darwin'/)
+    expect(smoke).toMatch(/FakeBlePort/)
+  })
+
   test('BleManager labels backend from injected BluezBlePort id', () => {
     const port = new BluezBlePort({
       createBus: async () => ({

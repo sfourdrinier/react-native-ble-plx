@@ -26,4 +26,8 @@ main / RN entry). After a clean checkout, either run `pnpm prepack` or rely on V
 2. **Connect** → **Inspect**  
 3. **Start HR** → BPM + IBI/RR  
 
+### Permitted reconnect (R3-F061)
+
+Chromium can list previously granted devices via `navigator.bluetooth.getDevices()` without reopening the chooser. The shared UI **Permitted** button calls `bleBridge.getPermittedDevices()` → `manager.getDevices()`, registers results in the central demo, and refreshes the device list. If the API is missing or throws `OperationNotSupported`, the bridge returns `[]` (honest empty — not a fake bond list).
+
 Requires Chromium, localhost/https, BLE adapter, Bluetooth permission.

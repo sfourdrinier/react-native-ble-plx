@@ -38,6 +38,45 @@ describe('addForegroundServiceDeclaration', () => {
     const count = (app.service ?? []).filter(s => s.$?.['android:name'] === BLE_PLX_FOREGROUND_SERVICE_NAME).length
     expect(count).toBe(1)
   })
+
+  it('R3-F011 rewrites sticky legacy FQCN to 4.0 FQCN (does not skip)', async () => {
+    const androidManifest = await readAndroidManifestAsync(sampleManifestPath)
+    const app = androidManifest.manifest.application?.[0] as {
+      service?: Array<{ $?: { 'android:name'?: string; [k: string]: string | undefined } }>
+    }
+    if (!app.service) app.service = []
+    app.service.push({
+      $: {
+        'android:name': 'com.bleplx.BlePlxForegroundService',
+        'android:enabled': 'true',
+        'android:exported': 'false'
+      }
+    })
+    addForegroundServiceDeclaration(androidManifest)
+    const names = (app.service ?? []).map(s => s.$?.['android:name'])
+    expect(names).toContain(BLE_PLX_FOREGROUND_SERVICE_NAME)
+    expect(names).not.toContain('com.bleplx.BlePlxForegroundService')
+    // Only one canonical entry
+    expect(names.filter(n => n === BLE_PLX_FOREGROUND_SERVICE_NAME)).toHaveLength(1)
+    const canonical = (app.service ?? []).find(s => s.$?.['android:name'] === BLE_PLX_FOREGROUND_SERVICE_NAME)
+    expect(canonical?.$?.['android:foregroundServiceType']).toBe('connectedDevice')
+    expect(canonical?.$?.['android:exported']).toBe('false')
+  })
+
+  it('R3-F011 rewrites relative .BlePlxForegroundService to 4.0 FQCN', async () => {
+    const androidManifest = await readAndroidManifestAsync(sampleManifestPath)
+    const app = androidManifest.manifest.application?.[0] as {
+      service?: Array<{ $?: { 'android:name'?: string; [k: string]: string | undefined } }>
+    }
+    if (!app.service) app.service = []
+    app.service.push({
+      $: { 'android:name': '.BlePlxForegroundService' }
+    })
+    addForegroundServiceDeclaration(androidManifest)
+    const names = (app.service ?? []).map(s => s.$?.['android:name'])
+    expect(names).toContain(BLE_PLX_FOREGROUND_SERVICE_NAME)
+    expect(names).not.toContain('.BlePlxForegroundService')
+  })
 })
 
 describe('withBLEAndroidForegroundService permissions (R2-F031)', () => {

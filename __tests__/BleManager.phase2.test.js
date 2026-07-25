@@ -364,7 +364,8 @@ describe('BleManager Phase-2 (GAP-RN-Q / LW / SC)', () => {
       /async _writeDescriptorForCharacteristic\s*\(/,
       /async _readDescriptorForService\s*\(/,
       /async _writeDescriptorForService\s*\(/,
-      /_characteristicsForService\s*\(\s*deviceIdentifier:\s*DeviceId/
+      /_characteristicsForService\s*\(\s*deviceIdentifier:\s*DeviceId/,
+      /monitorCharacteristicForDevice\s*\(\s*deviceIdentifier:\s*DeviceId/
     ]
     for (const re of mustQueue) {
       const m = re.exec(src)
@@ -372,6 +373,48 @@ describe('BleManager Phase-2 (GAP-RN-Q / LW / SC)', () => {
       const slice = src.slice(m.index, m.index + 900)
       expect(slice).toContain('_runForDevice')
     }
+  })
+
+
+  test('monitorCharacteristicForDevice setup is serialized via _runForDevice (R3-F018)', async () => {
+    const order = []
+    let releaseWrite
+    const gate = new Promise(r => {
+      releaseWrite = r
+    })
+    Native.BleModule.writeCharacteristicForDevice = jest.fn(async () => {
+      order.push('write-start')
+      await gate
+      order.push('write-end')
+      return createMockCharacteristic()
+    })
+    Native.BleModule.monitorCharacteristicForDevice = jest.fn(async () => {
+      order.push('monitor-setup')
+      return null
+    })
+    const manager = new BleManager()
+    const writeP = manager.writeCharacteristicWithResponseForDevice(
+      deviceId,
+      service,
+      characteristic,
+      'AQ=='
+    )
+    await flushMicrotasks(2)
+    const sub = manager.monitorCharacteristicForDevice(
+      deviceId,
+      service,
+      characteristic,
+      () => {}
+    )
+    await flushMicrotasks(4)
+    expect(order).toEqual(['write-start'])
+    expect(order).not.toContain('monitor-setup')
+    releaseWrite()
+    await writeP
+    await flushMicrotasks(8)
+    expect(order).toEqual(['write-start', 'write-end', 'monitor-setup'])
+    expect(Native.BleModule.monitorCharacteristicForDevice).toHaveBeenCalled()
+    sub.remove()
   })
 
   test('cancelDeviceConnection preempts pending long-write chunks (F042)', async () => {

@@ -167,6 +167,7 @@ export class Service implements NativeService {
   ): Subscription {
     if (isIOS()) {
       return this._manager._monitorCharacteristicForService(
+        this.deviceID,
         this.id,
         characteristicUUID,
         listener,
@@ -174,6 +175,7 @@ export class Service implements NativeService {
       )
     }
     return this._manager._monitorCharacteristicForService(
+      this.deviceID,
       this.id,
       characteristicUUID,
       listener,

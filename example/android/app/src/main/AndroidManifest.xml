@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Android >= 12 -->
@@ -8,6 +9,15 @@
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+
+    <!-- FGS + notification for background BLE (R3-F026; merges with library AAR when present) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission
+      android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"
+      tools:targetApi="34" />
+    <uses-permission
+      android:name="android.permission.POST_NOTIFICATIONS"
+      tools:targetApi="33" />
 
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
 
@@ -31,5 +41,13 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
+
+      <!-- Library FGS FQCN (matches Expo plugin / 4.0 namespace) -->
+      <service
+        android:name="com.sfourdrinier.unifiedblemanager.BlePlxForegroundService"
+        android:enabled="true"
+        android:exported="false"
+        android:foregroundServiceType="connectedDevice"
+        tools:targetApi="29" />
     </application>
 </manifest>

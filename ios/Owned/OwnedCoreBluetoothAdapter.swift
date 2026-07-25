@@ -10,6 +10,9 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
 
   public static let adapterId = "owned-corebluetooth-v1"
 
+  /// Align with Android Base64Converter.MAX_DECODE_BYTES (R2-F111 / R3-F051).
+  private static let maxDecodeBytes = 512 * 1024
+
   public weak var delegate: BleClientManagerDelegate? {
     didSet {
       flushBufferedRestoreStateEvent()
@@ -267,7 +270,22 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   }
 
   public func startDeviceScan(_ filteredUUIDs: [String]?, options: [String: AnyObject]?) {
-    let uuids = filteredUUIDs?.compactMap { CBUUID(string: $0) }
+    // R3-F006: never use the throwing CBUUID string initializer on untrusted JS —
+    // invalid filters → ScanEvent error (InvalidIdentifiers / code 5).
+    let uuids: [CBUUID]?
+    if let filtered = filteredUUIDs, !filtered.isEmpty {
+      guard let parsed = safeCBUUIDs(filtered) else {
+        let err = jsonError(
+          code: 5,
+          message: "Invalid UUIDs or IDs were passed: \(filtered.joined(separator: ", "))"
+        )
+        delegate?.dispatchEvent(BleEvent.scanEvent, value: [err, NSNull()])
+        return
+      }
+      uuids = parsed
+    } else {
+      uuids = nil
+    }
     let allowDuplicates = (options?["allowDuplicates"] as? Bool) ?? false
     let opts: [String: Any] = [CBCentralManagerScanOptionAllowDuplicatesKey: allowDuplicates]
     central.scanForPeripherals(withServices: uuids, options: opts)
@@ -327,7 +345,14 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
       resolve([])
       return
     }
-    let filterUUIDs = serviceUUIDs.map { CBUUID(string: $0) }
+    guard let filterUUIDs = safeCBUUIDs(serviceUUIDs) else {
+      reject(
+        "BlePlxError",
+        jsonError(code: 5, message: "Invalid UUIDs or IDs were passed: \(serviceUUIDs.joined(separator: ", "))"),
+        nil
+      )
+      return
+    }
     var seen = Set<String>()
     var list: [CBPeripheral] = []
 
@@ -440,6 +465,13 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
       reject("BlePlxError", jsonError(code: 205, message: "Device not connected"), nil)
       return
     }
+    // R3-F028: reject prior in-flight discover before replacing (never strand first promise).
+    if let previous = pendingDiscover.removeValue(forKey: deviceIdentifier) {
+      pendingDiscoverCharsRemaining.removeValue(forKey: deviceIdentifier)
+      pendingDiscoverDescsRemaining.removeValue(forKey: deviceIdentifier)
+      clearDiscoverTx(forDevice: deviceIdentifier)
+      previous.1("BlePlxError", jsonError(code: 2, message: "Operation cancelled"), nil)
+    }
     pendingDiscover[deviceIdentifier] = (resolve, reject)
     pendingDiscoverByTx[transactionId] = deviceIdentifier
     p.discoverServices(nil)
@@ -459,7 +491,10 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
       resolve([])
       return
     }
-    let target = CBUUID(string: serviceUUID)
+    guard let target = safeCBUUID(serviceUUID) else {
+      reject("BlePlxError", jsonError(code: 5, message: "Invalid UUIDs or IDs were passed: \(serviceUUID)"), nil)
+      return
+    }
     guard let service = services.first(where: { $0.uuid == target }) else {
       resolve([])
       return
@@ -479,8 +514,18 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   }
 
   public func descriptorsForDevice(_ deviceIdentifier: String, serviceUUID: String, characteristicUUID: String, resolve: Resolve, reject: Reject) {
-    guard let service = servicesByDevice[deviceIdentifier]?.first(where: { $0.uuid == CBUUID(string: serviceUUID) }),
-          let ch = service.characteristics?.first(where: { $0.uuid == CBUUID(string: characteristicUUID) }) else {
+    guard let serviceUUIDParsed = safeCBUUID(serviceUUID),
+          let characteristicUUIDParsed = safeCBUUID(characteristicUUID),
+          let service = servicesByDevice[deviceIdentifier]?.first(where: { $0.uuid == serviceUUIDParsed }),
+          let ch = service.characteristics?.first(where: { $0.uuid == characteristicUUIDParsed }) else {
+      if safeCBUUID(serviceUUID) == nil || safeCBUUID(characteristicUUID) == nil {
+        reject(
+          "BlePlxError",
+          jsonError(code: 5, message: "Invalid UUIDs or IDs were passed: \(serviceUUID), \(characteristicUUID)"),
+          nil
+        )
+        return
+      }
       resolve([])
       return
     }
@@ -489,8 +534,12 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   }
 
   public func descriptorsForService(_ serviceIdentifier: Double, characteristicUUID: String, resolve: Resolve, reject: Reject) {
+    guard let characteristicUUIDParsed = safeCBUUID(characteristicUUID) else {
+      reject("BlePlxError", jsonError(code: 5, message: "Invalid UUIDs or IDs were passed: \(characteristicUUID)"), nil)
+      return
+    }
     guard let service = serviceIds[serviceIdentifier],
-          let ch = service.characteristics?.first(where: { $0.uuid == CBUUID(string: characteristicUUID) }),
+          let ch = service.characteristics?.first(where: { $0.uuid == characteristicUUIDParsed }),
           let p = service.peripheral else {
       resolve([])
       return
@@ -511,9 +560,18 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   }
 
   public func readCharacteristicForDevice(_ deviceIdentifier: String, serviceUUID: String, characteristicUUID: String, transactionId: String, resolve: @escaping Resolve, reject: @escaping Reject) {
+    guard let serviceUUIDParsed = safeCBUUID(serviceUUID),
+          let characteristicUUIDParsed = safeCBUUID(characteristicUUID) else {
+      reject(
+        "BlePlxError",
+        jsonError(code: 5, message: "Invalid UUIDs or IDs were passed: \(serviceUUID), \(characteristicUUID)"),
+        nil
+      )
+      return
+    }
     guard let p = peripherals[deviceIdentifier],
-          let service = servicesByDevice[deviceIdentifier]?.first(where: { $0.uuid == CBUUID(string: serviceUUID) }),
-          let ch = service.characteristics?.first(where: { $0.uuid == CBUUID(string: characteristicUUID) }) else {
+          let service = servicesByDevice[deviceIdentifier]?.first(where: { $0.uuid == serviceUUIDParsed }),
+          let ch = service.characteristics?.first(where: { $0.uuid == characteristicUUIDParsed }) else {
       reject("BlePlxError", jsonError(code: 404, message: "Characteristic not found"), nil)
       return
     }
@@ -524,8 +582,12 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   }
 
   public func readCharacteristicForService(_ serviceIdentifier: Double, characteristicUUID: String, transactionId: String, resolve: @escaping Resolve, reject: @escaping Reject) {
+    guard let characteristicUUIDParsed = safeCBUUID(characteristicUUID) else {
+      reject("BlePlxError", jsonError(code: 5, message: "Invalid UUIDs or IDs were passed: \(characteristicUUID)"), nil)
+      return
+    }
     guard let service = serviceIds[serviceIdentifier],
-          service.characteristics?.contains(where: { $0.uuid == CBUUID(string: characteristicUUID) }) == true,
+          service.characteristics?.contains(where: { $0.uuid == characteristicUUIDParsed }) == true,
           let p = service.peripheral else {
       reject("BlePlxError", jsonError(code: 404, message: "Characteristic not found"), nil)
       return
@@ -547,11 +609,24 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   }
 
   public func writeCharacteristicForDevice(_ deviceIdentifier: String, serviceUUID: String, characteristicUUID: String, valueBase64: String, response: Bool, transactionId: String, resolve: @escaping Resolve, reject: @escaping Reject) {
+    guard let serviceUUIDParsed = safeCBUUID(serviceUUID),
+          let characteristicUUIDParsed = safeCBUUID(characteristicUUID) else {
+      reject(
+        "BlePlxError",
+        jsonError(code: 5, message: "Invalid UUIDs or IDs were passed: \(serviceUUID), \(characteristicUUID)"),
+        nil
+      )
+      return
+    }
     guard let p = peripherals[deviceIdentifier],
-          let service = servicesByDevice[deviceIdentifier]?.first(where: { $0.uuid == CBUUID(string: serviceUUID) }),
-          let ch = service.characteristics?.first(where: { $0.uuid == CBUUID(string: characteristicUUID) }),
-          let data = Data(base64Encoded: valueBase64) else {
-      reject("BlePlxError", jsonError(code: 404, message: "Characteristic not found or bad base64"), nil)
+          let service = servicesByDevice[deviceIdentifier]?.first(where: { $0.uuid == serviceUUIDParsed }),
+          let ch = service.characteristics?.first(where: { $0.uuid == characteristicUUIDParsed }) else {
+      reject("BlePlxError", jsonError(code: 404, message: "Characteristic not found"), nil)
+      return
+    }
+    // R3-F051: cap decoded Base64 (512 KiB) — CharacteristicInvalidDataFormat (406).
+    guard let data = decodeBase64Capped(valueBase64) else {
+      reject("BlePlxError", jsonError(code: 406, message: "Characteristic write value has invalid data format"), nil)
       return
     }
     if response {
@@ -578,31 +653,41 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   public func writeCharacteristic(_ characteristicIdentifier: Double, valueBase64: String, response: Bool, transactionId: String, resolve: @escaping Resolve, reject: @escaping Reject) {
     guard let ch = charIds[characteristicIdentifier],
           let service = ch.service,
-          let p = service.peripheral,
-          Data(base64Encoded: valueBase64) != nil else {
+          let p = service.peripheral else {
       reject("BlePlxError", jsonError(code: 404, message: "Characteristic not found"), nil)
       return
     }
+    // Size/format check happens in writeCharacteristicForDevice (R3-F051).
     let deviceId = peripherals.first(where: { $0.value == p })?.key ?? p.identifier.uuidString
     writeCharacteristicForDevice(deviceId, serviceUUID: service.uuid.uuidString, characteristicUUID: ch.uuid.uuidString, valueBase64: valueBase64, response: response, transactionId: transactionId, resolve: resolve, reject: reject)
   }
 
   public func monitorCharacteristicForDevice(_ deviceIdentifier: String, serviceUUID: String, characteristicUUID: String, transactionId: String, resolve: @escaping Resolve, reject: @escaping Reject) {
+    guard let serviceUUIDParsed = safeCBUUID(serviceUUID),
+          let characteristicUUIDParsed = safeCBUUID(characteristicUUID) else {
+      reject(
+        "BlePlxError",
+        jsonError(code: 5, message: "Invalid UUIDs or IDs were passed: \(serviceUUID), \(characteristicUUID)"),
+        nil
+      )
+      return
+    }
     guard let p = peripherals[deviceIdentifier],
-          let service = servicesByDevice[deviceIdentifier]?.first(where: { $0.uuid == CBUUID(string: serviceUUID) }),
-          let ch = service.characteristics?.first(where: { $0.uuid == CBUUID(string: characteristicUUID) }) else {
+          let service = servicesByDevice[deviceIdentifier]?.first(where: { $0.uuid == serviceUUIDParsed }),
+          let ch = service.characteristics?.first(where: { $0.uuid == characteristicUUIDParsed }) else {
       reject("BlePlxError", jsonError(code: 404, message: "Characteristic not found"), nil)
       return
     }
     let key = charKey(deviceIdentifier, ch)
     let props = ch.properties
     // Cache numeric ids + static metadata so notify packets avoid linear scans (R2-F074).
+    // R3-F005: full 128-bit UUID form for JS parity with 3.x / Android.
     monitorNotifyCache[key] = MonitorNotifyCache(
       transactionId: transactionId,
       charId: idForCharacteristic(ch),
       serviceId: idForService(service),
-      uuid: ch.uuid.uuidString.lowercased(),
-      serviceUUID: service.uuid.uuidString.lowercased(),
+      uuid: fullUUIDString(ch.uuid),
+      serviceUUID: fullUUIDString(service.uuid),
       deviceID: deviceIdentifier,
       isReadable: props.contains(.read),
       isWritableWithResponse: props.contains(.write),
@@ -639,10 +724,23 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   }
 
   public func readDescriptorForDevice(_ deviceIdentifier: String, serviceUUID: String, characteristicUUID: String, descriptorUUID: String, transactionId: String, resolve: @escaping Resolve, reject: @escaping Reject) {
+    guard let serviceUUIDParsed = safeCBUUID(serviceUUID),
+          let characteristicUUIDParsed = safeCBUUID(characteristicUUID),
+          let descriptorUUIDParsed = safeCBUUID(descriptorUUID) else {
+      reject(
+        "BlePlxError",
+        jsonError(
+          code: 5,
+          message: "Invalid UUIDs or IDs were passed: \(serviceUUID), \(characteristicUUID), \(descriptorUUID)"
+        ),
+        nil
+      )
+      return
+    }
     guard let p = peripherals[deviceIdentifier],
-          let service = servicesByDevice[deviceIdentifier]?.first(where: { $0.uuid == CBUUID(string: serviceUUID) }),
-          let ch = service.characteristics?.first(where: { $0.uuid == CBUUID(string: characteristicUUID) }),
-          let desc = ch.descriptors?.first(where: { $0.uuid == CBUUID(string: descriptorUUID) }) else {
+          let service = servicesByDevice[deviceIdentifier]?.first(where: { $0.uuid == serviceUUIDParsed }),
+          let ch = service.characteristics?.first(where: { $0.uuid == characteristicUUIDParsed }),
+          let desc = ch.descriptors?.first(where: { $0.uuid == descriptorUUIDParsed }) else {
       reject("BlePlxError", jsonError(code: 503, message: "descriptor not found"), nil)
       return
     }
@@ -683,12 +781,29 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   }
 
   public func writeDescriptorForDevice(_ deviceIdentifier: String, serviceUUID: String, characteristicUUID: String, descriptorUUID: String, valueBase64: String, transactionId: String, resolve: @escaping Resolve, reject: @escaping Reject) {
+    guard let serviceUUIDParsed = safeCBUUID(serviceUUID),
+          let characteristicUUIDParsed = safeCBUUID(characteristicUUID),
+          let descriptorUUIDParsed = safeCBUUID(descriptorUUID) else {
+      reject(
+        "BlePlxError",
+        jsonError(
+          code: 5,
+          message: "Invalid UUIDs or IDs were passed: \(serviceUUID), \(characteristicUUID), \(descriptorUUID)"
+        ),
+        nil
+      )
+      return
+    }
     guard let p = peripherals[deviceIdentifier],
-          let service = servicesByDevice[deviceIdentifier]?.first(where: { $0.uuid == CBUUID(string: serviceUUID) }),
-          let ch = service.characteristics?.first(where: { $0.uuid == CBUUID(string: characteristicUUID) }),
-          let desc = ch.descriptors?.first(where: { $0.uuid == CBUUID(string: descriptorUUID) }),
-          let data = Data(base64Encoded: valueBase64) else {
+          let service = servicesByDevice[deviceIdentifier]?.first(where: { $0.uuid == serviceUUIDParsed }),
+          let ch = service.characteristics?.first(where: { $0.uuid == characteristicUUIDParsed }),
+          let desc = ch.descriptors?.first(where: { $0.uuid == descriptorUUIDParsed }) else {
       reject("BlePlxError", jsonError(code: 501, message: "descriptor write failed"), nil)
+      return
+    }
+    // R3-F051: DescriptorInvalidDataFormat (505) for bad/oversized Base64.
+    guard let data = decodeBase64Capped(valueBase64) else {
+      reject("BlePlxError", jsonError(code: 505, message: "Descriptor write value has invalid data format"), nil)
       return
     }
     let key = descKey(deviceIdentifier, desc)
@@ -719,9 +834,12 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
     guard let desc = descriptorIds[descriptorID],
           let ch = desc.characteristic,
           let service = ch.service,
-          let p = service.peripheral,
-          let data = Data(base64Encoded: valueBase64) else {
+          let p = service.peripheral else {
       reject("BlePlxError", jsonError(code: 501, message: "descriptor write failed"), nil)
+      return
+    }
+    guard let data = decodeBase64Capped(valueBase64) else {
+      reject("BlePlxError", jsonError(code: 505, message: "Descriptor write value has invalid data format"), nil)
       return
     }
     let deviceId = peripherals.first(where: { $0.value == p })?.key ?? p.identifier.uuidString
@@ -881,18 +999,18 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
   /// Apple: peripheral removed/added services — app must rediscover after this.
   /// Honest path (R2-F071): clear caches + emit ServicesChangedEvent; do NOT auto-discover
   /// (avoids stealing user pendingDiscover counters).
+  /// R3-F029: also fail pending GATT + disable monitors (stale numeric ids / CCCD).
   /// https://developer.apple.com/documentation/corebluetooth/cbperipheraldelegate/peripheral(_:didmodifyservices:)
   public func peripheral(_ peripheral: CBPeripheral, didModifyServices invalidatedServices: [CBService]) {
     let id = peripheral.identifier.uuidString
     _ = invalidatedServices // host rediscovers via onServicesReset / discoverAll
+    // Keep connection; tear down pending ops + monitors that reference the old tree.
+    failPendingGattAndMonitors(
+      deviceId: id,
+      errorCode: 300,
+      message: "Services modified — rediscover required"
+    )
     clearCachesForDevice(id)
-    // Fail in-flight user discover so it cannot resolve against a partial tree.
-    if let pending = pendingDiscover.removeValue(forKey: id) {
-      pendingDiscoverCharsRemaining.removeValue(forKey: id)
-      pendingDiscoverDescsRemaining.removeValue(forKey: id)
-      clearDiscoverTx(forDevice: id)
-      pending.1("BlePlxError", jsonError(code: 300, message: "Services modified — rediscover required"), nil)
-    }
     // Stable event name matches BleEvent.servicesChangedEvent / JS "ServicesChangedEvent"
     delegate?.dispatchEvent(BleEvent.servicesChangedEvent, value: id)
     // R2-F071: do not auto-rediscover here — host owns rediscover via discoverAll / onServicesReset.
@@ -1150,11 +1268,47 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
     return native
   }
 
+  /// Safe CBUUID parse for untrusted JS strings (R3-F006).
+  /// Uses UUID(uuidString:) after 16/32-bit expansion — never the throwing CBUUID string initializer.
+  private func safeCBUUID(_ string: String) -> CBUUID? {
+    let expanded: String
+    switch string.count {
+    case 4:
+      expanded = "0000\(string)-0000-1000-8000-00805f9b34fb"
+    case 8:
+      expanded = "\(string)-0000-1000-8000-00805f9b34fb"
+    default:
+      expanded = string
+    }
+    guard let nsuuid = UUID(uuidString: expanded) else { return nil }
+    return CBUUID(nsuuid: nsuuid)
+  }
+
+  private func safeCBUUIDs(_ strings: [String]) -> [CBUUID]? {
+    var out: [CBUUID] = []
+    out.reserveCapacity(strings.count)
+    for s in strings {
+      guard let u = safeCBUUID(s) else { return nil }
+      out.append(u)
+    }
+    return out
+  }
+
+  /// Decode Base64 with Android-aligned 512 KiB cap (R3-F051).
+  private func decodeBase64Capped(_ valueBase64: String) -> Data? {
+    let maxEncoded = (Self.maxDecodeBytes * 4) / 3 + 8
+    if valueBase64.count > maxEncoded { return nil }
+    guard let data = Data(base64Encoded: valueBase64) else { return nil }
+    if data.count > Self.maxDecodeBytes { return nil }
+    return data
+  }
+
   private func serviceJs(_ s: CBService, deviceId: String) -> [String: Any] {
     let sid = idForService(s)
     return [
       "id": sid,
-      "uuid": s.uuid.uuidString.lowercased(),
+      // R3-F005: full 128-bit form (3.x MBA fullUUIDString parity)
+      "uuid": fullUUIDString(s.uuid),
       "deviceID": deviceId,
       "isPrimary": s.isPrimary
     ]
@@ -1170,9 +1324,9 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
     }()
     return [
       "id": cid,
-      "uuid": ch.uuid.uuidString.lowercased(),
+      "uuid": fullUUIDString(ch.uuid),
       "serviceID": resolvedServiceId,
-      "serviceUUID": (service?.uuid.uuidString ?? "").lowercased(),
+      "serviceUUID": service.map { fullUUIDString($0.uuid) } ?? "",
       "deviceID": deviceId,
       "isReadable": props.contains(.read),
       "isWritableWithResponse": props.contains(.write),
@@ -1238,9 +1392,10 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
     let deviceId = String(key[..<range.lowerBound])
     let charUUID = String(key[range.upperBound...])
     guard let p = peripherals[deviceId],
-          let services = servicesByDevice[deviceId] else { return }
+          let services = servicesByDevice[deviceId],
+          let target = safeCBUUID(charUUID) else { return }
     for s in services {
-      if let ch = s.characteristics?.first(where: { $0.uuid == CBUUID(string: charUUID) }) {
+      if let ch = s.characteristics?.first(where: { $0.uuid == target }) {
         p.setNotifyValue(false, for: ch)
         return
       }
@@ -1271,11 +1426,11 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
     }()
     return [
       "id": did,
-      "uuid": d.uuid.uuidString.lowercased(),
+      "uuid": fullUUIDString(d.uuid),
       "characteristicID": cid,
-      "characteristicUUID": characteristic.uuid.uuidString.lowercased(),
+      "characteristicUUID": fullUUIDString(characteristic.uuid),
       "serviceID": sid,
-      "serviceUUID": service.uuid.uuidString.lowercased(),
+      "serviceUUID": fullUUIDString(service.uuid),
       "deviceID": deviceId,
       "value": valueBase64
     ]
@@ -1366,67 +1521,71 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
 
   // MARK: - Teardown (R2-F069)
 
-  /// Reject outstanding promises, disable monitors, and clear service/char/descriptor caches for a device.
-  private func tearDownDevice(_ deviceId: String) {
-    cancelConnectTimeout(deviceId)
-    let cancelled = jsonError(code: 2, message: "Operation cancelled")
-    let disconnected = jsonError(code: 201, message: "Device disconnected")
+  /// Fail in-flight discover/read/write/descriptor/monitor for a device (R3-F029).
+  /// Does not cancel connect or clear caches — callers compose as needed.
+  private func failPendingGattAndMonitors(deviceId: String, errorCode: Int, message: String) {
+    let err = jsonError(code: errorCode, message: message)
 
-    if let pending = pendingConnect.removeValue(forKey: deviceId) {
-      pending.1("BlePlxError", cancelled, nil)
-    }
     if let pending = pendingDiscover.removeValue(forKey: deviceId) {
       pendingDiscoverCharsRemaining.removeValue(forKey: deviceId)
       pendingDiscoverDescsRemaining.removeValue(forKey: deviceId)
       clearDiscoverTx(forDevice: deviceId)
-      pending.1("BlePlxError", disconnected, nil)
+      pending.1("BlePlxError", err, nil)
     }
     if let pending = pendingRssi.removeValue(forKey: deviceId) {
       pendingRssiByTx = pendingRssiByTx.filter { $0.value != deviceId }
-      pending.1("BlePlxError", disconnected, nil)
+      pending.1("BlePlxError", err, nil)
     }
 
-    // Reads/writes keyed by char/desc for this device.
     let readTxs = pendingReadByChar.filter { $0.key.hasPrefix("\(deviceId)::") }.map { $0.value }
     for tx in readTxs {
       pendingReadByChar = pendingReadByChar.filter { $0.value != tx }
       if let (_, reject) = pendingRead.removeValue(forKey: tx) {
-        reject("BlePlxError", disconnected, nil)
+        reject("BlePlxError", err, nil)
       }
     }
     let writeTxs = pendingWriteByChar.filter { $0.key.hasPrefix("\(deviceId)::") }.map { $0.value }
     for tx in writeTxs {
       pendingWriteByChar = pendingWriteByChar.filter { $0.value != tx }
       if let (_, reject) = pendingWrite.removeValue(forKey: tx) {
-        reject("BlePlxError", disconnected, nil)
+        reject("BlePlxError", err, nil)
       }
     }
     let descReadTxs = pendingDescReadByDesc.filter { $0.key.hasPrefix("\(deviceId)::") }.map { $0.value }
     for tx in descReadTxs {
       pendingDescReadByDesc = pendingDescReadByDesc.filter { $0.value != tx }
       if let (_, reject) = pendingDescRead.removeValue(forKey: tx) {
-        reject("BlePlxError", disconnected, nil)
+        reject("BlePlxError", err, nil)
       }
     }
     let descWriteTxs = pendingDescWriteByDesc.filter { $0.key.hasPrefix("\(deviceId)::") }.map { $0.value }
     for tx in descWriteTxs {
       pendingDescWriteByDesc = pendingDescWriteByDesc.filter { $0.value != tx }
       if let (_, reject) = pendingDescWrite.removeValue(forKey: tx) {
-        reject("BlePlxError", disconnected, nil)
+        reject("BlePlxError", err, nil)
       }
     }
 
-    // Monitors for this device.
     let monitorKeys = monitors.keys.filter { $0.hasPrefix("\(deviceId)::") }
     for key in monitorKeys {
       if let pending = pendingMonitorEnable.removeValue(forKey: key) {
-        pending.1("BlePlxError", disconnected, nil)
+        pending.1("BlePlxError", err, nil)
       }
       monitors.removeValue(forKey: key)
       monitorNotifyCache.removeValue(forKey: key)
       disableNotify(forCharKey: key)
     }
+  }
 
+  /// Reject outstanding promises, disable monitors, and clear service/char/descriptor caches for a device.
+  private func tearDownDevice(_ deviceId: String) {
+    cancelConnectTimeout(deviceId)
+    let cancelled = jsonError(code: 2, message: "Operation cancelled")
+
+    if let pending = pendingConnect.removeValue(forKey: deviceId) {
+      pending.1("BlePlxError", cancelled, nil)
+    }
+    failPendingGattAndMonitors(deviceId: deviceId, errorCode: 201, message: "Device disconnected")
     clearCachesForDevice(deviceId)
   }
 
@@ -1481,16 +1640,17 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
 
   #if os(iOS)
   /// Adopt BlePlxBundledRestorationRegistry's early-wake CBCentralManager when present.
+  /// Selector must match `@objc takeEarlyCentralManager()` (R3-F004 / R3-F057).
   private static func takeBundledEarlyCentral() -> CBCentralManager? {
     guard
       let registryCls = NSClassFromString("BlePlxBundledRestorationRegistry") as? NSObject.Type,
       registryCls.responds(to: NSSelectorFromString("shared")),
       let shared = registryCls.perform(NSSelectorFromString("shared"))?.takeUnretainedValue() as? NSObject,
-      shared.responds(to: NSSelectorFromString("takeEarlyCentral"))
+      shared.responds(to: NSSelectorFromString("takeEarlyCentralManager"))
     else {
       return nil
     }
-    return shared.perform(NSSelectorFromString("takeEarlyCentral"))?.takeUnretainedValue() as? CBCentralManager
+    return shared.perform(NSSelectorFromString("takeEarlyCentralManager"))?.takeUnretainedValue() as? CBCentralManager
   }
   #endif
 

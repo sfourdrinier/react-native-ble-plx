@@ -20,7 +20,7 @@ Honest matrix — matches [PLATFORMS.md](./PLATFORMS.md) and [GAPS.4.0.md](./GAP
 | **Linux** | BlueZ D-Bus | **Partial / preview** — contracts + mock bus; **not** full L4 production discovery/GATT | `BluezBlePort` + optional `dbus-next`; `createPlatformElectronPort` | See `GAP-E-LIN-*`. CI injects mock bus |
 | **Windows** | WinRT | **Placeholder / Fake only** | `createWinRtBlePort` — native addon not production-ready; `requireNative: true` **throws** when missing | `GAP-E-WIN-*` open; **never** claim radio scan |
 
-`supports('continuousScan')` is **host-level true** for Electron so apps can branch on “port hosts can scan.” **Backend reality** is the table above — WinRT is not continuous-scan capable today.
+**Runtime source of truth:** `manager.supports('continuousScan')` is backend-aware (CoreBluetooth/BlueZ **true** when that port is live; mock/WinRT/unavailable **false**). The free `supports('continuousScan', 'electron')` host matrix is a coarse ceiling only — prefer `manager.supports` for production branches (R3-F030 / R3-F045).
 
 ## Fake is CI-only
 

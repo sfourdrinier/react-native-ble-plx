@@ -34,6 +34,8 @@ Native implementation uses `BluetoothDevice.createBond()`, bond-state broadcasts
 
 **Timeout:** `createBond` has a **60s** safety timeout. If the user dismisses the pairing dialog or bonding stalls, the promise rejects with `DeviceBondFailed` (“bonding timed out”) and the bond-state receiver is unregistered so it cannot leak.
 
+**`removeBond` is async (R3-F025):** the promise resolves only after `ACTION_BOND_STATE_CHANGED` reports `BOND_NONE` (or the same 60s safety timeout / reflective invoke failure). Do not assume the device is immediately unbonded the moment `removeBond` is invoked — await the promise, then call `getBondState` / `bondedDevices` if you need a post-unbond snapshot.
+
 ## iOS
 
 Pairing is **OS-driven** when accessing encrypted characteristics. There is no public `createBond` / `removeBond` / bonded-list API.

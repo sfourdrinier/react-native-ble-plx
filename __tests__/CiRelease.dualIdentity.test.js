@@ -199,6 +199,47 @@ describe('ci-release dual identity (4.0)', () => {
     expect(fs.existsSync(path.join(root, 'scripts/ci/electron-main-smoke.js'))).toBe(true)
   })
 
+  // R3-F012 / R3-F067: L3 smoke exercises requireNative under Electron on darwin
+  test('R3-F012/F067 electron-main-smoke requireNative after rebuild + electron runtime gate', () => {
+    const smoke = read('scripts/ci/electron-main-smoke.js')
+    const ci = read('.github/workflows/ci.yml')
+    expect(smoke).toMatch(/process\.versions\.electron/)
+    expect(smoke).toMatch(/createCoreBluetoothBlePort\(\{\s*requireNative:\s*true\s*\}\)/)
+    expect(smoke).toMatch(/platform === ['"]darwin['"]/)
+    expect(ci).toMatch(/requireNative under Electron|R3-F012|CoreBluetooth requireNative/)
+  })
+
+  // R3-F007: electron smoke does not claim Fake bonding success
+  test('R3-F007 example-electron smoke does not pair/list/unpair', () => {
+    const smoke = read('example-electron/smoke.js')
+    expect(smoke).not.toMatch(/demo\.pairDevice/)
+    expect(smoke).not.toMatch(/demo\.listPairedDevices/)
+    expect(smoke).not.toMatch(/demo\.unpairDevice/)
+    expect(smoke).toMatch(/bonding N on electron|must not advertise bonding/)
+  })
+
+  // R3-F068: verify-release + RELEASE share vite gate with publish
+  test('R3-F068 verify-release and RELEASE.md include web vite smoke', () => {
+    const sh = read('scripts/verify-release.sh')
+    const release = read('RELEASE.md')
+    expect(sh).toMatch(/vite build --config example-web\/vite\.config\.js/)
+    expect(release).toMatch(/Web vite|vite build smoke/)
+  })
+
+  // R3-F066: shim monorepo fallback is gated
+  test('R3-F066 shim loadCanonical gates monorepo fallback', () => {
+    for (const rel of [
+      'packages/react-native-ble-plx-shim/index.js',
+      'packages/react-native-ble-plx-shim/web.js',
+      'packages/react-native-ble-plx-shim/electron.js',
+      'packages/react-native-ble-plx-shim/node.js'
+    ]) {
+      const src = read(rel)
+      expect(src).toMatch(/UBM_SHIM_MONOREPO|monorepoFallbackAllowed/)
+      expect(src).toMatch(/Install.*unified-ble-manager|Cannot resolve unified-ble-manager/)
+    }
+  })
+
   // R2-F038: Linux BlueZ soft-probe (explicit skip, never silent success)
   test('R2-F038 ci.yml BlueZ soft-probe uses isBluezAvailable and explicit skip paths', () => {
     const ci = read('.github/workflows/ci.yml')

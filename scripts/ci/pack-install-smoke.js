@@ -115,7 +115,17 @@ function main() {
     "assert.strictEqual(typeof web.BleManager, 'function', 'web BleManager');",
     "assert.strictEqual(typeof electron.BleManager, 'function', 'electron BleManager');",
     "assert.strictEqual(typeof nodeHost.BleManager, 'function', 'node BleManager');",
-    "console.log('pack+install export identity ok: canonical, shim, web, electron, node');"
+    // R3-F041: shim host subpaths must resolve to same BleManager identity as canonical hosts
+    "const shimWeb = require('@sfourdrinier/react-native-ble-plx/web');",
+    "const shimElectron = require('@sfourdrinier/react-native-ble-plx/electron');",
+    "const shimNode = require('@sfourdrinier/react-native-ble-plx/node');",
+    "assert.strictEqual(typeof shimWeb.BleManager, 'function', 'shim web BleManager');",
+    "assert.strictEqual(typeof shimElectron.BleManager, 'function', 'shim electron BleManager');",
+    "assert.strictEqual(typeof shimNode.BleManager, 'function', 'shim node BleManager');",
+    "assert.strictEqual(shimWeb.BleManager, web.BleManager, 'shim web === canonical web');",
+    "assert.strictEqual(shimElectron.BleManager, electron.BleManager, 'shim electron === canonical electron');",
+    "assert.strictEqual(shimNode.BleManager, nodeHost.BleManager, 'shim node === canonical node');",
+    "console.log('pack+install export identity ok: canonical, shim, web/electron/node (+shim hosts)');"
   ].join('\n')
   run(process.execPath, ['-e', assertScript], { cwd: consumer })
 

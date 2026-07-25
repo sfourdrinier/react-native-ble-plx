@@ -67,7 +67,7 @@ export function serviceUuidMatchesFilters(serviceUuid: string, filters: readonly
 }
 
 /** Hex UUID token (with/without dashes, optional 0x / braces) vs Web Bluetooth assigned name. */
-function looksLikeBluetoothUuid(token: string): boolean {
+export function looksLikeBluetoothUuid(token: string): boolean {
   const t = normalizeUuidToken(token)
   return /^[0-9a-f]{4}$/.test(t) || /^[0-9a-f]{8}$/.test(t) || /^[0-9a-f]{32}$/.test(t)
 }

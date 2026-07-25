@@ -337,10 +337,36 @@ export class WebBluetoothPort implements BlePort {
   private charCache = new Map<string, WebBluetoothRemoteGATTCharacteristic>()
   private monitorHandlers = new Map<string, MonitorEntry>()
   private disconnectHandlers = new Map<string, () => void>()
+  /** App / PortBleManager listeners for peer link-loss (R3-F009). */
+  private disconnectListeners = new Set<(deviceId: PortDeviceId, errorMessage: string | null) => void>()
 
   constructor(options: { navigator?: WebBluetoothNavigator; optionalServices?: string[] } = {}) {
     this.nav = options.navigator ?? (globalThis as unknown as { navigator?: WebBluetoothNavigator }).navigator ?? {}
     this.optionalServices = options.optionalServices ?? []
+  }
+
+  /**
+   * Subscribe to peer disconnect / link-loss (`gattserverdisconnected`).
+   * Intentional {@link disconnect} also notifies with `errorMessage: null`.
+   * Tab/page death remains unobservable from JS.
+   */
+  onDisconnect(
+    listener: (deviceId: PortDeviceId, errorMessage: string | null) => void
+  ): PortUnsubscribe {
+    this.disconnectListeners.add(listener)
+    return () => {
+      this.disconnectListeners.delete(listener)
+    }
+  }
+
+  private fireDisconnect(deviceId: PortDeviceId, errorMessage: string | null): void {
+    for (const listener of this.disconnectListeners) {
+      try {
+        listener(deviceId, errorMessage)
+      } catch {
+        // ignore listener errors
+      }
+    }
   }
 
   async startScan(_onDevice: (ad: PortAdvertisement) => void): Promise<void> {
@@ -461,6 +487,8 @@ export class WebBluetoothPort implements BlePort {
   }
 
   async disconnect(deviceId: PortDeviceId): Promise<void> {
+    // Detach first so server.disconnect() → gattserverdisconnected does not double-notify.
+    this.detachDisconnectListener(deviceId)
     const server = this.servers.get(deviceId)
     if (server?.connected) {
       try {
@@ -469,6 +497,8 @@ export class WebBluetoothPort implements BlePort {
         // ignore — still purge local state
       }
     }
+    // Local intentional disconnect: notify then purge (mirrors FakeBlePort).
+    this.fireDisconnect(deviceId, null)
     this.purgeDeviceGatt(deviceId)
   }
 
@@ -654,6 +684,8 @@ export class WebBluetoothPort implements BlePort {
     if (this.disconnectHandlers.has(deviceId)) return
     if (typeof device.addEventListener !== 'function') return
     const onDisc = () => {
+      // Peer link-loss: fan-out to PortBleManager / ConnectionManager, then purge (R3-F009).
+      this.fireDisconnect(deviceId, 'gattserverdisconnected')
       this.purgeDeviceGatt(deviceId)
     }
     device.addEventListener('gattserverdisconnected', onDisc)

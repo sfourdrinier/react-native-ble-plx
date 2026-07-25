@@ -301,6 +301,16 @@ characteristicUUID:(NSString *)characteristicUUID
         return;
       }
       self.connectionState[deviceId] = @"connecting";
+      // R3-F058: supersede in-flight connect waiter (mirror notify / disconnect prior).
+      UBMVoidBlock priorConnect = self.pendingConnect[deviceId];
+      if (priorConnect) {
+        priorConnect([NSError errorWithDomain:@"UBMCoreBluetooth"
+                                         code:205
+                                     userInfo:@{
+                                       NSLocalizedDescriptionKey :
+                                           @"Connect superseded by a new connect request"
+                                     }]);
+      }
       self.pendingConnect[deviceId] = completion;
       p.delegate = self;
       [self.central connectPeripheral:p options:nil];

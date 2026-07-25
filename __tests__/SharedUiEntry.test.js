@@ -18,6 +18,25 @@ describe('example-shared/ui (DRY web + Electron)', () => {
     expect(html).toMatch(/Polar|0x180D|0x2A37/i)
   })
 
+  // R3-F072: CSP + Permissions-Policy are the documented web security surface
+  test('index.html sets CSP and Permissions-Policy bluetooth=(self) (R3-F072)', () => {
+    const html = fs.readFileSync(path.join(ui, 'index.html'), 'utf8')
+    expect(html).toMatch(/http-equiv=["']Content-Security-Policy["']/)
+    expect(html).toMatch(/http-equiv=["']Permissions-Policy["']/)
+    expect(html).toContain('bluetooth=(self)')
+  })
+
+  // R3-F061: permitted reconnect surface
+  test('web bridge + UI expose getPermittedDevices reconnect (R3-F061)', () => {
+    const bridge = fs.readFileSync(path.join(ui, 'createWebBleBridge.js'), 'utf8')
+    const app = fs.readFileSync(path.join(ui, 'app.js'), 'utf8')
+    const html = fs.readFileSync(path.join(ui, 'index.html'), 'utf8')
+    expect(bridge).toContain('getPermittedDevices')
+    expect(bridge).toMatch(/manager\.getDevices|getDevices\(/)
+    expect(app).toContain('getPermittedDevices')
+    expect(html).toContain('btn-permitted')
+  })
+
   test('app.js exports bootApp and uses bridge methods', () => {
     const app = fs.readFileSync(path.join(ui, 'app.js'), 'utf8')
     expect(app).toContain('export function bootApp')
@@ -95,5 +114,36 @@ describe('example-shared/ui (DRY web + Electron)', () => {
     expect(bridge).toContain('pairDevice')
     // pairDevice only attached when bonding supported
     expect(bridge).toMatch(/if\s*\(\s*caps\.bonding\s*===\s*true\s*\)/)
+  })
+
+  // R3-F063: CJS profiles.js surface matches package profile modules (ESM export *)
+  test('example-shared profiles.js re-exports full profile surface (R3-F063)', () => {
+    const cjs = require('../example-shared/profiles.js')
+    for (const key of [
+      'HEART_RATE_CONTROL_POINT_UUID',
+      'BodySensorLocation',
+      'BATTERY_SERVICE_ALIAS',
+      'INTERMEDIATE_TEMPERATURE_UUID',
+      'INTERMEDIATE_CUFF_PRESSURE_UUID',
+      'SYSTEM_ID_UUID',
+      'PNP_ID_UUID'
+    ]) {
+      expect(cjs[key]).toBeDefined()
+    }
+    const profilesRoot = path.join(root, 'lib', 'commonjs', 'profiles')
+    const full = {
+      ...require(path.join(profilesRoot, 'heartRate')),
+      ...require(path.join(profilesRoot, 'battery')),
+      ...require(path.join(profilesRoot, 'deviceInformation')),
+      ...require(path.join(profilesRoot, 'healthThermometer')),
+      ...require(path.join(profilesRoot, 'bloodPressure'))
+    }
+    const fullKeys = Object.keys(full)
+      .filter(k => !k.startsWith('_'))
+      .sort()
+    const cjsKeys = Object.keys(cjs)
+      .filter(k => !k.startsWith('_'))
+      .sort()
+    expect(cjsKeys).toEqual(fullKeys)
   })
 })

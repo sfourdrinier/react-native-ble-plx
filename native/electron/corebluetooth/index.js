@@ -36,8 +36,25 @@ function bytesToBase64(bytes) {
   return Buffer.from(toUint8Array(bytes)).toString('base64')
 }
 
+/** Standard Base64 alphabet + optional padding; parity with src/encoding.ts (R3-F071). */
+const STRICT_BASE64 =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+
+function assertValidBase64(base64) {
+  if (!STRICT_BASE64.test(base64)) {
+    throw new TypeError('Invalid Base64 string')
+  }
+}
+
 function base64ToBytes(b64) {
-  return new Uint8Array(Buffer.from(String(b64), 'base64'))
+  if (typeof b64 !== 'string') {
+    throw new TypeError('base64ToBytes expects a string')
+  }
+  if (b64.length === 0) {
+    return new Uint8Array(0)
+  }
+  assertValidBase64(b64)
+  return new Uint8Array(Buffer.from(b64, 'base64'))
 }
 
 /**

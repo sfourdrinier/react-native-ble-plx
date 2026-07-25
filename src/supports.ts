@@ -101,7 +101,8 @@ const MATRIX: Record<HostKind, Partial<Record<BleCapability, boolean>>> = {
     l2cap: false,
     preferredPhy: false,
     deviceOperationQueue: true,
-    servicesChanged: true,
+    // R3-F013: fail-closed until OS Services Changed events are forwarded (Electron manager.supports hard-false).
+    servicesChanged: false,
     longWrite: true
   },
   node: {
@@ -124,7 +125,8 @@ const MATRIX: Record<HostKind, Partial<Record<BleCapability, boolean>>> = {
     l2cap: false,
     preferredPhy: false,
     deviceOperationQueue: true,
-    servicesChanged: true,
+    // R3-F013: fail-closed desktop policy — match Electron; software emitServicesReset is test inject only.
+    servicesChanged: false,
     longWrite: true
   },
   fake: {

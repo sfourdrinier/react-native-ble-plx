@@ -14,6 +14,7 @@ import {
   createMockCharacteristic,
   createMockDescriptor
 } from './helpers/nativeBleModule'
+import { flushMicrotasks } from './helpers/async'
 Native.EventEmitter = NativeEventEmitter
 
 var bleManager
@@ -466,6 +467,8 @@ test('BleManager properly monitors characteristic value', async () => {
   Native.BleModule.emit(Native.BleModule.ReadEvent, [null, { id: 'a', value: 'a' }, 'id'])
   Native.BleModule.emit(Native.BleModule.ReadEvent, [null, { id: 'a', value: 'b' }, 'x'])
   const subscription = bleManager.monitorCharacteristicForDevice('id', 'aaaa', 'bbbb', listener, 'x')
+  // R3-F018: monitor setup is queued via _runForDevice
+  await flushMicrotasks(8)
   Native.BleModule.emit(Native.BleModule.ReadEvent, [null, { id: 'a', value: 'b' }, 'x'])
   Native.BleModule.emit(Native.BleModule.ReadEvent, [null, { id: 'a', value: 'b' }, 'x'])
   Native.BleModule.emit(Native.BleModule.ReadEvent, [null, { id: 'a', value: 'c' }, 'x2'])
@@ -628,10 +631,12 @@ test('BleManager isBackgroundModeEnabled always queries native (iOS honesty)', a
 })
 
 // R2-F025: Android subscriptionType forwarded; iOS always strips to null
+// R3-F018: CCCD setup is enqueued — await queue drain before asserting native calls
 
-test('BleManager monitorCharacteristicForDevice forwards subscriptionType on Android', () => {
+test('BleManager monitorCharacteristicForDevice forwards subscriptionType on Android', async () => {
   Platform.OS = 'android'
-  Native.BleModule.monitorCharacteristicForDevice = jest.fn().mockReturnValue(new Promise(() => {}))
+  // Resolve so the device queue can start the second setup (R3-F018 serialize)
+  Native.BleModule.monitorCharacteristicForDevice = jest.fn().mockResolvedValue(null)
   const listener = jest.fn()
 
   const subNotify = bleManager.monitorCharacteristicForDevice(
@@ -642,6 +647,7 @@ test('BleManager monitorCharacteristicForDevice forwards subscriptionType on And
     'tx-notify',
     'notification'
   )
+  await flushMicrotasks(8)
   const subIndicate = bleManager.monitorCharacteristicForDevice(
     'id',
     'aaaa',
@@ -650,6 +656,7 @@ test('BleManager monitorCharacteristicForDevice forwards subscriptionType on And
     'tx-indicate',
     'indication'
   )
+  await flushMicrotasks(8)
 
   expect(Native.BleModule.monitorCharacteristicForDevice).toHaveBeenCalledWith(
     'id',
@@ -669,7 +676,7 @@ test('BleManager monitorCharacteristicForDevice forwards subscriptionType on And
   subIndicate.remove()
 })
 
-test('BleManager monitorCharacteristicForDevice strips subscriptionType on iOS', () => {
+test('BleManager monitorCharacteristicForDevice strips subscriptionType on iOS', async () => {
   Platform.OS = 'ios'
   Native.BleModule.monitorCharacteristicForDevice = jest.fn().mockReturnValue(new Promise(() => {}))
   const listener = jest.fn()
@@ -682,6 +689,7 @@ test('BleManager monitorCharacteristicForDevice strips subscriptionType on iOS',
     'tx-ios',
     'indication'
   )
+  await flushMicrotasks(8)
 
   expect(Native.BleModule.monitorCharacteristicForDevice).toBeCalledWith(
     'id',
@@ -693,7 +701,7 @@ test('BleManager monitorCharacteristicForDevice strips subscriptionType on iOS',
   sub.remove()
 })
 
-test('BleManager monitorCharacteristicForDeviceAsBytes forwards subscriptionType on Android', () => {
+test('BleManager monitorCharacteristicForDeviceAsBytes forwards subscriptionType on Android', async () => {
   Platform.OS = 'android'
   Native.BleModule.monitorCharacteristicForDevice = jest.fn().mockReturnValue(new Promise(() => {}))
   const listener = jest.fn()
@@ -706,6 +714,7 @@ test('BleManager monitorCharacteristicForDeviceAsBytes forwards subscriptionType
     'tx-bytes',
     'notification'
   )
+  await flushMicrotasks(8)
 
   expect(Native.BleModule.monitorCharacteristicForDevice).toBeCalledWith(
     'id',
@@ -717,7 +726,7 @@ test('BleManager monitorCharacteristicForDeviceAsBytes forwards subscriptionType
   sub.remove()
 })
 
-test('BleManager monitorCharacteristicForDeviceAsBytes strips subscriptionType on iOS', () => {
+test('BleManager monitorCharacteristicForDeviceAsBytes strips subscriptionType on iOS', async () => {
   Platform.OS = 'ios'
   Native.BleModule.monitorCharacteristicForDevice = jest.fn().mockReturnValue(new Promise(() => {}))
   const listener = jest.fn()
@@ -730,6 +739,7 @@ test('BleManager monitorCharacteristicForDeviceAsBytes strips subscriptionType o
     'tx-bytes-ios',
     'indication'
   )
+  await flushMicrotasks(8)
 
   expect(Native.BleModule.monitorCharacteristicForDevice).toBeCalledWith(
     'id',

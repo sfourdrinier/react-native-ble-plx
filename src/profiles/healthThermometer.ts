@@ -143,7 +143,8 @@ export function parseTemperatureMeasurement(
 
 export type EncodeTemperatureOptions = {
   fahrenheit?: boolean
-  timestamp?: BleTimestamp
+  /** Wire date_time fields; unknown flags are encode-optional (zeros mean not known). */
+  timestamp?: Pick<BleTimestamp, 'year' | 'month' | 'day' | 'hours' | 'minutes' | 'seconds'>
   temperatureType?: number
 }
 

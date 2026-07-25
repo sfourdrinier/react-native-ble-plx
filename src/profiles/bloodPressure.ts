@@ -191,7 +191,8 @@ export function parseBloodPressureMeasurement(
 
 export type EncodeBloodPressureOptions = {
   kilopascal?: boolean
-  timestamp?: BleTimestamp
+  /** Wire date_time fields; unknown flags are encode-optional (zeros mean not known). */
+  timestamp?: Pick<BleTimestamp, 'year' | 'month' | 'day' | 'hours' | 'minutes' | 'seconds'>
   pulseRate?: number
   userId?: number
   measurementStatus?: number

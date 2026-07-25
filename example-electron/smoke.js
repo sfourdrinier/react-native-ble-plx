@@ -167,22 +167,13 @@ async function main() {
   console.log(other.name, 'services', other.services.map(s => s.uuid))
   await demo.disconnect(ids.otherHrId)
 
-  // R2-F061: pair / list / unpair round-trip against FakeBlePort bonding helpers
-  console.log('\n== Pair / unpair (Fake bonding) ==')
-  await demo.pairDevice(ids.polarId)
-  const paired = await demo.listPairedDevices()
-  if (!paired.some(d => d.id === ids.polarId)) {
-    throw new Error(`expected polar in paired list, got ${JSON.stringify(paired)}`)
+  // R3-F007: Electron host keeps supports('bonding') false — do not pair/list/unpair here.
+  // Bonding round-trip lives on host:'fake' (CentralDemo R2-F061), not Electron BleManager.
+  if (demo.capabilities().bonding === true) {
+    throw new Error('Electron smoke must not advertise bonding:true (manager.supports is fail-closed)')
   }
-  console.log('  paired', paired.map(d => d.id).join(', '))
-  await demo.unpairDevice(ids.polarId)
-  const after = await demo.listPairedDevices()
-  if (after.some(d => d.id === ids.polarId)) {
-    throw new Error('polar still paired after unpair')
-  }
-  console.log('  unpaired OK')
 
-  console.log('\nexample-electron smoke OK (Fake multi-device + common SIG profiles + bonding)')
+  console.log('\nexample-electron smoke OK (Fake multi-device + common SIG profiles; bonding N on electron)')
   console.log('UI + live Polar: pnpm run example:electron')
 }
 

@@ -292,6 +292,12 @@ export class FakeBlePort implements BlePort {
     onDevice: (ad: PortAdvertisement) => void,
     options?: { serviceUUIDs?: string[] | null }
   ): Promise<void> {
+    // Clear prior scan timer so a second startScan without stopScan cannot
+    // deliver ads to both callbacks (R3-F017).
+    if (this.scanTimer) {
+      clearTimeout(this.scanTimer)
+      this.scanTimer = null
+    }
     this.scanning = true
     const filterUuids = (options?.serviceUUIDs || []).map(u => String(u).trim()).filter(Boolean)
     this.scanTimer = setTimeout(() => {

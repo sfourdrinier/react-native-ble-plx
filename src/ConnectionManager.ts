@@ -89,6 +89,14 @@ const ignoreConnectionCancellationError = () => {
   // Native cancellation can reject if the connection already ended.
 }
 
+/**
+ * Normalize device ids to match DeviceOperationQueue / port contract (trim+upper).
+ * Prevents mixed-case map keys and missed disconnect fan-out (R3-F019).
+ */
+function normalizeDeviceId(deviceId: DeviceId): DeviceId {
+  return String(deviceId).trim().toUpperCase()
+}
+
 /** User/global callbacks must not throw into CM control flow (retry, promise settle). */
 const invokeUserCallback = (label: string, fn: (() => void) | undefined): void => {
   if (!fn) return
@@ -257,6 +265,7 @@ export class ConnectionManager {
     options: ConnectionOptionsWithRetry | undefined,
     mode: { gated: boolean }
   ): Promise<Device> {
+    deviceId = normalizeDeviceId(deviceId)
     if (this._destroying) {
       return Promise.reject(makeBleError(BleErrorCode.OperationCancelled, DESTROY_CANCEL_REASON))
     }
@@ -361,6 +370,7 @@ export class ConnectionManager {
    * @throws {BleError} OperationStartFailed if attemptConnectOnce is in flight for this device
    */
   enableAutoReconnect(deviceId: DeviceId, options?: ConnectionOptionsWithRetry, callbacks?: ConnectionCallbacks): void {
+    deviceId = normalizeDeviceId(deviceId)
     if (this._destroying) {
       throw makeBleError(BleErrorCode.OperationCancelled, DESTROY_CANCEL_REASON)
     }
@@ -453,6 +463,7 @@ export class ConnectionManager {
    * @returns True if auto-reconnect was disabled, false if it wasn't enabled
    */
   disableAutoReconnect(deviceId: DeviceId): boolean {
+    deviceId = normalizeDeviceId(deviceId)
     const state = this._devices.get(deviceId)
     if (!state || !state.autoReconnect) {
       return false
@@ -476,6 +487,7 @@ export class ConnectionManager {
    * @returns True if a connection was cancelled
    */
   cancel(deviceId: DeviceId): boolean {
+    deviceId = normalizeDeviceId(deviceId)
     const state = this._devices.get(deviceId)
     if (!state) {
       return false
@@ -544,6 +556,7 @@ export class ConnectionManager {
    * Check if a device has a pending or active connection.
    */
   isConnecting(deviceId: DeviceId): boolean {
+    deviceId = normalizeDeviceId(deviceId)
     const state = this._devices.get(deviceId)
     return state?.isConnecting ?? false
   }
@@ -552,6 +565,7 @@ export class ConnectionManager {
    * Check if auto-reconnect is enabled for a device.
    */
   isAutoReconnectEnabled(deviceId: DeviceId): boolean {
+    deviceId = normalizeDeviceId(deviceId)
     const state = this._devices.get(deviceId)
     return state?.autoReconnect ?? false
   }
@@ -560,6 +574,7 @@ export class ConnectionManager {
    * Get the current retry count for a device.
    */
   getRetryCount(deviceId: DeviceId): number {
+    deviceId = normalizeDeviceId(deviceId)
     const state = this._devices.get(deviceId)
     return state?.retryCount ?? 0
   }

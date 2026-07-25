@@ -888,8 +888,11 @@ export class BleManager {
     deviceIdentifier: DeviceId,
     listener: (error: BleError | null, device: Device) => void
   ): Subscription {
+    // Normalize so mixed-case subscribe matches iOS uppercase uuidString events (R3-F019).
+    const wantKey = String(deviceIdentifier).trim().toUpperCase()
     const disconnectionListener = ([error, nativeDevice]: [string | null, NativeDevice]) => {
-      if (deviceIdentifier !== nativeDevice.id) {
+      const gotKey = String(nativeDevice.id).trim().toUpperCase()
+      if (wantKey !== gotKey) {
         return
       }
       listener(error ? parseBleError(error, this._errorCodesToMessagesMapping) : null, new Device(nativeDevice, this))
@@ -1402,12 +1405,15 @@ export class BleManager {
   ): Subscription {
     const filledTransactionId = transactionId || this._nextUniqueID()
 
-    const promise = BleModule.monitorCharacteristicForDevice(
-      deviceIdentifier,
-      serviceUUID,
-      characteristicUUID,
-      filledTransactionId,
-      isIOS() ? null : (subscriptionType ?? null)
+    // Queue CCCD / subscription setup so it serializes with R/W (R3-F018 / Port R2-F087).
+    const promise = this._runForDevice(deviceIdentifier, () =>
+      BleModule.monitorCharacteristicForDevice(
+        deviceIdentifier,
+        serviceUUID,
+        characteristicUUID,
+        filledTransactionId,
+        isIOS() ? null : (subscriptionType ?? null)
+      )
     )
 
     return this._handleMonitorCharacteristic(promise, filledTransactionId, listener)
@@ -1427,6 +1433,7 @@ export class BleManager {
    * @private
    */
   _monitorCharacteristicForService(
+    deviceIdentifier: DeviceId,
     serviceIdentifier: Identifier,
     characteristicUUID: UUID,
     listener: (error: BleError | null, characteristic: Characteristic | null) => void,
@@ -1434,11 +1441,14 @@ export class BleManager {
     subscriptionType?: CharacteristicSubscriptionType | null
   ): Subscription {
     const filledTransactionId = transactionId || this._nextUniqueID()
-    const promise = BleModule.monitorCharacteristicForService(
-      serviceIdentifier,
-      characteristicUUID,
-      filledTransactionId,
-      isIOS() ? null : (subscriptionType ?? null)
+    // Queue CCCD setup under the device key (R3-F018).
+    const promise = this._runForDevice(deviceIdentifier, () =>
+      BleModule.monitorCharacteristicForService(
+        serviceIdentifier,
+        characteristicUUID,
+        filledTransactionId,
+        isIOS() ? null : (subscriptionType ?? null)
+      )
     )
 
     return this._handleMonitorCharacteristic(promise, filledTransactionId, listener)
@@ -1458,16 +1468,20 @@ export class BleManager {
    * @private
    */
   _monitorCharacteristic(
+    deviceIdentifier: DeviceId,
     characteristicIdentifier: Identifier,
     listener: (error: BleError | null, characteristic: Characteristic | null) => void,
     transactionId?: TransactionId,
     subscriptionType?: CharacteristicSubscriptionType | null
   ): Subscription {
     const filledTransactionId = transactionId || this._nextUniqueID()
-    const promise = BleModule.monitorCharacteristic(
-      characteristicIdentifier,
-      filledTransactionId,
-      isIOS() ? null : (subscriptionType ?? null)
+    // Queue CCCD setup under the device key (R3-F018).
+    const promise = this._runForDevice(deviceIdentifier, () =>
+      BleModule.monitorCharacteristic(
+        characteristicIdentifier,
+        filledTransactionId,
+        isIOS() ? null : (subscriptionType ?? null)
+      )
     )
 
     return this._handleMonitorCharacteristic(promise, filledTransactionId, listener)
