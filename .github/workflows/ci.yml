@@ -217,7 +217,12 @@ jobs:
         uses: android-actions/setup-android@v4.0.1
 
       - name: Install classic example dependencies
+        # example/.npmrc uses node-linker=hoisted so @react-native/gradle-plugin is at
+        # example/node_modules/@react-native/gradle-plugin (required by settings.gradle).
         run: pnpm --dir example install --no-frozen-lockfile
+
+      - name: Verify React Native gradle plugin path
+        run: test -d example/node_modules/@react-native/gradle-plugin
 
       - name: Assemble classic example debug APK
         working-directory: example/android
