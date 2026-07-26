@@ -1,5 +1,7 @@
 # 4.0 Complete implementation plan — gaps, Mac-first execution, issue tracking
 
+> **Architecture rebaseline (2026-07-25):** [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md) controls the clean-baseline backend contract, unified core, native protocol, conformance kit, scenario system, public API replacement, and hard deletion gates. Stable 4.0 is deliberately comprehensive, and Meta Quest is a required evidence-backed platform at least at Live Preview level rather than optional follow-up scope, even if implemented last. A controllable physical fault-injection peripheral is explicitly deferred to 4.1 because the nRF52840 approach is not feasible; 4.0 keeps those scenarios deterministic-only and labels the evidence honestly. This file remains the platform code/CI/lab proof inventory. A transitional item marked done here does not imply that its clean-baseline replacement is complete. Existing compatibility and dual-path entries must be rebaselined before the first production-package implementation phase.
+
 **Status:** living inventory · implementation plan  
 **Branch:** `4.0`  
 **Package:** `unified-ble-manager@4.0.0-alpha.*` → target **`4.0.0` GA** then **4.x complete**  
@@ -7,7 +9,7 @@
 **Last updated:** 2026-07-25  
 **Machine strategy:** Linux + GitHub Actions for multi-OS compile; **Mac workstation** for iOS, Electron CoreBluetooth, tvOS, Xcode, and live Apple radio lab.
 
-This document is the **single backlog of remaining code, CI, lab, and release work** to finish the **whole** 4.0 charter (and the 4.x items still owned by the same train). Every open item has a stable **GAP ID**. GitHub Issues must reference that ID in the title as `[GAP-xxx]`.
+This document is the platform-specific backlog of remaining code, CI, lab, and release proof needed to finish the **whole** 4.0 charter (and the 4.x items still owned by the same train). Architecture work packages and sequencing live in the controlling architecture plan. Every open platform item has a stable **GAP ID**. GitHub Issues must reference that ID in the title as `[GAP-xxx]`.
 
 ---
 

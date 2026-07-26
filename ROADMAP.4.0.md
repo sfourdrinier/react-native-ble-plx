@@ -1,12 +1,14 @@
 # Roadmap 4.0 — `unified-ble-manager`
 
+> **Clean-baseline architecture decision (2026-07-25):** `unified-ble-manager@4.0.0` is a new package with no production users. [`docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md) controls the backend contract, unified core, native protocol, conformance kit, public API replacement, and hard deletion gates. Stable 4.0 is deliberately the complete clean baseline—not a reduced minimum—and includes Meta Quest as a required evidence-backed platform at least at Live Preview level, even if implemented last. A controllable physical fault-injection peripheral is explicitly deferred to 4.1 because the nRF52840 approach is not feasible; 4.0 keeps those scenarios deterministic-only and labels the evidence honestly. Where older text in this roadmap promises 3.x compatibility, dual Base64/bytes BLE APIs, or a permanent shim, the clean-baseline plan supersedes it. This roadmap must be rebaselined before the first production-package implementation phase; it continues to control product scope and platform ambition.
+
 **Status:** living document · ambitious 4.x charter  
 **Last updated:** 2026-07-24  
 **Stable line:** **3.9.x** (current production on `master`; 3.8.x backports only)  
 **Active ambition:** **`4.0.0-alpha.*` → `4.0.0` GA** (full charter: owned native core, dual binary path, bonding, multi-host **preview**) → later **4.x** polish  
 **Canonical package (4.0+):** **`unified-ble-manager`** (unscoped npm)  
 **Compat package:** **`@sfourdrinier/react-native-ble-plx`** — thin install/import **shim** (same major line; re-exports the canonical package)  
-**Related:** [ROADMAP.md](./ROADMAP.md) · [CHANGELOG.md](./CHANGELOG.md) · **[GAPS.4.0.md](./docs/GAPS.4.0.md)** (complete remaining-work plan + GitHub issue index)
+**Related:** [ROADMAP.md](./ROADMAP.md) · [CHANGELOG.md](./CHANGELOG.md) · **[GAPS.4.0.md](./docs/GAPS.4.0.md)** (platform proof inventory + GitHub issue index) · **[UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md](./docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)** (controlling architecture execution plan)
 
 This document is the **product charter for 4.x**. It is intentionally ambitious: 4.0 is not “3.9 with bonding.” It is a **new generation**—mobile excellence, owned native core, multi-host preview (React Native, Electron, Web Bluetooth, macOS / Windows / Linux)—shipped with a **hard compatibility guarantee for existing 3.x app code** (including 3.8.x and 3.9.x Base64 call sites).
 
