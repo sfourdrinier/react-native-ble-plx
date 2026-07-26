@@ -172,6 +172,7 @@ This fork is independently maintained. **Documentation and support live in this 
 | Doc | Description |
 | --- | ----------- |
 | [Getting started](docs/GETTING_STARTED.md) | BLE basics with this library |
+| [Helpers](docs/HELPERS.md) | Cross-host recipes: wait / find / connect+discover / first notify / try-read |
 | [Fork notes](docs/FORK.md) | What changed vs upstream, floors, and roadmap posture |
 | [Roadmap](ROADMAP.md) | Long-term strategy: reliability, features, native ownership, multiplatform |
 | [Roadmap 4.0](ROADMAP.4.0.md) | Ambitious 4.x charter (alpha, Electron, Web, desktop backends) |

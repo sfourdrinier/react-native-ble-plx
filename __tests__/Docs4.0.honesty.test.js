@@ -66,6 +66,24 @@ describe('4.0 docs honesty (docs batch)', () => {
     expect(platforms).toMatch(/partial|listener API|software|test inject|emitServicesReset/i)
   })
 
+  test('HELPERS.md documents strategic central recipes + package exports', () => {
+    const helpers = read('docs/HELPERS.md')
+    expect(helpers).toMatch(/findDevice/)
+    expect(helpers).toMatch(/connectAndDiscover/)
+    expect(helpers).toMatch(/firstNotification/)
+    expect(helpers).toMatch(/tryReadCharacteristicBytes/)
+    expect(helpers).toMatch(/waitForState/)
+    expect(helpers).toMatch(/safeTeardown/)
+    expect(helpers).toMatch(/assertSupported/)
+    expect(helpers).toMatch(/continuousScan|requestDevice/)
+    const getting = read('docs/GETTING_STARTED.md')
+    expect(getting).toMatch(/HELPERS\.md|helpers/)
+    const { findDevice, connectAndDiscover, waitForState } = require('unified-ble-manager')
+    expect(typeof findDevice).toBe('function')
+    expect(typeof connectAndDiscover).toBe('function')
+    expect(typeof waitForState).toBe('function')
+  })
+
   test('EXPO_PLUGIN / GETTING_STARTED / CONNECTION_MANAGER lead with unified-ble-manager (F016, F022)', () => {
     const expo = read('docs/EXPO_PLUGIN.md')
     const getting = read('docs/GETTING_STARTED.md')

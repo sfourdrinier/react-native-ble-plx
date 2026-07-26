@@ -290,6 +290,31 @@ describe('example-shared CentralDemo', () => {
     expect(src).toContain('sortDevices')
   })
 
+  test('centralDemo loads helpers without package main; connect uses connectAndDiscover', async () => {
+    const src = fs.readFileSync(path.join(shared, 'centralDemo.js'), 'utf8')
+    expect(src).toMatch(/lib\/commonjs\/helpers|src\/helpers/)
+    expect(src).toMatch(/connectAndDiscover|findDevice/)
+    expect(src).not.toMatch(/require\(\s*['"]unified-ble-manager['"]\s*\)/)
+
+    const helpers = require('../src/helpers')
+    const { port, devices: ids } = createDemoFakeRadio(FakeBlePort, profiles)
+    const manager = new PortBleManager({ port, host: 'fake' })
+    const demo = createCentralDemo(manager, profiles, { helpers, heartRateOnly: false })
+    expect(demo.hasHelpers()).toBe(true)
+
+    const findP = demo.findDevice(d => d.id === ids.polarId, {
+      timeoutMs: 2000,
+      heartRateOnly: false
+    })
+    await flushScan()
+    const found = await findP
+    expect(found.id).toBe(ids.polarId)
+
+    await demo.connect(ids.polarId)
+    expect(await manager.isDeviceConnected(ids.polarId)).toBe(true)
+    await demo.disconnect(ids.polarId)
+  })
+
   test('shared readCommonProfiles helper skips indicate-only (R2-F062)', async () => {
     const { readCommonProfiles } = require('../example-shared/readCommonProfiles')
     const { port, devices: ids } = createDemoFakeRadio(FakeBlePort, profiles)

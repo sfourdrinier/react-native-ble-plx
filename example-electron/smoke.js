@@ -1,7 +1,11 @@
 /**
  * Headless Fake multi-device smoke (CI / Linux package job).
+ * Exercises package **central helpers** (findDevice / connectAndDiscover / tryRead)
+ * via createCentralDemo + direct helper imports.
+ *
  * Not a UI — for the Electron window + live Polar use:
  *   pnpm run example:electron
+ *   pnpm run example:electron:live
  *
  *   pnpm prepack && node example-electron/smoke.js
  */
@@ -10,8 +14,10 @@ const profiles = require('../example-shared/profiles')
 const { createCentralDemo, createDemoFakeRadio } = require('../example-shared/centralDemo')
 
 let ElectronHost
+let helpers
 try {
   ElectronHost = require('../lib/commonjs/hosts/electron')
+  helpers = require('../lib/commonjs/helpers')
 } catch {
   try {
     require('@babel/register')({
@@ -20,13 +26,22 @@ try {
       ignore: [/node_modules/]
     })
     ElectronHost = require('../src/hosts/electron.ts')
+    helpers = require('../src/helpers')
   } catch (e) {
-    console.error('Could not load electron host. Run `pnpm prepack` first.\n', e.message)
+    console.error('Could not load electron host / helpers. Run `pnpm prepack` first.\n', e.message)
     process.exit(1)
   }
 }
 
 const { BleManager, FakeBlePort } = ElectronHost
+const {
+  waitForState,
+  findDevice,
+  connectAndDiscover,
+  tryReadCharacteristicBytes,
+  firstNotification,
+  safeTeardown
+} = helpers
 
 async function main() {
   const { port, devices: ids } = createDemoFakeRadio(FakeBlePort, profiles)
@@ -34,11 +49,20 @@ async function main() {
   // Full inventory: clinical sims (HT/BP) do not advertise HR
   const demo = createCentralDemo(manager, profiles, {
     log: (...a) => console.log('[demo]', ...a),
-    heartRateOnly: false
+    heartRateOnly: false,
+    helpers
   })
 
   console.log('hostInfo', manager.getHostInfo())
   console.log('capabilities', demo.capabilities())
+  console.log('hasHelpers', demo.hasHelpers())
+  if (!demo.hasHelpers()) {
+    throw new Error('expected package helpers to load (pnpm prepack)')
+  }
+
+  console.log('\n== waitForState (Port → assumed PoweredOn) ==')
+  const radio = await waitForState(manager)
+  console.log('  ', radio)
 
   console.log('\n== Scan for devices (all profiles) ==')
   await demo.discover(d => {
@@ -59,14 +83,60 @@ async function main() {
     throw new Error('Polar H10 sim missing from scan results')
   }
 
-  console.log('\n== Inspect non-HR beacon ==')
+  console.log('\n== Helpers: findDevice(Polar) + connectAndDiscover ==')
+  const found = await findDevice(
+    manager,
+    d => d.id === ids.polarId || (d.name || '').includes('Polar'),
+    { timeoutMs: 3000, serviceUUIDs: null }
+  )
+  console.log('  found', found.id, found.name)
+  if (found.id !== ids.polarId) {
+    throw new Error(`findDevice expected ${ids.polarId}, got ${found.id}`)
+  }
+  await connectAndDiscover(manager, found.id, { timeoutMs: 10000 })
+  const batSvc = '0000180f-0000-1000-8000-00805f9b34fb'
+  const batLevel = '00002a19-0000-1000-8000-00805f9b34fb'
+  const bat = await tryReadCharacteristicBytes(manager, found.id, batSvc, batLevel)
+  if (!bat.ok) {
+    throw new Error(`tryRead battery failed: ${JSON.stringify(bat)}`)
+  }
+  const level = bat.value[0]
+  console.log('  battery level bytes', level)
+  if (level !== 81) {
+    throw new Error(`expected battery 81, got ${level}`)
+  }
+
+  console.log('\n== Helpers: firstNotification (HR) ==')
+  const firstP = firstNotification(
+    manager,
+    ids.polarId,
+    profiles.HR_SERVICE_UUID,
+    profiles.HR_MEASUREMENT_UUID,
+    { timeoutMs: 3000 }
+  )
+  await new Promise(r => setTimeout(r, 20))
+  await port.emitNotification(
+    ids.polarId,
+    profiles.HR_SERVICE_UUID,
+    profiles.HR_MEASUREMENT_UUID,
+    profiles.encodeHeartRateMeasurement(88, { rrIntervalsSec: [60 / 88] })
+  )
+  const firstRaw = await firstP
+  const firstParsed = profiles.parseHeartRateMeasurement(firstRaw)
+  console.log('  first HR', firstParsed.heartRate, 'bpm')
+  if (firstParsed.heartRate !== 88) {
+    throw new Error(`firstNotification expected 88, got ${firstParsed.heartRate}`)
+  }
+  await manager.cancelDeviceConnection(ids.polarId)
+
+  console.log('\n== Inspect non-HR beacon (demo.connect → helpers.connectAndDiscover) ==')
   await demo.connect(ids.beaconId)
   const beaconInfo = await demo.inspectDevice(ids.beaconId)
   console.log(JSON.stringify(beaconInfo, null, 2))
   if (beaconInfo.serviceCount < 1) throw new Error('beacon should expose Device Information-like service')
   await demo.disconnect(ids.beaconId)
 
-  console.log('\n== Polar H10 connect + inspect + Battery/DIS + HR ==')
+  console.log('\n== Polar H10 connect + inspect + Battery/DIS + HR stream ==')
   await demo.connect(ids.polarId)
   const polarInfo = await demo.inspectDevice(ids.polarId)
   console.log(JSON.stringify(polarInfo, null, 2))
@@ -139,7 +209,6 @@ async function main() {
     )
   }
   console.log('  thermo skipped (indicate-only)', thermo.common.temperature.reason)
-  // Inventory is metadata-only — no pre-read valueBase64
   const thermoMeas = thermo.services
     .flatMap(s => s.characteristics || [])
     .find(c => c.isTemperatureMeasurement)
@@ -168,13 +237,16 @@ async function main() {
   await demo.disconnect(ids.otherHrId)
 
   // R3-F007: Electron host keeps supports('bonding') false — do not pair/list/unpair here.
-  // Bonding round-trip lives on host:'fake' (CentralDemo R2-F061), not Electron BleManager.
   if (demo.capabilities().bonding === true) {
     throw new Error('Electron smoke must not advertise bonding:true (manager.supports is fail-closed)')
   }
 
-  console.log('\nexample-electron smoke OK (Fake multi-device + common SIG profiles; bonding N on electron)')
-  console.log('UI + live Polar: pnpm run example:electron')
+  console.log('\n== safeTeardown ==')
+  const { warnings } = await safeTeardown(manager, { stopScan: true, destroy: false })
+  if (warnings.length) console.log('  warnings', warnings)
+
+  console.log('\nexample-electron smoke OK (helpers + Fake multi-device + common SIG profiles)')
+  console.log('UI + live Polar: pnpm run example:electron / example:electron:live')
 }
 
 main().catch(err => {

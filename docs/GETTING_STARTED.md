@@ -11,6 +11,7 @@ For more detail:
 - [Fork notes](./FORK.md) — platforms, floors (current stable **3.9.2** on `master`)
 - [Expo config plugin](./EXPO_PLUGIN.md) — plugin options and CNG
 - [ConnectionManager](./CONNECTION_MANAGER.md) — retries, auto-reconnect, and `attemptConnectOnce`
+- [**Helpers**](./HELPERS.md) — cross-host recipes: `waitForState`, `findDevice`, `connectAndDiscover`, `firstNotification`, `tryReadCharacteristicBytes`, `safeTeardown`
 - [Background / iOS restoration](./BACKGROUND.md)
 - [Bonding](./BONDING.md) — Android bond APIs; iOS OS-honest `manager.supports('bonding') === false`
 - [tvOS](./TVOS.md) · [Changelog](../CHANGELOG.md) · [Tutorials](./TUTORIALS.md)
@@ -34,13 +35,23 @@ pnpm add unified-ble-manager
 ```
 
 ```js
-import { BleManager } from 'unified-ble-manager'
-// Optional bytes path (additive — not required to upgrade):
-// await manager.readCharacteristicForDeviceAsBytes(...)
+import {
+  BleManager,
+  // Optional bytes path (additive — not required to upgrade):
+  // readCharacteristicForDeviceAsBytes lives on the manager instance
+  // Cross-host recipes (scan/connect/notify glue — see docs/HELPERS.md):
+  waitForState,
+  findDevice,
+  connectAndDiscover,
+  firstNotification,
+  safeTeardown
+} from 'unified-ble-manager'
 // Optional host entries:
 // import { BleManager as WebBle } from 'unified-ble-manager/web'
 // import { BleManager as ElectronBle } from 'unified-ble-manager/electron'
 ```
+
+**Typical central flow (continuous scan hosts — RN / Electron / Fake):** wait for radio → find device → connect+discover → read/notify → teardown. Full table and Web notes: [HELPERS.md](./HELPERS.md).
 
 **Expo (SDK 57+):** add the config plugin and rebuild native code. Full options: [EXPO_PLUGIN.md](./EXPO_PLUGIN.md). Minimal config:
 

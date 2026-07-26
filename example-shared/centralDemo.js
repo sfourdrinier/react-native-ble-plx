@@ -8,11 +8,43 @@
  *
  * Profile helpers (`hr` arg): Heart Rate module or full `example-shared/profiles`
  * package re-export (Battery, DIS, HT, BP included when present).
+ *
+ * Connect / find use package **central helpers** (`connectAndDiscover`, `findDevice`, …)
+ * when loadable without pulling package main into web (lib/commonjs/helpers or src).
  */
 
 'use strict'
 
 const { readCommonProfiles: readCommonProfilesHelper } = require('./readCommonProfiles')
+
+/**
+ * Load package helpers without requiring package root (avoids RN BleManager on web).
+ * @returns {null | {
+ *   findDevice?: Function,
+ *   connectAndDiscover?: Function,
+ *   waitForState?: Function,
+ *   firstNotification?: Function,
+ *   tryReadCharacteristicBytes?: Function,
+ *   safeTeardown?: Function,
+ *   assertSupported?: Function
+ * }}
+ */
+function loadCentralHelpers() {
+  const candidates = [
+    '../lib/commonjs/helpers',
+    '../src/helpers',
+    'unified-ble-manager/lib/commonjs/helpers'
+  ]
+  for (const p of candidates) {
+    try {
+      // eslint-disable-next-line global-require, import/no-dynamic-require
+      return require(p)
+    } catch {
+      // try next
+    }
+  }
+  return null
+}
 
 /**
  * @param {object} manager PortBleManager / web / electron BleManager
@@ -33,6 +65,8 @@ function createCentralDemo(manager, hr, options = {}) {
   const log = options.log || (() => {})
   /** Full profiles bag when second arg is package re-export; falls back to hr-only. */
   const profiles = options.profiles || hr
+  /** Injected helpers (tests) or lazy-loaded package helpers. */
+  const helpers = options.helpers || loadCentralHelpers()
   /** @type {Map<string, { id: string, name: string|null, rssi: number|null, lastSeen: number, source: string }>} */
   const devices = new Map()
   let scanning = false
@@ -215,6 +249,15 @@ function createCentralDemo(manager, hr, options = {}) {
         : ''
       throw new Error(`Continuous scan is not supported on this host.${hint}`)
     }
+    // Best-effort radio ready (Port hosts without state → assumed PoweredOn)
+    if (helpers && typeof helpers.waitForState === 'function') {
+      try {
+        await helpers.waitForState(manager, { timeoutMs: scanOptions.waitForStateMs ?? 8000 })
+      } catch (e) {
+        log('waitForState', e.message || String(e))
+        // continue — some hosts never reach PoweredOn in simulators
+      }
+    }
     if (scanning) {
       await stopScan()
     }
@@ -319,9 +362,55 @@ function createCentralDemo(manager, hr, options = {}) {
     throw new Error('No discovery method available (neither scan nor requestDevice)')
   }
 
+  /**
+   * Scan until predicate matches (package findDevice helper). Continuous-scan hosts only.
+   * @param {(device: object) => boolean} predicate
+   * @param {{ timeoutMs?: number, serviceUUIDs?: string[]|null, heartRateOnly?: boolean }} [opts]
+   */
+  async function findDevice(predicate, opts = {}) {
+    if (!helpers || typeof helpers.findDevice !== 'function') {
+      throw new Error('findDevice helper not available (build package helpers / prepack)')
+    }
+    const caps = capabilities()
+    if (!caps.continuousScan) {
+      throw new Error('findDevice requires continuous scan — use pickDevice() on web')
+    }
+    if (scanning) await stopScan()
+    let serviceUUIDs = opts.serviceUUIDs ?? null
+    const filterHr = opts.heartRateOnly !== undefined ? !!opts.heartRateOnly : heartRateOnly
+    if (serviceUUIDs == null && filterHr) {
+      if (typeof hr.resolveHeartRateScanUUIDs === 'function') {
+        serviceUUIDs = hr.resolveHeartRateScanUUIDs(true)
+      } else if (typeof hr.heartRateScanServiceUUIDs === 'function') {
+        serviceUUIDs = hr.heartRateScanServiceUUIDs()
+      }
+    }
+    log('findDevice', filterHr ? 'heartRateOnly' : 'custom', `timeoutMs=${opts.timeoutMs ?? 10000}`)
+    const ad = await helpers.findDevice(manager, predicate, {
+      timeoutMs: opts.timeoutMs ?? 10000,
+      serviceUUIDs
+    })
+    const entry = remember(ad, 'findDevice')
+    log('findDevice matched', entry && entry.id)
+    return entry
+  }
+
   async function connect(deviceId) {
     if (scanning) await stopScan()
     log('connect', deviceId)
+    // Prefer package connectAndDiscover (timeout + discover) when helpers load
+    if (helpers && typeof helpers.connectAndDiscover === 'function') {
+      const { device } = await helpers.connectAndDiscover(manager, deviceId, {
+        timeoutMs: 20000
+      })
+      remember(
+        { id: deviceId, name: device?.name ?? getDevice(deviceId)?.name ?? null, rssi: null },
+        'connected'
+      )
+      connectedId = deviceId
+      log('connected + discovered (helpers)', deviceId)
+      return device
+    }
     const device = await manager.connectToDevice(deviceId)
     remember({ id: deviceId, name: device?.name ?? getDevice(deviceId)?.name ?? null, rssi: null }, 'connected')
     await manager.discoverAllServicesAndCharacteristicsForDevice(deviceId)
@@ -522,6 +611,8 @@ function createCentralDemo(manager, hr, options = {}) {
   return {
     manager,
     capabilities,
+    /** True when package central helpers (findDevice/connectAndDiscover/…) loaded. */
+    hasHelpers: () => !!(helpers && typeof helpers.findDevice === 'function'),
     listDevices,
     listPairedDevices,
     pairDevice,
@@ -533,6 +624,8 @@ function createCentralDemo(manager, hr, options = {}) {
     rememberDevice: remember,
     startScan,
     stopScan,
+    /** Package helper: scan until predicate (continuous-scan hosts). */
+    findDevice,
     pickDevice,
     discover,
     connect,

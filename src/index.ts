@@ -81,6 +81,31 @@ export type {
   SortableDevice
 } from './discovery'
 
+// Cross-host central helpers (recipes: wait / find / connect+discover / first notify / try-read)
+export {
+  withTimeout,
+  waitForState,
+  findDevice,
+  connectAndDiscover,
+  firstNotification,
+  tryReadCharacteristicBytes,
+  assertSupported,
+  safeTeardown
+} from './helpers'
+export type {
+  BleCentralLike,
+  ScannedDeviceLike,
+  ScanListener,
+  HelperSubscription,
+  WaitForStateOptions,
+  FindDeviceOptions,
+  ConnectAndDiscoverOptions,
+  FirstNotificationOptions,
+  TryReadOptions,
+  TryReadResult,
+  SafeTeardownOptions
+} from './helpers'
+
 // Optional SIG profiles (health / wearable stack)
 export {
   HR_SERVICE_UUID,

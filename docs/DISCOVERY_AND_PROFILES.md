@@ -12,6 +12,12 @@ React **hooks** may wrap these later (`useBleScan`); the stable contract is **pu
 └────────────────────────────┬────────────────────────────┘
                              │
 ┌────────────────────────────▼────────────────────────────┐
+│  Central helpers  helpers/*  (docs/HELPERS.md)            │
+│  · waitForState · findDevice · connectAndDiscover         │
+│  · firstNotification · tryReadCharacteristicBytes         │
+└────────────────────────────┬────────────────────────────┘
+                             │
+┌────────────────────────────▼────────────────────────────┐
 │  Profiles (optional)  e.g. profiles/heartRate             │
 │  · SIG UUIDs · requestDevice filters · parse/encode       │
 └────────────────────────────┬────────────────────────────┘
