@@ -1,9 +1,12 @@
+// __tests__/PortBleManager.test.js
+
 /**
  * PortBleManager: shared host surface over FakeBlePort — drives shipped class.
  */
 const { FakeBlePort } = require('../src/port/BlePort')
 const { PortBleManager } = require('../src/port/PortBleManager')
 const { base64ToBytes, bytesToBase64 } = require('../src/encoding')
+const { BleErrorCode } = require('../src/BleError')
 const { useFakeTimers, useRealTimers, flushScan, advanceTimers } = require('./helpers/async')
 
 const SVC = '0000180f-0000-1000-8000-00805f9b34fb'
@@ -79,22 +82,13 @@ describe('PortBleManager (shipped host surface)', () => {
     expect(bytesRead.value).toBeInstanceOf(Uint8Array)
     expect(Array.from(bytesRead.value)).toEqual([1, 2, 3])
 
-    await manager.writeCharacteristicWithResponseForDeviceFromBytes(
-      DEVICE,
-      SVC,
-      CHR,
-      new Uint8Array([9, 8])
-    )
-    expect(
-      Array.from((await manager.readCharacteristicForDeviceAsBytes(DEVICE, SVC, CHR)).value)
-    ).toEqual([9, 8])
+    await manager.writeCharacteristicWithResponseForDeviceFromBytes(DEVICE, SVC, CHR, new Uint8Array([9, 8]))
+    expect(Array.from((await manager.readCharacteristicForDeviceAsBytes(DEVICE, SVC, CHR)).value)).toEqual([9, 8])
 
     // Base64 write still works and shares store
     const payload = bytesToBase64(new Uint8Array([0xaa]))
     await manager.writeCharacteristicWithResponseForDevice(DEVICE, SVC, CHR, payload)
-    expect(
-      Array.from((await manager.readCharacteristicForDeviceAsBytes(DEVICE, SVC, CHR)).value)
-    ).toEqual([0xaa])
+    expect(Array.from((await manager.readCharacteristicForDeviceAsBytes(DEVICE, SVC, CHR)).value)).toEqual([0xaa])
 
     const notes = []
     const sub = manager.monitorCharacteristicForDeviceAsBytes(DEVICE, SVC, CHR, (err, c) => {
@@ -108,6 +102,46 @@ describe('PortBleManager (shipped host surface)', () => {
 
     await manager.cancelDeviceConnection(DEVICE)
     expect(await manager.isDeviceConnected(DEVICE)).toBe(false)
+  })
+
+  test('contains a throwing scan listener so the port scan remains under manager control', async () => {
+    const { manager } = managerWith()
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await manager.startDeviceScan(null, null, () => {
+        throw new Error('application scan listener failed')
+      })
+
+      await flushScan()
+
+      expect(manager.isDeviceScanActive()).toBe(true)
+      expect(errorLog).toHaveBeenCalledWith('[PortBleManager.startDeviceScan] Listener failed:', expect.any(Error))
+      await manager.stopDeviceScan()
+    } finally {
+      errorLog.mockRestore()
+    }
+  })
+
+  test('findAndConnect rejects and stops scanning when its predicate throws', async () => {
+    const { manager } = managerWith()
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const pending = manager.findAndConnect(() => {
+        throw new Error('predicate failed')
+      })
+      const assertion = expect(pending).rejects.toThrow('predicate failed')
+
+      await flushScan()
+
+      await assertion
+      expect(manager.isDeviceScanActive()).toBe(false)
+      expect(errorLog).toHaveBeenCalledWith(
+        '[PortBleManager.findAndConnect] Device predicate failed:',
+        expect.any(Error)
+      )
+    } finally {
+      errorLog.mockRestore()
+    }
   })
 
   test('characteristicsMetaForDevice skips value reads (R2-F094)', async () => {
@@ -126,7 +160,7 @@ describe('PortBleManager (shipped host surface)', () => {
     const manager = new PortBleManager({ port, host: 'electron' })
     expect(manager.supports('bonding')).toBe(false)
     await expect(manager.bondedDevices()).rejects.toMatchObject({
-      errorCode: require('../src').BleErrorCode.OperationNotSupported
+      errorCode: BleErrorCode.OperationNotSupported
     })
   })
 
@@ -134,7 +168,7 @@ describe('PortBleManager (shipped host surface)', () => {
     const port = new FakeBlePort()
     const manager = new PortBleManager({ port, host: 'electron' })
     await expect(manager.createBond(DEVICE)).rejects.toMatchObject({
-      errorCode: require('../src').BleErrorCode.OperationNotSupported
+      errorCode: BleErrorCode.OperationNotSupported
     })
   })
 
@@ -179,21 +213,11 @@ describe('PortBleManager (shipped host surface)', () => {
       return orig(...args)
     }
     await manager.connectToDevice(DEVICE)
-    const p1 = manager.writeCharacteristicWithResponseForDeviceFromBytes(
-      DEVICE,
-      SVC,
-      CHR,
-      new Uint8Array([1])
-    )
+    const p1 = manager.writeCharacteristicWithResponseForDeviceFromBytes(DEVICE, SVC, CHR, new Uint8Array([1]))
     // Let p1 start
     await Promise.resolve()
     await Promise.resolve()
-    const p2 = manager.writeCharacteristicWithResponseForDeviceFromBytes(
-      DEVICE,
-      SVC,
-      CHR,
-      new Uint8Array([2])
-    )
+    const p2 = manager.writeCharacteristicWithResponseForDeviceFromBytes(DEVICE, SVC, CHR, new Uint8Array([2]))
     await Promise.resolve()
     await Promise.resolve()
 
@@ -202,7 +226,97 @@ describe('PortBleManager (shipped host surface)', () => {
     release()
     await expect(p2).rejects.toBeTruthy()
     // p1 may settle or reject depending on race; must not hang
-    await Promise.race([p1.then(() => null, () => null), Promise.resolve()])
+    await Promise.race([
+      p1.then(
+        () => null,
+        () => null
+      ),
+      Promise.resolve()
+    ])
+  })
+
+  test('destroy gates all subsequent public BLE work with BluetoothManagerDestroyed', async () => {
+    const { manager } = managerWith()
+    manager.destroy()
+
+    await expect(manager.connectToDevice(DEVICE)).rejects.toMatchObject({
+      errorCode: BleErrorCode.BluetoothManagerDestroyed
+    })
+    await expect(manager.isDeviceConnected(DEVICE)).rejects.toMatchObject({
+      errorCode: BleErrorCode.BluetoothManagerDestroyed
+    })
+    expect(() => manager.monitorCharacteristicForDeviceAsBytes(DEVICE, SVC, CHR, () => {})).toThrow(
+      expect.objectContaining({ errorCode: BleErrorCode.BluetoothManagerDestroyed })
+    )
+  })
+
+  test('destroy owns active monitor teardown and late notifications cannot cross the boundary', async () => {
+    const { port, manager } = managerWith()
+    await manager.connectToDevice(DEVICE)
+    const notes = []
+    manager.monitorCharacteristicForDeviceAsBytes(DEVICE, SVC, CHR, (_error, characteristic) => {
+      if (characteristic?.value) notes.push(Array.from(characteristic.value))
+    })
+    await advanceTimers(0)
+
+    manager.destroy()
+    await port.emitNotification(DEVICE, SVC, CHR, new Uint8Array([0x44]))
+    expect(notes).toEqual([])
+  })
+
+  test('monitor removal during queued setup tears down the late port subscription exactly once', async () => {
+    let resolveMonitor
+    const unsubscribe = jest.fn()
+    const port = {
+      id: 'deferred-monitor',
+      startScan: async () => {},
+      stopScan: async () => {},
+      connect: async () => {},
+      disconnect: async () => {},
+      getConnectionState: () => 'connected',
+      discoverServices: async () => [],
+      discoverCharacteristics: async () => [],
+      readCharacteristicBytes: async () => new Uint8Array(),
+      writeCharacteristicBytes: async () => {},
+      readCharacteristicBase64: async () => '',
+      writeCharacteristicBase64: async () => {},
+      monitorCharacteristic: () =>
+        new Promise(resolve => {
+          resolveMonitor = resolve
+        })
+    }
+    const manager = new PortBleManager({ port, host: 'fake' })
+    const subscription = manager.monitorCharacteristicForDeviceAsBytes(DEVICE, SVC, CHR, () => {})
+    await Promise.resolve()
+    await Promise.resolve()
+    subscription.remove()
+    resolveMonitor(unsubscribe)
+    await advanceTimers(0)
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  test('listener failures are contained so later services-reset listeners still receive the event', () => {
+    const { manager } = managerWith()
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const secondListener = jest.fn()
+    manager.onServicesReset(() => {
+      throw new Error('first listener failed')
+    })
+    manager.onServicesReset(secondListener)
+    manager.emitServicesReset(DEVICE)
+    expect(secondListener).toHaveBeenCalledWith(DEVICE)
+    expect(errorSpy).toHaveBeenCalledWith('[PortBleManager.emitServicesReset] Listener failed:', expect.any(Error))
+    errorSpy.mockRestore()
+  })
+
+  test('characteristicsForDevice propagates a readable-characteristic read failure', async () => {
+    const { manager } = managerWith()
+    await manager.connectToDevice(DEVICE)
+    await expect(manager.characteristicsForDevice(DEVICE, SVC)).resolves.toEqual([
+      expect.objectContaining({ uuid: CHR })
+    ])
+    await manager.cancelDeviceConnection(DEVICE)
+    await expect(manager.characteristicsForDevice(DEVICE, SVC)).rejects.toThrow(/Not connected/)
   })
 
   test('FakeBlePort double startScan clears prior timer (R3-F017)', async () => {
@@ -224,5 +338,4 @@ describe('PortBleManager (shipped host surface)', () => {
     expect(second.length).toBeGreaterThan(0)
     await port.stopScan()
   })
-
 })

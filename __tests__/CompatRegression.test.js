@@ -1,3 +1,5 @@
+// __tests__/CompatRegression.test.js
+
 /**
  * 3.x-style Base64 compat regression — PortBleManager + RN BleManager golden paths (F039).
  * Removing Base64 write/read edge or breaking 3.x method names fails this suite.
@@ -6,7 +8,8 @@
 const { FakeBlePort } = require('../src/port/BlePort')
 const { PortBleManager } = require('../src/port/PortBleManager')
 const { base64ToBytes, bytesToBase64 } = require('../src/encoding')
-const { BleManager, BleErrorCode } = require('../src')
+const { BleManager } = require('../src/BleManager')
+const { BleErrorCode } = require('../src/BleError')
 const Native = require('../src/BleModule')
 const { NativeEventEmitter } = require('./Utils')
 const {
@@ -50,12 +53,7 @@ describe('compat regression (3.x Base64 call patterns on PortBleManager)', () =>
     expect(Array.from(base64ToBytes(before.value))).toEqual([0x48, 0x69])
 
     const payload = bytesToBase64(new Uint8Array([0x4f, 0x4b]))
-    const written = await manager.writeCharacteristicWithResponseForDevice(
-      deviceId,
-      service,
-      characteristic,
-      payload
-    )
+    const written = await manager.writeCharacteristicWithResponseForDevice(deviceId, service, characteristic, payload)
     expect(written.value).toBe(payload)
 
     const after = await manager.readCharacteristicForDevice(deviceId, service, characteristic)
@@ -93,12 +91,7 @@ describe('compat regression (3.x Base64 call patterns on PortBleManager)', () =>
     await manager.connectToDevice(deviceId)
     const spy = jest.spyOn(port, 'writeCharacteristicBase64')
     const payload = bytesToBase64(new Uint8Array([5, 6]))
-    const result = await manager.writeCharacteristicWithoutResponseForDevice(
-      deviceId,
-      service,
-      characteristic,
-      payload
-    )
+    const result = await manager.writeCharacteristicWithoutResponseForDevice(deviceId, service, characteristic, payload)
     expect(result.value).toBe(payload)
     expect(spy).toHaveBeenCalledWith(deviceId, service, characteristic, payload, {
       withResponse: false
@@ -124,11 +117,7 @@ describe('compat regression (3.x Base64 call patterns on RN BleManager)', () => 
   })
 
   afterEach(async () => {
-    try {
-      await manager.destroy()
-    } catch {
-      // ignore
-    }
+    await manager.destroy()
     BleManager.sharedInstance = null
   })
 
@@ -185,19 +174,9 @@ describe('compat regression (3.x Base64 call patterns on RN BleManager)', () => 
     Native.BleModule.monitorCharacteristicForDevice = jest.fn().mockReturnValue(new Promise(() => {}))
     const okPayload = bytesToBase64(new Uint8Array([1]))
     const listener = jest.fn()
-    const sub = manager.monitorCharacteristicForDevice(
-      deviceId,
-      service,
-      characteristic,
-      listener,
-      'tx-reg'
-    )
+    const sub = manager.monitorCharacteristicForDevice(deviceId, service, characteristic, listener, 'tx-reg')
 
-    Native.BleModule.emit(Native.BleModule.ReadEvent, [
-      null,
-      createMockCharacteristic({ value: okPayload }),
-      'tx-reg'
-    ])
+    Native.BleModule.emit(Native.BleModule.ReadEvent, [null, createMockCharacteristic({ value: okPayload }), 'tx-reg'])
     expect(typeof listener.mock.calls[0][1].value).toBe('string')
 
     Native.BleModule.emit(Native.BleModule.ReadEvent, [

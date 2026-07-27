@@ -138,6 +138,37 @@ describe('permissions neverForLocation (F085)', () => {
     expect(PermissionsAndroid.requestMultiple).not.toHaveBeenCalled()
   })
 
+  test('web fails closed because it has no app-level BLE permission API', async () => {
+    Platform.OS = 'web'
+
+    const checked = await checkBluetoothPermissions()
+    const requested = await requestBluetoothPermissions()
+
+    expect(checked).toMatchObject({ granted: false, platform: 'web', permissions: [] })
+    expect(requested).toMatchObject({ granted: false, platform: 'web', permissions: [] })
+    expect(PermissionsAndroid.check).not.toHaveBeenCalled()
+    expect(PermissionsAndroid.requestMultiple).not.toHaveBeenCalled()
+  })
+
+  test('permission check failures are logged and fail closed', async () => {
+    const logError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    PermissionsAndroid.check = jest.fn().mockRejectedValue(new Error('platform service unavailable'))
+
+    try {
+      const result = await checkBluetoothPermissions()
+
+      expect(result.granted).toBe(false)
+      expect(result.permissions).toHaveLength(3)
+      expect(result.permissions).toEqual(expect.arrayContaining([expect.stringMatching(/=error$/)]))
+      expect(logError).toHaveBeenCalledWith(
+        '[checkBluetoothPermissions] Failed to check Android BLE permission:',
+        expect.any(Error)
+      )
+    } finally {
+      logError.mockRestore()
+    }
+  })
+
   test('BleManager.requestBluetoothPermissions delegates with options', async () => {
     installBleModuleMock(Native)
     BleManager.sharedInstance = null

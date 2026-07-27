@@ -29,6 +29,23 @@ function targetsOf(target: string | readonly string[] | undefined): Set<string> 
   return new Set(target)
 }
 
+function isVoidPromise(value: void | Promise<void>): value is Promise<void> {
+  return value instanceof Promise
+}
+
+/**
+ * Start cleanup without allowing a synchronous host throw to escape a timer or
+ * native callback. The operation that triggered cleanup must settle first.
+ */
+function runBestEffortCleanup(label: string, cleanup: (() => void | Promise<void>) | undefined): void {
+  if (!cleanup) return
+  Promise.resolve()
+    .then(() => cleanup())
+    .catch(error => {
+      console.error(`[${label}] Cleanup failed:`, error)
+    })
+}
+
 /**
  * Race `promise` against a wall-clock timeout. Does not cancel the underlying
  * work unless `onTimeout` is provided (e.g. stop scan / cancelTransaction).
@@ -50,8 +67,8 @@ export async function withTimeout<T>(
       promise,
       new Promise<T>((_resolve, reject) => {
         timer = setTimeout(() => {
-          void Promise.resolve(onTimeout?.()).catch(() => undefined)
           reject(helperTimeoutError(operation, timeoutMs))
+          runBestEffortCleanup('withTimeout', onTimeout)
         }, timeoutMs)
       })
     ])
@@ -77,57 +94,86 @@ export async function waitForState(
   const wanted = targetsOf(options.target)
 
   if (typeof manager.onStateChange === 'function') {
-    return withTimeout(
-      new Promise<{ state: string }>((resolve, reject) => {
-        let settled = false
-        const sub = manager.onStateChange!((state: string) => {
-          if (settled) return
-          if (!wanted.has(state)) return
-          settled = true
-          try {
-            sub.remove()
-          } catch {
-            /* ignore */
-          }
-          resolve({ state })
-        }, true)
-        // Safety: if emitCurrent never fires and state() exists, poll once
-        if (typeof manager.state === 'function') {
-          void manager.state!().then(
-            s => {
-              if (settled) return
-              if (wanted.has(s)) {
-                settled = true
-                try {
-                  sub.remove()
-                } catch {
-                  /* ignore */
-                }
-                resolve({ state: s })
-              }
-            },
-            () => undefined
-          )
+    return new Promise<{ state: string }>((resolve, reject) => {
+      let settled = false
+      let subscription: { remove: () => void } | null = null
+
+      const removeSubscription = () => {
+        if (!subscription) return
+        try {
+          subscription.remove()
+        } catch (error) {
+          console.error('[waitForState] Failed to remove adapter-state listener:', error)
         }
-        // Keep reject path for timeout only via withTimeout
-        void reject
-      }),
-      timeoutMs,
-      'waitForState',
-      () => undefined
-    )
+        subscription = null
+      }
+
+      const finish = (error: Error | null, state: string | null) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timeout)
+        removeSubscription()
+        if (error) {
+          reject(error)
+          return
+        }
+        if (state) {
+          resolve({ state })
+          return
+        }
+        reject(helperTimeoutError('waitForState', timeoutMs))
+      }
+
+      const timeout = setTimeout(() => {
+        finish(helperTimeoutError('waitForState', timeoutMs), null)
+      }, timeoutMs)
+
+      const onState = (state: string) => {
+        if (!wanted.has(state)) return
+        finish(null, state)
+      }
+
+      try {
+        subscription = manager.onStateChange!(onState, true)
+        // A synchronous emitCurrent callback can settle before the subscription is assigned.
+        if (settled) removeSubscription()
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error(String(error)), null)
+        return
+      }
+
+      // Safety: if emitCurrent never fires and state() exists, issue one bounded lookup.
+      if (typeof manager.state === 'function') {
+        withTimeout(manager.state(), timeoutMs, 'waitForState state()').then(
+          state => {
+            if (wanted.has(state)) finish(null, state)
+          },
+          error => {
+            if (!settled) {
+              console.error('[waitForState] Fallback state lookup failed:', error)
+            }
+          }
+        )
+      }
+    })
   }
 
   if (typeof manager.state === 'function') {
     const started = Date.now()
-    // eslint-disable-next-line no-constant-condition
+
     while (true) {
-      const state = await manager.state()
+      const elapsed = Date.now() - started
+      const remainingMs = timeoutMs - elapsed
+      if (remainingMs <= 0) {
+        throw helperTimeoutError('waitForState', timeoutMs)
+      }
+      // A host state() call is allowed to hang; bound each query by the remaining budget.
+      const state = await withTimeout(manager.state(), remainingMs, 'waitForState state()')
       if (wanted.has(state)) return { state }
       if (Date.now() - started >= timeoutMs) {
         throw helperTimeoutError('waitForState', timeoutMs)
       }
-      await new Promise(r => setTimeout(r, 100))
+      await new Promise<void>(resolve => setTimeout(resolve, Math.min(100, timeoutMs - (Date.now() - started))))
     }
   }
 
@@ -148,9 +194,7 @@ export async function findDevice(
   options: FindDeviceOptions = {}
 ): Promise<ScannedDeviceLike> {
   if (typeof manager.supports === 'function') {
-    const ok =
-      manager.supports('continuousScan') === true ||
-      manager.supports('scan') === true
+    const ok = manager.supports('continuousScan') === true || manager.supports('scan') === true
     if (!ok) {
       throw unsupportedOperationError(
         'findDevice',
@@ -166,19 +210,20 @@ export async function findDevice(
 
   return new Promise<ScannedDeviceLike>((resolve, reject) => {
     let settled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
     const cleanup = (fn: () => void | Promise<void>) => {
-      void Promise.resolve(fn()).catch(() => undefined)
+      runBestEffortCleanup('findDevice', fn)
     }
 
     const finish = (err: Error | null, device: ScannedDeviceLike | null) => {
       if (settled) return
       settled = true
-      clearTimeout(timer)
+      if (timer) clearTimeout(timer)
       if (signal) {
         try {
           signal.removeEventListener('abort', onAbort)
-        } catch {
-          /* ignore */
+        } catch (error) {
+          console.error('[findDevice] Failed to remove abort listener:', error)
         }
       }
       cleanup(() => manager.stopDeviceScan())
@@ -204,22 +249,37 @@ export async function findDevice(
       signal.addEventListener('abort', onAbort, { once: true })
     }
 
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       finish(helperNotFoundError('findDevice', timeoutMs), null)
     }, timeoutMs)
 
-    const start = manager.startDeviceScan(serviceUUIDs, scanOptions, (error, device) => {
-      if (settled) return
-      if (error) {
-        finish(error instanceof Error ? error : new Error(String(error)), null)
-        return
-      }
-      if (!device || !predicate(device)) return
-      finish(null, device)
-    })
+    let start: void | Promise<void>
+    try {
+      start = manager.startDeviceScan(serviceUUIDs, scanOptions, (error, device) => {
+        if (settled) return
+        if (error) {
+          finish(error instanceof Error ? error : new Error(String(error)), null)
+          return
+        }
+        if (!device) return
+        let matches: boolean
+        try {
+          matches = predicate(device)
+        } catch (predicateError) {
+          console.error('[findDevice] Device predicate failed:', predicateError)
+          finish(predicateError instanceof Error ? predicateError : new Error(String(predicateError)), null)
+          return
+        }
+        if (!matches) return
+        finish(null, device)
+      })
+    } catch (startError) {
+      finish(startError instanceof Error ? startError : new Error(String(startError)), null)
+      return
+    }
 
-    if (start && typeof (start as Promise<void>).then === 'function') {
-      void (start as Promise<void>).catch(err => {
+    if (isVoidPromise(start)) {
+      start.catch(err => {
         finish(err instanceof Error ? err : new Error(String(err)), null)
       })
     }
@@ -258,8 +318,8 @@ export async function connectAndDiscover(
     if (typeof manager.cancelDeviceConnection === 'function') {
       try {
         await manager.cancelDeviceConnection(id)
-      } catch {
-        /* ignore disconnect errors on timeout cleanup */
+      } catch (error) {
+        console.error('[connectAndDiscover] Failed to cancel connection after timeout:', error)
       }
     }
   })
@@ -280,100 +340,116 @@ export async function firstNotification(
   const asBytes = options.asBytes !== false
   const signal = options.signal
 
-  const useBytes =
-    asBytes && typeof manager.monitorCharacteristicForDeviceAsBytes === 'function'
+  const useBytes = asBytes && typeof manager.monitorCharacteristicForDeviceAsBytes === 'function'
   const useBase64 = typeof manager.monitorCharacteristicForDevice === 'function'
 
   if (!useBytes && !useBase64) {
-    throw unsupportedOperationError(
-      'firstNotification',
-      'manager has no monitorCharacteristicForDevice(AsBytes)'
-    )
+    throw unsupportedOperationError('firstNotification', 'manager has no monitorCharacteristicForDevice(AsBytes)')
   }
 
-  return withTimeout(
-    new Promise<Uint8Array>((resolve, reject) => {
-      let settled = false
-      let sub: { remove: () => void } | null = null
+  return new Promise<Uint8Array>((resolve, reject) => {
+    let settled = false
+    let subscription: { remove: () => void } | null = null
 
-      const done = (err: Error | null, value: Uint8Array | null) => {
-        if (settled) return
-        settled = true
-        if (signal) {
-          try {
-            signal.removeEventListener('abort', onAbort)
-          } catch {
-            /* ignore */
-          }
-        }
-        try {
-          sub?.remove()
-        } catch {
-          /* ignore */
-        }
-        if (options.transactionId && typeof manager.cancelTransaction === 'function') {
-          try {
-            manager.cancelTransaction(options.transactionId)
-          } catch {
-            /* ignore */
-          }
-        }
-        if (err) reject(err)
-        else if (value) resolve(value)
-        else reject(helperTimeoutError('firstNotification', timeoutMs))
+    const removeSubscription = () => {
+      if (!subscription) return
+      try {
+        subscription.remove()
+      } catch (error) {
+        console.error('[firstNotification] Failed to remove notification subscription:', error)
       }
+      subscription = null
+    }
 
-      const onAbort = () => {
-        done(
-          helperBleError(BleErrorCode.OperationCancelled, {
-            internalMessage: 'firstNotification aborted'
-          }),
-          null
-        )
+    const cancelTransaction = () => {
+      if (!options.transactionId || typeof manager.cancelTransaction !== 'function') return
+      try {
+        manager.cancelTransaction(options.transactionId)
+      } catch (error) {
+        console.error('[firstNotification] Failed to cancel notification transaction:', error)
       }
+    }
 
+    const finish = (error: Error | null, value: Uint8Array | null) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
       if (signal) {
-        if (signal.aborted) {
-          onAbort()
-          return
+        try {
+          signal.removeEventListener('abort', onAbort)
+        } catch (cleanupError) {
+          console.error('[firstNotification] Failed to remove abort listener:', cleanupError)
         }
-        signal.addEventListener('abort', onAbort, { once: true })
       }
+      removeSubscription()
+      cancelTransaction()
+      if (error) {
+        reject(error)
+        return
+      }
+      if (value) {
+        resolve(value)
+        return
+      }
+      reject(helperTimeoutError('firstNotification', timeoutMs))
+    }
 
+    const onAbort = () => {
+      finish(
+        helperBleError(BleErrorCode.OperationCancelled, {
+          internalMessage: 'firstNotification aborted'
+        }),
+        null
+      )
+    }
+
+    const timeout = setTimeout(() => {
+      finish(helperTimeoutError('firstNotification', timeoutMs), null)
+    }, timeoutMs)
+
+    if (signal) {
+      if (signal.aborted) {
+        onAbort()
+        return
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    try {
       if (useBytes) {
-        sub = manager.monitorCharacteristicForDeviceAsBytes!(
+        subscription = manager.monitorCharacteristicForDeviceAsBytes!(
           deviceId,
           serviceUUID,
           characteristicUUID,
           (error, characteristic) => {
             if (error) {
-              done(error instanceof Error ? error : new Error(String(error)), null)
+              finish(error instanceof Error ? error : new Error(String(error)), null)
               return
             }
-            const v = characteristic?.value
-            if (v && (v.byteLength > 0 || (v as Uint8Array).length > 0)) {
-              done(null, v instanceof Uint8Array ? v : new Uint8Array(v))
+            const value = characteristic?.value
+            if (value && value.byteLength > 0) {
+              finish(null, value instanceof Uint8Array ? value : new Uint8Array(value))
             }
           },
           options.transactionId ?? null,
           options.subscriptionType ?? null
         )
       } else {
-        sub = manager.monitorCharacteristicForDevice!(
+        subscription = manager.monitorCharacteristicForDevice!(
           deviceId,
           serviceUUID,
           characteristicUUID,
           (error, characteristic) => {
             if (error) {
-              done(error instanceof Error ? error : new Error(String(error)), null)
+              finish(error instanceof Error ? error : new Error(String(error)), null)
               return
             }
-            const b64 = characteristic?.value
-            if (b64 != null && b64 !== '') {
+            const base64 = characteristic?.value
+            if (base64 != null && base64 !== '') {
               try {
-                done(null, base64ToBytes(b64))
-              } catch (e) {
-                done(e instanceof Error ? e : new Error(String(e)), null)
+                finish(null, base64ToBytes(base64))
+              } catch (decodeError) {
+                finish(decodeError instanceof Error ? decodeError : new Error(String(decodeError)), null)
               }
             }
           },
@@ -381,10 +457,12 @@ export async function firstNotification(
           options.subscriptionType ?? null
         )
       }
-    }),
-    timeoutMs,
-    'firstNotification'
-  )
+      // A synchronous callback can settle before the monitor method returns its subscription.
+      if (settled) removeSubscription()
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error(String(error)), null)
+    }
+  })
 }
 
 /**
@@ -413,18 +491,14 @@ export async function tryReadCharacteristicBytes(
           reason: 'not readable (indicate/notify-only; subscribe for live data)'
         }
       }
-    } catch {
-      // fall through to read attempt
+    } catch (error) {
+      console.error('[tryReadCharacteristicBytes] Metadata lookup failed; attempting direct read:', error)
     }
   }
 
   if (asBytes && typeof manager.readCharacteristicForDeviceAsBytes === 'function') {
     try {
-      const snap = await manager.readCharacteristicForDeviceAsBytes(
-        deviceId,
-        serviceUUID,
-        characteristicUUID
-      )
+      const snap = await manager.readCharacteristicForDeviceAsBytes(deviceId, serviceUUID, characteristicUUID)
       const v = snap?.value
       if (v && (v.byteLength > 0 || v.length > 0)) {
         return { ok: true, value: v instanceof Uint8Array ? v : new Uint8Array(v) }
@@ -441,11 +515,7 @@ export async function tryReadCharacteristicBytes(
 
   if (typeof manager.readCharacteristicForDevice === 'function') {
     try {
-      const snap = await manager.readCharacteristicForDevice(
-        deviceId,
-        serviceUUID,
-        characteristicUUID
-      )
+      const snap = await manager.readCharacteristicForDevice(deviceId, serviceUUID, characteristicUUID)
       if (snap?.value != null && snap.value !== '') {
         return { ok: true, value: base64ToBytes(snap.value) }
       }

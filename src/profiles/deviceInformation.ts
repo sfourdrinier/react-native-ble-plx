@@ -43,12 +43,7 @@ const SERVICE: ServiceIdentity = {
 }
 
 const STRING_CHARS: Record<
-  | 'manufacturerName'
-  | 'modelNumber'
-  | 'serialNumber'
-  | 'hardwareRevision'
-  | 'firmwareRevision'
-  | 'softwareRevision',
+  'manufacturerName' | 'modelNumber' | 'serialNumber' | 'hardwareRevision' | 'firmwareRevision' | 'softwareRevision',
   CharacteristicIdentity
 > = {
   manufacturerName: {
@@ -91,7 +86,7 @@ export function deviceInformationScanServiceUUIDs(): string[] {
   return scanServiceUUIDs(SERVICE)
 }
 
-export function resolveDeviceInformationScanUUIDs(only: boolean = true): string[] | null {
+export function resolveDeviceInformationScanUUIDs(only = true): string[] | null {
   return resolveServiceScanUUIDs(SERVICE, only)
 }
 
@@ -154,9 +149,7 @@ export type DeviceInformationStrings = {
 }
 
 /** Parse a single DIS string characteristic value. */
-export function parseDeviceInformationString(
-  data: Uint8Array | ArrayLike<number> | null | undefined
-): string {
+export function parseDeviceInformationString(data: Uint8Array | ArrayLike<number> | null | undefined): string {
   return decodeBleString(data)
 }
 
@@ -169,9 +162,7 @@ export function encodeDeviceInformationString(value: string): Uint8Array {
  * Map characteristic UUID → field key for known DIS string chars.
  * Returns null for unknown / binary-only UUIDs (System ID, PnP ID).
  */
-export function deviceInformationFieldForUuid(
-  uuid: string | null | undefined
-): keyof DeviceInformationStrings | null {
+export function deviceInformationFieldForUuid(uuid: string | null | undefined): keyof DeviceInformationStrings | null {
   if (!uuid) return null
   if (isManufacturerName(uuid)) return 'manufacturerName'
   if (isModelNumber(uuid)) return 'modelNumber'

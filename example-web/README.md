@@ -1,4 +1,8 @@
-# example-web — Chrome Web Bluetooth (shared UI)
+<!-- example-web/README.md -->
+
+# Historical Web Bluetooth example
+
+> This example exercises transitional source behavior only. It is not a 4.0 public example, support claim, or package-install recipe. The future Web fixture must run against the packed clean-baseline artifact and its evidence manifest. See [`../docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](../docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
 
 **UI is shared** with Electron under [`example-shared/ui/`](../example-shared/ui/) (HTML + `app.js` + `boot.js`).
 

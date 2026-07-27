@@ -47,6 +47,7 @@ elif [[ "$NODE_OPTIONS" != *"--max-old-space-size"* ]]; then
 fi
 
 echo "== package + plugin tests =="
+pnpm validate:evidence
 pnpm test:package
 pnpm test:plugin
 pnpm lint

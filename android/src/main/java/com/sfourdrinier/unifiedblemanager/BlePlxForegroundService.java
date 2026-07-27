@@ -1,3 +1,5 @@
+// android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxForegroundService.java
+
 package com.sfourdrinier.unifiedblemanager;
 
 import android.app.ActivityManager;
@@ -172,11 +174,7 @@ public class BlePlxForegroundService extends Service {
    */
   private void handleStopAction() {
     setRunning(false);
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-      stopForeground(STOP_FOREGROUND_REMOVE);
-    } else {
-      stopForeground(true);
-    }
+    stopForeground(STOP_FOREGROUND_REMOVE);
     stopSelf();
   }
 

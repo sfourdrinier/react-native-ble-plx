@@ -32,10 +32,7 @@ export function scanServiceUUIDs(identity: ServiceIdentity): string[] {
   return [identity.serviceUuid, identity.shortUuid]
 }
 
-export function resolveServiceScanUUIDs(
-  identity: ServiceIdentity,
-  only: boolean = true
-): string[] | null {
+export function resolveServiceScanUUIDs(identity: ServiceIdentity, only = true): string[] | null {
   if (!only) return null
   return resolveScanServiceUUIDs(scanServiceUUIDs(identity))
 }
@@ -50,10 +47,7 @@ export function resolveServiceScanUUIDs(
  * @param identity Primary service (alias + full UUID).
  * @param relatedServiceUuids Optional extra **service** UUIDs/aliases (not chars).
  */
-export function optionalServicesFor(
-  identity: ServiceIdentity,
-  relatedServiceUuids: readonly string[] = []
-): string[] {
+export function optionalServicesFor(identity: ServiceIdentity, relatedServiceUuids: readonly string[] = []): string[] {
   const out: string[] = []
   if (identity.alias) out.push(identity.alias)
   out.push(identity.serviceUuid)
@@ -80,10 +74,7 @@ export function requestFiltersFor(
   return requestDeviceFiltersFromServices(services, options)
 }
 
-export function isMatchingService(
-  uuid: string | null | undefined,
-  identity: ServiceIdentity
-): boolean {
+export function isMatchingService(uuid: string | null | undefined, identity: ServiceIdentity): boolean {
   if (!uuid) return false
   const u = String(uuid).trim().toLowerCase()
   if (identity.alias && u === identity.alias.toLowerCase()) return true
@@ -91,10 +82,7 @@ export function isMatchingService(
   return serviceUuidMatchesFilters(u, [identity.serviceUuid, identity.shortUuid])
 }
 
-export function isMatchingCharacteristic(
-  uuid: string | null | undefined,
-  identity: CharacteristicIdentity
-): boolean {
+export function isMatchingCharacteristic(uuid: string | null | undefined, identity: CharacteristicIdentity): boolean {
   if (!uuid) return false
   const u = String(uuid).trim().toLowerCase()
   if (identity.alias && u === identity.alias.toLowerCase()) return true

@@ -5,12 +5,11 @@
   "packageManager": "pnpm@10.14.0",
   "main": "lib/commonjs/index.js",
   "module": "lib/module/index.js",
-  "types": "lib/typescript/src/index.d.ts",
-  "react-native": "src/index",
+  "types": "lib/typescript/commonjs/src/index.d.ts",
   "source": "src/index",
   "files": [
-    "src",
     "lib",
+    "bin",
     "android",
     "ios",
     "native",
@@ -21,6 +20,9 @@
     "app.plugin.js",
     "*.podspec",
     "!docs/superpowers",
+    "!docs/audits",
+    "!docs/review",
+    "!docs/evidence/g0/**",
     "!docs/index.html",
     "!docs/assets",
     "!lib/typescript/example",
@@ -34,6 +36,7 @@
     "!native/**/build",
     "!native/**/*.node",
     "!native/**/obj.target",
+    "!native/protocol/tests/**",
     "!**/__tests__",
     "!**/__fixtures__",
     "!**/__mocks__",
@@ -41,14 +44,21 @@
     "MIGRATION_4.0.md"
   ],
   "scripts": {
-    "build": "babel src/ -d lib/",
+    "build": "pnpm prepack",
     "test": "pnpm test:package",
     "test:package": "jest --config jest.config.js",
-    "pack:shim": "node scripts/prepare-shim-pack.js --pack",
+    "native-protocol:generate": "node scripts/native-protocol/generate-native-protocol.js",
+    "native-protocol:check": "node scripts/native-protocol/generate-native-protocol.js --check",
+    "test:native-protocol": "node scripts/native-protocol/test-native-protocol.js",
+    "validate:evidence": "node scripts/evidence/validate-current-evidence.js",
+    "docs:backend-sdk": "node scripts/docs/generate-backend-sdk-reference.js",
+    "docs:check": "node scripts/docs/generate-backend-sdk-reference.js --check",
+    "cli": "node bin/ubm.js",
+    "pack:shim": "node scripts/prepare-shim-pack.js --pack --output-dir ./.artifacts/shim",
     "docs": "pnpm prepack && documentation build lib/module/index.js -o docs --config documentation.yml -f html",
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
-    "lint": "eslint \"src/**/*.{ts,tsx}\" \"plugin/src/**/*.{ts,tsx}\" && pnpm typecheck",
-    "prepack": "bob build",
+    "lint": "eslint \"src/**/*.{ts,tsx}\" \"plugin/src/**/*.{ts,tsx}\" --max-warnings 0 && pnpm typecheck",
+    "prepack": "node scripts/ci/build-package.js",
     "verify:release": "bash scripts/verify-release.sh",
     "release": "release-it",
     "example": "pnpm --dir example",
@@ -66,6 +76,7 @@
     "test:plugin": "jest --config plugin/jest.config.js",
     "test:codemod": "node scripts/codemod/transform-bytes-path.js --check scripts/codemod/fixtures/before-read.js && node scripts/codemod/transform-bytes-path.js --check scripts/codemod/fixtures/before-read-safe.js && node scripts/codemod/transform-bytes-path.js --check scripts/codemod/fixtures/before-read-mixed.js",
     "build:electron:macos": "cd native/electron/corebluetooth && node-gyp rebuild --release",
+    "build:electron:winrt": "cd native/electron/winrt && node-gyp rebuild --release",
     "example:web": "pnpm prepack && npx --yes vite --config example-web/vite.config.js",
     "example:electron": "pnpm prepack && electron example-electron/main.js",
     "example:electron:live": "pnpm run build:electron:macos && pnpm prepack && node example-electron/live-polar.js",
@@ -85,6 +96,9 @@
     "gatt",
     "central"
   ],
+  "bin": {
+    "ubm": "bin/ubm.js"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sfourdrinier/react-native-ble-plx.git"
@@ -143,7 +157,6 @@
     "jest": "^29.7.0",
     "node-addon-api": "^8.9.0",
     "node-gyp": "^13.0.1",
-    "pod-install": "^0.1.0",
     "prettier": "^3.0.3",
     "react": "~19.2.0",
     "react-native": "~0.86.0",
@@ -183,7 +196,8 @@
     },
     "ios": {
       "modulesProvider": {
-        "BlePlx": "BlePlx"
+        "BlePlx": "BlePlx",
+        "UnifiedBleProtocolControl": "UnifiedBleProtocolControl"
       }
     }
   },
@@ -221,9 +235,20 @@
   "react-native-builder-bob": {
     "source": "src",
     "output": "lib",
+    "exclude": "{BleError.ts,BleManager.ts,BleModule.ts,Characteristic.ts,ConnectionManager.ts,Descriptor.ts,Device.ts,DeviceOperationQueue.ts,NativeBlePlx.ts,NativeUnifiedBleProtocolControl.ts,Service.ts,TypeDefinition.ts,Utils.ts,encoding.ts,longWrite.ts,permissions.ts,stringUtils.ts,supports.ts,unsupported.ts,**/{__tests__,__fixtures__,__mocks__,discovery,helpers,hosts,port}/**,profiles/{battery.ts,bloodPressure.ts,deviceInformation.ts,healthThermometer.ts,heartRate.ts,ieee11073.ts,index.ts,serviceHelpers.ts,types.ts}}",
     "targets": [
-      "commonjs",
-      "module",
+      [
+        "commonjs",
+        {
+          "esm": true
+        }
+      ],
+      [
+        "module",
+        {
+          "esm": true
+        }
+      ],
       [
         "typescript",
         {
@@ -235,34 +260,226 @@
   },
   "exports": {
     ".": {
-      "react-native": "./src/index.ts",
-      "types": "./lib/typescript/src/index.d.ts",
-      "import": "./lib/module/index.js",
-      "require": "./lib/commonjs/index.js",
+      "import": {
+        "types": "./lib/typescript/module/src/index.d.ts",
+        "default": "./lib/module/index.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/index.d.ts",
+        "default": "./lib/commonjs/index.js"
+      },
       "default": "./lib/commonjs/index.js"
     },
     "./app.plugin.js": "./app.plugin.js",
     "./package.json": "./package.json",
+    "./backend-sdk": {
+      "import": {
+        "types": "./lib/typescript/module/src/backend-sdk.d.ts",
+        "default": "./lib/module/backend-sdk.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/backend-sdk.d.ts",
+        "default": "./lib/commonjs/backend-sdk.js"
+      },
+      "default": "./lib/commonjs/backend-sdk.js"
+    },
+    "./cli": {
+      "import": {
+        "types": "./lib/typescript/module/src/cli.d.ts",
+        "default": "./lib/module/cli.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/cli.d.ts",
+        "default": "./lib/commonjs/cli.js"
+      },
+      "default": "./lib/commonjs/cli.js"
+    },
+    "./testing": {
+      "import": {
+        "types": "./lib/typescript/module/src/testing.d.ts",
+        "default": "./lib/module/testing.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/testing.d.ts",
+        "default": "./lib/commonjs/testing.js"
+      },
+      "default": "./lib/commonjs/testing.js"
+    },
+    "./codecs": {
+      "import": {
+        "types": "./lib/typescript/module/src/codecs.d.ts",
+        "default": "./lib/module/codecs.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/codecs.d.ts",
+        "default": "./lib/commonjs/codecs.js"
+      },
+      "default": "./lib/commonjs/codecs.js"
+    },
+    "./profiles/commands": {
+      "import": {
+        "types": "./lib/typescript/module/src/profiles/commands.d.ts",
+        "default": "./lib/module/profiles/commands.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/profiles/commands.d.ts",
+        "default": "./lib/commonjs/profiles/commands.js"
+      },
+      "default": "./lib/commonjs/profiles/commands.js"
+    },
+    "./profiles/standard-commands": {
+      "import": {
+        "types": "./lib/typescript/module/src/profiles/standard-commands.d.ts",
+        "default": "./lib/module/profiles/standard-commands.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/profiles/standard-commands.d.ts",
+        "default": "./lib/commonjs/profiles/standard-commands.js"
+      },
+      "default": "./lib/commonjs/profiles/standard-commands.js"
+    },
+    "./profiles/heart-rate": {
+      "import": {
+        "types": "./lib/typescript/module/src/profiles/heart-rate.d.ts",
+        "default": "./lib/module/profiles/heart-rate.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/profiles/heart-rate.d.ts",
+        "default": "./lib/commonjs/profiles/heart-rate.js"
+      },
+      "default": "./lib/commonjs/profiles/heart-rate.js"
+    },
+    "./profiles/battery-service": {
+      "import": {
+        "types": "./lib/typescript/module/src/profiles/battery-service.d.ts",
+        "default": "./lib/module/profiles/battery-service.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/profiles/battery-service.d.ts",
+        "default": "./lib/commonjs/profiles/battery-service.js"
+      },
+      "default": "./lib/commonjs/profiles/battery-service.js"
+    },
+    "./profiles/device-information": {
+      "import": {
+        "types": "./lib/typescript/module/src/profiles/device-information.d.ts",
+        "default": "./lib/module/profiles/device-information.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/profiles/device-information.d.ts",
+        "default": "./lib/commonjs/profiles/device-information.js"
+      },
+      "default": "./lib/commonjs/profiles/device-information.js"
+    },
+    "./profiles/health-thermometer": {
+      "import": {
+        "types": "./lib/typescript/module/src/profiles/health-thermometer.d.ts",
+        "default": "./lib/module/profiles/health-thermometer.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/profiles/health-thermometer.d.ts",
+        "default": "./lib/commonjs/profiles/health-thermometer.js"
+      },
+      "default": "./lib/commonjs/profiles/health-thermometer.js"
+    },
+    "./profiles/blood-pressure": {
+      "import": {
+        "types": "./lib/typescript/module/src/profiles/blood-pressure.d.ts",
+        "default": "./lib/module/profiles/blood-pressure.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/profiles/blood-pressure.d.ts",
+        "default": "./lib/commonjs/profiles/blood-pressure.js"
+      },
+      "default": "./lib/commonjs/profiles/blood-pressure.js"
+    },
+    "./profiles/ieee-11073": {
+      "import": {
+        "types": "./lib/typescript/module/src/profiles/ieee-11073.d.ts",
+        "default": "./lib/module/profiles/ieee-11073.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/profiles/ieee-11073.d.ts",
+        "default": "./lib/commonjs/profiles/ieee-11073.js"
+      },
+      "default": "./lib/commonjs/profiles/ieee-11073.js"
+    },
     "./web": {
-      "types": "./lib/typescript/src/hosts/web.d.ts",
-      "react-native": "./src/hosts/web.ts",
-      "import": "./lib/module/hosts/web.js",
-      "require": "./lib/commonjs/hosts/web.js",
-      "default": "./lib/commonjs/hosts/web.js"
+      "import": {
+        "types": "./lib/typescript/module/src/web.d.ts",
+        "default": "./lib/module/web.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/web.d.ts",
+        "default": "./lib/commonjs/web.js"
+      },
+      "default": "./lib/commonjs/web.js"
     },
-    "./electron": {
-      "types": "./lib/typescript/src/hosts/electron.d.ts",
-      "react-native": "./src/hosts/electron.ts",
-      "import": "./lib/module/hosts/electron.js",
-      "require": "./lib/commonjs/hosts/electron.js",
-      "default": "./lib/commonjs/hosts/electron.js"
+    "./react-native": {
+      "import": {
+        "types": "./lib/typescript/module/src/react-native.d.ts",
+        "default": "./lib/module/react-native.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/react-native.d.ts",
+        "default": "./lib/commonjs/react-native.js"
+      },
+      "default": "./lib/commonjs/react-native.js"
     },
-    "./node": {
-      "types": "./lib/typescript/src/hosts/node.d.ts",
-      "react-native": "./src/hosts/node.ts",
-      "import": "./lib/module/hosts/node.js",
-      "require": "./lib/commonjs/hosts/node.js",
-      "default": "./lib/commonjs/hosts/node.js"
+    "./node/bluez": {
+      "import": {
+        "types": "./lib/typescript/module/src/node-bluez.d.ts",
+        "default": "./lib/module/node-bluez.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/node-bluez.d.ts",
+        "default": "./lib/commonjs/node-bluez.js"
+      },
+      "default": "./lib/commonjs/node-bluez.js"
+    },
+    "./node/corebluetooth": {
+      "import": {
+        "types": "./lib/typescript/module/src/node-corebluetooth.d.ts",
+        "default": "./lib/module/node-corebluetooth.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/node-corebluetooth.d.ts",
+        "default": "./lib/commonjs/node-corebluetooth.js"
+      },
+      "default": "./lib/commonjs/node-corebluetooth.js"
+    },
+    "./node/winrt": {
+      "import": {
+        "types": "./lib/typescript/module/src/node-winrt.d.ts",
+        "default": "./lib/module/node-winrt.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/node-winrt.d.ts",
+        "default": "./lib/commonjs/node-winrt.js"
+      },
+      "default": "./lib/commonjs/node-winrt.js"
+    },
+    "./electron/main": {
+      "import": {
+        "types": "./lib/typescript/module/src/electron-main.d.ts",
+        "default": "./lib/module/electron-main.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/electron-main.d.ts",
+        "default": "./lib/commonjs/electron-main.js"
+      },
+      "default": "./lib/commonjs/electron-main.js"
+    },
+    "./electron/renderer": {
+      "import": {
+        "types": "./lib/typescript/module/src/electron-renderer.d.ts",
+        "default": "./lib/module/electron-renderer.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/src/electron-renderer.d.ts",
+        "default": "./lib/commonjs/electron-renderer.js"
+      },
+      "default": "./lib/commonjs/electron-renderer.js"
     }
   },
   "optionalDependencies": {

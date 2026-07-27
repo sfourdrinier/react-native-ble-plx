@@ -158,6 +158,7 @@ describe('BluezBlePort (Linux Electron native path)', () => {
       )
     ).rejects.toThrow(/StartNotify failed/)
     // Listener must be disarmed after failed StartNotify
+    expect(port.monitors.size).toBe(0)
     port.emitNotification(
       'AA:BB:CC:DD:EE:FF',
       '0000180d-0000-1000-8000-00805f9b34fb',
@@ -167,7 +168,7 @@ describe('BluezBlePort (Linux Electron native path)', () => {
     expect(notes).toEqual([])
   })
 
-  test('WriteValue reject does not update local cache (R2-F076)', async () => {
+  test('live ReadValue failure rejects instead of returning a stale cache entry', async () => {
     const bus = mockBus()
     bus.writeValue.mockImplementation(async () => {
       throw new Error('org.bluez.Error.Failed: write failed')
@@ -186,25 +187,27 @@ describe('BluezBlePort (Linux Electron native path)', () => {
       '0000180d-0000-1000-8000-00805f9b34fb',
       '00002a37-0000-1000-8000-00805f9b34fb'
     )
-    await expect(
-      port.writeCharacteristicBytes(
-        'AA:BB:CC:DD:EE:FF',
-        '0000180d-0000-1000-8000-00805f9b34fb',
-        '00002a37-0000-1000-8000-00805f9b34fb',
-        new Uint8Array([9, 9, 9])
-      )
-    ).rejects.toThrow(/write failed/)
-    // Force ReadValue to fail so we see local cache (if any)
+    // Seed a cache value with a successful live read, then fail the next live read.
+    expect(Array.from(before)).toEqual([0x48, 0x69])
     bus.readValue.mockImplementation(async () => {
       throw new Error('read failed')
     })
-    // Cache should still hold pre-write value from first successful ReadValue
-    const after = await port.readCharacteristicBytes(
-      'AA:BB:CC:DD:EE:FF',
-      '0000180d-0000-1000-8000-00805f9b34fb',
-      '00002a37-0000-1000-8000-00805f9b34fb'
-    )
-    expect(Array.from(after)).toEqual(Array.from(before))
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      await expect(
+        port.readCharacteristicBytes(
+          'AA:BB:CC:DD:EE:FF',
+          '0000180d-0000-1000-8000-00805f9b34fb',
+          '00002a37-0000-1000-8000-00805f9b34fb'
+        )
+      ).rejects.toThrow(/read failed/)
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[BluezBlePort.readCharacteristicBytes] D-Bus read failed:',
+        expect.any(Error)
+      )
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 
   test('isBluezAvailable with inject factory', async () => {
@@ -232,5 +235,25 @@ describe('BluezBlePort (Linux Electron native path)', () => {
 
     await expect(port.connect('AA:00:00:00:00:01')).rejects.toThrow(/Connect/)
     expect(port.getConnectionState('AA:00:00:00:00:01')).toBe('disconnected')
+  })
+
+  test('disconnect rejects and preserves the connected state when D-Bus rejects', async () => {
+    const bus = mockBus()
+    bus.disconnectDevice.mockRejectedValueOnce(new Error('org.bluez.Error.Failed: disconnect failed'))
+    const port = new BluezBlePort({ createBus: async () => bus })
+    port.registerDevice('11:22:33:44:55:66', '/org/bluez/hci0/dev_11_22_33_44_55_66', 'Failing')
+    await port.connect('11:22:33:44:55:66')
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      await expect(port.disconnect('11:22:33:44:55:66')).rejects.toThrow(/disconnect failed/)
+      expect(port.getConnectionState('11:22:33:44:55:66')).toBe('connected')
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[BluezBlePort.disconnect] D-Bus Disconnect failed; preserving connected state:',
+        expect.any(Error)
+      )
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 })

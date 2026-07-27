@@ -1,0 +1,8 @@
+# evidence/v1/artifacts/local-typecheck-2026-07-26.log
+started_at=2026-07-26T03:53:40.000Z
+ended_at=2026-07-26T03:53:41.000Z
+command=pnpm typecheck
+expanded_command=tsc --noEmit -p tsconfig.build.json
+exit_code=0
+diagnostics=none
+radio_operations=none

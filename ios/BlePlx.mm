@@ -1,3 +1,4 @@
+// ios/BlePlx.mm
 //
 //  BleClient.m
 //  BleClient
@@ -8,6 +9,10 @@
 
 #import "BlePlx.h"
 #import "BlePlxDebugLogging.h"
+#import "BlePlxRuntimeDispatch.h"
+
+#include <memory>
+#import <ReactCommon/RCTTurboModule.h>
 
 // CoreBluetooth must be imported before BlePlx-Swift.h: OwnedCoreBluetoothAdapter
 // is @objc and conforms to CBCentralManagerDelegate / CBPeripheralDelegate, which
@@ -24,6 +29,10 @@
 // Legacy BleClientManager (Rx MBA) is excluded from the default podspec sources.
 @interface BlePlx () <BleClientManagerDelegate>
 @property(nonatomic) id<BleAdapter> manager;
+#ifdef RCT_NEW_ARCH_ENABLED
+- (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
+    (const facebook::react::ObjCTurboModule::InitParams &)params;
+#endif
 @end
 
 @implementation BlePlx
@@ -39,6 +48,12 @@ RCT_EXPORT_MODULE();
 static BOOL _hasAttemptedAdapterRegistration = NO;
 
 #ifdef RCT_NEW_ARCH_ENABLED
+- (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
+    (const facebook::react::ObjCTurboModule::InitParams &)params
+{
+    return std::make_shared<facebook::react::NativeBlePlxSpecJSI>(params);
+}
+
 static NSDictionary *NSDictionaryFromScanOptions(JS::NativeBlePlx::ScanOptions &options) {
     NSMutableDictionary *dictionary = [NSMutableDictionary dictionary];
 
@@ -111,13 +126,11 @@ static NSDictionary *NSDictionaryFromConnectionOptions(JS::NativeBlePlx::Connect
 
     BlePlxDebugLog(@"[BlePlx] Attempting to register BlePlxRestorationAdapter");
     Class adapterClass = NSClassFromString(@"BlePlxRestorationAdapter");
+    SEL registerSelector = NSSelectorFromString(@"register");
     BlePlxDebugLog(@"[BlePlx] BlePlxRestorationAdapter class: %@", adapterClass ? @"FOUND" : @"NOT FOUND (Restoration subspec may not be included)");
-    if (adapterClass && [adapterClass respondsToSelector:@selector(register)]) {
+    if (adapterClass && [adapterClass respondsToSelector:registerSelector]) {
         BlePlxDebugLog(@"[BlePlx] Calling BlePlxRestorationAdapter.register()");
-        #pragma clang diagnostic push
-        #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-        [adapterClass performSelector:@selector(register)];
-        #pragma clang diagnostic pop
+        BlePlxInvokeClassVoidSelector(adapterClass, registerSelector);
         BlePlxDebugLog(@"[BlePlx] BlePlxRestorationAdapter.register() completed");
     } else if (adapterClass) {
         BlePlxDebugLog(@"[BlePlx] WARNING: BlePlxRestorationAdapter found but register selector not available");
@@ -200,16 +213,16 @@ RCT_EXPORT_METHOD(checkRestorationStatus:(RCTPromiseResolveBlock)resolve
     BOOL hostFound = hostRegistryClass != nil;
     BOOL bundledFound = bundledRegistryClass != nil;
     NSInteger bundledAdapterCount = 0;
+    SEL sharedSelector = NSSelectorFromString(@"shared");
+    SEL adapterCountSelector = NSSelectorFromString(@"adapterCount");
+    SEL registerSelector = NSSelectorFromString(@"register");
     if (bundledFound) {
         id shared = nil;
-        if ([bundledRegistryClass respondsToSelector:@selector(shared)]) {
-            #pragma clang diagnostic push
-            #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            shared = [bundledRegistryClass performSelector:@selector(shared)];
-            #pragma clang diagnostic pop
+        if ([bundledRegistryClass respondsToSelector:sharedSelector]) {
+            shared = BlePlxInvokeClassObjectSelector(bundledRegistryClass, sharedSelector);
         }
-        if (shared != nil && [shared respondsToSelector:@selector(adapterCount)]) {
-            bundledAdapterCount = (NSInteger)[[shared valueForKey:@"adapterCount"] integerValue];
+        if (shared != nil && [shared respondsToSelector:adapterCountSelector]) {
+            bundledAdapterCount = BlePlxInvokeObjectIntegerSelector(shared, adapterCountSelector);
         }
     }
 
@@ -220,18 +233,17 @@ RCT_EXPORT_METHOD(checkRestorationStatus:(RCTPromiseResolveBlock)resolve
         @"bleRestorationRegistryHostFound": @(hostFound),
         @"blePlxBundledRestorationRegistryFound": @(bundledFound),
         @"bundledAdapterCount": @(bundledAdapterCount),
-        @"hasRegisterSelector": @(adapterClass && [adapterClass respondsToSelector:@selector(register)]),
+        @"hasRegisterSelector": @(adapterClass && [adapterClass respondsToSelector:registerSelector]),
         @"initializeWasCalled": @YES  // If this method is reachable, BlePlx was loaded
     };
     resolve(status);
 }
 
-RCT_EXPORT_METHOD(createClient:(id)restoreIdentifierKey) {
+RCT_EXPORT_METHOD(createClient:(NSString * _Nullable)restoreIdentifierKey) {
   // Attempt adapter registration on first createClient call
   [BlePlx attemptAdapterRegistration];
 
-  if (restoreIdentifierKey == nil || [restoreIdentifierKey isEqual:[NSNull null]] ||
-      ([restoreIdentifierKey isKindOfClass:[NSString class]] && [(NSString *)restoreIdentifierKey length] == 0)) {
+  if (restoreIdentifierKey == nil || restoreIdentifierKey.length == 0) {
     restoreIdentifierKey = nil;
   }
 
@@ -241,11 +253,11 @@ RCT_EXPORT_METHOD(createClient:(id)restoreIdentifierKey) {
   // so we use runtime reflection to check for it.
   id<BleAdapter> restoredManager = nil;
   Class restorationStateClass = NSClassFromString(@"BlePlxRestorationState");
-  if (restorationStateClass && [restorationStateClass respondsToSelector:@selector(takeRestoredManager)]) {
-    #pragma clang diagnostic push
-    #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-    restoredManager = [restorationStateClass performSelector:@selector(takeRestoredManager)];
-    #pragma clang diagnostic pop
+  SEL takeRestoredManagerSelector = NSSelectorFromString(@"takeRestoredManager");
+  SEL completePendingRestoreStateEventSelector = NSSelectorFromString(@"completePendingRestoreStateEvent");
+  SEL takeRestoredStatePayloadSelector = NSSelectorFromString(@"takeRestoredStatePayload");
+  if (restorationStateClass && [restorationStateClass respondsToSelector:takeRestoredManagerSelector]) {
+    restoredManager = BlePlxInvokeClassObjectSelector(restorationStateClass, takeRestoredManagerSelector);
   }
 
   if (restoredManager != nil) {
@@ -254,11 +266,8 @@ RCT_EXPORT_METHOD(createClient:(id)restoreIdentifierKey) {
     // Disarm MBA's init-time restore amb before attaching the JS delegate / replaying.
     // Otherwise a late central state transition can emit synthetic null after the
     // adapter-buffered restore payload, and restoreStateFunction would clear session state.
-    if ([_manager respondsToSelector:@selector(completePendingRestoreStateEvent)]) {
-      #pragma clang diagnostic push
-      #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-      [_manager performSelector:@selector(completePendingRestoreStateEvent)];
-      #pragma clang diagnostic pop
+    if ([_manager respondsToSelector:completePendingRestoreStateEventSelector]) {
+      BlePlxInvokeObjectVoidSelector(_manager, completePendingRestoreStateEventSelector);
     }
 
     // Always set the delegate to receive events after JS attaches.
@@ -269,11 +278,8 @@ RCT_EXPORT_METHOD(createClient:(id)restoreIdentifierKey) {
     // getRestoredState() would wait until destroy() because the adapter path
     // never re-emits RestoreStateEvent when reusing the stored manager.
     NSDictionary *restorePayload = nil;
-    if (restorationStateClass && [restorationStateClass respondsToSelector:@selector(takeRestoredStatePayload)]) {
-      #pragma clang diagnostic push
-      #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-      restorePayload = [restorationStateClass performSelector:@selector(takeRestoredStatePayload)];
-      #pragma clang diagnostic pop
+    if (restorationStateClass && [restorationStateClass respondsToSelector:takeRestoredStatePayloadSelector]) {
+      restorePayload = BlePlxInvokeClassObjectSelector(restorationStateClass, takeRestoredStatePayloadSelector);
     }
     if (restorePayload != nil) {
       [self dispatchEvent:[BleEvent restoreStateEvent] value:restorePayload];
@@ -298,6 +304,7 @@ RCT_EXPORT_METHOD(destroyClient:(RCTPromiseResolveBlock)resolve
 - (void)invalidate {
     [_manager invalidate];
     _manager = nil;
+    [super invalidate];
 }
 
 // Mark: Monitoring state ----------------------------------------------------------------------------------------------
@@ -327,7 +334,7 @@ RCT_EXPORT_METHOD(   state:(RCTPromiseResolveBlock)resolve
 // Mark: Scanning ------------------------------------------------------------------------------------------------------
 
 #ifdef RCT_NEW_ARCH_ENABLED
-RCT_EXPORT_METHOD(startDeviceScan:(NSArray*)filteredUUIDs
+RCT_EXPORT_METHOD(startDeviceScan:(NSArray * _Nullable)filteredUUIDs
                           options:(JS::NativeBlePlx::ScanOptions &)options
                           resolve:(RCTPromiseResolveBlock)resolve
                           reject:(RCTPromiseRejectBlock)reject) {
@@ -338,7 +345,7 @@ RCT_EXPORT_METHOD(startDeviceScan:(NSArray*)filteredUUIDs
   resolve(nil);
 }
 #else
-RCT_EXPORT_METHOD(startDeviceScan:(NSArray*)filteredUUIDs
+RCT_EXPORT_METHOD(startDeviceScan:(NSArray * _Nullable)filteredUUIDs
                           options:(NSDictionary*)options
                           resolve:(RCTPromiseResolveBlock)resolve
                           reject:(RCTPromiseRejectBlock)reject) {
@@ -611,7 +618,7 @@ RCT_EXPORT_METHOD(monitorCharacteristicForDevice:(NSString*)deviceIdentifier
                                      serviceUUID:(NSString*)serviceUUID
                               characteristicUUID:(NSString*)characteristicUUID
                                    transactionId:(NSString*)transactionId
-                                 subscriptionType:(NSString*)subscriptionType
+                                     subscriptionType:(NSString * _Nullable)subscriptionType
                                         resolve:(RCTPromiseResolveBlock)resolve
                                         reject:(RCTPromiseRejectBlock)reject) {
     [_manager monitorCharacteristicForDevice:deviceIdentifier
@@ -625,7 +632,7 @@ RCT_EXPORT_METHOD(monitorCharacteristicForDevice:(NSString*)deviceIdentifier
 RCT_EXPORT_METHOD(monitorCharacteristicForService:(double)serviceIdentifier
                                characteristicUUID:(NSString*)characteristicUUID
                                     transactionId:(NSString*)transactionId
-                                  subscriptionType:(NSString*)subscriptionType
+                                  subscriptionType:(NSString * _Nullable)subscriptionType
                                          resolve:(RCTPromiseResolveBlock)resolve
                                          reject:(RCTPromiseRejectBlock)reject) {
     [_manager monitorCharacteristicForService:serviceIdentifier
@@ -637,7 +644,7 @@ RCT_EXPORT_METHOD(monitorCharacteristicForService:(double)serviceIdentifier
 
 RCT_EXPORT_METHOD(monitorCharacteristic:(double)characteristicIdentifier
                           transactionId:(NSString*)transactionId
-                       subscriptionType:(NSString*)subscriptionType
+                       subscriptionType:(NSString * _Nullable)subscriptionType
                                resolve:(RCTPromiseResolveBlock)resolve
                                reject:(RCTPromiseRejectBlock)reject) {
     [_manager monitorCharacteristic:characteristicIdentifier
@@ -819,52 +826,38 @@ RCT_EXPORT_METHOD(isBackgroundModeEnabled:(RCTPromiseResolveBlock)resolve
 
 // Mark: Bonding (Android-only surface; iOS is OS-driven) ---------------------------------------------------------------
 
+static void BlePlxRejectUnsupportedBondOperation(
+    RCTPromiseRejectBlock reject,
+    NSString *operation
+) {
+    NSString *message = [NSString stringWithFormat:
+        @"{\"errorCode\":6,\"attErrorCode\":null,\"iosErrorCode\":null,\"androidErrorCode\":null,\"reason\":null,\"internalMessage\":\"%@ is Android-only; iOS pairing is OS-driven\"}",
+        operation
+    ];
+    reject(@"BlePlxError", message, nil);
+}
+
 RCT_EXPORT_METHOD(createBond:(NSString*)deviceIdentifier
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
-    NSDictionary *error = @{
-        @"errorCode": @6, // OperationNotSupported
-        @"attErrorCode": [NSNull null],
-        @"iosErrorCode": [NSNull null],
-        @"androidErrorCode": [NSNull null],
-        @"reason": [NSNull null],
-        @"internalMessage": @"createBond is Android-only; iOS pairing is OS-driven"
-    };
-    NSData *json = [NSJSONSerialization dataWithJSONObject:error options:0 error:nil];
-    NSString *msg = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
-    reject(@"BlePlxError", msg, nil);
+    BlePlxRejectUnsupportedBondOperation(reject, @"createBond");
 }
 
 RCT_EXPORT_METHOD(removeBond:(NSString*)deviceIdentifier
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
-    NSDictionary *error = @{
-        @"errorCode": @6,
-        @"attErrorCode": [NSNull null],
-        @"iosErrorCode": [NSNull null],
-        @"androidErrorCode": [NSNull null],
-        @"reason": [NSNull null],
-        @"internalMessage": @"removeBond is Android-only"
-    };
-    NSData *json = [NSJSONSerialization dataWithJSONObject:error options:0 error:nil];
-    NSString *msg = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
-    reject(@"BlePlxError", msg, nil);
+    BlePlxRejectUnsupportedBondOperation(reject, @"removeBond");
+}
+
+RCT_EXPORT_METHOD(bondedDevices:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    BlePlxRejectUnsupportedBondOperation(reject, @"bondedDevices");
 }
 
 RCT_EXPORT_METHOD(getBondState:(NSString*)deviceIdentifier
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
-    NSDictionary *error = @{
-        @"errorCode": @6,
-        @"attErrorCode": [NSNull null],
-        @"iosErrorCode": [NSNull null],
-        @"androidErrorCode": [NSNull null],
-        @"reason": [NSNull null],
-        @"internalMessage": @"getBondState is Android-only"
-    };
-    NSData *json = [NSJSONSerialization dataWithJSONObject:error options:0 error:nil];
-    NSString *msg = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
-    reject(@"BlePlxError", msg, nil);
+    BlePlxRejectUnsupportedBondOperation(reject, @"getBondState");
 }
 
 // Mark: Other operations ----------------------------------------------------------------------------------------------

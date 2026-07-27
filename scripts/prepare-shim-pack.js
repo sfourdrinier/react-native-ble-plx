@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// scripts/prepare-shim-pack.js
 /**
  * Pack/publish helper for packages/react-native-ble-plx-shim without dirtying monorepo.
  *
@@ -8,7 +9,7 @@
  *
  * Usage:
  *   node scripts/prepare-shim-pack.js --print-dir
- *   node scripts/prepare-shim-pack.js --pack [--dry-run]
+ *   node scripts/prepare-shim-pack.js --pack --output-dir <directory> [--dry-run]
  *   node scripts/prepare-shim-pack.js --assert-packed <package.json path>
  */
 'use strict'
@@ -43,30 +44,130 @@ function buildPublishableShimPackage() {
   }
 }
 
+function npmCommand() {
+  return process.platform === 'win32' ? 'npm.cmd' : 'npm'
+}
+
+function tarballName(packageJson) {
+  return `${packageJson.name.replace(/^@/, '').replace('/', '-')}-${packageJson.version}.tgz`
+}
+
 function prepareDir() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ble-plx-shim-pack-'))
-  for (const name of fs.readdirSync(SHIM_SRC)) {
-    if (name === 'node_modules') continue
-    fs.cpSync(path.join(SHIM_SRC, name), path.join(tmp, name), { recursive: true })
+  try {
+    for (const name of fs.readdirSync(SHIM_SRC)) {
+      if (name === 'node_modules') continue
+      fs.cpSync(path.join(SHIM_SRC, name), path.join(tmp, name), { recursive: true })
+    }
+    const publishable = buildPublishableShimPackage()
+    if (isFileDependency(publishable.dependencies['unified-ble-manager'])) {
+      throw new Error('prepare-shim-pack: refused file: dependency in publishable package.json')
+    }
+    fs.writeFileSync(path.join(tmp, 'package.json'), `${JSON.stringify(publishable, null, 2)}\n`)
+    return tmp
+  } catch (error) {
+    try {
+      removePreparedDirectory(tmp)
+    } catch (cleanupError) {
+      console.error('[prepare-shim-pack] Failed to remove incomplete temporary directory:', cleanupError)
+    }
+    throw error
   }
-  const publishable = buildPublishableShimPackage()
-  if (isFileDependency(publishable.dependencies['unified-ble-manager'])) {
-    throw new Error('prepare-shim-pack: refused file: dependency in publishable package.json')
+}
+
+function removePreparedDirectory(directory) {
+  const temporaryRoot = path.resolve(os.tmpdir())
+  const resolvedDirectory = path.resolve(directory)
+  const relative = path.relative(temporaryRoot, resolvedDirectory)
+  if (
+    relative === '' ||
+    relative === '..' ||
+    relative.startsWith(`..${path.sep}`) ||
+    !path.basename(resolvedDirectory).startsWith('ble-plx-shim-pack-')
+  ) {
+    throw new Error(`Refusing to clean an unexpected prepared shim directory: ${resolvedDirectory}`)
   }
-  fs.writeFileSync(path.join(tmp, 'package.json'), `${JSON.stringify(publishable, null, 2)}\n`)
-  return tmp
+  fs.rmSync(resolvedDirectory, { recursive: true, force: true })
+}
+
+function validatePackedPackage(pkgPath) {
+  const pkg = readJson(pkgPath)
+  const dep = pkg.dependencies && pkg.dependencies['unified-ble-manager']
+  const expectedVersion = buildPublishableShimPackage().version
+  if (isFileDependency(dep) || typeof dep !== 'string' || dep !== expectedVersion) {
+    throw new Error(
+      `packed shim must depend on the exact unified-ble-manager version ${expectedVersion}, got: ${JSON.stringify(dep)}`
+    )
+  }
+  if (pkg.version !== expectedVersion) {
+    throw new Error(`packed shim version must equal canonical version ${expectedVersion}, got: ${JSON.stringify(pkg.version)}`)
+  }
+  return dep
 }
 
 function assertPacked(pkgPath) {
-  const pkg = readJson(pkgPath)
-  const dep = pkg.dependencies && pkg.dependencies['unified-ble-manager']
-  if (isFileDependency(dep) || !dep || typeof dep !== 'string') {
-    console.error(
-      `packed shim must depend on unified-ble-manager via semver, got: ${JSON.stringify(dep)}`
-    )
-    process.exit(1)
+  const dependencyVersion = validatePackedPackage(pkgPath)
+  console.log(`ok: unified-ble-manager@${dependencyVersion}`)
+}
+
+function assertPackDestinationEmpty(outputDirectory, packageJson) {
+  const destination = path.resolve(outputDirectory)
+  fs.mkdirSync(destination, { recursive: true })
+  const tarballPath = path.join(destination, tarballName(packageJson))
+  if (fs.existsSync(tarballPath)) {
+    throw new Error(`Refusing to overwrite existing shim tarball: ${tarballPath}`)
   }
-  console.log(`ok: unified-ble-manager@${dep}`)
+  return tarballPath
+}
+
+function packShimDirectory(directory, outputDirectory, dry) {
+  const packageJson = readJson(path.join(directory, 'package.json'))
+  const args = ['pack', '--loglevel=warn']
+  let tarballPath = null
+  if (dry) {
+    args.push('--dry-run')
+  } else {
+    tarballPath = assertPackDestinationEmpty(outputDirectory, packageJson)
+    args.push('--pack-destination', path.resolve(outputDirectory))
+  }
+  const result = spawnSync(npmCommand(), args, {
+    cwd: directory,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NPM_CONFIG_CACHE: path.join(directory, '.npm-cache'),
+      NPM_CONFIG_UPDATE_NOTIFIER: 'false'
+    },
+    shell: false
+  })
+  const output = `${result.stdout || ''}${result.stderr || ''}`
+  if (result.error) {
+    throw new Error(`npm pack could not start: ${result.error.message}`)
+  }
+  if (result.status !== 0) {
+    throw new Error(`npm pack failed (${result.status}):\n${output}`)
+  }
+  if (/^(?:npm )?(?:WARN|warn)\b|^warning\b|^⚠/im.test(output)) {
+    throw new Error(`npm pack produced a warning:\n${output}`)
+  }
+  process.stdout.write(output)
+  if (!dry) {
+    if (!tarballPath || !fs.existsSync(tarballPath)) {
+      throw new Error(`npm pack did not create the expected shim tarball: ${String(tarballPath)}`)
+    }
+    return tarballPath
+  }
+  return null
+}
+
+function readOutputDirectory(argv) {
+  const outputIndex = argv.indexOf('--output-dir')
+  if (outputIndex === -1) return null
+  const outputDirectory = argv[outputIndex + 1]
+  if (!outputDirectory || outputDirectory.startsWith('--')) {
+    throw new Error('usage: --output-dir <directory>')
+  }
+  return outputDirectory
 }
 
 function main(argv) {
@@ -87,29 +188,26 @@ function main(argv) {
 
   if (argv.includes('--pack')) {
     const dry = argv.includes('--dry-run')
-    const dir = prepareDir()
-    const result = spawnSync('npm', dry ? ['pack', '--dry-run'] : ['pack'], {
-      cwd: dir,
-      stdio: 'inherit',
-      shell: process.platform === 'win32'
-    })
-    if (result.status !== 0) process.exit(result.status || 1)
-    assertPacked(path.join(dir, 'package.json'))
-    if (!dry) {
-      for (const name of fs.readdirSync(dir)) {
-        if (name.endsWith('.tgz')) {
-          fs.renameSync(path.join(dir, name), path.join(ROOT, name))
-          console.log(`wrote ${name}`)
-        }
-      }
+    const outputDirectory = readOutputDirectory(argv)
+    if (!dry && !outputDirectory) {
+      throw new Error('prepare-shim-pack --pack requires --output-dir <directory> to avoid writing tarballs into the repository')
     }
-    console.log(`prepared-from ${dir}`)
+    const dir = prepareDir()
+    try {
+      const tarballPath = packShimDirectory(dir, outputDirectory, dry)
+      assertPacked(path.join(dir, 'package.json'))
+      if (tarballPath) {
+        console.log(`wrote ${tarballPath}`)
+      }
+    } finally {
+      removePreparedDirectory(dir)
+    }
     return
   }
 
   console.error(`usage:
   node scripts/prepare-shim-pack.js --print-dir
-  node scripts/prepare-shim-pack.js --pack [--dry-run]
+  node scripts/prepare-shim-pack.js --pack --output-dir <directory> [--dry-run]
   node scripts/prepare-shim-pack.js --assert-packed <package.json>`)
   process.exit(2)
 }
@@ -122,5 +220,10 @@ module.exports = {
   buildPublishableShimPackage,
   isFileDependency,
   prepareDir,
-  assertPacked
+  removePreparedDirectory,
+  tarballName,
+  validatePackedPackage,
+  assertPacked,
+  assertPackDestinationEmpty,
+  packShimDirectory
 }

@@ -1,0 +1,36 @@
+{
+  "$schema": "evidence/v1/schema/evidence-manifest.schema.json",
+  "schema": { "id": "unified-ble-manager/evidence-manifest", "version": "1.0.0" },
+  "claim": { "id": "reported-unverified-linux-bluez-live", "revision": 1, "claimVersion": "1.0.0", "issuerKind": "first-party", "publishedSupportLabel": "Experimental", "targetSupportLabel": "Supported", "supportMatrix": { "environments": [], "entries": [] } },
+  "subject": {
+    "backend": { "id": "bluez-current-port", "implementation": "Reported prior owned non-Noble BlueZ Electron/Node exercise", "version": "unreported" },
+    "platform": { "id": "linux", "os": "Linux", "architecture": "unreported" },
+    "host": { "id": "node-bluez", "processRole": "node" },
+    "runtime": { "historicalRuntime": "unreported" },
+    "toolchain": { "historicalToolchain": "unreported" },
+    "packageArtifact": { "name": "unavailable-historical-package-artifact", "version": "unreported", "availability": "unavailable", "type": "unavailable", "path": null, "sha256": null, "artifactId": null },
+    "protocolVersions": { "package": "unreported", "backendContract": null, "capabilitySchema": null, "eventSchema": null, "nativeOrIpc": null, "trace": null },
+    "capabilities": [{ "id": "bluez-live-vertical-slice", "supportLevel": "unsupported", "evidenceLevel": "L0", "limitationIds": ["historical-artifacts-missing", "historical-live-revalidation-required"] }]
+  },
+  "source": { "repository": "https://github.com/sfourdrinier/react-native-ble-plx.git", "commit": "8eee967a521f4f4f6b22e642916ca2535b8c3c84", "dirty": true, "dirtyStateArtifactId": "source-state-log", "dirtyPathCount": 100, "dirtyPathsSha256": "76a38b8e84106517dd1837f53d9c9020654df6cc3455bed6a07b11042edfa6e9" },
+  "execution": {
+    "provenance": "reported-unverified", "deterministic": false, "liveRadio": false,
+    "capturedAt": "2026-07-26T03:58:20.000Z", "startedAt": "2026-07-26T03:58:19.000Z", "endedAt": "2026-07-26T03:58:19.000Z",
+    "hardware": { "adapter": { "safeId": "historical-adapter-unreported", "kind": "unreported", "redaction": "all-identifiers-redacted" }, "machine": { "safeId": "historical-machine-unreported", "kind": "unreported", "redaction": "all-identifiers-redacted" } },
+    "peripherals": [],
+    "commands": [{ "id": "locate-historical-plan-statement", "argv": ["rg", "-n", "maintainer has already exercised", "docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md"], "cwd": ".", "startedAt": "2026-07-26T03:58:19.000Z", "endedAt": "2026-07-26T03:58:19.000Z", "exitCode": 0, "resultArtifactId": "reported-linux-log" }]
+  },
+  "proof": { "level": "L0", "status": "blocked", "reason": "The plan reports the prior exercise, but no original live-run artifact makes it reproducible or attributable.", "supportGate": false, "scenarios": [{ "id": "historical-linux-bluez-live", "kind": "vertical-slice", "result": "blocked", "level": "L0", "provenance": "reported-unverified", "artifactIds": ["reported-linux-log"], "commandIds": ["locate-historical-plan-statement"], "peripheralIds": [], "requiredControllerFeatures": [], "startedAt": "2026-07-26T03:58:19.000Z", "endedAt": "2026-07-26T03:58:19.000Z", "reason": "No original command output, package digest, distribution/kernel/BlueZ record, hardware record, or timestamp was provided." }] },
+  "artifacts": [
+    { "id": "source-state-log", "artifactType": "source-state", "path": "evidence/v1/artifacts/source-state-2026-07-26.log", "sha256": "7d2dc2c7a36eca04be1c8a59f5cd94fd4fba383255084c10bbdef96d960d717f", "mediaType": "text/plain", "redaction": "redacted" },
+    { "id": "reported-linux-log", "artifactType": "command-result", "path": "evidence/v1/artifacts/reported-unverified-linux-bluez-live.log", "sha256": "0a0040933b42172d40df71df45f127d044b25afa2e4471951ba450b4e6302503", "mediaType": "text/plain", "redaction": "contains-no-sensitive-data" }
+  ],
+  "limitations": [
+    { "id": "historical-artifacts-missing", "description": "The report lacks original command results, source/package artifact identity, hardware, peripheral, and timestamp evidence.", "status": "blocked" },
+    { "id": "historical-live-revalidation-required", "description": "The final public/core path must rerun scan, connect, discovery, read, write, notify, and disconnect before support label promotion.", "status": "blocked" }
+  ],
+  "attestations": { "securityReviewed": true, "privacyReviewed": true, "redactionApplied": true, "noSecretsIncluded": true, "noTelemetryUsed": true },
+  "boundary": { "kind": "in-process", "abiOrProtocol": null, "processBoundary": "none", "compatibility": null },
+  "ownership": { "maintainer": { "id": "sfourdrinier", "contact": "https://github.com/sfourdrinier/react-native-ble-plx/issues" }, "revalidation": { "cadenceDays": 30, "nextDueAt": "2026-08-25T03:58:20.000Z", "triggers": ["original artifact recovery", "final-core live re-run", "support-label review"] } },
+  "history": { "supersedes": [], "supersededBy": null }
+}

@@ -414,12 +414,7 @@ export class Device implements NativeDevice {
     characteristicUUID: UUID,
     transactionId?: TransactionId
   ): Promise<CharacteristicAsBytes> {
-    return this._manager.readCharacteristicForDeviceAsBytes(
-      this.id,
-      serviceUUID,
-      characteristicUUID,
-      transactionId
-    )
+    return this._manager.readCharacteristicForDeviceAsBytes(this.id, serviceUUID, characteristicUUID, transactionId)
   }
 
   /** Write with response from {@link Uint8Array}. */

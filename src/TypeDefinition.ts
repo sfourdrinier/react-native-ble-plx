@@ -59,6 +59,12 @@ export type BleErrorCodeMessageMapping = { [key in BleErrorCode]: string }
  */
 export interface BleManagerOptions {
   /**
+   * Serialize operations for each device. Disable only when the host owns
+   * equivalent ordering guarantees.
+   */
+  serializeDeviceOps?: boolean
+
+  /**
    * BLE State restoration identifier used to restore state.
    * @memberof BleManagerOptions
    * @instance

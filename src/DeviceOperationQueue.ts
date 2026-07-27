@@ -14,9 +14,7 @@ export const DEVICE_QUEUE_CANCELLED = 'DeviceQueueCancelled'
  * Build a typed cancel error for queue preemption / long-write abort.
  * Callers that only branch on {@link BleError#errorCode} see OperationCancelled.
  */
-export function deviceQueueCancelledError(
-  reason: string = 'Device operation cancelled by disconnect'
-): BleError {
+export function deviceQueueCancelledError(reason = 'Device operation cancelled by disconnect'): BleError {
   const err = new BleError(
     {
       errorCode: BleErrorCode.OperationCancelled,
@@ -156,11 +154,7 @@ export class DeviceOperationQueue {
    * Used by BleManager.destroy to fail closed with BluetoothManagerDestroyed.
    */
   cancelAll(error: Error = deviceQueueCancelledError()): void {
-    const keys = new Set<string>([
-      ...this.tails.keys(),
-      ...this.pending.keys(),
-      ...this.epoch.keys()
-    ])
+    const keys = new Set<string>([...this.tails.keys(), ...this.pending.keys(), ...this.epoch.keys()])
     for (const key of keys) {
       this.bumpEpoch(key, error)
     }
@@ -171,11 +165,7 @@ export class DeviceOperationQueue {
     this.cancelErrors.set(key, error)
   }
 
-  private async runIfCurrentEpoch<T>(
-    key: string,
-    capturedEpoch: number,
-    fn: () => Promise<T>
-  ): Promise<T> {
+  private async runIfCurrentEpoch<T>(key: string, capturedEpoch: number, fn: () => Promise<T>): Promise<T> {
     if ((this.epoch.get(key) ?? 0) !== capturedEpoch) {
       throw this.cancelErrors.get(key) ?? deviceQueueCancelledError()
     }

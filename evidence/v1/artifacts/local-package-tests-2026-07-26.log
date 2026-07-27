@@ -1,0 +1,13 @@
+# evidence/v1/artifacts/local-package-tests-2026-07-26.log
+started_at=2026-07-26T03:53:31.000Z
+ended_at=2026-07-26T03:53:35.000Z
+command=pnpm test:package --runInBand
+exit_code=0
+test_suites=46 passed, 46 total
+tests=733 passed, 733 total
+snapshots=0 total
+elapsed=3.079 seconds
+diagnostic=console.warn emitted by ConnectionManager attemptConnectOnce about maxRetries=5.
+diagnostic=console.log emitted by Benchmark.harness.test.js with notify dual-path timing.
+interpretation=The suite passed but is not a zero-diagnostic release proof.
+radio_operations=none

@@ -1,0 +1,7 @@
+# evidence/v1/artifacts/reported-unverified-linux-bluez-live.log
+source=docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md section 5.5
+reported_fact=A maintainer previously exercised owned non-Noble Electron/Node BLE on Linux through BlueZ.
+status=reported-unverified
+missing=original command output, original source/package artifact digest, distribution/kernel/BlueZ/dbus-next/Node/Electron versions, adapter identity, peripheral fixture identity, scenario results, timestamp, and attributable maintainer result artifact.
+support_gate=false
+required_revalidation=Run scan, connect, discover, read, write, notify, and disconnect through the final public/core path and attach fresh artifact-bound evidence.

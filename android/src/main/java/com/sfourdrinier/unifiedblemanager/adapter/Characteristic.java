@@ -1,3 +1,5 @@
+// android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/Characteristic.java
+
 package com.sfourdrinier.unifiedblemanager.adapter;
 
 import android.bluetooth.BluetoothGattCharacteristic;
@@ -7,7 +9,6 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.sfourdrinier.unifiedblemanager.adapter.utils.ByteUtils;
-import com.sfourdrinier.unifiedblemanager.adapter.utils.Constants;
 import com.sfourdrinier.unifiedblemanager.adapter.utils.IdGenerator;
 import com.sfourdrinier.unifiedblemanager.adapter.utils.IdGeneratorKey;
 import com.sfourdrinier.unifiedblemanager.radio.OwnedAndroidLog;
@@ -29,6 +30,7 @@ public class Characteristic {
   /** Optional Base64 of [value] pre-encoded off the main thread (notify hot path). */
   @Nullable
   private String valueBase64;
+  private volatile boolean notifying = false;
   final BluetoothGattCharacteristic gattCharacteristic;
 
   public void setValue(byte[] value) {
@@ -73,6 +75,7 @@ public class Characteristic {
     deviceID = other.deviceID;
     if (other.value != null) value = other.value.clone();
     valueBase64 = other.valueBase64;
+    notifying = other.notifying;
     gattCharacteristic = other.gattCharacteristic;
   }
 
@@ -133,15 +136,11 @@ public class Characteristic {
   }
 
   public boolean isNotifying() {
-    BluetoothGattDescriptor descriptor = gattCharacteristic.getDescriptor(Constants.CLIENT_CHARACTERISTIC_CONFIG_UUID);
-    boolean isNotifying = false;
-    if (descriptor != null) {
-      byte[] descriptorValue = descriptor.getValue();
-      if (descriptorValue != null) {
-        isNotifying = (descriptorValue[0] & 0x01) != 0;
-      }
-    }
-    return isNotifying;
+    return notifying;
+  }
+
+  public void setNotifying(boolean notifying) {
+    this.notifying = notifying;
   }
 
   public boolean isIndicatable() {
@@ -160,10 +159,8 @@ public class Characteristic {
   }
 
   void logValue(String message, byte[] value) {
-    if (value == null) {
-      value = gattCharacteristic.getValue();
-    }
-    String hexValue = value != null ? ByteUtils.bytesToHex(value) : "(null)";
+    byte[] valueToLog = value != null ? value : this.value;
+    String hexValue = valueToLog != null ? ByteUtils.bytesToHex(valueToLog) : "(null)";
     OwnedAndroidLog.v(message +
       " Characteristic(uuid: " + gattCharacteristic.getUuid().toString() +
       ", id: " + id +

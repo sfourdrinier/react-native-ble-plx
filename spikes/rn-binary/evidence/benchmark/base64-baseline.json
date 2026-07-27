@@ -1,0 +1,585 @@
+{
+  "schemaVersion": "ub4-rn-binary-base64-baseline/v1",
+  "capturedAt": "2026-07-26T06:31:44.567Z",
+  "methodology": {
+    "lineage": "Mirrors the current benchmarks/scripts/ub4-perf-baseline.js codec methodology: deterministic subarray inputs, 3 warmups, 9 samples, process.hrtime.bigint(), and an 8 MiB target per sample.",
+    "runtime": {
+      "node": "v22.16.0",
+      "platform": "darwin",
+      "architecture": "arm64"
+    },
+    "payloadBytes": [
+      0,
+      20,
+      64,
+      512,
+      4096,
+      65536,
+      1048576
+    ],
+    "sampleCount": 9,
+    "warmupIterations": 3
+  },
+  "source": {
+    "encoding": {
+      "path": "src/encoding.ts",
+      "bytes": 2938,
+      "sha256": "7052532e68b18f27b78422d173cf270b40a2aed54cd6f3a86b2b08a29f04d7cb"
+    },
+    "phaseZeroBaselineMethod": {
+      "path": "benchmarks/scripts/ub4-perf-baseline.js",
+      "bytes": 36064,
+      "sha256": "bf93e88c3c0eb475eb926f0b115f4fba0a2acf8e048b1588f22919a31506d673"
+    },
+    "codegenBlocker": {
+      "path": "spikes/rn-binary/evidence/codegen/summary.json",
+      "sha256": "fbb6834a0725fb8d42f401cded4d32247c72a712ba1f8eff614f3dffb9469366"
+    }
+  },
+  "base64": [
+    {
+      "byteLength": 0,
+      "byteOffset": 0,
+      "encodedBytes": 0,
+      "encodedExpansionRatio": null,
+      "operations": [
+        {
+          "id": "byte-copy",
+          "warmupIterations": 3,
+          "iterationsPerSample": 100000,
+          "samplesNsPerOperation": [
+            47.90708,
+            35.565,
+            25.97875,
+            38.30791,
+            25.08167,
+            24.55292,
+            25.57959,
+            23.16709,
+            23.23333
+          ],
+          "statistics": {
+            "minimumNs": 23.16709,
+            "medianNs": 25.57959,
+            "meanNs": 29.930371,
+            "maximumNs": 47.90708
+          },
+          "checksum": 0
+        },
+        {
+          "id": "base64-encode",
+          "warmupIterations": 3,
+          "iterationsPerSample": 100000,
+          "samplesNsPerOperation": [
+            70.09333,
+            50.85208,
+            44.85458,
+            45.17084,
+            42.56,
+            43.16042,
+            43.79792,
+            43.41833,
+            43.15709
+          ],
+          "statistics": {
+            "minimumNs": 42.56,
+            "medianNs": 43.79792,
+            "meanNs": 47.451621,
+            "maximumNs": 70.09333
+          },
+          "checksum": 0
+        },
+        {
+          "id": "base64-decode",
+          "warmupIterations": 3,
+          "iterationsPerSample": 100000,
+          "samplesNsPerOperation": [
+            84.76125,
+            70.05875,
+            80.68333,
+            61.285,
+            62.19625,
+            67.63625,
+            63.39833,
+            64.07042,
+            63.14625
+          ],
+          "statistics": {
+            "minimumNs": 61.285,
+            "medianNs": 64.07042,
+            "meanNs": 68.581759,
+            "maximumNs": 84.76125
+          },
+          "checksum": 0
+        }
+      ]
+    },
+    {
+      "byteLength": 20,
+      "byteOffset": 8,
+      "encodedBytes": 28,
+      "encodedExpansionRatio": 1.4,
+      "operations": [
+        {
+          "id": "byte-copy",
+          "warmupIterations": 3,
+          "iterationsPerSample": 100000,
+          "samplesNsPerOperation": [
+            36.11125,
+            44.80083,
+            32.99709,
+            35.23083,
+            34.17708,
+            39.51959,
+            35.65375,
+            38.30333,
+            37.9775
+          ],
+          "statistics": {
+            "minimumNs": 32.99709,
+            "medianNs": 36.11125,
+            "meanNs": 37.196806,
+            "maximumNs": 44.80083
+          },
+          "checksum": 56
+        },
+        {
+          "id": "base64-encode",
+          "warmupIterations": 3,
+          "iterationsPerSample": 100000,
+          "samplesNsPerOperation": [
+            143.28292,
+            132.98375,
+            133.93958,
+            124.84416,
+            126.22167,
+            138.06708,
+            142.07417,
+            138.08958,
+            140.47708
+          ],
+          "statistics": {
+            "minimumNs": 124.84416,
+            "medianNs": 138.06708,
+            "meanNs": 135.553332,
+            "maximumNs": 143.28292
+          },
+          "checksum": 28
+        },
+        {
+          "id": "base64-decode",
+          "warmupIterations": 3,
+          "iterationsPerSample": 100000,
+          "samplesNsPerOperation": [
+            176.11625,
+            154.06208,
+            142.26709,
+            145.98,
+            143.20959,
+            149.77334,
+            144.96625,
+            148.10167,
+            142.84375
+          ],
+          "statistics": {
+            "minimumNs": 142.26709,
+            "medianNs": 145.98,
+            "meanNs": 149.702224,
+            "maximumNs": 176.11625
+          },
+          "checksum": 56
+        }
+      ]
+    },
+    {
+      "byteLength": 64,
+      "byteOffset": 9,
+      "encodedBytes": 88,
+      "encodedExpansionRatio": 1.375,
+      "operations": [
+        {
+          "id": "byte-copy",
+          "warmupIterations": 3,
+          "iterationsPerSample": 100000,
+          "samplesNsPerOperation": [
+            35.84417,
+            35.40166,
+            36.27333,
+            34.31667,
+            37.6875,
+            36.0075,
+            35.65542,
+            34.00042,
+            34.41583
+          ],
+          "statistics": {
+            "minimumNs": 34.00042,
+            "medianNs": 35.65542,
+            "meanNs": 35.511389,
+            "maximumNs": 37.6875
+          },
+          "checksum": 93
+        },
+        {
+          "id": "base64-encode",
+          "warmupIterations": 3,
+          "iterationsPerSample": 100000,
+          "samplesNsPerOperation": [
+            133.58625,
+            130.80708,
+            134.8175,
+            133.25,
+            131.995,
+            135.39167,
+            133.36334,
+            134.53792,
+            132.0925
+          ],
+          "statistics": {
+            "minimumNs": 130.80708,
+            "medianNs": 133.36334,
+            "meanNs": 133.315696,
+            "maximumNs": 135.39167
+          },
+          "checksum": 88
+        },
+        {
+          "id": "base64-decode",
+          "warmupIterations": 3,
+          "iterationsPerSample": 100000,
+          "samplesNsPerOperation": [
+            151.68625,
+            147.72375,
+            151.84875,
+            147.69417,
+            148.70375,
+            150.40792,
+            146.17667,
+            149.59,
+            147.87292
+          ],
+          "statistics": {
+            "minimumNs": 146.17667,
+            "medianNs": 148.70375,
+            "meanNs": 149.078242,
+            "maximumNs": 151.84875
+          },
+          "checksum": 93
+        }
+      ]
+    },
+    {
+      "byteLength": 512,
+      "byteOffset": 10,
+      "encodedBytes": 684,
+      "encodedExpansionRatio": 1.335938,
+      "operations": [
+        {
+          "id": "byte-copy",
+          "warmupIterations": 3,
+          "iterationsPerSample": 16384,
+          "samplesNsPerOperation": [
+            209.99652099609375,
+            206.6192626953125,
+            223.93035888671875,
+            201.2939453125,
+            204.06597900390625,
+            207.47119140625,
+            230.377197265625,
+            349.138916015625,
+            308.28350830078125
+          ],
+          "statistics": {
+            "minimumNs": 201.293945,
+            "medianNs": 209.996521,
+            "meanNs": 237.908542,
+            "maximumNs": 349.138916
+          },
+          "checksum": 130
+        },
+        {
+          "id": "base64-encode",
+          "warmupIterations": 3,
+          "iterationsPerSample": 16384,
+          "samplesNsPerOperation": [
+            221.48895263671875,
+            204.37872314453125,
+            207.20416259765625,
+            207.57037353515625,
+            204.39404296875,
+            211.44866943359375,
+            205.58673095703125,
+            201.72882080078125,
+            209.76763916015625
+          ],
+          "statistics": {
+            "minimumNs": 201.728821,
+            "medianNs": 207.204163,
+            "meanNs": 208.174235,
+            "maximumNs": 221.488953
+          },
+          "checksum": 684
+        },
+        {
+          "id": "base64-decode",
+          "warmupIterations": 3,
+          "iterationsPerSample": 16384,
+          "samplesNsPerOperation": [
+            413.56915283203125,
+            402.7811279296875,
+            401.64691162109375,
+            399.5208740234375,
+            378.13824462890625,
+            386.64501953125,
+            445.5592041015625,
+            407.88775634765625,
+            421.3536376953125
+          ],
+          "statistics": {
+            "minimumNs": 378.138245,
+            "medianNs": 402.781128,
+            "meanNs": 406.344659,
+            "maximumNs": 445.559204
+          },
+          "checksum": 130
+        }
+      ]
+    },
+    {
+      "byteLength": 4096,
+      "byteOffset": 11,
+      "encodedBytes": 5464,
+      "encodedExpansionRatio": 1.333984,
+      "operations": [
+        {
+          "id": "byte-copy",
+          "warmupIterations": 3,
+          "iterationsPerSample": 2048,
+          "samplesNsPerOperation": [
+            614.2578125,
+            543.25390625,
+            556.498046875,
+            1461.283203125,
+            679.36181640625,
+            578.9794921875,
+            305.98974609375,
+            292.70458984375,
+            868.1845703125
+          ],
+          "statistics": {
+            "minimumNs": 292.70459,
+            "medianNs": 578.979492,
+            "meanNs": 655.612576,
+            "maximumNs": 1461.283203
+          },
+          "checksum": 167
+        },
+        {
+          "id": "base64-encode",
+          "warmupIterations": 3,
+          "iterationsPerSample": 2048,
+          "samplesNsPerOperation": [
+            991.2314453125,
+            767.39501953125,
+            779.296875,
+            764.8720703125,
+            806.35546875,
+            822.7744140625,
+            807.08837890625,
+            769.81591796875,
+            745.07666015625
+          ],
+          "statistics": {
+            "minimumNs": 745.07666,
+            "medianNs": 779.296875,
+            "meanNs": 805.989583,
+            "maximumNs": 991.231445
+          },
+          "checksum": 5464
+        },
+        {
+          "id": "base64-decode",
+          "warmupIterations": 3,
+          "iterationsPerSample": 2048,
+          "samplesNsPerOperation": [
+            1887.49169921875,
+            3240.72265625,
+            2236.2265625,
+            1811.2998046875,
+            1478.45458984375,
+            1662.943359375,
+            2063.4765625,
+            1603.3935546875,
+            1455.97314453125
+          ],
+          "statistics": {
+            "minimumNs": 1455.973145,
+            "medianNs": 1811.299805,
+            "meanNs": 1937.77577,
+            "maximumNs": 3240.722656
+          },
+          "checksum": 167
+        }
+      ]
+    },
+    {
+      "byteLength": 65536,
+      "byteOffset": 12,
+      "encodedBytes": 87384,
+      "encodedExpansionRatio": 1.333374,
+      "operations": [
+        {
+          "id": "byte-copy",
+          "warmupIterations": 3,
+          "iterationsPerSample": 128,
+          "samplesNsPerOperation": [
+            5861,
+            5749.0234375,
+            6961.265625,
+            6997.3984375,
+            6613.609375,
+            6601.2421875,
+            7181.640625,
+            3568.359375,
+            2513.9921875
+          ],
+          "statistics": {
+            "minimumNs": 2513.992188,
+            "medianNs": 6601.242188,
+            "meanNs": 5783.059028,
+            "maximumNs": 7181.640625
+          },
+          "checksum": 204
+        },
+        {
+          "id": "base64-encode",
+          "warmupIterations": 3,
+          "iterationsPerSample": 128,
+          "samplesNsPerOperation": [
+            14388.671875,
+            11741.859375,
+            12467.125,
+            11795.5703125,
+            12026.6953125,
+            13214.1875,
+            11069.3359375,
+            12528.3203125,
+            11558.59375
+          ],
+          "statistics": {
+            "minimumNs": 11069.335938,
+            "medianNs": 12026.695313,
+            "meanNs": 12310.039931,
+            "maximumNs": 14388.671875
+          },
+          "checksum": 87384
+        },
+        {
+          "id": "base64-decode",
+          "warmupIterations": 3,
+          "iterationsPerSample": 128,
+          "samplesNsPerOperation": [
+            12803.3828125,
+            16021.8046875,
+            13122.71875,
+            16382.1640625,
+            11764.6484375,
+            13629.5546875,
+            13412.4296875,
+            14956.703125,
+            11557.2890625
+          ],
+          "statistics": {
+            "minimumNs": 11557.289063,
+            "medianNs": 13412.429688,
+            "meanNs": 13738.966146,
+            "maximumNs": 16382.164063
+          },
+          "checksum": 204
+        }
+      ]
+    },
+    {
+      "byteLength": 1048576,
+      "byteOffset": 13,
+      "encodedBytes": 1398104,
+      "encodedExpansionRatio": 1.333336,
+      "operations": [
+        {
+          "id": "byte-copy",
+          "warmupIterations": 3,
+          "iterationsPerSample": 8,
+          "samplesNsPerOperation": [
+            19031.25,
+            30812.5,
+            19093.75,
+            19489.625,
+            17770.875,
+            71536.375,
+            20968.75,
+            20322.875,
+            22234.375
+          ],
+          "statistics": {
+            "minimumNs": 17770.875,
+            "medianNs": 20322.875,
+            "meanNs": 26806.708333,
+            "maximumNs": 71536.375
+          },
+          "checksum": 241
+        },
+        {
+          "id": "base64-encode",
+          "warmupIterations": 3,
+          "iterationsPerSample": 8,
+          "samplesNsPerOperation": [
+            102171.875,
+            57302,
+            163015.625,
+            193937.5,
+            60505.125,
+            74302.125,
+            148604.25,
+            177385.5,
+            193411.5
+          ],
+          "statistics": {
+            "minimumNs": 57302,
+            "medianNs": 148604.25,
+            "meanNs": 130070.611111,
+            "maximumNs": 193937.5
+          },
+          "checksum": 1398104
+        },
+        {
+          "id": "base64-decode",
+          "warmupIterations": 3,
+          "iterationsPerSample": 8,
+          "samplesNsPerOperation": [
+            210151,
+            264911.5,
+            146119.875,
+            175036.375,
+            163573,
+            147000,
+            130250,
+            134880.25,
+            125656.25
+          ],
+          "statistics": {
+            "minimumNs": 125656.25,
+            "medianNs": 147000,
+            "meanNs": 166397.583333,
+            "maximumNs": 264911.5
+          },
+          "checksum": 241
+        }
+      ]
+    }
+  ],
+  "binaryComparison": {
+    "status": "blocked",
+    "blocker": "No measured owned JSI binary binding is captured in this Codegen-focused spike. The RN 0.86 TypeScript Codegen result blocks only generated binary TurboModule signatures, not JSI binary transport generally.",
+    "comparisonValue": null
+  }
+}

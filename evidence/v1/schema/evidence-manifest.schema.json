@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unified-ble-manager.dev/evidence/v1/evidence-manifest.schema.json",
+  "title": "Unified BLE evidence manifest",
+  "description": "Fail-closed, versioned evidence record for first-party and third-party BLE backend/platform claims.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema", "claim", "subject", "source", "execution", "proof", "artifacts", "limitations", "attestations", "boundary", "ownership", "history"],
+  "properties": {
+    "$schema": { "const": "evidence/v1/schema/evidence-manifest.schema.json" },
+    "schema": { "$ref": "#/$defs/schema" },
+    "claim": { "$ref": "#/$defs/claim" },
+    "subject": { "$ref": "#/$defs/subject" },
+    "source": { "$ref": "#/$defs/source" },
+    "execution": { "$ref": "#/$defs/execution" },
+    "proof": { "$ref": "#/$defs/proof" },
+    "artifacts": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/artifact" } },
+    "limitations": { "type": "array", "items": { "$ref": "#/$defs/limitation" } },
+    "attestations": { "$ref": "#/$defs/attestations" },
+    "boundary": { "$ref": "#/$defs/boundary" },
+    "ownership": { "$ref": "#/$defs/ownership" },
+    "history": { "$ref": "#/$defs/history" }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]{2,127}$" },
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$" },
+    "evidencePath": { "type": "string", "pattern": "^evidence/v1/[a-zA-Z0-9._/-]+$" },
+    "level": { "type": "string", "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] },
+    "supportLabel": { "type": "string", "enum": ["Experimental", "Preview", "Live Preview", "Supported", "Reliability-qualified"] },
+    "controllerFeature": { "type": "string", "enum": ["reset", "configure-notifications", "set-read-value", "recorded-writes", "clear-recorded-writes", "force-disconnect", "trigger-services-changed", "inject-att-error", "notification-flood", "malformed-value", "backend-service-restart", "adapter-power-control", "radio-interference", "process-kill"] },
+    "schema": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version"],
+      "properties": { "id": { "const": "unified-ble-manager/evidence-manifest" }, "version": { "const": "1.0.0" } }
+    },
+    "claim": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "revision", "claimVersion", "issuerKind", "publishedSupportLabel", "targetSupportLabel", "supportMatrix"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "revision": { "type": "integer", "minimum": 1 },
+        "claimVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "issuerKind": { "enum": ["first-party", "third-party"] },
+        "publishedSupportLabel": { "$ref": "#/$defs/supportLabel" }, "targetSupportLabel": { "$ref": "#/$defs/supportLabel" },
+        "supportMatrix": { "$ref": "#/$defs/supportMatrix" }
+      }
+    },
+    "supportMatrix": {
+      "type": "object", "additionalProperties": false, "required": ["environments", "entries"],
+      "properties": {
+        "environments": { "type": "array", "items": { "$ref": "#/$defs/supportEnvironment" } },
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/supportMatrixEntry" } }
+      }
+    },
+    "supportEnvironment": {
+      "type": "object", "additionalProperties": false, "required": ["id", "platformId", "hostId", "runtime"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "platformId": { "$ref": "#/$defs/id" }, "hostId": { "$ref": "#/$defs/id" }, "runtime": { "$ref": "#/$defs/versionMap" } }
+    },
+    "supportMatrixEntry": {
+      "type": "object", "additionalProperties": false, "required": ["environmentId", "capabilityIds", "scenarioIds"],
+      "properties": {
+        "environmentId": { "$ref": "#/$defs/id" },
+        "capabilityIds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } },
+        "scenarioIds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } }
+      }
+    },
+    "subject": {
+      "type": "object", "additionalProperties": false,
+      "required": ["backend", "platform", "host", "runtime", "toolchain", "packageArtifact", "protocolVersions", "capabilities"],
+      "properties": {
+        "backend": { "$ref": "#/$defs/backend" }, "platform": { "$ref": "#/$defs/platform" }, "host": { "$ref": "#/$defs/host" },
+        "runtime": { "$ref": "#/$defs/versionMap" }, "toolchain": { "$ref": "#/$defs/versionMap" },
+        "packageArtifact": { "$ref": "#/$defs/packageArtifact" }, "protocolVersions": { "$ref": "#/$defs/protocolVersions" },
+        "capabilities": { "type": "array", "items": { "$ref": "#/$defs/capability" } }
+      }
+    },
+    "backend": {
+      "type": "object", "additionalProperties": false, "required": ["id", "implementation", "version"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "implementation": { "type": "string", "minLength": 1 }, "version": { "type": "string", "minLength": 1 } }
+    },
+    "platform": {
+      "type": "object", "additionalProperties": false, "required": ["id", "os", "architecture"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "os": { "type": "string", "minLength": 1 }, "architecture": { "type": "string", "minLength": 1 }, "osVersion": { "type": "string", "minLength": 1 } }
+    },
+    "host": {
+      "type": "object", "additionalProperties": false, "required": ["id", "processRole"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "processRole": { "enum": ["single-process", "node", "electron-main", "electron-renderer", "react-native", "browser", "test"] } }
+    },
+    "versionMap": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "string", "minLength": 1 } },
+    "packageArtifact": {
+      "type": "object", "additionalProperties": false, "required": ["name", "version", "availability", "type", "path", "sha256", "artifactId"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }, "version": { "type": "string", "minLength": 1 },
+        "availability": { "enum": ["verified", "unavailable"] }, "type": { "enum": ["tarball", "build-output", "working-tree-snapshot", "native-binary", "unavailable"] },
+        "path": { "type": ["string", "null"] }, "sha256": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" }, "artifactId": { "type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9._/-]{2,127}$" }
+      }
+    },
+    "protocolVersions": {
+      "type": "object", "additionalProperties": false, "required": ["package", "backendContract", "capabilitySchema", "eventSchema", "nativeOrIpc", "trace"],
+      "properties": { "package": { "type": "string", "minLength": 1 }, "backendContract": { "type": ["integer", "null"], "minimum": 1 }, "capabilitySchema": { "type": ["integer", "null"], "minimum": 1 }, "eventSchema": { "type": ["integer", "null"], "minimum": 1 }, "nativeOrIpc": { "type": ["integer", "null"], "minimum": 1 }, "trace": { "type": ["integer", "null"], "minimum": 1 } }
+    },
+    "capability": {
+      "type": "object", "additionalProperties": false, "required": ["id", "supportLevel", "evidenceLevel", "limitationIds"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "supportLevel": { "enum": ["native", "emulated", "partial", "unsupported"] }, "evidenceLevel": { "$ref": "#/$defs/level" }, "limitationIds": { "type": "array", "items": { "$ref": "#/$defs/id" } } }
+    },
+    "source": {
+      "type": "object", "additionalProperties": false, "required": ["repository", "commit", "dirty", "dirtyStateArtifactId"],
+      "properties": { "repository": { "type": "string", "minLength": 1 }, "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" }, "dirty": { "type": "boolean" }, "dirtyStateArtifactId": { "$ref": "#/$defs/id" }, "dirtyPathCount": { "type": "integer", "minimum": 1 }, "dirtyPathsSha256": { "$ref": "#/$defs/hash" } }
+    },
+    "execution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["provenance", "deterministic", "liveRadio", "capturedAt", "startedAt", "endedAt", "hardware", "peripherals", "commands"],
+      "properties": { "provenance": { "enum": ["environment", "compile", "mock", "deterministic", "system", "live-radio", "reported-unverified"] }, "deterministic": { "type": "boolean" }, "liveRadio": { "type": "boolean" }, "capturedAt": { "$ref": "#/$defs/timestamp" }, "startedAt": { "$ref": "#/$defs/timestamp" }, "endedAt": { "$ref": "#/$defs/timestamp" }, "hardware": { "$ref": "#/$defs/hardware" }, "peripherals": { "type": "array", "items": { "$ref": "#/$defs/peripheral" } }, "commands": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/command" } } }
+    },
+    "hardware": {
+      "type": "object", "additionalProperties": false, "required": ["adapter", "machine"],
+      "properties": { "adapter": { "$ref": "#/$defs/hardwareItem" }, "machine": { "$ref": "#/$defs/hardwareItem" } }
+    },
+    "hardwareItem": {
+      "type": "object", "additionalProperties": false, "required": ["safeId", "kind", "redaction"],
+      "properties": { "safeId": { "$ref": "#/$defs/id" }, "kind": { "type": "string", "minLength": 1 }, "redaction": { "enum": ["none", "identifier-redacted", "all-identifiers-redacted"] }, "details": { "type": "object", "additionalProperties": { "type": "string" } } }
+    },
+    "peripheral": {
+      "type": "object", "additionalProperties": false, "required": ["safeId", "kind", "physical", "controllerFeatures", "redaction"],
+      "properties": { "safeId": { "$ref": "#/$defs/id" }, "kind": { "enum": ["fixed-function", "controllable-fault-injection", "deterministic-virtual", "none"] }, "physical": { "type": "boolean" }, "controllerFeatures": { "type": "array", "items": { "$ref": "#/$defs/controllerFeature" } }, "redaction": { "enum": ["none", "identifier-redacted", "all-identifiers-redacted"] } }
+    },
+    "command": {
+      "type": "object", "additionalProperties": false, "required": ["id", "argv", "cwd", "startedAt", "endedAt", "exitCode", "resultArtifactId"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "argv": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }, "cwd": { "type": "string", "pattern": "^\\.?/?[a-zA-Z0-9._/-]*$" }, "startedAt": { "$ref": "#/$defs/timestamp" }, "endedAt": { "$ref": "#/$defs/timestamp" }, "exitCode": { "type": "integer", "minimum": 0 }, "resultArtifactId": { "$ref": "#/$defs/id" }, "receiptArtifactId": { "$ref": "#/$defs/id" }, "profileId": { "$ref": "#/$defs/id" }, "toolIdentity": { "enum": ["unified-ble-tck", "legacy-package-regression"] } }
+    },
+    "proof": {
+      "type": "object", "additionalProperties": false, "required": ["level", "status", "reason", "supportGate", "scenarios"],
+      "properties": { "level": { "$ref": "#/$defs/level" }, "status": { "enum": ["passed", "failed", "skipped", "blocked"] }, "reason": { "type": "string" }, "supportGate": { "type": "boolean" }, "scenarios": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/scenario" } } }
+    },
+    "scenario": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "result", "level", "provenance", "artifactIds", "commandIds", "peripheralIds", "requiredControllerFeatures", "startedAt", "endedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "kind": { "enum": ["compile-package", "tck", "legacy-regression", "system-smoke", "vertical-slice", "background", "reconnect", "soak", "fault-injection", "native-abi", "protocol-handshake", "other"] }, "result": { "enum": ["passed", "failed", "skipped", "blocked"] }, "level": { "$ref": "#/$defs/level" }, "provenance": { "enum": ["environment", "compile", "mock", "deterministic", "system", "live-radio", "reported-unverified"] }, "artifactIds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } }, "commandIds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } }, "peripheralIds": { "type": "array", "items": { "$ref": "#/$defs/id" } }, "requiredControllerFeatures": { "type": "array", "items": { "$ref": "#/$defs/controllerFeature" } }, "startedAt": { "$ref": "#/$defs/timestamp" }, "endedAt": { "$ref": "#/$defs/timestamp" }, "reason": { "type": "string" }
+      }
+    },
+    "artifact": {
+      "type": "object", "additionalProperties": false, "required": ["id", "artifactType", "path", "sha256", "mediaType", "redaction"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "artifactType": { "enum": ["command-result", "command-receipt", "package-artifact", "source-state"] }, "packageType": { "type": ["string", "null"], "enum": ["tarball", "build-output", "working-tree-snapshot", "native-binary", null] }, "nativeModuleAbi": { "type": "integer", "minimum": 1 }, "path": { "$ref": "#/$defs/evidencePath" }, "sha256": { "$ref": "#/$defs/hash" }, "mediaType": { "type": "string", "minLength": 3 }, "redaction": { "enum": ["redacted", "contains-no-sensitive-data"] } },
+      "allOf": [{ "if": { "properties": { "artifactType": { "const": "package-artifact" } } }, "then": { "required": ["packageType"], "properties": { "packageType": { "enum": ["tarball", "build-output", "working-tree-snapshot", "native-binary"] } } }, "else": { "properties": { "packageType": { "const": null } } }}]
+    },
+    "limitation": { "type": "object", "additionalProperties": false, "required": ["id", "description", "status"], "properties": { "id": { "$ref": "#/$defs/id" }, "description": { "type": "string", "minLength": 1 }, "status": { "enum": ["open", "blocked", "not-applicable"] } } },
+    "attestations": { "type": "object", "additionalProperties": false, "required": ["securityReviewed", "privacyReviewed", "redactionApplied", "noSecretsIncluded", "noTelemetryUsed"], "properties": { "securityReviewed": { "const": true }, "privacyReviewed": { "const": true }, "redactionApplied": { "const": true }, "noSecretsIncluded": { "const": true }, "noTelemetryUsed": { "const": true } } },
+    "boundary": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "abiOrProtocol", "processBoundary", "compatibility"],
+      "properties": { "kind": { "enum": ["in-process", "native-abi", "electron-ipc", "react-native-turbomodule", "web-api"] }, "abiOrProtocol": { "type": ["string", "null"] }, "processBoundary": { "enum": ["none", "node-native", "electron-main-renderer", "js-native", "browser-os"] }, "compatibility": { "type": ["object", "null"], "additionalProperties": false, "required": ["version", "minimumVersion", "maximumVersion", "handshakeScenarioId"], "properties": { "version": { "type": "integer", "minimum": 1 }, "minimumVersion": { "type": "integer", "minimum": 1 }, "maximumVersion": { "type": "integer", "minimum": 1 }, "handshakeScenarioId": { "$ref": "#/$defs/id" } } } }
+    },
+    "ownership": { "type": "object", "additionalProperties": false, "required": ["maintainer", "revalidation"], "properties": { "maintainer": { "type": "object", "additionalProperties": false, "required": ["id", "contact"], "properties": { "id": { "$ref": "#/$defs/id" }, "contact": { "type": "string", "minLength": 3 } } }, "revalidation": { "type": "object", "additionalProperties": false, "required": ["cadenceDays", "nextDueAt", "triggers"], "properties": { "cadenceDays": { "type": "integer", "minimum": 1, "maximum": 366 }, "nextDueAt": { "$ref": "#/$defs/timestamp" }, "triggers": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } } } } } },
+    "claimReference": { "type": "object", "additionalProperties": false, "required": ["id", "revision"], "properties": { "id": { "$ref": "#/$defs/id" }, "revision": { "type": "integer", "minimum": 1 } } },
+    "history": { "type": "object", "additionalProperties": false, "required": ["supersedes", "supersededBy"], "properties": { "supersedes": { "type": "array", "items": { "$ref": "#/$defs/claimReference" } }, "supersededBy": { "type": ["object", "null"], "additionalProperties": false, "required": ["id", "revision"], "properties": { "id": { "$ref": "#/$defs/id" }, "revision": { "type": "integer", "minimum": 1 } } } } }
+  }
+}

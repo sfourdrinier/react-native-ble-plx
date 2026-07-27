@@ -1,3 +1,5 @@
+// __tests__/PackageModernization.js
+
 const rootPackage = require('../package.json')
 const examplePackage = require('../example/package.json')
 const exampleExpoPackage = require('../example-expo/package.json')
@@ -38,18 +40,16 @@ const connectionManagerDoc = readText(path.join(__dirname, '..', 'docs/CONNECTIO
 const exampleExpoGitignore = readText(path.join(__dirname, '..', 'example-expo/.gitignore'))
 const rootGitignore = readText(path.join(__dirname, '..', '.gitignore'))
 const exampleAndroidBuild = readText(path.join(__dirname, '..', 'example/android/build.gradle'))
-const exampleIosProject = readText(
-  path.join(__dirname, '..', 'example/ios/BlePlxExample.xcodeproj/project.pbxproj')
-)
+const exampleIosProject = readText(path.join(__dirname, '..', 'example/ios/BlePlxExample.xcodeproj/project.pbxproj'))
 const exampleImports = [
   ...fs
     .readdirSync(path.join(__dirname, '..', 'example/src'), { recursive: true })
-    .filter((filePath) => filePath.endsWith('.ts') || filePath.endsWith('.tsx'))
-    .map((filePath) => fs.readFileSync(path.join(__dirname, '..', 'example/src', filePath), 'utf8')),
+    .filter(filePath => filePath.endsWith('.ts') || filePath.endsWith('.tsx'))
+    .map(filePath => fs.readFileSync(path.join(__dirname, '..', 'example/src', filePath), 'utf8')),
   ...fs
     .readdirSync(path.join(__dirname, '..', 'example-expo/src'), { recursive: true })
-    .filter((filePath) => filePath.endsWith('.ts') || filePath.endsWith('.tsx'))
-    .map((filePath) => fs.readFileSync(path.join(__dirname, '..', 'example-expo/src', filePath), 'utf8'))
+    .filter(filePath => filePath.endsWith('.ts') || filePath.endsWith('.tsx'))
+    .map(filePath => fs.readFileSync(path.join(__dirname, '..', 'example-expo/src', filePath), 'utf8'))
 ].join('\n')
 
 /** Range must allow newer releases on the given major (caret/tilde/exact all OK). */
@@ -122,9 +122,7 @@ describe('package modernization targets', () => {
   })
 
   test('CI verifies the same Expo CNG Android build path used locally', () => {
-    const setupJsAction = readText(
-      path.join(__dirname, '..', '.github/actions/setup-js-package/action.yml')
-    )
+    const setupJsAction = readText(path.join(__dirname, '..', '.github/actions/setup-js-package/action.yml'))
     // Node pin lives in the shared composite action
     // Default floor remains 20.19.4; input allows matrix override (Node 24 publish line).
     expect(setupJsAction).toMatch(/default:\s*['"]20\.19\.4['"]/)
@@ -191,7 +189,7 @@ describe('package modernization targets', () => {
   test('CI keeps expensive Apple jobs off default PR commits (label / master|4.0 / manual)', () => {
     expect(ciWorkflow).toContain('workflow_dispatch:')
     expect(ciWorkflow).toContain('types: [opened, reopened, synchronize, ready_for_review, labeled]')
-    expect(ciWorkflow).toContain("ci:apple")
+    expect(ciWorkflow).toContain('ci:apple')
     // Keep paths-filter on current major (v4 as of 2026-07; Node 24 runtime).
     expect(ciWorkflow).toMatch(/dorny\/paths-filter@v4(\.\d+\.\d+)?/)
     expect(ciWorkflow).toContain('needs.changes.outputs.apple')
@@ -206,12 +204,10 @@ describe('package modernization targets', () => {
     // Hardened token permissions for checkout + paths-filter PR files API.
     expect(ciWorkflow).toMatch(/permissions:\s*\n\s*contents:\s*read\s*\n\s*pull-requests:\s*read/)
     // example app deps feed ios-example pod install — include in apple path filter.
-    expect(ciWorkflow).toContain("example/package.json")
+    expect(ciWorkflow).toContain('example/package.json')
     // JS tests always run (no skip-on-unrelated-label if). Honest name: not "Package checks".
     expect(ciWorkflow).toMatch(/name:\s*JS tests \(\$\{\{ matrix\.os \}\}/)
-    expect(ciWorkflow).not.toMatch(
-      /package:\s*\n\s*name: Package checks\s*\n\s*if:[\s\S]*label\.name == 'ci:apple'/
-    )
+    expect(ciWorkflow).not.toMatch(/package:\s*\n\s*name: Package checks\s*\n\s*if:[\s\S]*label\.name == 'ci:apple'/)
   })
 
   test('tvOS library check targets unified-ble-manager.podspec + owned product sources', () => {
@@ -225,7 +221,7 @@ describe('package modernization targets', () => {
   test('CI includes classic RN Android assemble and codemod fixture check', () => {
     expect(ciWorkflow).toContain('classic-rn-android:')
     expect(ciWorkflow).toContain('Classic RN Android assemble')
-    expect(ciWorkflow).toContain("working-directory: example/android")
+    expect(ciWorkflow).toContain('working-directory: example/android')
     expect(ciWorkflow).toContain('pnpm test:codemod')
     // R3-F075: full test:package covers these suites once — no redundant testPathPattern re-run
     expect(ciWorkflow).not.toMatch(
@@ -253,7 +249,7 @@ describe('package modernization targets', () => {
   // R3-F068: verify-release includes vite build smoke
   test('verify-release runs web vite build smoke (R3-F068)', () => {
     expect(releaseVerifyScript).toMatch(/vite build --config example-web\/vite\.config\.js/)
-    expect(releaseDoc).toMatch(/Web vite|vite build smoke|example-web\/vite/)
+    expect(releaseDoc).toContain('packed artifact')
   })
 
   // R3-F062 / R3-F073: bare + expo BLEService stay parity; no magic errorCode 2
@@ -351,21 +347,11 @@ describe('package modernization targets', () => {
     expect(publishWorkflow).not.toContain('NPM_TOKEN')
     expect(publishWorkflow).not.toContain('secrets.NPM_TOKEN')
     expect(publishWorkflow).not.toContain('secrets.NODE_AUTH_TOKEN')
-    expect(releaseDoc).toContain('Trusted Publishing')
-    expect(releaseDoc).toContain('publish.yml')
-    expect(releaseDoc).toContain('dist.attestations')
-    expect(releaseDoc).toContain('git tag -a v<version>')
-    expect(releaseDoc).toContain('Path A — CI publish')
-    expect(releaseDoc).toContain('Path B — Laptop publish')
-    expect(releaseDoc).toContain('Git tags stay **manual**')
-    expect(releaseDoc).toContain('npm publish --access public')
-    expect(releaseDoc).toContain('gh release create')
-    expect(releaseDoc).toContain('Prefer **Path A (CI)**')
-    // 4.0 product identity
+    expect(releaseDoc).toContain('UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
+    expect(releaseDoc).toContain('does not authorize publishing 4.0')
+    expect(releaseDoc).toContain('no permanent scoped shim')
+    // Current package identity remains source characterization until release gates pass.
     expect(releaseDoc).toContain('unified-ble-manager')
-    expect(releaseDoc).toContain('unified-ble-manager.podspec')
-    expect(releaseDoc).not.toContain('react-native-ble-plx.podspec')
-    expect(releaseDoc).toContain('prepare-shim-pack.js')
   })
 
   test('Dependabot keeps GitHub Actions and package ecosystems current', () => {
@@ -377,44 +363,19 @@ describe('package modernization targets', () => {
     expect(dependabot).toContain('schedule:')
   })
 
-  test('release documentation is a reusable Expo SDK 57 release process', () => {
+  test('release documentation makes 4.0 publication explicitly plan-gated', () => {
     expect(rootPackage.scripts['verify:release']).toBe('bash scripts/verify-release.sh')
     expect(fs.existsSync(releaseVerifyScriptPath)).toBe(true)
-    expect(releaseDoc).toContain('pnpm verify:release')
-    // Current Release block tracks last *published* version (updated after Path A succeeds).
-    // While preparing a release PR, package.json may already be the next version.
-    expect(releaseDoc).toMatch(/Current released version: `\d+\.\d+\.\d+`/)
-    // 4.0 branch package identity; stable-line 3.9.x remains documented for lineage.
+    expect(releaseDoc).toContain('does not authorize publishing 4.0')
+    expect(releaseDoc).toContain('Section 31 release gates')
+    expect(releaseDoc).toContain('packed artifact')
+    expect(releaseDoc).toContain('zero-diagnostic gates')
+    // Current source identity is not a public 4.0 compatibility commitment.
     expect(rootPackage.version).toMatch(/^4\.0\.0-alpha\./)
     expect(rootPackage.name).toBe('unified-ble-manager')
     expect(fs.readFileSync(path.join(__dirname, '..', 'MIGRATION_4.0.md'), 'utf8')).toContain('unified-ble-manager')
     expect(fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf8')).toContain('## [3.9.2]')
     expect(fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf8')).toMatch(/#31|fcxx-modules|fmt/)
-    expect(releaseDoc).toContain('Expo SDK 57')
-    expect(releaseDoc).toContain('React Native 0.86')
-    expect(releaseDoc).toContain('pnpm test:package')
-    expect(releaseDoc).toContain('pnpm test:plugin')
-    expect(releaseDoc).toContain('pnpm lint')
-    expect(releaseDoc).toContain('pnpm prepack')
-    expect(releaseDoc).toContain('pnpm --dir example-expo install --no-frozen-lockfile')
-    expect(releaseDoc).toContain('pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json')
-    expect(releaseDoc).toContain('npx expo-doctor')
-    expect(releaseDoc).toContain('npx expo prebuild --clean --no-install')
-    expect(releaseDoc).toContain('./gradlew :app:assembleDebug --no-daemon --console=plain')
-    expect(releaseDoc).toContain('npm pack --dry-run')
-    expect(releaseDoc).toContain('npm publish --provenance --access public')
-    expect(releaseDoc).toContain('npm publish --access public')
-    expect(releaseDoc).toContain('gh release create')
-    expect(releaseDoc).toContain('Path A — CI publish')
-    expect(releaseDoc).toContain('Path B — Laptop publish')
-    expect(releaseDoc).toContain('v<version>')
-    expect(releaseDoc).toContain('file:..')
-    expect(releaseDoc).toContain('ROADMAP.md')
-    expect(releaseDoc).toContain('gitHead')
-    expect(releaseDoc).toContain('cannot be reused')
-    expect(releaseDoc).toContain('example-expo/android')
-    expect(releaseDoc).toContain('example-expo/ios')
-    expect(releaseDoc).not.toContain('Generate new documentation via `pnpm run docs`')
     expect(releaseVerifyScript).toContain('pnpm test:package')
     expect(releaseVerifyScript).toContain('pnpm test:plugin')
     expect(releaseVerifyScript).toContain('pnpm lint')
@@ -424,7 +385,9 @@ describe('package modernization targets', () => {
     )
     expect(releaseVerifyScript).toContain('export NODE_OPTIONS')
     expect(releaseVerifyScript).toContain('--max-old-space-size=8192')
-    expect(releaseVerifyScript).toContain('rm -rf "$ROOT_DIR/example-expo/node_modules/.pnpm/unified-ble-manager@file+.."*')
+    expect(releaseVerifyScript).toContain(
+      'rm -rf "$ROOT_DIR/example-expo/node_modules/.pnpm/unified-ble-manager@file+.."*'
+    )
     expect(releaseVerifyScript).toContain('rm -rf "$ROOT_DIR/example-expo/node_modules/unified-ble-manager"')
     expect(releaseVerifyScript).toContain('pnpm --dir example-expo install --no-frozen-lockfile')
     expect(releaseVerifyScript).not.toContain('pnpm --dir example-expo install --no-frozen-lockfile --force')
@@ -439,11 +402,8 @@ describe('package modernization targets', () => {
     expect(releaseVerifyScript).toContain("require('./lib/commonjs/hosts/electron')")
     expect(releaseVerifyScript).toContain('prepare-shim-pack.js')
     expect(releaseVerifyScript).toContain('VERIFY_RELEASE_SKIP_CLASSIC_ANDROID')
-    expect(releaseDoc).toContain('node example-electron/smoke.js')
-    expect(releaseDoc).toContain('./web')
-    expect(releaseDoc).toContain('./electron')
-    expect(releaseDoc).toContain('./node')
-    expect(releaseDoc).toContain('native/')
+    expect(releaseDoc).toContain('host isolation')
+    expect(releaseDoc).toContain('evidence manifests')
   })
 
   test('example apps use Expo SDK 57 and React Native 0.86 defaults', () => {
@@ -500,7 +460,10 @@ describe('package modernization targets', () => {
     expect(rangeAllowsMinorLine(examplePackage.dependencies.react, 19, 2)).toBe(true)
     expect(rangeAllowsMinorLine(examplePackage.dependencies['react-native'], 0, 86)).toBe(true)
     expect(examplePackage.dependencies['unified-ble-manager']).toBe('file:..')
-    expect(fs.existsSync(path.join(__dirname, '..', 'example/ios/Podfile.lock'))).toBe(false)
+    expect(rootGitignore).toMatch(/^\s*example\/ios\/Podfile\.lock\s*$/m)
+    expect(rootGitignore).toMatch(/^\s*example\/vendor\/bundle\/\s*$/m)
+    expect(rootGitignore).toMatch(/^\s*example\/ios\/Pods\/\s*$/m)
+    expect(rootGitignore).toMatch(/^\s*example\/ios\/build\/\s*$/m)
 
     expect(exampleAndroidBuild).toContain('buildToolsVersion = "36.0.0"')
     expect(exampleAndroidBuild).toContain('compileSdkVersion = 36')
@@ -512,6 +475,27 @@ describe('package modernization targets', () => {
 
     expect(exampleIosProject).toContain('IPHONEOS_DEPLOYMENT_TARGET = 16.4;')
     expect(exampleIosProject).not.toContain('IPHONEOS_DEPLOYMENT_TARGET = 13.4;')
+  })
+
+  test('non-Expo example installs CocoaPods from its locked Bundler environment', () => {
+    expect(examplePackage.scripts.pods).toBe('bundle install && (cd ios && bundle exec pod install)')
+    expect(examplePackage.scripts.pods).not.toContain('pod-install')
+    expect(examplePackage.scripts.pods).not.toContain('--quiet')
+    expect(rootPackage.devDependencies).not.toHaveProperty('pod-install')
+
+    const gemfile = readText(path.join(__dirname, '..', 'example/Gemfile'))
+    const gemfileLock = readText(path.join(__dirname, '..', 'example/Gemfile.lock'))
+
+    expect(gemfile).toContain("gem 'cocoapods', '>= 1.13', '!= 1.15.0', '!= 1.15.1'")
+    expect(gemfile).toContain("gem 'nkf'")
+    expect(gemfile).toContain("gem 'tsort'")
+    expect(gemfileLock).toContain('cocoapods (1.15.2)')
+    expect(gemfileLock).toContain('nkf (0.3.0)')
+    expect(gemfileLock).toContain('tsort (0.2.0)')
+
+    const bundleConfig = readText(path.join(__dirname, '..', 'example/.bundle/config'))
+    expect(bundleConfig).toContain('BUNDLE_DEPLOYMENT: "true"')
+    expect(bundleConfig).toContain('BUNDLE_PATH: "vendor/bundle"')
   })
 
   test('README documents the SDK 57 compatibility floor', () => {
@@ -600,7 +584,12 @@ describe('package modernization targets', () => {
     expect(packageEntrypoint).not.toContain('ConnectionQueue')
     expect(packageEntrypoint).not.toContain('ReconnectionManager')
     expect(packageEntrypoint).not.toContain('ReconnectionOptions')
-    expect(packageEntrypoint).toContain('ConnectionManager')
+    expect(packageEntrypoint).not.toContain('ConnectionManager')
+    expect(packageEntrypoint).toContain('createBleManager')
+    expect(packageEntrypoint).toContain('BackendContractError')
+    expect(packageEntrypoint).toContain('canonicalUuid')
+    expect(packageEntrypoint).not.toContain("from './backend-sdk'")
+    expect(packageEntrypoint).not.toContain("from './testing'")
     const bleManager = fs.readFileSync(path.join(__dirname, '..', 'src/BleManager.ts'), 'utf8')
     const nativeSpec = fs.readFileSync(path.join(__dirname, '..', 'src/NativeBlePlx.ts'), 'utf8')
     const typeDefinitions = fs.readFileSync(path.join(__dirname, '..', 'src/TypeDefinition.ts'), 'utf8')
@@ -659,9 +648,9 @@ describe('package modernization targets', () => {
     expect(rootPackage.files).toContain('!docs/index.html')
     expect(rootPackage.files).toContain('!docs/assets')
 
-    expect(gettingStartedDoc).toMatch(/@sfourdrinier\/react-native-ble-plx|unified-ble-manager/)
+    expect(gettingStartedDoc).toContain('UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
+    expect(gettingStartedDoc).toContain('no released 4.0 getting-started integration yet')
     expect(gettingStartedDoc).toMatch(/EXPO_PLUGIN\.md/)
-    expect(gettingStartedDoc).toContain('requestBluetoothPermissions')
     expect(gettingStartedDoc).not.toContain('github.com/dotintent/react-native-ble-plx?tab=readme-ov-file#expo-sdk-43')
     expect(gettingStartedDoc).not.toContain('withintent.com')
 
@@ -694,8 +683,9 @@ describe('package modernization targets', () => {
     expect(plugin).not.toContain('WarningAggregator')
   })
 
-  test('connection cleanup documents intentionally ignored native cancellation errors', () => {
-    expect(connectionManager).toContain('ignoreConnectionCancellationError')
+  test('connection cleanup logs native cancellation errors instead of swallowing them', () => {
+    expect(connectionManager).toContain('reportConnectionCancellationFailure')
+    expect(connectionManager).toContain('[ConnectionManager] ${operation} failed:')
     expect(connectionManager).not.toContain('.catch(() => {})')
   })
 })

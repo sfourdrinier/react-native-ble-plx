@@ -95,15 +95,15 @@ const withBLE: ConfigPlugin<
     neverForLocation
   })
 
-  // Android foreground service for background BLE operations
+  // Always run so an enabled-to-disabled config transition removes the plugin's sticky FGS entries.
   if (androidEnableForegroundService) {
     blePlxPluginDebugLog(debugEnabled, '✓ androidEnableForegroundService is TRUE - adding foreground service config')
-    config = withBLEAndroidForegroundService(config, {
-      enableAndroidForegroundService: true
-    })
   } else {
-    blePlxPluginDebugLog(debugEnabled, '✗ androidEnableForegroundService is FALSE - skipping foreground service config')
+    blePlxPluginDebugLog(debugEnabled, '✗ androidEnableForegroundService is FALSE - removing foreground service config')
   }
+  config = withBLEAndroidForegroundService(config, {
+    enableAndroidForegroundService: androidEnableForegroundService
+  })
 
   return config
 }

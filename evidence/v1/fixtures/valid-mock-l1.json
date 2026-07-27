@@ -1,0 +1,185 @@
+{
+  "$schema": "evidence/v1/schema/evidence-manifest.schema.json",
+  "schema": {
+    "id": "unified-ble-manager/evidence-manifest",
+    "version": "1.0.0"
+  },
+  "claim": {
+    "id": "fixture-mock-l1",
+    "revision": 1,
+    "claimVersion": "1.0.0",
+    "issuerKind": "third-party",
+    "publishedSupportLabel": "Experimental",
+    "targetSupportLabel": "Preview",
+    "supportMatrix": {
+      "environments": [],
+      "entries": []
+    }
+  },
+  "subject": {
+    "backend": {
+      "id": "fixture-backend",
+      "implementation": "fixture backend",
+      "version": "0.0.0"
+    },
+    "platform": {
+      "id": "fixture-platform",
+      "os": "FixtureOS",
+      "architecture": "fixture64"
+    },
+    "host": {
+      "id": "fixture-host",
+      "processRole": "test"
+    },
+    "runtime": {
+      "node": "22.16.0"
+    },
+    "toolchain": {
+      "jest": "29.7.0"
+    },
+    "packageArtifact": {
+      "name": "fixture-package",
+      "version": "0.0.0",
+      "availability": "unavailable",
+      "type": "unavailable",
+      "path": null,
+      "sha256": null,
+      "artifactId": null
+    },
+    "protocolVersions": {
+      "package": "0.0.0",
+      "backendContract": null,
+      "capabilitySchema": null,
+      "eventSchema": null,
+      "nativeOrIpc": null,
+      "trace": null
+    },
+    "capabilities": []
+  },
+  "source": {
+    "repository": "fixture-repository",
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "dirty": false,
+    "dirtyStateArtifactId": "fixture-source-state"
+  },
+  "execution": {
+    "provenance": "mock",
+    "deterministic": false,
+    "liveRadio": false,
+    "capturedAt": "2026-07-25T20:00:03.000Z",
+    "startedAt": "2026-07-25T20:00:00.000Z",
+    "endedAt": "2026-07-25T20:00:02.000Z",
+    "hardware": {
+      "adapter": {
+        "safeId": "fixture-adapter",
+        "kind": "none",
+        "redaction": "all-identifiers-redacted"
+      },
+      "machine": {
+        "safeId": "fixture-machine",
+        "kind": "test-machine",
+        "redaction": "none"
+      }
+    },
+    "peripherals": [],
+    "commands": [
+      {
+        "id": "fixture-mock-command",
+        "argv": [
+          "pnpm",
+          "test"
+        ],
+        "cwd": ".",
+        "startedAt": "2026-07-25T20:00:00.000Z",
+        "endedAt": "2026-07-25T20:00:02.000Z",
+        "exitCode": 0,
+        "resultArtifactId": "fixture-log",
+        "toolIdentity": "unified-ble-tck",
+        "profileId": "fixture-tck",
+        "receiptArtifactId": "fixture-mock-command-receipt"
+      }
+    ]
+  },
+  "proof": {
+    "level": "L1",
+    "status": "passed",
+    "reason": "",
+    "supportGate": false,
+    "scenarios": [
+      {
+        "id": "fixture-mock-tck",
+        "kind": "tck",
+        "result": "passed",
+        "level": "L1",
+        "provenance": "mock",
+        "artifactIds": [
+          "fixture-log"
+        ],
+        "commandIds": [
+          "fixture-mock-command"
+        ],
+        "peripheralIds": [],
+        "requiredControllerFeatures": [],
+        "startedAt": "2026-07-25T20:00:00.000Z",
+        "endedAt": "2026-07-25T20:00:02.000Z"
+      }
+    ]
+  },
+  "artifacts": [
+    {
+      "id": "fixture-log",
+      "artifactType": "command-result",
+      "path": "evidence/v1/fixtures/artifacts/fixture.log",
+      "sha256": "3c9d8614c2d8eb8ce74c07ed07cf11c179f254ca684c2bee6551a9f64fbda0fb",
+      "mediaType": "text/plain",
+      "redaction": "contains-no-sensitive-data"
+    },
+    {
+      "id": "fixture-source-state",
+      "artifactType": "source-state",
+      "path": "evidence/v1/fixtures/artifacts/fixture-source-state.log",
+      "sha256": "99797f31e6a7d138c0f174790200f10735ffffd85c960d8f1f1e6eb26832db1f",
+      "mediaType": "text/plain",
+      "redaction": "contains-no-sensitive-data"
+    },
+    {
+      "id": "fixture-mock-command-receipt",
+      "artifactType": "command-receipt",
+      "path": "evidence/v1/fixtures/artifacts/valid-mock-l1.receipt.json",
+      "sha256": "30fca343099b4ec33316de39be3607cbd5a4fbe080f698c1db44b8d8d013a5f2",
+      "mediaType": "application/json",
+      "redaction": "contains-no-sensitive-data"
+    }
+  ],
+  "limitations": [],
+  "attestations": {
+    "securityReviewed": true,
+    "privacyReviewed": true,
+    "redactionApplied": true,
+    "noSecretsIncluded": true,
+    "noTelemetryUsed": true
+  },
+  "boundary": {
+    "kind": "in-process",
+    "abiOrProtocol": null,
+    "processBoundary": "none",
+    "compatibility": null
+  },
+  "ownership": {
+    "maintainer": {
+      "id": "fixture-owner",
+      "contact": "fixture@example.invalid"
+    },
+    "revalidation": {
+      "cadenceDays": 30,
+      "nextDueAt": "2026-08-24T20:00:03.000Z",
+      "triggers": [
+        "fixture revision"
+      ]
+    }
+  },
+  "history": {
+    "supersedes": [],
+    "supersededBy": null
+  }
+}

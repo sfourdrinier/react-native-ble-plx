@@ -1,0 +1,33 @@
+{
+  "$schema": "evidence/v1/schema/evidence-manifest.schema.json",
+  "schema": { "id": "unified-ble-manager/evidence-manifest", "version": "1.0.0" },
+  "claim": { "id": "local-macos-corebluetooth-baseline", "revision": 1, "claimVersion": "1.0.0", "issuerKind": "first-party", "publishedSupportLabel": "Experimental", "targetSupportLabel": "Preview", "supportMatrix": { "environments": [], "entries": [] } },
+  "subject": {
+    "backend": { "id": "corebluetooth-current-port", "implementation": "Historical local CoreBluetooth capture without a machine-generated command receipt", "version": "4.0.0" },
+    "platform": { "id": "macos", "os": "macOS", "architecture": "arm64", "osVersion": "26.5.2" },
+    "host": { "id": "node-corebluetooth", "processRole": "node" },
+    "runtime": { "node": "22.16.0" },
+    "toolchain": { "xcode": "26.0" },
+    "packageArtifact": { "name": "unavailable-uncertified-package-artifact", "version": "unreported", "availability": "unavailable", "type": "unavailable", "path": null, "sha256": null, "artifactId": null },
+    "protocolVersions": { "package": "4.0.0", "backendContract": null, "capabilitySchema": null, "eventSchema": null, "nativeOrIpc": null, "trace": null },
+    "capabilities": [{ "id": "corebluetooth-local-baseline", "supportLevel": "unsupported", "evidenceLevel": "L0", "limitationIds": ["uncertified-local-capture"] }]
+  },
+  "source": { "repository": "https://github.com/sfourdrinier/react-native-ble-plx.git", "commit": "8eee967a521f4f4f6b22e642916ca2535b8c3c84", "dirty": true, "dirtyStateArtifactId": "source-state-log", "dirtyPathCount": 100, "dirtyPathsSha256": "76a38b8e84106517dd1837f53d9c9020654df6cc3455bed6a07b11042edfa6e9" },
+  "execution": {
+    "provenance": "reported-unverified", "deterministic": false, "liveRadio": false,
+    "capturedAt": "2026-07-26T03:55:35.000Z", "startedAt": "2026-07-26T03:53:16.000Z", "endedAt": "2026-07-26T03:55:35.000Z",
+    "hardware": { "adapter": { "safeId": "local-adapter-unprobed", "kind": "unreported", "redaction": "all-identifiers-redacted" }, "machine": { "safeId": "local-macos-arm64", "kind": "macOS arm64 development machine", "redaction": "identifier-redacted" } },
+    "peripherals": [],
+    "commands": [{ "id": "historical-local-capture", "argv": ["historical-local-capture"], "cwd": ".", "startedAt": "2026-07-26T03:53:16.000Z", "endedAt": "2026-07-26T03:55:35.000Z", "exitCode": 0, "resultArtifactId": "local-macos-toolchain-log" }]
+  },
+  "proof": { "level": "L0", "status": "blocked", "reason": "The capture predates the receipt runner, so its command outputs cannot be certified as current evidence.", "supportGate": false, "scenarios": [{ "id": "historical-local-corebluetooth-capture", "kind": "native-abi", "result": "blocked", "level": "L0", "provenance": "reported-unverified", "artifactIds": ["local-macos-toolchain-log"], "commandIds": ["historical-local-capture"], "peripheralIds": [], "requiredControllerFeatures": [], "startedAt": "2026-07-26T03:53:16.000Z", "endedAt": "2026-07-26T03:55:35.000Z", "reason": "No receipt binds this historical command to its executable, output, ABI, source status, or package artifact." }] },
+  "artifacts": [
+    { "id": "source-state-log", "artifactType": "source-state", "path": "evidence/v1/artifacts/source-state-2026-07-26.log", "sha256": "7d2dc2c7a36eca04be1c8a59f5cd94fd4fba383255084c10bbdef96d960d717f", "mediaType": "text/plain", "redaction": "redacted" },
+    { "id": "local-macos-toolchain-log", "artifactType": "command-result", "path": "evidence/v1/artifacts/local-macos-toolchain-2026-07-26.log", "sha256": "9757c9e1c5a03b1c93ef25b48b5a7a4ea9c1c59f0461516032c49064bbeeac97", "mediaType": "text/plain", "redaction": "redacted" }
+  ],
+  "limitations": [{ "id": "uncertified-local-capture", "description": "Rerun through the certified receipt runner before making any Preview-or-higher claim.", "status": "blocked" }],
+  "attestations": { "securityReviewed": true, "privacyReviewed": true, "redactionApplied": true, "noSecretsIncluded": true, "noTelemetryUsed": true },
+  "boundary": { "kind": "native-abi", "abiOrProtocol": "unreported", "processBoundary": "node-native", "compatibility": null },
+  "ownership": { "maintainer": { "id": "sfourdrinier", "contact": "https://github.com/sfourdrinier/react-native-ble-plx/issues" }, "revalidation": { "cadenceDays": 30, "nextDueAt": "2026-08-25T03:55:35.000Z", "triggers": ["certified rerun", "support-label review"] } },
+  "history": { "supersedes": [], "supersededBy": null }
+}

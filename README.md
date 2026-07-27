@@ -1,3 +1,7 @@
+<!-- README.md -->
+
+> **4.0 status:** `unified-ble-manager@4.0.0` is a new clean-baseline package with zero consumers, not a released compatibility upgrade. [`docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md) is the only architecture and sequencing authority. The APIs and host material below characterize the inherited 3.x-style source tree; they are not 4.0 installation instructions or promises. See [`ROADMAP.4.0.md`](ROADMAP.4.0.md), [`MIGRATION_4.0.md`](MIGRATION_4.0.md), and [`docs/GAPS.4.0.md`](docs/GAPS.4.0.md).
+
 <h1 align="center">
   <img
     alt="react-native-ble-plx library logo"
@@ -15,7 +19,7 @@
 
 ## About this library
 
-**4.0 product identity:** install the canonical package **`unified-ble-manager`**. The scoped name `@sfourdrinier/react-native-ble-plx` is a **compatibility shim** only (re-exports). CocoaPods / Expo plugin identity is also `unified-ble-manager` (Restoration: `unified-ble-manager/Restoration`). See [MIGRATION_4.0.md](MIGRATION_4.0.md).
+**Current source record:** the implementation below is inherited 3.x-style material under audit. It must not be read as the 4.0 package identity, API, native protocol, or compatibility promise. The released 4.0 artifact will use the contract and package topology accepted through the controlling plan.
 
 It supports:
 
@@ -23,7 +27,7 @@ It supports:
 - Scanning BLE peripherals
 - Connecting to peripherals and discovering services/characteristics
 - Reading, writing, and monitoring characteristics (notifications/indications)
-- **Dual path** Base64 (3.x-shaped) plus `*AsBytes` / `*FromBytes` where shipped
+- Current branch only: legacy Base64 APIs and byte convenience methods under audit for removal/replacement
 - Reading RSSI and negotiating MTU (iOS reports MTU; Android can request — see [PLATFORMS.md](docs/PLATFORMS.md))
 - Background mode on iOS (including optional state restoration)
 - Android background mode via foreground service
@@ -58,7 +62,7 @@ It does NOT support:
 
 ## Compatibility
 
-> **Note**: This is a fork of `dotintent/react-native-ble-plx`. The published 4.0 product is **`unified-ble-manager`**; `@sfourdrinier/react-native-ble-plx` is the optional shim.
+> **Note**: This is a fork of `dotintent/react-native-ble-plx`. Any scoped-package or shim material in this repository is transitional source characterization only and is not a 4.0 compatibility commitment.
 
 **Minimum Requirements (4.0 / Expo SDK 57 floor):**
 - React Native **0.86.0+**

@@ -1,0 +1,12 @@
+# evidence/v1/artifacts/local-package-build-2026-07-26.log
+started_at=2026-07-26T03:53:45.000Z
+ended_at=2026-07-26T03:53:48.000Z
+command=pnpm prepack
+expanded_command=node scripts/ci/build-package.js
+exit_code=0
+module_sources_compiled=44
+commonjs_sources_compiled=44
+artifact_verifier=44 source files; 356 source-derived runtime, map, and declaration artifacts; 26 current entrypoint targets
+artifact=lib/commonjs/index.js
+artifact_sha256=fb5ba90a468b17cd7f70fb5b8f54de7d958b9768ea31e9ee2c89a7ee81a22d2e
+radio_operations=none

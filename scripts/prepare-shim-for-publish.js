@@ -5,7 +5,7 @@
  * Pack/publish of the shim rewrites `file:../..` → exact semver in a **temp dir**
  * (never mutates monorepo source). See:
  *   node scripts/prepare-shim-pack.js --print-dir
- *   node scripts/prepare-shim-pack.js --pack [--dry-run]
+ *   node scripts/prepare-shim-pack.js --pack --output-dir <directory> [--dry-run]
  *   node scripts/prepare-shim-pack.js --assert-packed <package.json>
  *
  * This file forwards CLI args to prepare-shim-pack and re-exports helpers.
@@ -28,8 +28,12 @@ function main(argv) {
     }
     const dir = r.stdout.trim()
     const fs = require('fs')
-    process.stdout.write(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
-    process.exit(0)
+    try {
+      process.stdout.write(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
+    } finally {
+      packApi.removePreparedDirectory(dir)
+    }
+    return
   }
 
   if (argv.includes('--check') || argv.includes('--restore')) {
@@ -52,5 +56,6 @@ module.exports = {
   FILE_DEP: 'file:../..',
   buildPublishableShimPackage: packApi.buildPublishableShimPackage,
   isFileDependency: packApi.isFileDependency,
-  prepareDir: packApi.prepareDir
+  prepareDir: packApi.prepareDir,
+  removePreparedDirectory: packApi.removePreparedDirectory
 }

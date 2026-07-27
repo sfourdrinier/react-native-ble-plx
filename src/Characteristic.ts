@@ -168,12 +168,7 @@ export class Characteristic implements NativeCharacteristic {
     subscriptionType: CharacteristicSubscriptionType | null = null
   ): Subscription {
     if (isIOS()) {
-      return this._manager._monitorCharacteristic(
-        this.deviceID,
-        this.id,
-        listener,
-        transactionId ?? undefined
-      )
+      return this._manager._monitorCharacteristic(this.deviceID, this.id, listener, transactionId ?? undefined)
     }
     return this._manager._monitorCharacteristic(
       this.deviceID,

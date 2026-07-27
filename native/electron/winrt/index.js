@@ -1,10 +1,17 @@
-/**
- * Windows WinRT native entry placeholder.
- * CI on windows-latest can replace this with a real Node-API binary.
- * createPort() throws until the native addon is linked — hosts use FakeBlePort fallback.
- */
-function createPort() {
-  throw new Error('unified-ble-winrt native addon not built; use FakeBlePort fallback in Electron host')
+// native/electron/winrt/index.js
+
+'use strict'
+
+const path = require('path')
+
+const addonPath = path.join(__dirname, 'build', 'Release', 'unified_ble_winrt.node')
+const nativeModule = require(addonPath)
+
+if (nativeModule.nativeProtocolVersion !== 1 || typeof nativeModule.createContractBoundary !== 'function') {
+  throw new Error('The WinRT Node-API artifact does not implement strict native boundary protocol v1')
 }
 
-module.exports = { createPort, radioId: 'winrt-ble-v1' }
+module.exports = Object.freeze({
+  nativeProtocolVersion: nativeModule.nativeProtocolVersion,
+  createContractBoundary: nativeModule.createContractBoundary
+})

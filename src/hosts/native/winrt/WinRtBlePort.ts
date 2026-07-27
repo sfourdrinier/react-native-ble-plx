@@ -23,7 +23,7 @@ export function createWinRtBlePort(options: WinRtBlePortOptions = {}): BlePort {
   }
   try {
     // Optional native binding (built on windows-latest CI when available)
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+
     const native = require('../../../../../native/electron/winrt') as { createPort?: () => BlePort }
     if (typeof native.createPort === 'function') {
       return native.createPort()

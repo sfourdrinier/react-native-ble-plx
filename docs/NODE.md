@@ -1,61 +1,19 @@
-# Node host (`unified-ble-manager/node`)
+<!-- docs/NODE.md -->
 
-Headless / non-Electron Node entry for the same `BlePort` + `PortBleManager` stack used by Electron. **No** mobile FGS, iOS restore, or Web chooser claims.
+# Node platform record
 
-## Model
+**Status:** transitional implementation characterization; not a 4.0 integration guide
 
-| Path | Status |
-| ---- | ------ |
-| Injected `BlePort` (BlueZ, CoreBluetooth via Electron factories, Fake) | Supported shape |
-| `allowMockFallback: true` (default when no port) | **CI / unit tests / smoke only** — Fake radio |
-| `allowMockFallback: false` without a port | **Fail-closed throw** |
+**Architecture and sequencing authority:** [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)
 
-There is no optional `example-node/` app in-tree yet (ROADMAP optional). Use this recipe + package tests.
+The intended 4.0 Node surface selects an explicit owned host backend through an approved subpath. It shares the public manager and policy core with every other host. It does not expose legacy `BlePort`/`PortBleManager` construction, a static host matrix, a Base64/bytes dual API, or a mock fallback as a production behavior.
 
-## Construct
+Current Node and Electron source, Fake backend behavior, addon loaders, and BlueZ/CoreBluetooth experiments are characterization inputs only. They may be used to audit behavior and capture baseline evidence, but they are not a support claim and must be replaced or deleted at the controlling plan's gates.
 
-```js
-const { BleManager, FakeBlePort } = require('unified-ble-manager/node')
+Any released Node backend must declare an instantiated runtime identity, capability implementations, limitations, protocol ranges, and evidence manifest. The root import remains host-neutral; Node-specific native dependencies load only from the selected host subpath.
 
-// CI / unit tests only:
-const manager = new BleManager({ allowMockFallback: true })
+## Related records
 
-// Fail-closed production-shaped (must inject a real port):
-// const manager = new BleManager({ port, allowMockFallback: false })
-// throws if port omitted and allowMockFallback === false
-```
-
-```js
-// Explicit Fake for demos:
-const { BleManager, FakeBlePort } = require('unified-ble-manager/node')
-const port = new FakeBlePort({ id: 'node-demo' })
-const manager = new BleManager({ port, allowMockFallback: false })
-```
-
-## Backends (honest)
-
-| Backend | How | Status |
-| ------- | --- | ------ |
-| **Fake** | `FakeBlePort` / default mock fallback | CI / tests only |
-| **Linux BlueZ** | `BluezBlePort` from electron/node native path (see [ELECTRON.md](./ELECTRON.md)) | Partial contracts; L4 open (`GAP-E-LIN-*`) |
-| **macOS CoreBluetooth** | Prefer Electron main + `createCoreBluetoothBlePort`; Node can load the same addon for CLI labs after `pnpm run build:electron:macos` | L2 software; L4 lab open |
-| **Windows WinRT** | Placeholder — `requireNative: true` throws until addon exists | N |
-
-Share factories documented in [ELECTRON.md](./ELECTRON.md) when loading OS ports from Node.
-
-## Dual path + supports
-
-Same Base64 + `*AsBytes` / `*FromBytes` surface via `PortBleManager`.  
-`supports()` uses the **node** host matrix ([PLATFORMS.md](./PLATFORMS.md)): continuous scan host-level true, backend-dependent in practice; `servicesChanged` **false** (fail-closed until OS events are forwarded; software `emitServicesReset` is test inject only — R3-F013).
-
-## Smoke checklist
-
-1. `pnpm prepack` so `lib/commonjs/hosts/node` resolves  
-2. `node -e "require('unified-ble-manager/node')"` (or package path after install)  
-3. Construct with `allowMockFallback: true` and run a Fake connect/read  
-4. For live BlueZ/Mac, inject real port and set `allowMockFallback: false`
-
-## Related
-
-- [ELECTRON.md](./ELECTRON.md) — OS packaging and per-OS recipes  
-- [PLATFORMS.md](./PLATFORMS.md) · [GETTING_STARTED.md](./GETTING_STARTED.md) · [PERFORMANCE.md](./PERFORMANCE.md)
+- [`ELECTRON.md`](ELECTRON.md)
+- [`PLATFORMS.md`](PLATFORMS.md)
+- [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)

@@ -1,0 +1,75 @@
+{
+  "schema": "unified-ble-manager/evidence-command-receipt",
+  "version": 1,
+  "command": {
+    "id": "fixture-live-command",
+    "argv": [
+      "node",
+      "live.js"
+    ],
+    "cwd": ".",
+    "startedAt": "2026-07-25T20:00:00.000Z",
+    "endedAt": "2026-07-25T20:00:04.000Z",
+    "exitCode": 0,
+    "toolIdentity": "unified-ble-tck",
+    "profileId": "fixture-live-suite"
+  },
+  "scenarios": [
+    {
+      "id": "fixture-live-compile",
+      "kind": "compile-package",
+      "result": "passed",
+      "provenance": "compile",
+      "level": "L2",
+      "startedAt": "2026-07-25T20:00:00.000Z",
+      "endedAt": "2026-07-25T20:00:01.000Z"
+    },
+    {
+      "id": "fixture-live-tck",
+      "kind": "tck",
+      "result": "passed",
+      "provenance": "deterministic",
+      "level": "L1",
+      "startedAt": "2026-07-25T20:00:01.000Z",
+      "endedAt": "2026-07-25T20:00:02.000Z"
+    },
+    {
+      "id": "fixture-native-handshake",
+      "kind": "native-abi",
+      "result": "passed",
+      "provenance": "system",
+      "level": "L3",
+      "startedAt": "2026-07-25T20:00:02.000Z",
+      "endedAt": "2026-07-25T20:00:03.000Z"
+    },
+    {
+      "id": "fixture-live-vertical",
+      "kind": "vertical-slice",
+      "result": "passed",
+      "provenance": "live-radio",
+      "level": "L4",
+      "startedAt": "2026-07-25T20:00:03.000Z",
+      "endedAt": "2026-07-25T20:00:04.000Z"
+    }
+  ],
+  "environment": {},
+  "executable": {
+    "path": "node",
+    "sha256": "a45751fbfe88440bebff63cd44814e4ed6deb642bc3e3c4a14c4f8ae0ed9e019",
+    "version": "v22.16.0"
+  },
+  "output": {
+    "artifactId": "fixture-log",
+    "sha256": "3c9d8614c2d8eb8ce74c07ed07cf11c179f254ca684c2bee6551a9f64fbda0fb"
+  },
+  "runtime": {
+    "node": "22.16.0",
+    "nodeModuleAbi": 127
+  },
+  "repository": {
+    "remote": "fixture-repository",
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "dirtyStatusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "receiptSha256": "ab9b6893aa1642e53aba6cc11124354a624aa3384fb51830a61a1c1fdf61d7cb"
+}

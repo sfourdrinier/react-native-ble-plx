@@ -1,0 +1,15 @@
+# evidence/v1/artifacts/local-corebluetooth-native-abi-2026-07-26.log
+build_started_at=2026-07-26T03:53:55.000Z
+build_ended_at=2026-07-26T03:53:59.000Z
+build_command=pnpm run build:electron:macos
+expanded_build_command=cd native/electron/corebluetooth && node-gyp rebuild --release
+build_exit_code=0
+node_gyp=13.0.1
+node_runtime=22.16.0 darwin arm64
+build_diagnostic=libtool warned that nothing.o has no symbols.
+abi_probe_command=node -e '<construct createCoreBluetoothBlePort(requireNative=true); assert startScan exists; destroy if available>'
+abi_probe_exit_code=0
+abi_probe_result={"id":"corebluetooth-electron-v1","startScan":"function","backend":"corebluetooth","radioOperation":false}
+native_artifact=native/electron/corebluetooth/build/Release/unified_ble_corebluetooth.node
+native_artifact_sha256=e86ce32fa04668a9102f8e92a784fecdf6a73efa50a2e0a8ff197e65c10c2cfb
+scope=Node-ABI build-and-load probe only; no scan, connect, GATT, or physical peripheral operation was requested.

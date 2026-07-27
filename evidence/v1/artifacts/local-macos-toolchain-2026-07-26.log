@@ -1,0 +1,36 @@
+# evidence/v1/artifacts/local-macos-toolchain-2026-07-26.log
+captured_at=2026-07-26T03:53:16.000Z
+command=uname -a
+exit_code=0
+Darwin <redacted-hostname> 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:18:58 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6000 arm64
+
+command=uname -m
+exit_code=0
+arm64
+
+command=sw_vers
+exit_code=0
+ProductName: macOS
+ProductVersion: 26.5.2
+BuildVersion: 25F84
+
+command=node --version
+exit_code=0
+v22.16.0
+
+command=pnpm --version
+exit_code=0
+10.14.0
+
+command=xcodebuild -version
+exit_code=0
+Xcode 26.6
+Build version 17F113
+
+command=xcrun --sdk macosx --show-sdk-version
+exit_code=0
+26.5
+
+scope=toolchain-and-environment-only
+radio_operations=none
+physical_device_claim=false

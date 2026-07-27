@@ -211,4 +211,33 @@ describe('FakeBlePort (BLE port contract)', () => {
     expect(a).toEqual([99])
     expect(b).toEqual([1]) // not corrupted by first listener mutation
   })
+
+  test('emitNotification contains a failing listener and still notifies later listeners', async () => {
+    const port = new FakeBlePort({
+      services: {
+        D1: {
+          S: {
+            C: { value: new Uint8Array([0]), properties: { notify: true } }
+          }
+        }
+      }
+    })
+    const logError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const received = []
+
+    try {
+      await port.connect('D1')
+      await port.monitorCharacteristic('D1', 'S', 'C', () => {
+        throw new Error('listener failure')
+      })
+      await port.monitorCharacteristic('D1', 'S', 'C', value => received.push(Array.from(value)))
+
+      await port.emitNotification('D1', 'S', 'C', new Uint8Array([7]))
+
+      expect(received).toEqual([[7]])
+      expect(logError).toHaveBeenCalledWith('[FakeBlePort.emitNotification] Notification listener failed:', expect.any(Error))
+    } finally {
+      logError.mockRestore()
+    }
+  })
 })

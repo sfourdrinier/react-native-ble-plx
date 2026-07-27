@@ -6,11 +6,7 @@
  */
 
 import type { DeviceRequestFilter } from '../discovery/filters'
-import {
-  encodeIeee11073Float,
-  decodeIeee11073Float,
-  type Ieee11073Special
-} from './ieee11073'
+import { encodeIeee11073Float, decodeIeee11073Float, type Ieee11073Special } from './ieee11073'
 import {
   isMatchingCharacteristic,
   isMatchingService,
@@ -86,7 +82,7 @@ export function healthThermometerScanServiceUUIDs(): string[] {
   return scanServiceUUIDs(SERVICE)
 }
 
-export function resolveHealthThermometerScanUUIDs(only: boolean = true): string[] | null {
+export function resolveHealthThermometerScanUUIDs(only = true): string[] | null {
   return resolveServiceScanUUIDs(SERVICE, only)
 }
 
@@ -112,9 +108,7 @@ export function isTemperatureMeasurement(uuid: string | null | undefined): boole
 /**
  * Parse Temperature Measurement characteristic value.
  */
-export function parseTemperatureMeasurement(
-  data: Uint8Array | ArrayLike<number>
-): TemperatureMeasurement {
+export function parseTemperatureMeasurement(data: Uint8Array | ArrayLike<number>): TemperatureMeasurement {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
   if (bytes.length < 5) {
     throw new Error('Temperature Measurement too short (need flags + FLOAT)')
@@ -151,10 +145,7 @@ export type EncodeTemperatureOptions = {
 /**
  * Encode Temperature Measurement (tests, FakeBlePort, demos).
  */
-export function encodeTemperatureMeasurement(
-  temperature: number,
-  opts: EncodeTemperatureOptions = {}
-): Uint8Array {
+export function encodeTemperatureMeasurement(temperature: number, opts: EncodeTemperatureOptions = {}): Uint8Array {
   let flags = 0
   if (opts.fahrenheit) flags |= FLAG_FAHRENHEIT
   if (opts.timestamp) flags |= FLAG_TIMESTAMP

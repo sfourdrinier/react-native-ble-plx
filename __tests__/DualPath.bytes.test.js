@@ -1,10 +1,16 @@
+// __tests__/DualPath.bytes.test.js
+
 /* eslint-disable no-import-assign */
 /**
  * Dual binary path on shipped RN BleManager + Characteristic.
  * Drives real public methods with BleModule mock (same harness as BleManager.js).
  * Covers WWR FromBytes, AsBytes null/invalid Base64 edges, and subscriptionType (R2-F079/F080/F025).
  */
-import { BleManager, Characteristic, Device, Service, Descriptor } from '../src'
+import { BleManager } from '../src/BleManager'
+import { Characteristic } from '../src/Characteristic'
+import { Device } from '../src/Device'
+import { Service } from '../src/Service'
+import { Descriptor } from '../src/Descriptor'
 import * as Native from '../src/BleModule'
 import { base64ToBytes, bytesToBase64 } from '../src/encoding'
 import { Platform } from 'react-native'
@@ -45,11 +51,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
-  try {
-    await bleManager.destroy()
-  } catch {
-    // ignore
-  }
+  await bleManager.destroy()
   BleManager.sharedInstance = null
 })
 
@@ -121,9 +123,9 @@ describe('Dual path AsBytes/FromBytes on shipped BleManager', () => {
   })
 
   test('FromBytes rejects non-Uint8Array', async () => {
-    await expect(
-      bleManager.writeCharacteristicWithResponseForDeviceFromBytes('d', 's', 'c', [1, 2])
-    ).rejects.toThrow(TypeError)
+    await expect(bleManager.writeCharacteristicWithResponseForDeviceFromBytes('d', 's', 'c', [1, 2])).rejects.toThrow(
+      TypeError
+    )
   })
 
   test('monitorCharacteristicForDeviceAsBytes delivers Uint8Array; Base64 monitor stays string', async () => {
@@ -272,9 +274,7 @@ describe('Dual path AsBytes/FromBytes on shipped BleManager', () => {
   })
 
   test('Characteristic.readAsBytes: value null stays null', async () => {
-    Native.BleModule.readCharacteristic = jest
-      .fn()
-      .mockResolvedValue(createMockCharacteristic({ value: null }))
+    Native.BleModule.readCharacteristic = jest.fn().mockResolvedValue(createMockCharacteristic({ value: null }))
     const c = new Characteristic(createMockCharacteristic(), bleManager)
     const read = await c.readAsBytes()
     expect(read.value).toBeNull()

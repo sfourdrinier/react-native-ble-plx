@@ -1,0 +1,276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unified-ble-manager.dev/schemas/unified-ble-4.0-lab.schema.json",
+  "title": "Unified BLE 4.0 lab and procurement manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "manifestId", "generatedAt", "asOf", "authority", "registries", "evidenceRecords", "profiles", "assets", "scenarios", "gates", "liveEvidenceActions", "deferredScopeRecords"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "enum": [4] },
+    "manifestId": { "$ref": "#/$defs/id" },
+    "generatedAt": { "$ref": "#/$defs/timestamp" },
+    "asOf": { "$ref": "#/$defs/timestamp" },
+    "authority": { "$ref": "#/$defs/authority" },
+    "registries": { "$ref": "#/$defs/registries" },
+    "evidenceRecords": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evidenceRecord" } },
+    "profiles": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/profile" } },
+    "assets": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/asset" } },
+    "scenarios": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/scenario" } },
+    "gates": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/gate" } },
+    "liveEvidenceActions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/liveEvidenceAction" } },
+    "deferredScopeRecords": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/deferredScopeRecord" } }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "minLength": 3, "maxLength": 96 },
+    "gateId": { "type": "string", "pattern": "^(G[0-9]+|future-[a-z0-9]+(?:-[a-z0-9]+)*)$", "minLength": 2, "maxLength": 96 },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+    "nullableId": { "type": ["string", "null"], "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "text": { "type": "string", "minLength": 1 },
+    "authority": {
+      "type": "object", "additionalProperties": false,
+      "required": ["workPackage", "controllingPlan", "inventoryTruthRule"],
+      "properties": {
+        "workPackage": { "type": "string", "enum": ["UB4-LAB-PROCUREMENT"] },
+        "controllingPlan": { "type": "string", "enum": ["docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md"] },
+        "inventoryTruthRule": { "$ref": "#/$defs/text" }
+      }
+    },
+    "owner": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "displayName", "contact"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "displayName": { "$ref": "#/$defs/text" }, "contact": { "$ref": "#/$defs/text" } }
+    },
+    "supplier": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "displayName"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "displayName": { "$ref": "#/$defs/text" } }
+    },
+    "reservation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "assetId", "ownerId", "reservedAt", "expiresAt", "mechanism"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "assetId": { "$ref": "#/$defs/id" }, "ownerId": { "$ref": "#/$defs/id" }, "reservedAt": { "$ref": "#/$defs/timestamp" }, "expiresAt": { "$ref": "#/$defs/timestamp" }, "mechanism": { "$ref": "#/$defs/text" }
+      }
+    },
+    "replacementPolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "fallbackSupplierId", "replacementWindowHours", "procedure"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "fallbackSupplierId": { "$ref": "#/$defs/id" }, "replacementWindowHours": { "type": "integer", "minimum": 1 }, "procedure": { "$ref": "#/$defs/text" }
+      }
+    },
+    "setupProfile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "assetId", "firmwareOrOsVersion", "toolchainVersion", "signingOrDeveloperMode", "driverOrSdk", "reproducibleSetup"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "assetId": { "$ref": "#/$defs/id" }, "firmwareOrOsVersion": { "$ref": "#/$defs/text" }, "toolchainVersion": { "$ref": "#/$defs/text" }, "signingOrDeveloperMode": { "$ref": "#/$defs/text" }, "driverOrSdk": { "$ref": "#/$defs/text" }, "reproducibleSetup": { "$ref": "#/$defs/text" }
+      }
+    },
+    "location": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "privacySafeLabel"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "privacySafeLabel": { "$ref": "#/$defs/text" } }
+    },
+    "order": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "assetId", "supplierId", "reference", "orderedAt", "expectedArrivalAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "assetId": { "$ref": "#/$defs/id" }, "supplierId": { "$ref": "#/$defs/id" }, "reference": { "$ref": "#/$defs/text" },
+        "orderedAt": { "$ref": "#/$defs/timestamp" }, "expectedArrivalAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "booking": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "assetId", "mechanism", "maxLeaseMinutes", "availableFrom", "availableUntil"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "assetId": { "$ref": "#/$defs/id" }, "mechanism": { "$ref": "#/$defs/text" }, "maxLeaseMinutes": { "type": "integer", "minimum": 1 }, "availableFrom": { "$ref": "#/$defs/timestamp" }, "availableUntil": { "$ref": "#/$defs/timestamp" } }
+    },
+    "escalation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "ownerId", "responsePolicy"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "ownerId": { "$ref": "#/$defs/id" }, "responsePolicy": { "$ref": "#/$defs/text" } }
+    },
+    "registries": {
+      "type": "object", "additionalProperties": false,
+      "required": ["owners", "suppliers", "locations", "orders", "bookings", "escalations", "reservations", "replacementPolicies", "setupProfiles"],
+      "properties": {
+        "owners": { "type": "array", "items": { "$ref": "#/$defs/owner" } },
+        "suppliers": { "type": "array", "items": { "$ref": "#/$defs/supplier" } },
+        "locations": { "type": "array", "items": { "$ref": "#/$defs/location" } },
+        "orders": { "type": "array", "items": { "$ref": "#/$defs/order" } },
+        "bookings": { "type": "array", "items": { "$ref": "#/$defs/booking" } },
+        "escalations": { "type": "array", "items": { "$ref": "#/$defs/escalation" } },
+        "reservations": { "type": "array", "items": { "$ref": "#/$defs/reservation" } },
+        "replacementPolicies": { "type": "array", "items": { "$ref": "#/$defs/replacementPolicy" } },
+        "setupProfiles": { "type": "array", "items": { "$ref": "#/$defs/setupProfile" } }
+      }
+    },
+    "exactTarget": {
+      "type": "object", "additionalProperties": false,
+      "required": ["deviceFamily", "osRuntime", "architecture", "bleAdapter", "platformId", "backendId", "hostId"],
+      "properties": {
+        "deviceFamily": { "$ref": "#/$defs/text" }, "osRuntime": { "$ref": "#/$defs/text" },
+        "architecture": { "$ref": "#/$defs/text" }, "bleAdapter": { "$ref": "#/$defs/text" },
+        "platformId": { "$ref": "#/$defs/id" }, "backendId": { "$ref": "#/$defs/id" }, "hostId": { "$ref": "#/$defs/id" }
+      }
+    },
+    "targetSelection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state", "requestedDeviceFamily", "exactTarget", "decisionBlocker"],
+      "properties": {
+        "state": { "type": "string", "enum": ["unresolved", "resolved"] },
+        "requestedDeviceFamily": { "$ref": "#/$defs/text" }, "exactTarget": { "anyOf": [{ "$ref": "#/$defs/exactTarget" }, { "type": "null" }] },
+        "decisionBlocker": { "anyOf": [{ "$ref": "#/$defs/text" }, { "type": "null" }] }
+      }
+    },
+    "evidenceManifestBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "claimId", "claimRevision", "scenarioIds", "profileId", "assetBindings", "target"],
+      "properties": {
+        "path": { "$ref": "#/$defs/text" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "claimId": { "$ref": "#/$defs/text" }, "claimRevision": { "type": "integer", "minimum": 1 }, "scenarioIds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } },
+        "profileId": { "$ref": "#/$defs/nullableId" }, "assetBindings": { "type": "array", "items": { "$ref": "#/$defs/assetEvidenceBinding" } },
+        "target": { "anyOf": [{ "$ref": "#/$defs/exactTarget" }, { "type": "null" }] }
+      }
+    },
+    "assetEvidenceBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["assetId", "role", "sourceSafeId"],
+      "properties": {
+        "assetId": { "$ref": "#/$defs/id" }, "role": { "type": "string", "enum": ["host", "physical-peripheral", "physical-controller", "deterministic-controller"] }, "sourceSafeId": { "$ref": "#/$defs/id" }
+      }
+    },
+    "evidenceRecord": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "profileId", "scenarioId", "assetIds", "kind", "status", "observedAt", "cadenceDays", "revalidateBy", "ownerId", "target", "artifactRef", "evidenceManifest", "blockerActionIds", "limitations"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "profileId": { "$ref": "#/$defs/nullableId" },
+        "scenarioId": { "$ref": "#/$defs/nullableId" }, "assetIds": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+        "kind": { "type": "string", "enum": ["l0-spike", "compile", "tck", "package", "permission", "lifecycle", "physical-radio", "complete-live-matrix", "reliability", "inventory", "ownership", "procurement", "setup", "fault-controller"] },
+        "status": { "type": "string", "enum": ["unverified", "blocked", "completed"] },
+        "observedAt": { "$ref": "#/$defs/timestamp" }, "cadenceDays": { "type": "integer", "minimum": 1, "maximum": 366 }, "revalidateBy": { "$ref": "#/$defs/timestamp" },
+        "ownerId": { "$ref": "#/$defs/nullableId" }, "target": { "anyOf": [{ "$ref": "#/$defs/exactTarget" }, { "type": "null" }] },
+        "artifactRef": { "type": ["string", "null"], "minLength": 1 }, "evidenceManifest": { "anyOf": [{ "$ref": "#/$defs/evidenceManifestBinding" }, { "type": "null" }] }, "blockerActionIds": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+        "limitations": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/text" } }
+      }
+    },
+    "support": {
+      "type": "object", "additionalProperties": false,
+      "required": ["label", "level", "status", "limitations"],
+      "properties": {
+        "label": { "type": "string", "enum": ["unclaimed", "Experimental", "Preview", "Live Preview", "Supported", "Reliability-qualified"] },
+        "level": { "type": "string", "enum": ["none", "L0", "L1", "L2", "L3", "L4", "L5"] },
+        "status": { "type": "string", "enum": ["unverified", "blocked", "available"] },
+        "limitations": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/text" } }
+      }
+    },
+    "revalidation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cadenceDays", "nextRequiredAt"],
+      "properties": { "cadenceDays": { "type": "integer", "minimum": 1 }, "nextRequiredAt": { "$ref": "#/$defs/timestamp" } }
+    },
+    "profile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "scope", "platformId", "backendId", "hostRuntime", "targetSelection", "assetIds", "scenarioIds", "gateId", "support", "revalidation"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "scope": { "type": "string", "enum": ["4.0"] }, "platformId": { "$ref": "#/$defs/text" },
+        "backendId": { "$ref": "#/$defs/text" }, "hostRuntime": { "$ref": "#/$defs/text" }, "targetSelection": { "$ref": "#/$defs/targetSelection" },
+        "assetIds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } }, "scenarioIds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } },
+        "gateId": { "$ref": "#/$defs/gateId" }, "support": { "$ref": "#/$defs/support" }, "revalidation": { "$ref": "#/$defs/revalidation" }
+      }
+    },
+    "stateHistoryEntry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state", "recordedAt", "evidenceRecordId"],
+      "properties": {
+        "state": { "type": "string", "enum": ["unverified", "blocked", "reserved", "ordered", "received", "configured", "available", "replacement-required"] },
+        "recordedAt": { "$ref": "#/$defs/timestamp" }, "evidenceRecordId": { "$ref": "#/$defs/id" }
+      }
+    },
+    "inventory": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state", "stateHistory", "physicalEvidenceRecordId", "setupEvidenceRecordId", "lastConfirmedAt", "missingFacts"],
+      "properties": {
+        "state": { "type": "string", "enum": ["unverified", "blocked", "reserved", "ordered", "received", "configured", "available", "replacement-required"] },
+        "stateHistory": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/stateHistoryEntry" } },
+        "physicalEvidenceRecordId": { "$ref": "#/$defs/nullableId" }, "setupEvidenceRecordId": { "$ref": "#/$defs/nullableId" }, "lastConfirmedAt": { "anyOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] },
+        "missingFacts": { "type": "array", "items": { "$ref": "#/$defs/text" } }
+      }
+    },
+    "acquisition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["ownerId", "supplierId", "orderId", "locationId", "bookingId", "escalationId", "budgetStatus", "budgetAmount", "currency"],
+      "properties": {
+        "ownerId": { "$ref": "#/$defs/nullableId" }, "supplierId": { "$ref": "#/$defs/nullableId" }, "fallbackSupplierId": { "$ref": "#/$defs/nullableId" }, "orderId": { "$ref": "#/$defs/nullableId" }, "reservationId": { "$ref": "#/$defs/nullableId" }, "replacementPolicyId": { "$ref": "#/$defs/nullableId" },
+        "locationId": { "$ref": "#/$defs/nullableId" }, "bookingId": { "$ref": "#/$defs/nullableId" }, "escalationId": { "$ref": "#/$defs/nullableId" },
+        "budgetStatus": { "type": "string", "enum": ["not-required", "approval-pending", "approved"] },
+        "budgetAmount": { "type": ["number", "null"], "minimum": 0 }, "currency": { "type": ["string", "null"], "pattern": "^[A-Z]{3}$" }
+      }
+    },
+    "readiness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state", "blockerActionIds"],
+      "properties": { "state": { "type": "string", "enum": ["blocked", "ready"] }, "blockerActionIds": { "type": "array", "items": { "$ref": "#/$defs/id" } } }
+    },
+    "allocation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["eligibleGateIds", "satisfiedGateIds"],
+      "properties": { "eligibleGateIds": { "type": "array", "items": { "$ref": "#/$defs/gateId" } }, "satisfiedGateIds": { "type": "array", "items": { "$ref": "#/$defs/gateId" } } }
+    },
+    "remoteAccess": {
+      "type": "object", "additionalProperties": false,
+      "required": ["viability", "mechanism"],
+      "properties": {
+        "viability": { "type": "string", "enum": ["viable", "not-viable", "unverified"] }, "mechanism": { "type": ["string", "null"], "minLength": 1 }
+      }
+    },
+    "asset": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "scope", "assetClass", "profileIds", "description", "requiredAccessories", "remoteAccess", "shareability", "evidenceOwnerId", "inventory", "acquisition", "readiness", "allocation"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "scope": { "type": "string", "enum": ["4.0", "4.1-deferred"] },
+        "assetClass": { "type": "string", "enum": ["host", "physical-device", "fixed-function-peripheral", "deterministic-test", "deferred-physical-fault-provider"] },
+        "profileIds": { "type": "array", "items": { "$ref": "#/$defs/id" } }, "description": { "$ref": "#/$defs/text" }, "requiredAccessories": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/text" } }, "remoteAccess": { "$ref": "#/$defs/remoteAccess" }, "shareability": { "type": "string", "enum": ["shared", "non-shareable", "unverified"] }, "evidenceOwnerId": { "$ref": "#/$defs/nullableId" },
+        "setupProfileId": { "$ref": "#/$defs/nullableId" }, "inventory": { "$ref": "#/$defs/inventory" }, "acquisition": { "$ref": "#/$defs/acquisition" }, "readiness": { "$ref": "#/$defs/readiness" }, "allocation": { "$ref": "#/$defs/allocation" }
+      }
+    },
+    "assetRole": {
+      "type": "object", "additionalProperties": false,
+      "required": ["assetId", "role"],
+      "properties": { "assetId": { "$ref": "#/$defs/id" }, "role": { "type": "string", "enum": ["host", "physical-peripheral", "physical-controller", "deterministic-controller"] } }
+    },
+    "scenario": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "scope", "profileIds", "kind", "evidenceRequirement", "requiredGateId", "assetRoles", "faultMode", "canSatisfy4Gate"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "scope": { "type": "string", "enum": ["4.0", "4.1-deferred"] }, "profileIds": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+        "kind": { "type": "string", "enum": ["ordinary-live-vertical", "deterministic-contract", "physical-controllable-fault"] },
+        "evidenceRequirement": { "type": "string", "enum": ["deterministic", "live-radio", "background-live", "reliability-live"] }, "requiredGateId": { "$ref": "#/$defs/gateId" },
+        "assetRoles": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/assetRole" } }, "requiredControllerFeatures": { "type": "array", "items": { "type": "string", "enum": ["reset", "configure-notifications", "set-read-value", "recorded-writes", "clear-recorded-writes", "force-disconnect", "trigger-services-changed", "inject-att-error", "notification-flood", "malformed-value", "backend-service-restart", "adapter-power-control", "radio-interference", "process-kill"] } },
+        "faultMode": { "type": "string", "enum": ["none", "deterministic-only", "physical-controllable-4.1"] }, "canSatisfy4Gate": { "type": "boolean" }
+      }
+    },
+    "gate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "scope", "state", "profileIds", "scenarioIds", "assetIds", "actionIds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/gateId" }, "scope": { "type": "string", "enum": ["4.0", "4.1-deferred"] }, "state": { "type": "string", "enum": ["blocked", "ready"] },
+        "profileIds": { "type": "array", "items": { "$ref": "#/$defs/id" } }, "scenarioIds": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+        "assetIds": { "type": "array", "items": { "$ref": "#/$defs/id" } }, "actionIds": { "type": "array", "items": { "$ref": "#/$defs/id" } }
+      }
+    },
+    "liveEvidenceAction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "gateId", "state", "title", "profileIds", "assetIds", "resolutionEvidenceIds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "gateId": { "type": "string", "enum": ["G4"] }, "state": { "type": "string", "enum": ["open", "resolved"] },
+        "title": { "$ref": "#/$defs/text" }, "completionPredicate": { "type": "string", "enum": ["asset-ownership-and-evidence-owner", "approved-procurement-path", "windows-profile-prerequisites", "linux-profile-prerequisites", "apple-profile-prerequisites", "android-profile-prerequisites", "web-profile-prerequisites", "peripheral-inventory-and-setup", "booking-escalation-and-replacement"] }, "profileIds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } }, "assetIds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } },
+        "resolutionEvidenceIds": { "type": "array", "items": { "$ref": "#/$defs/id" } }
+      }
+    },
+    "deferredScopeRecord": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "assetId", "scenarioId", "reason"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "assetId": { "$ref": "#/$defs/id" }, "scenarioId": { "$ref": "#/$defs/id" }, "reason": { "$ref": "#/$defs/text" } }
+    }
+  }
+}

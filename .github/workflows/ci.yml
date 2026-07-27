@@ -1,3 +1,5 @@
+# .github/workflows/ci.yml
+
 name: CI
 
 # Cost policy (#20):
@@ -73,6 +75,9 @@ jobs:
       - name: Run package tests
         run: pnpm test:package
 
+      - name: Validate current evidence records
+        run: pnpm validate:evidence
+
       - name: Run plugin tests
         run: pnpm test:plugin
 
@@ -127,24 +132,38 @@ jobs:
           npx --yes @electron/rebuild -f -w native/electron/corebluetooth
           ./node_modules/.bin/electron scripts/ci/electron-main-smoke.js
 
-      # L2 honesty: WinRT addon is not shipped (GAP-E-WIN-NAPI). Fail closed only — never greenwash.
-      - name: Electron WinRT L2 status (fail-closed until GAP-E-WIN-NAPI)
+      # This is Node-API ABI and boundary-shape proof only. It does not claim a
+      # live adapter, advertisement, peripheral, or radio-support result.
+      - name: WinRT native boundary compile and ABI load (Windows; no live radio)
         if: runner.os == 'Windows'
         shell: bash
         run: |
           set -euo pipefail
+          pnpm run build:electron:winrt
+          test -f native/electron/winrt/build/Release/unified_ble_winrt.node
           node -e "
-            const { createWinRtBlePort } = require('./lib/commonjs/hosts/electron');
-            let threw = false;
-            try {
-              createWinRtBlePort({ requireNative: true });
-            } catch (e) {
-              threw = true;
-              console.log('WinRT L2 fail-closed (expected until GAP-E-WIN-NAPI):', String(e.message || e));
+            const native = require('./native/electron/winrt');
+            if (native.nativeProtocolVersion !== 1 || typeof native.createContractBoundary !== 'function') {
+              throw new Error('WinRT addon does not expose boundary protocol v1');
             }
-            if (!threw) {
-              throw new Error('WinRT requireNative unexpectedly succeeded without a real addon');
+            const boundary = native.createContractBoundary();
+            const required = [
+              'listAdapters', 'selectAdapter', 'adapterSnapshot', 'startScan', 'stopScan',
+              'connect', 'disconnect', 'discover', 'read', 'write', 'readDescriptor',
+              'writeDescriptor', 'startNotify', 'stopNotify', 'onConnectionLost',
+              'onDatabaseChanged', 'onAdapterState', 'destroy'
+            ];
+            for (const method of required) {
+              if (typeof boundary[method] !== 'function') {
+                throw new Error('WinRT boundary method is missing: ' + method);
+              }
             }
+            boundary.destroy().completion.then(() => {
+              console.log('WinRT Node-API compile and ABI load passed; no live-radio test ran.');
+            }, error => {
+              console.error('WinRT native destroy after ABI load failed:', error);
+              process.exitCode = 1;
+            });
           "
 
       # L2 packaging: host export resolve after prepack; vite builds shared UI (radio is L4 lab).

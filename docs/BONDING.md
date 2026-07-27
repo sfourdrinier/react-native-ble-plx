@@ -1,4 +1,8 @@
-# Bonding / pairing (4.0)
+<!-- docs/BONDING.md -->
+
+# Bonding / pairing
+
+> **Transitional source characterization:** the APIs and static host assumptions below are audit input, not the 4.0 contract. 4.0 capability truth comes from typed feature registrations on an instantiated backend. See [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
 
 ## Runtime rule: prefer `manager.supports('bonding')`
 

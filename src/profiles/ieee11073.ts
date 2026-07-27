@@ -53,11 +53,12 @@ function readU16LE(bytes: Uint8Array, offset: number): number {
 
 function readU32LE(bytes: Uint8Array, offset: number): number {
   return (
-    u8(bytes, offset) |
-    (u8(bytes, offset + 1) << 8) |
-    (u8(bytes, offset + 2) << 16) |
-    (u8(bytes, offset + 3) << 24)
-  ) >>> 0
+    (u8(bytes, offset) |
+      (u8(bytes, offset + 1) << 8) |
+      (u8(bytes, offset + 2) << 16) |
+      (u8(bytes, offset + 3) << 24)) >>>
+    0
+  )
 }
 
 function signExtend(value: number, bits: number): number {
@@ -102,10 +103,7 @@ function signedToUnsigned12(mant: number): number {
 /**
  * Decode IEEE-11073 32-bit FLOAT with special classification (NRes ≠ NaN).
  */
-export function decodeIeee11073Float(
-  data: Uint8Array | ArrayLike<number>,
-  offset: number = 0
-): Ieee11073Decoded {
+export function decodeIeee11073Float(data: Uint8Array | ArrayLike<number>, offset = 0): Ieee11073Decoded {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
   if (offset < 0 || offset + 4 > bytes.length) {
     throw new Error('IEEE-11073 FLOAT requires 4 bytes')
@@ -134,7 +132,7 @@ export function decodeIeee11073Float(
  * Parse IEEE-11073 32-bit FLOAT at `offset` (need 4 bytes).
  * Returns `NaN` for NaN / NRes / RFU; use {@link decodeIeee11073Float} to distinguish NRes.
  */
-export function parseIeee11073Float(data: Uint8Array | ArrayLike<number>, offset: number = 0): number {
+export function parseIeee11073Float(data: Uint8Array | ArrayLike<number>, offset = 0): number {
   return decodeIeee11073Float(data, offset).value
 }
 
@@ -204,10 +202,7 @@ function encodeFloatParts(mantissa24: number, exponent: number): Uint8Array {
 /**
  * Decode IEEE-11073 16-bit SFLOAT with special classification.
  */
-export function decodeIeee11073Sfloat(
-  data: Uint8Array | ArrayLike<number>,
-  offset: number = 0
-): Ieee11073Decoded {
+export function decodeIeee11073Sfloat(data: Uint8Array | ArrayLike<number>, offset = 0): Ieee11073Decoded {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
   if (offset < 0 || offset + 2 > bytes.length) {
     throw new Error('IEEE-11073 SFLOAT requires 2 bytes')
@@ -236,7 +231,7 @@ export function decodeIeee11073Sfloat(
  * Parse IEEE-11073 16-bit SFLOAT (2 bytes LE).
  * Use {@link decodeIeee11073Sfloat} to distinguish NRes from NaN.
  */
-export function parseIeee11073Sfloat(data: Uint8Array | ArrayLike<number>, offset: number = 0): number {
+export function parseIeee11073Sfloat(data: Uint8Array | ArrayLike<number>, offset = 0): number {
   return decodeIeee11073Sfloat(data, offset).value
 }
 
@@ -291,11 +286,7 @@ export function encodeIeee11073Sfloat(value: number): Uint8Array {
       const recon = mant * scale
       if (!Number.isFinite(recon)) continue
       const err = Math.abs(value - recon)
-      if (
-        !found ||
-        err < bestErr ||
-        (err === bestErr && Math.abs(exp) < Math.abs(bestExp))
-      ) {
+      if (!found || err < bestErr || (err === bestErr && Math.abs(exp) < Math.abs(bestExp))) {
         found = true
         bestErr = err
         bestExp = exp

@@ -10,12 +10,25 @@ type ExtraTools = {
   'tools:targetApi'?: string
 }
 
-type ManifestUsesPermissionWithExtraTools = {
+export type ManifestUsesPermissionWithExtraTools = {
   $: AndroidConfig.Manifest.ManifestUsesPermission['$'] & ExtraTools
 }
 
-type AndroidManifest = {
-  manifest: InnerManifest & {
+type ManifestApplication = NonNullable<InnerManifest['application']>[number]
+
+type ManifestService = NonNullable<ManifestApplication['service']>[number]
+
+export type ManifestServiceWithExtraTools = Omit<ManifestService, '$'> & {
+  $: ManifestService['$'] & ExtraTools
+}
+
+type ManifestApplicationWithExtraTools = Omit<ManifestApplication, 'service'> & {
+  service?: ManifestServiceWithExtraTools[]
+}
+
+export type AndroidManifestWithExtraTools = {
+  manifest: Omit<InnerManifest, 'application' | 'uses-permission' | 'uses-permission-sdk-23'> & {
+    application?: ManifestApplicationWithExtraTools[]
     permission?: ManifestPermission
     'uses-permission'?: ManifestUsesPermissionWithExtraTools[]
     'uses-permission-sdk-23'?: ManifestUsesPermissionWithExtraTools[]
@@ -42,7 +55,10 @@ export const withBLEAndroidManifest: ConfigPlugin<{
  *  - 'android.permission.ACCESS_FINE_LOCATION' for Android SDK 29 (Android 10) and higher.
  *    From Android SDK 31 (Android 12) it might not be required if BLE is not used for location.
  */
-export function addLocationPermissionToManifest(androidManifest: AndroidManifest, neverForLocationSinceSdk31: boolean) {
+export function addLocationPermissionToManifest(
+  androidManifest: AndroidManifestWithExtraTools,
+  neverForLocationSinceSdk31: boolean
+) {
   if (!Array.isArray(androidManifest.manifest['uses-permission-sdk-23'])) {
     androidManifest.manifest['uses-permission-sdk-23'] = []
   }
@@ -86,7 +102,7 @@ export function addLocationPermissionToManifest(androidManifest: AndroidManifest
  * Add 'android.permission.BLUETOOTH_SCAN'.
  * Required since Android SDK 31 (Android 12).
  */
-export function addScanPermissionToManifest(androidManifest: AndroidManifest, neverForLocation: boolean) {
+export function addScanPermissionToManifest(androidManifest: AndroidManifestWithExtraTools, neverForLocation: boolean) {
   if (!Array.isArray(androidManifest.manifest['uses-permission'])) {
     androidManifest.manifest['uses-permission'] = []
   }

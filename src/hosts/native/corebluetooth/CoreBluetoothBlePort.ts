@@ -50,7 +50,7 @@ export function createCoreBluetoothBlePort(options: CoreBluetoothBlePortOptions 
   }
   try {
     // Native package is plain CJS under native/ (not TS).
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+
     const native = require('../../../../../native/electron/corebluetooth') as {
       createPort?: () => unknown
     }

@@ -1,19 +1,22 @@
-# Fork notes (`unified-ble-manager`)
+<!-- docs/FORK.md -->
+
+# Fork notes
+
+> **4.0 rebaseline:** this file records the fork and inherited source. It is not a 4.0 package, shim, API, or installation authority. The controlling authority is [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
 
 This package is a maintained fork of [dotintent/react-native-ble-plx](https://github.com/dotintent/react-native-ble-plx). Upstream is effectively unmaintained for modern React Native / Expo stacks; this fork tracks current platform floors and production reliability needs.
 
 ## Support and ownership
 
-- **Canonical package (4.0 Path A):** `unified-ble-manager`
-- **Compat shim (Path B):** `@sfourdrinier/react-native-ble-plx` (re-exports only; prefer Path A)
+- **Target package identity:** decided and released only through the 4.0 packaging ADR and clean artifact gates
 - **Source:** https://github.com/sfourdrinier/react-native-ble-plx
 - **Issues / support:** https://github.com/sfourdrinier/react-native-ble-plx/issues
 - **Docs:** this repository (`docs/` + root `README.md`)
 - **Migration:** [MIGRATION_4.0.md](../MIGRATION_4.0.md)
 
-## Dual identity (4.0)
+## Historical dual identity (transitional source)
 
-4.0 publishes **`unified-ble-manager`** as the npm package, CocoaPods pod (`unified-ble-manager` / `unified-ble-manager/Restoration`), Android namespace, and Expo config plugin. Install Path A first:
+The following source-era package and configuration examples are historical characterization. They do not authorize a 4.0 package release or permanent shim:
 
 ```bash
 pnpm add unified-ble-manager
@@ -23,7 +26,7 @@ pnpm add unified-ble-manager
 import { BleManager, ConnectionManager } from 'unified-ble-manager'
 ```
 
-Path B keeps `@sfourdrinier/react-native-ble-plx` as a **thin JS re-export** for apps mid-rename. It depends on `unified-ble-manager` and ships no native tree. Bare Podfile paths and Expo plugin ids should still prefer Path A — see [MIGRATION_4.0.md](../MIGRATION_4.0.md).
+No 4.0 scoped shim or compatibility re-export is part of the target artifact without an explicit approved exception, owner, deletion condition, and tests. See [MIGRATION_4.0.md](../MIGRATION_4.0.md).
 
 Last 3.x stable on the scoped name was **3.9.2** (master / release notes). New work lands on the 4.0 train under `unified-ble-manager`.
 

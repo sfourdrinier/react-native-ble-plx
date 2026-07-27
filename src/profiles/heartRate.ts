@@ -104,7 +104,7 @@ export function heartRateRequestFilters(options: { namePrefix?: string; name?: s
  * Resolve UUIDs to pass as the first argument of `startDeviceScan` when filtering to HR.
  * When `heartRateOnly` is false, returns `null` (scan all).
  */
-export function resolveHeartRateScanUUIDs(heartRateOnly: boolean = true): string[] | null {
+export function resolveHeartRateScanUUIDs(heartRateOnly = true): string[] | null {
   return resolveServiceScanUUIDs(SERVICE, heartRateOnly)
 }
 

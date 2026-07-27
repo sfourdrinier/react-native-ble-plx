@@ -44,6 +44,14 @@ export type WriteCharacteristicOptions = {
   withResponse?: boolean
 }
 
+export type PortBondState = 'none' | 'bonding' | 'bonded'
+
+export type PortBondedDevice = {
+  id: string
+  name?: string | null
+  rssi?: number | null
+}
+
 export interface BlePort {
   readonly id: string
   startScan(onDevice: (ad: PortAdvertisement) => void, options?: PortScanOptions): Promise<void>
@@ -83,9 +91,12 @@ export interface BlePort {
    * Optional link-loss / disconnect fan-out (CoreBluetooth Electron, etc.).
    * PortBleManager wires this into `onDeviceDisconnected` when present.
    */
-  onDisconnect?(
-    listener: (deviceId: PortDeviceId, errorMessage: string | null) => void
-  ): PortUnsubscribe
+  onDisconnect?(listener: (deviceId: PortDeviceId, errorMessage: string | null) => void): PortUnsubscribe
+  /** Optional OS/fake bonding surface. PortBleManager rejects when the host capability is false. */
+  getBondState?(deviceId: PortDeviceId): Promise<PortBondState>
+  createBond?(deviceId: PortDeviceId): Promise<void>
+  removeBond?(deviceId: PortDeviceId): Promise<void>
+  listBondedDevices?(): Promise<PortBondedDevice[]>
 }
 
 export type FakeCharSpec = {
@@ -158,9 +169,7 @@ export class FakeBlePort implements BlePort {
   private readonly allowAutoCreate: boolean
   /** Simulated bonded (paired) devices for demos / tests. Keyed by normalized id. */
   private bonds = new Map<PortDeviceId, { name: string | null; displayId: string }>()
-  private readonly disconnectListeners = new Set<
-    (deviceId: PortDeviceId, errorMessage: string | null) => void
-  >()
+  private readonly disconnectListeners = new Set<(deviceId: PortDeviceId, errorMessage: string | null) => void>()
 
   constructor(options: FakePortOptions = {}) {
     this.id = options.id ?? 'fake'
@@ -238,10 +247,7 @@ export class FakeBlePort implements BlePort {
     serviceUUID: string,
     characteristicUUID: string
   ): PortCharacteristicMeta | undefined {
-    return this.tree
-      .get(normDeviceId(deviceId))
-      ?.get(normUuid(serviceUUID))
-      ?.get(normUuid(characteristicUUID))
+    return this.tree.get(normDeviceId(deviceId))?.get(normUuid(serviceUUID))?.get(normUuid(characteristicUUID))
   }
 
   private setBytes(deviceId: PortDeviceId, serviceUUID: string, characteristicUUID: string, value: Uint8Array): void {
@@ -261,9 +267,7 @@ export class FakeBlePort implements BlePort {
     }
   }
 
-  onDisconnect(
-    listener: (deviceId: PortDeviceId, errorMessage: string | null) => void
-  ): PortUnsubscribe {
+  onDisconnect(listener: (deviceId: PortDeviceId, errorMessage: string | null) => void): PortUnsubscribe {
     this.disconnectListeners.add(listener)
     return () => {
       this.disconnectListeners.delete(listener)
@@ -283,8 +287,12 @@ export class FakeBlePort implements BlePort {
         this.monitors.delete(key)
       }
     }
-    for (const listener of this.disconnectListeners) {
-      listener(id, errorMessage)
+    for (const listener of Array.from(this.disconnectListeners)) {
+      try {
+        listener(id, errorMessage)
+      } catch (error) {
+        console.error('[FakeBlePort.emitDisconnect] Disconnect listener failed:', error)
+      }
     }
   }
 
@@ -344,8 +352,12 @@ export class FakeBlePort implements BlePort {
         this.monitors.delete(key)
       }
     }
-    for (const listener of this.disconnectListeners) {
-      listener(id, null)
+    for (const listener of Array.from(this.disconnectListeners)) {
+      try {
+        listener(id, null)
+      } catch (error) {
+        console.error('[FakeBlePort.disconnect] Disconnect listener failed:', error)
+      }
     }
   }
 
@@ -358,12 +370,7 @@ export class FakeBlePort implements BlePort {
     const svc = this.tree.get(normDeviceId(deviceId))
     if (!svc) return []
     // Return first-seen (seed) casing via meta if available; keys are normalized
-    return Array.from(svc.entries()).map(([svcKey, chars]) => {
-      const first = chars.values().next().value
-      // Prefer original service key from tree iteration — store original on seed
-      void first
-      return svcKey
-    })
+    return Array.from(svc.keys())
   }
 
   async discoverCharacteristics(deviceId: PortDeviceId, serviceUUID: string): Promise<PortCharacteristicMeta[]> {
@@ -445,13 +452,7 @@ export class FakeBlePort implements BlePort {
     valueBase64: string,
     options?: WriteCharacteristicOptions
   ): Promise<void> {
-    await this.writeCharacteristicBytes(
-      deviceId,
-      serviceUUID,
-      characteristicUUID,
-      base64ToBytes(valueBase64),
-      options
-    )
+    await this.writeCharacteristicBytes(deviceId, serviceUUID, characteristicUUID, base64ToBytes(valueBase64), options)
   }
 
   async monitorCharacteristic(
@@ -490,8 +491,12 @@ export class FakeBlePort implements BlePort {
     const key = `${normDeviceId(deviceId)}::${charKey(serviceUUID, characteristicUUID)}`
     const listeners = this.monitors.get(key)
     if (!listeners) return
-    for (const cb of listeners) {
-      cb(new Uint8Array(value))
+    for (const cb of Array.from(listeners)) {
+      try {
+        cb(new Uint8Array(value))
+      } catch (error) {
+        console.error('[FakeBlePort.emitNotification] Notification listener failed:', error)
+      }
     }
   }
 

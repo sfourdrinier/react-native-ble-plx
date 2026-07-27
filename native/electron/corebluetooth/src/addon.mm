@@ -1,3 +1,5 @@
+// native/electron/corebluetooth/src/addon.mm
+
 /**
  * Electron macOS CoreBluetooth full BlePort radio (GAP-E-MAC-PORT).
  * Scan → connect → discover → read/write bytes → notify.
@@ -69,8 +71,14 @@ typedef void (^UBMNotifyBlock)(NSData *value);
 /** Completions for setNotifyValue:YES — resolved only in didUpdateNotificationStateFor. */
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMVoidBlock> *pendingNotifyEnable;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMNotifyBlock> *notifyHandlers;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, UBMDataBlock> *pendingReadAt;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, UBMVoidBlock> *pendingWriteAt;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, UBMVoidBlock> *pendingNotifyEnableAt;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, UBMNotifyBlock> *notifyHandlersAt;
 /** Fired on unexpected or intentional link loss after pending ops are failed. */
 @property(nonatomic, copy, nullable) void (^disconnectHandler)(NSString *deviceId, NSError *_Nullable error);
+/** Reports CoreBluetooth adapter-state transitions to the contract-v1 host boundary. */
+@property(nonatomic, copy, nullable) void (^adapterStateHandler)(NSString *state);
 - (void)waitPoweredOn:(UBMVoidBlock)completion;
 - (void)startScan:(UBMScanBlock)onDevice
     serviceUUIDs:(NSArray<NSString *> *_Nullable)serviceUUIDs
@@ -83,25 +91,56 @@ typedef void (^UBMNotifyBlock)(NSData *value);
 - (void)discoverCharacteristics:(NSString *)deviceId
                     serviceUUID:(NSString *)serviceUUID
                      completion:(UBMArrayBlock)completion;
+- (void)discoverCharacteristicsAt:(NSString *)deviceId
+                       serviceUUID:(NSString *)serviceUUID
+                 serviceOccurrence:(NSInteger)serviceOccurrence
+                        completion:(UBMArrayBlock)completion;
 - (void)readCharacteristic:(NSString *)deviceId
                serviceUUID:(NSString *)serviceUUID
         characteristicUUID:(NSString *)characteristicUUID
                 completion:(UBMDataBlock)completion;
+- (void)readCharacteristicAt:(NSString *)deviceId
+                  serviceUUID:(NSString *)serviceUUID
+            serviceOccurrence:(NSInteger)serviceOccurrence
+           characteristicUUID:(NSString *)characteristicUUID
+     characteristicOccurrence:(NSInteger)characteristicOccurrence
+                   completion:(UBMDataBlock)completion;
 - (void)writeCharacteristic:(NSString *)deviceId
                 serviceUUID:(NSString *)serviceUUID
          characteristicUUID:(NSString *)characteristicUUID
                        data:(NSData *)data
                withResponse:(BOOL)withResponse
                  completion:(UBMVoidBlock)completion;
+- (void)writeCharacteristicAt:(NSString *)deviceId
+                   serviceUUID:(NSString *)serviceUUID
+             serviceOccurrence:(NSInteger)serviceOccurrence
+            characteristicUUID:(NSString *)characteristicUUID
+      characteristicOccurrence:(NSInteger)characteristicOccurrence
+                          data:(NSData *)data
+                  withResponse:(BOOL)withResponse
+                    completion:(UBMVoidBlock)completion;
 - (void)startNotify:(NSString *)deviceId
         serviceUUID:(NSString *)serviceUUID
  characteristicUUID:(NSString *)characteristicUUID
             handler:(UBMNotifyBlock)handler
-         completion:(UBMVoidBlock)completion;
+            completion:(UBMVoidBlock)completion;
+- (void)startNotifyAt:(NSString *)deviceId
+           serviceUUID:(NSString *)serviceUUID
+     serviceOccurrence:(NSInteger)serviceOccurrence
+    characteristicUUID:(NSString *)characteristicUUID
+  characteristicOccurrence:(NSInteger)characteristicOccurrence
+               handler:(UBMNotifyBlock)handler
+            completion:(UBMVoidBlock)completion;
 - (void)stopNotify:(NSString *)deviceId
        serviceUUID:(NSString *)serviceUUID
 characteristicUUID:(NSString *)characteristicUUID
         completion:(UBMVoidBlock)completion;
+- (void)stopNotifyAt:(NSString *)deviceId
+          serviceUUID:(NSString *)serviceUUID
+    serviceOccurrence:(NSInteger)serviceOccurrence
+   characteristicUUID:(NSString *)characteristicUUID
+ characteristicOccurrence:(NSInteger)characteristicOccurrence
+           completion:(UBMVoidBlock)completion;
 - (void)invalidate;
 @end
 
@@ -121,6 +160,10 @@ characteristicUUID:(NSString *)characteristicUUID
     _pendingWrite = [NSMutableDictionary dictionary];
     _pendingNotifyEnable = [NSMutableDictionary dictionary];
     _notifyHandlers = [NSMutableDictionary dictionary];
+    _pendingReadAt = [NSMutableDictionary dictionary];
+    _pendingWriteAt = [NSMutableDictionary dictionary];
+    _pendingNotifyEnableAt = [NSMutableDictionary dictionary];
+    _notifyHandlersAt = [NSMutableDictionary dictionary];
     _central = [[CBCentralManager alloc] initWithDelegate:self queue:_queue options:nil];
   }
   return self;
@@ -175,6 +218,36 @@ characteristicUUID:(NSString *)characteristicUUID
       if (done) done(error);
     }
   }
+  NSArray<NSString *> *directReadKeys = [self.pendingReadAt.allKeys copy];
+  for (NSString *key in directReadKeys) {
+    if ([key hasPrefix:prefix]) {
+      UBMDataBlock done = self.pendingReadAt[key];
+      [self.pendingReadAt removeObjectForKey:key];
+      if (done) done(nil, error);
+    }
+  }
+  NSArray<NSString *> *directWriteKeys = [self.pendingWriteAt.allKeys copy];
+  for (NSString *key in directWriteKeys) {
+    if ([key hasPrefix:prefix]) {
+      UBMVoidBlock done = self.pendingWriteAt[key];
+      [self.pendingWriteAt removeObjectForKey:key];
+      if (done) done(error);
+    }
+  }
+  NSArray<NSString *> *directNotifyKeys = [self.notifyHandlersAt.allKeys copy];
+  for (NSString *key in directNotifyKeys) {
+    if ([key hasPrefix:prefix]) {
+      [self.notifyHandlersAt removeObjectForKey:key];
+    }
+  }
+  NSArray<NSString *> *directEnableKeys = [self.pendingNotifyEnableAt.allKeys copy];
+  for (NSString *key in directEnableKeys) {
+    if ([key hasPrefix:prefix]) {
+      UBMVoidBlock done = self.pendingNotifyEnableAt[key];
+      [self.pendingNotifyEnableAt removeObjectForKey:key];
+      if (done) done(error);
+    }
+  }
 }
 
 - (void)invalidate {
@@ -195,6 +268,10 @@ characteristicUUID:(NSString *)characteristicUUID
   [self.pendingWrite removeAllObjects];
   [self.pendingNotifyEnable removeAllObjects];
   [self.notifyHandlers removeAllObjects];
+  [self.pendingReadAt removeAllObjects];
+  [self.pendingWriteAt removeAllObjects];
+  [self.pendingNotifyEnableAt removeAllObjects];
+  [self.notifyHandlersAt removeAllObjects];
   self.scanHandler = nil;
   NSArray<UBMVoidBlock> *waiters = [self.powerWaiters copy];
   [self.powerWaiters removeAllObjects];
@@ -205,6 +282,7 @@ characteristicUUID:(NSString *)characteristicUUID
     if (w) w(invErr);
   }
   self.disconnectHandler = nil;
+  self.adapterStateHandler = nil;
 }
 
 - (NSString *)notifyKey:(NSString *)deviceId service:(NSString *)s char:(NSString *)c {
@@ -227,6 +305,73 @@ characteristicUUID:(NSString *)characteristicUUID
     }
     // Append — concurrent startScan/connect must not overwrite prior waiters.
     [self.powerWaiters addObject:[completion copy]];
+  });
+}
+
+- (void)startNotifyAt:(NSString *)deviceId
+           serviceUUID:(NSString *)serviceUUID
+     serviceOccurrence:(NSInteger)serviceOccurrence
+    characteristicUUID:(NSString *)characteristicUUID
+  characteristicOccurrence:(NSInteger)characteristicOccurrence
+               handler:(UBMNotifyBlock)handler
+            completion:(UBMVoidBlock)completion {
+  dispatch_async(self.queue, ^{
+    NSError *error = nil;
+    CBPeripheral *peripheral = [self requireConnected:deviceId error:&error];
+    if (!peripheral) {
+      completion(error);
+      return;
+    }
+    CBCharacteristic *characteristic = [self findCharacteristic:peripheral
+                                                     serviceUUID:serviceUUID
+                                               serviceOccurrence:serviceOccurrence
+                                              characteristicUUID:characteristicUUID
+                                        characteristicOccurrence:characteristicOccurrence];
+    if (!characteristic) {
+      completion([NSError errorWithDomain:@"UBMCoreBluetooth"
+                                     code:404
+                                 userInfo:@{NSLocalizedDescriptionKey : @"Characteristic occurrence not found"}]);
+      return;
+    }
+    NSString *key = [self directCharacteristicKey:deviceId characteristic:characteristic];
+    UBMVoidBlock prior = self.pendingNotifyEnableAt[key];
+    self.notifyHandlersAt[key] = handler;
+    self.pendingNotifyEnableAt[key] = completion;
+    if (prior) {
+      prior([NSError errorWithDomain:@"UBMCoreBluetooth"
+                                code:409
+                            userInfo:@{NSLocalizedDescriptionKey : @"Notify enable superseded by a new subscription"}]);
+    }
+    [peripheral setNotifyValue:YES forCharacteristic:characteristic];
+  });
+}
+
+- (void)readCharacteristicAt:(NSString *)deviceId
+                  serviceUUID:(NSString *)serviceUUID
+            serviceOccurrence:(NSInteger)serviceOccurrence
+           characteristicUUID:(NSString *)characteristicUUID
+     characteristicOccurrence:(NSInteger)characteristicOccurrence
+                   completion:(UBMDataBlock)completion {
+  dispatch_async(self.queue, ^{
+    NSError *error = nil;
+    CBPeripheral *peripheral = [self requireConnected:deviceId error:&error];
+    if (!peripheral) {
+      completion(nil, error);
+      return;
+    }
+    CBCharacteristic *characteristic = [self findCharacteristic:peripheral
+                                                     serviceUUID:serviceUUID
+                                               serviceOccurrence:serviceOccurrence
+                                              characteristicUUID:characteristicUUID
+                                        characteristicOccurrence:characteristicOccurrence];
+    if (!characteristic) {
+      completion(nil, [NSError errorWithDomain:@"UBMCoreBluetooth"
+                                          code:404
+                                      userInfo:@{NSLocalizedDescriptionKey : @"Characteristic occurrence not found"}]);
+      return;
+    }
+    self.pendingReadAt[[self directCharacteristicKey:deviceId characteristic:characteristic]] = completion;
+    [peripheral readValueForCharacteristic:characteristic];
   });
 }
 
@@ -454,6 +599,76 @@ characteristicUUID:(NSString *)characteristicUUID
   return nil;
 }
 
+- (CBService *)findService:(CBPeripheral *)peripheral
+                  serviceUUID:(NSString *)serviceUUID
+            serviceOccurrence:(NSInteger)serviceOccurrence {
+  NSInteger occurrence = 0;
+  for (CBService *service in peripheral.services ?: @[]) {
+    if (!UUIDEqual(service.UUID, serviceUUID)) continue;
+    if (occurrence == serviceOccurrence) return service;
+    occurrence += 1;
+  }
+  return nil;
+}
+
+- (CBCharacteristic *)findCharacteristic:(CBPeripheral *)peripheral
+                              serviceUUID:(NSString *)serviceUUID
+                        serviceOccurrence:(NSInteger)serviceOccurrence
+                       characteristicUUID:(NSString *)characteristicUUID
+                 characteristicOccurrence:(NSInteger)characteristicOccurrence {
+  CBService *service = [self findService:peripheral
+                             serviceUUID:serviceUUID
+                       serviceOccurrence:serviceOccurrence];
+  if (!service) return nil;
+  NSInteger occurrence = 0;
+  for (CBCharacteristic *characteristic in service.characteristics ?: @[]) {
+    if (!UUIDEqual(characteristic.UUID, characteristicUUID)) continue;
+    if (occurrence == characteristicOccurrence) return characteristic;
+    occurrence += 1;
+  }
+  return nil;
+}
+
+- (NSString *)directCharacteristicKey:(NSString *)deviceId characteristic:(CBCharacteristic *)characteristic {
+  return [NSString stringWithFormat:@"%@::direct::%p", deviceId, characteristic];
+}
+
+- (void)discoverCharacteristicsAt:(NSString *)deviceId
+                       serviceUUID:(NSString *)serviceUUID
+                 serviceOccurrence:(NSInteger)serviceOccurrence
+                        completion:(UBMArrayBlock)completion {
+  dispatch_async(self.queue, ^{
+    NSError *error = nil;
+    CBPeripheral *peripheral = [self requireConnected:deviceId error:&error];
+    if (!peripheral) {
+      completion(nil, error);
+      return;
+    }
+    CBService *service = [self findService:peripheral
+                               serviceUUID:serviceUUID
+                         serviceOccurrence:serviceOccurrence];
+    if (!service || service.characteristics == nil) {
+      completion(nil, [NSError errorWithDomain:@"UBMCoreBluetooth"
+                                           code:302
+                                       userInfo:@{NSLocalizedDescriptionKey : @"Service characteristics are not discovered"}]);
+      return;
+    }
+    NSMutableArray *result = [NSMutableArray array];
+    for (CBCharacteristic *characteristic in service.characteristics ?: @[]) {
+      CBCharacteristicProperties properties = characteristic.properties;
+      [result addObject:@{
+        @"uuid" : NormalizeUUID(characteristic.UUID.UUIDString),
+        @"isReadable" : @((properties & CBCharacteristicPropertyRead) != 0),
+        @"isWritableWithResponse" : @((properties & CBCharacteristicPropertyWrite) != 0),
+        @"isWritableWithoutResponse" : @((properties & CBCharacteristicPropertyWriteWithoutResponse) != 0),
+        @"isNotifiable" : @((properties & CBCharacteristicPropertyNotify) != 0 ||
+                             (properties & CBCharacteristicPropertyIndicate) != 0)
+      }];
+    }
+    completion(result, nil);
+  });
+}
+
 - (void)readCharacteristic:(NSString *)deviceId
                serviceUUID:(NSString *)serviceUUID
         characteristicUUID:(NSString *)characteristicUUID
@@ -508,6 +723,42 @@ characteristicUUID:(NSString *)characteristicUUID
       [p writeValue:data forCharacteristic:ch type:type];
       completion(nil);
     }
+  });
+}
+
+- (void)writeCharacteristicAt:(NSString *)deviceId
+                   serviceUUID:(NSString *)serviceUUID
+             serviceOccurrence:(NSInteger)serviceOccurrence
+            characteristicUUID:(NSString *)characteristicUUID
+      characteristicOccurrence:(NSInteger)characteristicOccurrence
+                          data:(NSData *)data
+                  withResponse:(BOOL)withResponse
+                    completion:(UBMVoidBlock)completion {
+  dispatch_async(self.queue, ^{
+    NSError *error = nil;
+    CBPeripheral *peripheral = [self requireConnected:deviceId error:&error];
+    if (!peripheral) {
+      completion(error);
+      return;
+    }
+    CBCharacteristic *characteristic = [self findCharacteristic:peripheral
+                                                     serviceUUID:serviceUUID
+                                               serviceOccurrence:serviceOccurrence
+                                              characteristicUUID:characteristicUUID
+                                        characteristicOccurrence:characteristicOccurrence];
+    if (!characteristic) {
+      completion([NSError errorWithDomain:@"UBMCoreBluetooth"
+                                     code:404
+                                 userInfo:@{NSLocalizedDescriptionKey : @"Characteristic occurrence not found"}]);
+      return;
+    }
+    if (withResponse) {
+      self.pendingWriteAt[[self directCharacteristicKey:deviceId characteristic:characteristic]] = completion;
+      [peripheral writeValue:data forCharacteristic:characteristic type:CBCharacteristicWriteWithResponse];
+      return;
+    }
+    [peripheral writeValue:data forCharacteristic:characteristic type:CBCharacteristicWriteWithoutResponse];
+    completion(nil);
   });
 }
 
@@ -571,7 +822,48 @@ characteristicUUID:(NSString *)characteristicUUID
   });
 }
 
+- (void)stopNotifyAt:(NSString *)deviceId
+          serviceUUID:(NSString *)serviceUUID
+    serviceOccurrence:(NSInteger)serviceOccurrence
+   characteristicUUID:(NSString *)characteristicUUID
+ characteristicOccurrence:(NSInteger)characteristicOccurrence
+           completion:(UBMVoidBlock)completion {
+  dispatch_async(self.queue, ^{
+    NSError *error = nil;
+    CBPeripheral *peripheral = [self requireConnected:deviceId error:&error];
+    if (!peripheral) {
+      completion(error);
+      return;
+    }
+    CBCharacteristic *characteristic = [self findCharacteristic:peripheral
+                                                     serviceUUID:serviceUUID
+                                               serviceOccurrence:serviceOccurrence
+                                              characteristicUUID:characteristicUUID
+                                        characteristicOccurrence:characteristicOccurrence];
+    if (!characteristic) {
+      completion([NSError errorWithDomain:@"UBMCoreBluetooth"
+                                     code:404
+                                 userInfo:@{NSLocalizedDescriptionKey : @"Characteristic occurrence not found"}]);
+      return;
+    }
+    NSString *key = [self directCharacteristicKey:deviceId characteristic:characteristic];
+    [self.notifyHandlersAt removeObjectForKey:key];
+    UBMVoidBlock pending = self.pendingNotifyEnableAt[key];
+    if (pending) {
+      [self.pendingNotifyEnableAt removeObjectForKey:key];
+      pending([NSError errorWithDomain:@"UBMCoreBluetooth"
+                                  code:410
+                              userInfo:@{NSLocalizedDescriptionKey : @"Notify enable cancelled by stopNotify"}]);
+    }
+    [peripheral setNotifyValue:NO forCharacteristic:characteristic];
+    completion(nil);
+  });
+}
+
 - (void)centralManagerDidUpdateState:(CBCentralManager *)central {
+  if (self.adapterStateHandler) {
+    self.adapterStateHandler([NSString stringWithUTF8String:StateToString(central.state).c_str()]);
+  }
   if (self.powerWaiters.count == 0) return;
   if (central.state == CBManagerStatePoweredOn) {
     NSArray<UBMVoidBlock> *waiters = [self.powerWaiters copy];
@@ -721,6 +1013,19 @@ characteristicUUID:(NSString *)characteristicUUID
     didUpdateValueForCharacteristic:(CBCharacteristic *)characteristic
                               error:(NSError *)error {
   NSString *deviceId = peripheral.identifier.UUIDString;
+  NSString *directKey = [self directCharacteristicKey:deviceId characteristic:characteristic];
+  UBMDataBlock directReadDone = self.pendingReadAt[directKey];
+  if (directReadDone) {
+    [self.pendingReadAt removeObjectForKey:directKey];
+    if (error) directReadDone(nil, error);
+    else directReadDone(characteristic.value ?: [NSData data], nil);
+    return;
+  }
+  UBMNotifyBlock directNotify = self.notifyHandlersAt[directKey];
+  if (directNotify && !error && characteristic.value) {
+    directNotify(characteristic.value);
+    return;
+  }
   NSString *sUUID = NormalizeUUID(characteristic.service.UUID.UUIDString);
   NSString *cUUID = NormalizeUUID(characteristic.UUID.UUIDString);
   NSString *key = [self notifyKey:deviceId service:sUUID char:cUUID];
@@ -740,6 +1045,13 @@ characteristicUUID:(NSString *)characteristicUUID
     didWriteValueForCharacteristic:(CBCharacteristic *)characteristic
                              error:(NSError *)error {
   NSString *deviceId = peripheral.identifier.UUIDString;
+  NSString *directKey = [self directCharacteristicKey:deviceId characteristic:characteristic];
+  UBMVoidBlock directDone = self.pendingWriteAt[directKey];
+  if (directDone) {
+    [self.pendingWriteAt removeObjectForKey:directKey];
+    directDone(error);
+    return;
+  }
   NSString *sUUID = NormalizeUUID(characteristic.service.UUID.UUIDString);
   NSString *cUUID = NormalizeUUID(characteristic.UUID.UUIDString);
   NSString *key = [self notifyKey:deviceId service:sUUID char:cUUID];
@@ -754,6 +1066,25 @@ characteristicUUID:(NSString *)characteristicUUID
     didUpdateNotificationStateForCharacteristic:(CBCharacteristic *)characteristic
                                           error:(NSError *)error {
   NSString *deviceId = peripheral.identifier.UUIDString;
+  NSString *directKey = [self directCharacteristicKey:deviceId characteristic:characteristic];
+  UBMVoidBlock directEnableDone = self.pendingNotifyEnableAt[directKey];
+  if (directEnableDone) {
+    [self.pendingNotifyEnableAt removeObjectForKey:directKey];
+    if (error) {
+      [self.notifyHandlersAt removeObjectForKey:directKey];
+      directEnableDone(error);
+      return;
+    }
+    if (!characteristic.isNotifying) {
+      [self.notifyHandlersAt removeObjectForKey:directKey];
+      directEnableDone([NSError errorWithDomain:@"UBMCoreBluetooth"
+                                           code:411
+                                       userInfo:@{NSLocalizedDescriptionKey : @"CCCD enable failed — characteristic is not notifying"}]);
+      return;
+    }
+    directEnableDone(nil);
+    return;
+  }
   NSString *sUUID = NormalizeUUID(characteristic.service.UUID.UUIDString);
   NSString *cUUID = NormalizeUUID(characteristic.UUID.UUIDString);
   NSString *key = [self notifyKey:deviceId service:sUUID char:cUUID];
@@ -816,6 +1147,8 @@ static void CallJs(Napi::Env env, Napi::Function jsCallback, JsCallbackData *dat
       errArg = Napi::String::New(env, data->message);
     }
     jsCallback.Call({Napi::String::New(env, data->deviceId), errArg});
+  } else if (data->type == "adapter-state" && jsCallback) {
+    jsCallback.Call({Napi::String::New(env, data->message)});
   } else if (data->hasDeferred) {
     if (data->type == "reject") {
       napi_value msg, err;
@@ -885,11 +1218,17 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
             InstanceMethod("getConnectionState", &CoreBluetoothAddon::GetConnectionState),
             InstanceMethod("discoverServices", &CoreBluetoothAddon::DiscoverServices),
             InstanceMethod("discoverCharacteristics", &CoreBluetoothAddon::DiscoverCharacteristics),
+            InstanceMethod("discoverCharacteristicsAt", &CoreBluetoothAddon::DiscoverCharacteristicsAt),
             InstanceMethod("readCharacteristic", &CoreBluetoothAddon::ReadCharacteristic),
+            InstanceMethod("readCharacteristicAt", &CoreBluetoothAddon::ReadCharacteristicAt),
             InstanceMethod("writeCharacteristic", &CoreBluetoothAddon::WriteCharacteristic),
+            InstanceMethod("writeCharacteristicAt", &CoreBluetoothAddon::WriteCharacteristicAt),
             InstanceMethod("startNotify", &CoreBluetoothAddon::StartNotify),
+            InstanceMethod("startNotifyAt", &CoreBluetoothAddon::StartNotifyAt),
             InstanceMethod("stopNotify", &CoreBluetoothAddon::StopNotify),
+            InstanceMethod("stopNotifyAt", &CoreBluetoothAddon::StopNotifyAt),
             InstanceMethod("setDisconnectHandler", &CoreBluetoothAddon::SetDisconnectHandler),
+            InstanceMethod("setAdapterStateHandler", &CoreBluetoothAddon::SetAdapterStateHandler),
             InstanceMethod("destroy", &CoreBluetoothAddon::Destroy),
         });
     auto *ctor = new Napi::FunctionReference();
@@ -914,6 +1253,7 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
   /** Per-subscription notify TSFNs keyed by deviceId::serviceUUID::characteristicUUID. */
   std::map<std::string, Napi::ThreadSafeFunction> notifyTsfns_;
   Napi::ThreadSafeFunction disconnectTsfn_;
+  Napi::ThreadSafeFunction adapterStateTsfn_;
 
   static std::string NotifyMapKey(const std::string &id, const std::string &svc, const std::string &ch) {
     return id + "::" + svc + "::" + ch;
@@ -942,6 +1282,10 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
     if (disconnectTsfn_) {
       disconnectTsfn_.Release();
       disconnectTsfn_ = Napi::ThreadSafeFunction();
+    }
+    if (adapterStateTsfn_) {
+      adapterStateTsfn_.Release();
+      adapterStateTsfn_ = Napi::ThreadSafeFunction();
     }
   }
 
@@ -1131,6 +1475,79 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
     return Napi::Promise(env, promise);
   }
 
+  Napi::Value DiscoverCharacteristicsAt(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    std::string id = info[0].As<Napi::String>().Utf8Value();
+    std::string svc = info[1].As<Napi::String>().Utf8Value();
+    NSInteger svcOccurrence = info[2].As<Napi::Number>().Int32Value();
+    auto tsfn = MakeResolverTsfn(env, "ubm_ch_at");
+    napi_deferred deferred;
+    napi_value promise;
+    napi_create_promise(env, &deferred, &promise);
+    [radio_ discoverCharacteristicsAt:[NSString stringWithUTF8String:id.c_str()]
+                          serviceUUID:[NSString stringWithUTF8String:svc.c_str()]
+                    serviceOccurrence:svcOccurrence
+                           completion:^(NSArray *value, NSError *error) {
+                             auto *data = new JsCallbackData();
+                             data->hasDeferred = true;
+                             data->deferred = deferred;
+                             if (error) {
+                               data->type = "reject";
+                               data->message = error.localizedDescription
+                                                   ? [error.localizedDescription UTF8String]
+                                                   : "discoverCharacteristicsAt failed";
+                             } else {
+                               data->type = "resolve_chars";
+                               for (NSDictionary *d in value ?: @[]) {
+                                 std::map<std::string, std::string> m;
+                                 m["uuid"] = [d[@"uuid"] UTF8String];
+                                 m["isReadable"] = [d[@"isReadable"] boolValue] ? "1" : "0";
+                                 m["isWritableWithResponse"] = [d[@"isWritableWithResponse"] boolValue] ? "1" : "0";
+                                 m["isWritableWithoutResponse"] = [d[@"isWritableWithoutResponse"] boolValue] ? "1" : "0";
+                                 m["isNotifiable"] = [d[@"isNotifiable"] boolValue] ? "1" : "0";
+                                 data->charMetas.push_back(m);
+                               }
+                             }
+                             tsfn.BlockingCall(data, CallJs);
+                             tsfn.Release();
+                           }];
+    return Napi::Promise(env, promise);
+  }
+
+  Napi::Value ReadCharacteristicAt(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    std::string id = info[0].As<Napi::String>().Utf8Value();
+    std::string svc = info[1].As<Napi::String>().Utf8Value();
+    NSInteger svcOccurrence = info[2].As<Napi::Number>().Int32Value();
+    std::string ch = info[3].As<Napi::String>().Utf8Value();
+    NSInteger chOccurrence = info[4].As<Napi::Number>().Int32Value();
+    auto tsfn = MakeResolverTsfn(env, "ubm_rd_at");
+    napi_deferred deferred;
+    napi_value promise;
+    napi_create_promise(env, &deferred, &promise);
+    [radio_ readCharacteristicAt:[NSString stringWithUTF8String:id.c_str()]
+                     serviceUUID:[NSString stringWithUTF8String:svc.c_str()]
+               serviceOccurrence:svcOccurrence
+              characteristicUUID:[NSString stringWithUTF8String:ch.c_str()]
+        characteristicOccurrence:chOccurrence
+                      completion:^(NSData *dataBytes, NSError *error) {
+                        auto *data = new JsCallbackData();
+                        data->hasDeferred = true;
+                        data->deferred = deferred;
+                        if (error) {
+                          data->type = "reject";
+                          data->message = error.localizedDescription ? [error.localizedDescription UTF8String] : "readCharacteristicAt failed";
+                        } else {
+                          data->type = "resolve_buffer";
+                          const auto *bytes = static_cast<const uint8_t *>(dataBytes.bytes);
+                          data->bytes.assign(bytes, bytes + dataBytes.length);
+                        }
+                        tsfn.BlockingCall(data, CallJs);
+                        tsfn.Release();
+                      }];
+    return Napi::Promise(env, promise);
+  }
+
   Napi::Value WriteCharacteristic(const Napi::CallbackInfo &info) {
     Napi::Env env = info.Env();
     std::string id = info[0].As<Napi::String>().Utf8Value();
@@ -1182,6 +1599,69 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
     return Napi::Promise(env, promise);
   }
 
+  Napi::Value WriteCharacteristicAt(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    std::string id = info[0].As<Napi::String>().Utf8Value();
+    std::string svc = info[1].As<Napi::String>().Utf8Value();
+    NSInteger svcOccurrence = info[2].As<Napi::Number>().Int32Value();
+    std::string ch = info[3].As<Napi::String>().Utf8Value();
+    NSInteger chOccurrence = info[4].As<Napi::Number>().Int32Value();
+    Napi::Buffer<uint8_t> buf = info[5].As<Napi::Buffer<uint8_t>>();
+    bool withResponse = info.Length() < 7 || info[6].As<Napi::Boolean>().Value();
+    NSData *nsData = [NSData dataWithBytes:buf.Data() length:buf.Length()];
+    auto tsfn = MakeResolverTsfn(env, "ubm_wr_at");
+    napi_deferred deferred;
+    napi_value promise;
+    napi_create_promise(env, &deferred, &promise);
+    [radio_ writeCharacteristicAt:[NSString stringWithUTF8String:id.c_str()]
+                      serviceUUID:[NSString stringWithUTF8String:svc.c_str()]
+                serviceOccurrence:svcOccurrence
+               characteristicUUID:[NSString stringWithUTF8String:ch.c_str()]
+         characteristicOccurrence:chOccurrence
+                             data:nsData
+                     withResponse:withResponse
+                       completion:^(NSError *error) { CompleteVoid(tsfn, deferred, error); }];
+    return Napi::Promise(env, promise);
+  }
+
+  Napi::Value StartNotifyAt(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    std::string id = info[0].As<Napi::String>().Utf8Value();
+    std::string svc = info[1].As<Napi::String>().Utf8Value();
+    NSInteger svcOccurrence = info[2].As<Napi::Number>().Int32Value();
+    std::string ch = info[3].As<Napi::String>().Utf8Value();
+    NSInteger chOccurrence = info[4].As<Napi::Number>().Int32Value();
+    Napi::Function onValue = info[5].As<Napi::Function>();
+    const std::string key = id + "::" + svc + "::" + std::to_string(svcOccurrence) + "::" + ch + "::" + std::to_string(chOccurrence);
+    ReleaseNotifyTsfn(key);
+    Napi::ThreadSafeFunction ntsfn = Napi::ThreadSafeFunction::New(env, onValue, "ubm_notify_at", 0, 1);
+    notifyTsfns_[key] = ntsfn;
+    CoreBluetoothAddon *self = this;
+    auto doneTsfn = MakeResolverTsfn(env, "ubm_notify_at_done");
+    napi_deferred deferred;
+    napi_value promise;
+    napi_create_promise(env, &deferred, &promise);
+    [radio_ startNotifyAt:[NSString stringWithUTF8String:id.c_str()]
+              serviceUUID:[NSString stringWithUTF8String:svc.c_str()]
+        serviceOccurrence:svcOccurrence
+       characteristicUUID:[NSString stringWithUTF8String:ch.c_str()]
+ characteristicOccurrence:chOccurrence
+                 handler:^(NSData *value) {
+                   auto *data = new JsCallbackData();
+                   data->type = "notify";
+                   const auto *bytes = static_cast<const uint8_t *>(value.bytes);
+                   data->bytes.assign(bytes, bytes + value.length);
+                   ntsfn.BlockingCall(data, CallJs);
+                 }
+              completion:^(NSError *error) {
+                if (error) {
+                  self->ReleaseNotifyTsfn(key);
+                }
+                CompleteVoid(doneTsfn, deferred, error);
+              }];
+    return Napi::Promise(env, promise);
+  }
+
   Napi::Value StopNotify(const Napi::CallbackInfo &info) {
     Napi::Env env = info.Env();
     std::string id = info[0].As<Napi::String>().Utf8Value();
@@ -1200,6 +1680,31 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
               self->ReleaseNotifyTsfn(key);
               CompleteVoid(tsfn, deferred, error);
             }];
+    return Napi::Promise(env, promise);
+  }
+
+  Napi::Value StopNotifyAt(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    std::string id = info[0].As<Napi::String>().Utf8Value();
+    std::string svc = info[1].As<Napi::String>().Utf8Value();
+    NSInteger svcOccurrence = info[2].As<Napi::Number>().Int32Value();
+    std::string ch = info[3].As<Napi::String>().Utf8Value();
+    NSInteger chOccurrence = info[4].As<Napi::Number>().Int32Value();
+    const std::string key = id + "::" + svc + "::" + std::to_string(svcOccurrence) + "::" + ch + "::" + std::to_string(chOccurrence);
+    auto tsfn = MakeResolverTsfn(env, "ubm_stopn_at");
+    napi_deferred deferred;
+    napi_value promise;
+    napi_create_promise(env, &deferred, &promise);
+    CoreBluetoothAddon *self = this;
+    [radio_ stopNotifyAt:[NSString stringWithUTF8String:id.c_str()]
+             serviceUUID:[NSString stringWithUTF8String:svc.c_str()]
+       serviceOccurrence:svcOccurrence
+      characteristicUUID:[NSString stringWithUTF8String:ch.c_str()]
+characteristicOccurrence:chOccurrence
+             completion:^(NSError *error) {
+               self->ReleaseNotifyTsfn(key);
+               CompleteVoid(tsfn, deferred, error);
+             }];
     return Napi::Promise(env, promise);
   }
 
@@ -1225,6 +1730,29 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
         }
         // BlockingCall: disconnect must not be silently dropped under backlog.
         dtsfn.BlockingCall(data, CallJs);
+      };
+    }
+    return env.Undefined();
+  }
+
+  Napi::Value SetAdapterStateHandler(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    if (info.Length() < 1 || !info[0].IsFunction()) {
+      Napi::TypeError::New(env, "setAdapterStateHandler expects a function").ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+    if (adapterStateTsfn_) {
+      adapterStateTsfn_.Release();
+      adapterStateTsfn_ = Napi::ThreadSafeFunction();
+    }
+    adapterStateTsfn_ = Napi::ThreadSafeFunction::New(env, info[0].As<Napi::Function>(), "ubm_adapter_state", 0, 1);
+    Napi::ThreadSafeFunction atsfn = adapterStateTsfn_;
+    if (radio_) {
+      radio_.adapterStateHandler = ^(NSString *state) {
+        auto *data = new JsCallbackData();
+        data->type = "adapter-state";
+        data->message = state ? [state UTF8String] : "Unknown";
+        atsfn.BlockingCall(data, CallJs);
       };
     }
     return env.Undefined();

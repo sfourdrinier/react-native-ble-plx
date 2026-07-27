@@ -1,3 +1,5 @@
+// __tests__/WebHost.test.js
+
 /**
  * Ship path: unified-ble-manager/web — not a throw stub.
  * Uses injected FakeBlePort for lifecycle; WebBluetoothPort mock for chooser.
@@ -201,6 +203,26 @@ describe('unified-ble-manager/web (shipped host)', () => {
     expect(String(calls[0].err.message || calls[0].err.reason || '')).toMatch(/requestDevice|startDeviceScan/i)
   })
 
+  test('unsupported scan contains a throwing listener and honors the destroyed gate', async () => {
+    const manager = new WebBleManager({ port: new FakeBlePort() })
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await expect(
+        manager.startDeviceScan(null, null, () => {
+          throw new Error('application scan listener failed')
+        })
+      ).resolves.toBeUndefined()
+      expect(errorLog).toHaveBeenCalledWith('[PortBleManager.startDeviceScan] Listener failed:', expect.any(Error))
+
+      manager.destroy()
+      await expect(manager.startDeviceScan(null, null, () => {})).rejects.toMatchObject({
+        errorCode: BleErrorCode.BluetoothManagerDestroyed
+      })
+    } finally {
+      errorLog.mockRestore()
+    }
+  })
+
   test('GATT vertical slice via injected FakeBlePort (Base64 + bytes)', async () => {
     const port = new FakeBlePort({
       services: {
@@ -224,15 +246,8 @@ describe('unified-ble-manager/web (shipped host)', () => {
     const asB64 = await manager.readCharacteristicForDevice(DEVICE, SVC, CHR)
     expect(Array.from(base64ToBytes(asB64.value))).toEqual([0x55])
 
-    await manager.writeCharacteristicWithResponseForDeviceFromBytes(
-      DEVICE,
-      SVC,
-      CHR,
-      new Uint8Array([0x01])
-    )
-    expect(
-      Array.from((await manager.readCharacteristicForDeviceAsBytes(DEVICE, SVC, CHR)).value)
-    ).toEqual([0x01])
+    await manager.writeCharacteristicWithResponseForDeviceFromBytes(DEVICE, SVC, CHR, new Uint8Array([0x01]))
+    expect(Array.from((await manager.readCharacteristicForDeviceAsBytes(DEVICE, SVC, CHR)).value)).toEqual([0x01])
 
     const notes = []
     const sub = manager.monitorCharacteristicForDevice(DEVICE, SVC, CHR, (err, c) => {
@@ -295,9 +310,7 @@ describe('unified-ble-manager/web (shipped host)', () => {
   test('R2-F030 name-only filters with empty optionalServices fail closed (no chooser)', async () => {
     const stack = mockGattStack()
     const port = new WebBluetoothPort({ navigator: stack.navigator, optionalServices: [] })
-    await expect(
-      port.requestDevice({ filters: [{ name: 'Polar H10' }], optionalServices: [] })
-    ).rejects.toMatchObject({
+    await expect(port.requestDevice({ filters: [{ name: 'Polar H10' }], optionalServices: [] })).rejects.toMatchObject({
       errorCode: BleErrorCode.InvalidIdentifiers
     })
     expect(stack.getLastRequestOptions()).toBeNull()
@@ -309,9 +322,7 @@ describe('unified-ble-manager/web (shipped host)', () => {
     })
     expect(stack.getLastRequestOptions()).toBeNull()
 
-    expect(() =>
-      shapeDeviceRequestOptions({ filters: [{ name: 'X' }], optionalServices: [] }, [])
-    ).toThrow(BleError)
+    expect(() => shapeDeviceRequestOptions({ filters: [{ name: 'X' }], optionalServices: [] }, [])).toThrow(BleError)
 
     // Name-only with optionalServices opens chooser
     await port.requestDevice({
@@ -338,9 +349,9 @@ describe('unified-ble-manager/web (shipped host)', () => {
   })
 
   test('filters XOR acceptAllDevices and exclusionFilters require filters', () => {
-    expect(() =>
-      shapeDeviceRequestOptions({ filters: [{ name: 'A' }], acceptAllDevices: true }, [SVC])
-    ).toThrow(BleError)
+    expect(() => shapeDeviceRequestOptions({ filters: [{ name: 'A' }], acceptAllDevices: true }, [SVC])).toThrow(
+      BleError
+    )
     try {
       shapeDeviceRequestOptions({ filters: [{ name: 'A' }], acceptAllDevices: true }, [SVC])
     } catch (e) {
@@ -355,21 +366,11 @@ describe('unified-ble-manager/web (shipped host)', () => {
   })
 
   test('mapWebBluetoothError maps DOMException names to BleErrorCode', () => {
-    expect(mapWebBluetoothError(makeDomError('NotFoundError')).errorCode).toBe(
-      BleErrorCode.OperationCancelled
-    )
-    expect(mapWebBluetoothError(makeDomError('SecurityError')).errorCode).toBe(
-      BleErrorCode.BluetoothUnauthorized
-    )
-    expect(mapWebBluetoothError(new TypeError('bad options')).errorCode).toBe(
-      BleErrorCode.InvalidIdentifiers
-    )
-    expect(mapWebBluetoothError(makeDomError('NetworkError')).errorCode).toBe(
-      BleErrorCode.DeviceConnectionFailed
-    )
-    expect(mapWebBluetoothError(makeDomError('NotSupportedError')).errorCode).toBe(
-      BleErrorCode.OperationNotSupported
-    )
+    expect(mapWebBluetoothError(makeDomError('NotFoundError')).errorCode).toBe(BleErrorCode.OperationCancelled)
+    expect(mapWebBluetoothError(makeDomError('SecurityError')).errorCode).toBe(BleErrorCode.BluetoothUnauthorized)
+    expect(mapWebBluetoothError(new TypeError('bad options')).errorCode).toBe(BleErrorCode.InvalidIdentifiers)
+    expect(mapWebBluetoothError(makeDomError('NetworkError')).errorCode).toBe(BleErrorCode.DeviceConnectionFailed)
+    expect(mapWebBluetoothError(makeDomError('NotSupportedError')).errorCode).toBe(BleErrorCode.OperationNotSupported)
   })
 
   test('missing navigator.bluetooth → BluetoothUnsupported BleError', async () => {
@@ -433,21 +434,11 @@ describe('unified-ble-manager/web (shipped host)', () => {
     expect(services.map(s => s.uuid)).toContain(SVC)
     const read = await manager.readCharacteristicForDeviceAsBytes(DEVICE, SVC, CHR)
     expect(Array.from(read.value)).toEqual([0x64])
-    await manager.writeCharacteristicWithResponseForDeviceFromBytes(
-      DEVICE,
-      SVC,
-      CHR,
-      new Uint8Array([0x0a])
-    )
+    await manager.writeCharacteristicWithResponseForDeviceFromBytes(DEVICE, SVC, CHR, new Uint8Array([0x0a]))
     expect(Array.from(stack.gattChar._value)).toEqual([0x0a])
     expect(stack.gattChar._lastWrite).toBe('withResponse')
 
-    await manager.writeCharacteristicWithoutResponseForDeviceFromBytes(
-      DEVICE,
-      SVC,
-      CHR,
-      new Uint8Array([0x0b])
-    )
+    await manager.writeCharacteristicWithoutResponseForDeviceFromBytes(DEVICE, SVC, CHR, new Uint8Array([0x0b]))
     expect(Array.from(stack.gattChar._value)).toEqual([0x0b])
     expect(stack.gattChar._lastWrite).toBe('withoutResponse')
   })
@@ -509,6 +500,62 @@ describe('unified-ble-manager/web (shipped host)', () => {
     expect(port.getConnectionState(DEVICE)).toBe('disconnected')
   })
 
+  test('native disconnect throw preserves GATT state and restores the disconnect listener', async () => {
+    const stack = mockGattStack({
+      server: {
+        disconnect() {
+          throw new Error('native disconnect failed')
+        }
+      }
+    })
+    const port = new WebBluetoothPort({ navigator: stack.navigator, optionalServices: [SVC] })
+    const seen = []
+    const unsubscribe = port.onDisconnect((deviceId, errorMessage) => {
+      seen.push({ deviceId, errorMessage })
+    })
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await port.requestDevice([{ services: [SVC] }])
+      await port.connect(DEVICE)
+      await port.discoverCharacteristics(DEVICE, SVC)
+
+      await expect(port.disconnect(DEVICE)).rejects.toMatchObject({ errorCode: BleErrorCode.UnknownError })
+      expect(port.getConnectionState(DEVICE)).toBe('connected')
+      expect(port.hasCachedCharacteristic(DEVICE, SVC, CHR)).toBe(true)
+      expect(seen).toEqual([])
+
+      stack.server.connected = false
+      stack.device.fireDisconnected()
+      expect(port.getConnectionState(DEVICE)).toBe('disconnected')
+      expect(port.hasCachedCharacteristic(DEVICE, SVC, CHR)).toBe(false)
+      expect(seen).toEqual([{ deviceId: DEVICE, errorMessage: 'gattserverdisconnected' }])
+      expect(errorLog).toHaveBeenCalledWith(
+        '[WebBluetoothPort.disconnect] Native disconnect failed; preserving local state:',
+        expect.any(Error)
+      )
+    } finally {
+      unsubscribe()
+      errorLog.mockRestore()
+    }
+  })
+
+  test('disconnect that leaves the native GATT server connected cannot publish false success', async () => {
+    const stack = mockGattStack({
+      server: {
+        disconnect() {}
+      }
+    })
+    const port = new WebBluetoothPort({ navigator: stack.navigator, optionalServices: [SVC] })
+    await port.requestDevice([{ services: [SVC] }])
+    await port.connect(DEVICE)
+    await port.discoverCharacteristics(DEVICE, SVC)
+
+    await expect(port.disconnect(DEVICE)).rejects.toMatchObject({
+      errorCode: BleErrorCode.DeviceConnectionFailed
+    })
+    expect(port.getConnectionState(DEVICE)).toBe('connected')
+    expect(port.hasCachedCharacteristic(DEVICE, SVC, CHR)).toBe(true)
+  })
 
   test('WebBluetoothPort.onDisconnect fires on gattserverdisconnected (R3-F009)', async () => {
     const stack = mockGattStack()
@@ -606,6 +653,33 @@ describe('unified-ble-manager/web (shipped host)', () => {
     expect(stack.gattChar._stopNotificationsCalls).toBe(1)
   })
 
+  test('notification listener failure is contained and does not block later listeners', async () => {
+    const stack = mockGattStack()
+    const port = new WebBluetoothPort({ navigator: stack.navigator, optionalServices: [SVC] })
+    const logError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const received = []
+
+    try {
+      await port.requestDevice([{ services: [SVC] }])
+      await port.connect(DEVICE)
+      await port.monitorCharacteristic(DEVICE, SVC, CHR, () => {
+        throw new Error('listener failure')
+      })
+      await port.monitorCharacteristic(DEVICE, SVC, CHR, value => received.push(Array.from(value)))
+
+      stack.gattChar.value = new DataView(new Uint8Array([0x11]).buffer)
+      stack.gattChar._listeners[0]({ target: stack.gattChar })
+
+      expect(received).toEqual([[0x11]])
+      expect(logError).toHaveBeenCalledWith(
+        '[WebBluetoothPort.monitorCharacteristic] Notification listener failed:',
+        expect.any(Error)
+      )
+    } finally {
+      logError.mockRestore()
+    }
+  })
+
   test('getDevices registers permitted devices for connect without chooser (R2-F092)', async () => {
     const stack = mockGattStack()
     stack.navigator.bluetooth.getDevices = async () => [stack.device]
@@ -656,15 +730,12 @@ describe('unified-ble-manager/web (shipped host)', () => {
 
   test('package export path resolves (moduleNameMapper /web)', () => {
     const mod = require('unified-ble-manager/web')
-    expect(typeof mod.BleManager).toBe('function')
-    const m = new mod.BleManager({ port: new FakeBlePort() })
-    // FakeBlePort injection: requestDevice not supported
-    expect(m.supports('requestDevice')).toBe(false)
-    const stack = mockGattStack()
-    const web = new mod.BleManager({
-      port: new mod.WebBluetoothPort({ navigator: stack.navigator, optionalServices: [SVC] })
-    })
-    expect(web.supports('requestDevice')).toBe(true)
+    expect(typeof mod.createWebBluetoothProvider).toBe('function')
+    expect(typeof mod.createNavigatorWebBluetoothProvider).toBe('function')
+    expect(typeof mod.NavigatorWebBluetoothBoundary).toBe('function')
+    expect(typeof mod.runWebBluetoothTck).toBe('function')
+    expect(mod.BleManager).toBeUndefined()
+    expect(mod.WebBluetoothPort).toBeUndefined()
   })
 
   test('WebBluetoothPort read/monitor return detached copies (buffer reuse safe)', async () => {

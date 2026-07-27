@@ -6,11 +6,7 @@
  */
 
 import type { DeviceRequestFilter } from '../discovery/filters'
-import {
-  encodeIeee11073Sfloat,
-  decodeIeee11073Sfloat,
-  type Ieee11073Special
-} from './ieee11073'
+import { encodeIeee11073Sfloat, decodeIeee11073Sfloat, type Ieee11073Special } from './ieee11073'
 import {
   isMatchingCharacteristic,
   isMatchingService,
@@ -86,7 +82,7 @@ export function bloodPressureScanServiceUUIDs(): string[] {
   return scanServiceUUIDs(SERVICE)
 }
 
-export function resolveBloodPressureScanUUIDs(only: boolean = true): string[] | null {
+export function resolveBloodPressureScanUUIDs(only = true): string[] | null {
   return resolveServiceScanUUIDs(SERVICE, only)
 }
 
@@ -112,9 +108,7 @@ export function isBloodPressureMeasurement(uuid: string | null | undefined): boo
 /**
  * Parse Blood Pressure Measurement characteristic value.
  */
-export function parseBloodPressureMeasurement(
-  data: Uint8Array | ArrayLike<number>
-): BloodPressureMeasurement {
+export function parseBloodPressureMeasurement(data: Uint8Array | ArrayLike<number>): BloodPressureMeasurement {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
   // flags + 3× SFLOAT = 1 + 6 = 7 minimum
   if (bytes.length < 7) {

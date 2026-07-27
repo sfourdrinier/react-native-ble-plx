@@ -1,0 +1,2269 @@
+{
+  "schemaVersion": 4,
+  "manifestId": "unified-ble-4-0-lab",
+  "generatedAt": "2026-07-25T00:00:00Z",
+  "asOf": "2026-07-25T00:00:00Z",
+  "authority": {
+    "workPackage": "UB4-LAB-PROCUREMENT",
+    "controllingPlan": "docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md",
+    "inventoryTruthRule": "Only completed, target-matched physical evidence can satisfy its associated live gate and support label; missing evidence remains an explicit live-evidence blocker."
+  },
+  "registries": {
+    "owners": [],
+    "suppliers": [],
+    "locations": [],
+    "orders": [],
+    "bookings": [],
+    "escalations": [],
+    "reservations": [],
+    "replacementPolicies": [],
+    "setupProfiles": []
+  },
+  "evidenceRecords": [
+    {
+      "id": "inventory-truth-unverified",
+      "profileId": null,
+      "scenarioId": null,
+      "assetIds": [],
+      "kind": "inventory",
+      "status": "unverified",
+      "observedAt": "2026-07-25T00:00:00Z",
+      "cadenceDays": 30,
+      "revalidateBy": "2026-08-24T00:00:00Z",
+      "ownerId": null,
+      "target": null,
+      "artifactRef": null,
+      "evidenceManifest": null,
+      "blockerActionIds": [
+        "assign-owners",
+        "approve-acquisition-path"
+      ],
+      "limitations": [
+        "No physical inventory, ownership, procurement, or live-radio artifact has been supplied to this manifest."
+      ]
+    }
+  ],
+  "profiles": [
+    {
+      "id": "windows-winrt-node-electron",
+      "scope": "4.0",
+      "platformId": "windows",
+      "backendId": "winrt",
+      "hostRuntime": "Node and Electron",
+      "targetSelection": {
+        "state": "unresolved",
+        "requestedDeviceFamily": "Windows physical host and WinRT BLE adapter",
+        "exactTarget": null,
+        "decisionBlocker": "The Windows model, adapter, ABI, signing, and access plan are not recorded."
+      },
+      "assetIds": [
+        "windows-winrt-host",
+        "polar-h10"
+      ],
+      "scenarioIds": [
+        "windows-winrt-node-electron-vertical"
+      ],
+      "gateId": "G4",
+      "support": {
+        "label": "unclaimed",
+        "level": "none",
+        "status": "unverified",
+        "limitations": [
+          "No completed package, TCK, or physical-radio evidence exists."
+        ]
+      },
+      "revalidation": {
+        "cadenceDays": 30,
+        "nextRequiredAt": "2026-08-24T00:00:00Z"
+      }
+    },
+    {
+      "id": "linux-ubuntu-bluez-node-electron",
+      "scope": "4.0",
+      "platformId": "linux",
+      "backendId": "bluez",
+      "hostRuntime": "Node and Electron",
+      "targetSelection": {
+        "state": "unresolved",
+        "requestedDeviceFamily": "Ubuntu physical host, kernel, BlueZ version, and BLE adapter",
+        "exactTarget": null,
+        "decisionBlocker": "The Ubuntu environment and physical allocation are not recorded."
+      },
+      "assetIds": [
+        "linux-ubuntu-bluez-host",
+        "polar-h10"
+      ],
+      "scenarioIds": [
+        "linux-ubuntu-bluez-vertical"
+      ],
+      "gateId": "G4",
+      "support": {
+        "label": "unclaimed",
+        "level": "none",
+        "status": "unverified",
+        "limitations": [
+          "No replayable physical Ubuntu evidence exists."
+        ]
+      },
+      "revalidation": {
+        "cadenceDays": 30,
+        "nextRequiredAt": "2026-08-24T00:00:00Z"
+      }
+    },
+    {
+      "id": "linux-fedora-bluez-node-electron",
+      "scope": "4.0",
+      "platformId": "linux",
+      "backendId": "bluez",
+      "hostRuntime": "Node and Electron",
+      "targetSelection": {
+        "state": "unresolved",
+        "requestedDeviceFamily": "Fedora physical host, kernel, BlueZ version, and BLE adapter",
+        "exactTarget": null,
+        "decisionBlocker": "The Fedora environment and physical allocation are not recorded."
+      },
+      "assetIds": [
+        "linux-fedora-bluez-host",
+        "polar-h10"
+      ],
+      "scenarioIds": [
+        "linux-fedora-bluez-vertical"
+      ],
+      "gateId": "G4",
+      "support": {
+        "label": "unclaimed",
+        "level": "none",
+        "status": "unverified",
+        "limitations": [
+          "No replayable physical Fedora evidence exists."
+        ]
+      },
+      "revalidation": {
+        "cadenceDays": 30,
+        "nextRequiredAt": "2026-08-24T00:00:00Z"
+      }
+    },
+    {
+      "id": "macos-arm64-corebluetooth-node-electron",
+      "scope": "4.0",
+      "platformId": "macos",
+      "backendId": "corebluetooth",
+      "hostRuntime": "Node and Electron",
+      "targetSelection": {
+        "state": "unresolved",
+        "requestedDeviceFamily": "macOS arm64 physical host and integrated CoreBluetooth adapter",
+        "exactTarget": null,
+        "decisionBlocker": "A local development observation is not a lab allocation or current live result."
+      },
+      "assetIds": [
+        "macos-arm64-corebluetooth-host",
+        "polar-h10",
+        "generic-fixed-function-peripheral"
+      ],
+      "scenarioIds": [
+        "macos-corebluetooth-node-electron-vertical",
+        "generic-fixed-function-live-vertical"
+      ],
+      "gateId": "G4",
+      "support": {
+        "label": "unclaimed",
+        "level": "none",
+        "status": "unverified",
+        "limitations": [
+          "No allocated macOS lab host or physical evidence record exists."
+        ]
+      },
+      "revalidation": {
+        "cadenceDays": 30,
+        "nextRequiredAt": "2026-08-24T00:00:00Z"
+      }
+    },
+    {
+      "id": "ios-physical-restoration-background",
+      "scope": "4.0",
+      "platformId": "ios",
+      "backendId": "react-native-apple",
+      "hostRuntime": "React Native CLI and Expo development build",
+      "targetSelection": {
+        "state": "unresolved",
+        "requestedDeviceFamily": "Physical iPhone, iOS version, and integrated BLE adapter",
+        "exactTarget": null,
+        "decisionBlocker": "No physical iOS restoration and background allocation is recorded."
+      },
+      "assetIds": [
+        "ios-physical-device",
+        "polar-h10",
+        "movesense-device"
+      ],
+      "scenarioIds": [
+        "ios-restoration-background-vertical"
+      ],
+      "gateId": "G4",
+      "support": {
+        "label": "unclaimed",
+        "level": "none",
+        "status": "unverified",
+        "limitations": [
+          "No completed iOS physical-restoration proof exists."
+        ]
+      },
+      "revalidation": {
+        "cadenceDays": 30,
+        "nextRequiredAt": "2026-08-24T00:00:00Z"
+      }
+    },
+    {
+      "id": "ipados-physical-restoration-background",
+      "scope": "4.0",
+      "platformId": "ipados",
+      "backendId": "react-native-apple",
+      "hostRuntime": "React Native CLI and Expo development build",
+      "targetSelection": {
+        "state": "unresolved",
+        "requestedDeviceFamily": "Physical iPad, iPadOS version, and integrated BLE adapter",
+        "exactTarget": null,
+        "decisionBlocker": "No physical iPad restoration and background allocation is recorded."
+      },
+      "assetIds": [
+        "ipados-physical-device",
+        "polar-h10"
+      ],
+      "scenarioIds": [
+        "ipados-restoration-background-vertical"
+      ],
+      "gateId": "G4",
+      "support": {
+        "label": "unclaimed",
+        "level": "none",
+        "status": "unverified",
+        "limitations": [
+          "No completed iPadOS physical evidence exists."
+        ]
+      },
+      "revalidation": {
+        "cadenceDays": 30,
+        "nextRequiredAt": "2026-08-24T00:00:00Z"
+      }
+    },
+    {
+      "id": "tvos-physical-central",
+      "scope": "4.0",
+      "platformId": "tvos",
+      "backendId": "react-native-apple",
+      "hostRuntime": "React Native TV build",
+      "targetSelection": {
+        "state": "unresolved",
+        "requestedDeviceFamily": "Physical Apple TV, tvOS version, and integrated BLE adapter",
+        "exactTarget": null,
+        "decisionBlocker": "No physical Apple TV allocation or central proof is recorded."
+      },
+      "assetIds": [
+        "tvos-physical-device",
+        "polar-h10"
+      ],
+      "scenarioIds": [
+        "tvos-central-vertical"
+      ],
+      "gateId": "G4",
+      "support": {
+        "label": "unclaimed",
+        "level": "none",
+        "status": "unverified",
+        "limitations": [
+          "No completed tvOS physical central evidence exists."
+        ]
+      },
+      "revalidation": {
+        "cadenceDays": 30,
+        "nextRequiredAt": "2026-08-24T00:00:00Z"
+      }
+    },
+    {
+      "id": "android-reference-background",
+      "scope": "4.0",
+      "platformId": "android",
+      "backendId": "react-native-android",
+      "hostRuntime": "React Native CLI and Expo development build",
+      "targetSelection": {
+        "state": "unresolved",
+        "requestedDeviceFamily": "Android reference physical device, API range, and integrated BLE adapter",
+        "exactTarget": null,
+        "decisionBlocker": "No reference Android device or background proof allocation is recorded."
+      },
+      "assetIds": [
+        "android-reference-device",
+        "polar-h10",
+        "movesense-device"
+      ],
+      "scenarioIds": [
+        "android-reference-background-vertical"
+      ],
+      "gateId": "G4",
+      "support": {
+        "label": "unclaimed",
+        "level": "none",
+        "status": "unverified",
+        "limitations": [
+          "No completed Android reference background evidence exists."
+        ]
+      },
+      "revalidation": {
+        "cadenceDays": 30,
+        "nextRequiredAt": "2026-08-24T00:00:00Z"
+      }
+    },
+    {
+      "id": "android-oem-background",
+      "scope": "4.0",
+      "platformId": "android",
+      "backendId": "react-native-android",
+      "hostRuntime": "React Native CLI and Expo development build",
+      "targetSelection": {
+        "state": "unresolved",
+        "requestedDeviceFamily": "Android OEM-variant physical device and firmware",
+        "exactTarget": null,
+        "decisionBlocker": "No OEM variance device or background proof allocation is recorded."
+      },
+      "assetIds": [
+        "android-oem-device",
+        "polar-h10"
+      ],
+      "scenarioIds": [
+        "android-oem-background-vertical"
+      ],
+      "gateId": "G4",
+      "support": {
+        "label": "unclaimed",
+        "level": "none",
+        "status": "unverified",
+        "limitations": [
+          "No completed OEM-variance evidence exists."
+        ]
+      },
+      "revalidation": {
+        "cadenceDays": 30,
+        "nextRequiredAt": "2026-08-24T00:00:00Z"
+      }
+    },
+    {
+      "id": "android-tv",
+      "scope": "4.0",
+      "platformId": "android-tv",
+      "backendId": "react-native-android",
+      "hostRuntime": "React Native TV build",
+      "targetSelection": {
+        "state": "unresolved",
+        "requestedDeviceFamily": "Android TV physical device and BLE adapter",
+        "exactTarget": null,
+        "decisionBlocker": "No Android TV physical allocation is recorded."
+      },
+      "assetIds": [
+        "android-tv-device",
+        "polar-h10"
+      ],
+      "scenarioIds": [
+        "android-tv-vertical"
+      ],
+      "gateId": "G4",
+      "support": {
+        "label": "unclaimed",
+        "level": "none",
+        "status": "unverified",
+        "limitations": [
+          "No completed Android TV evidence exists."
+        ]
+      },
+      "revalidation": {
+        "cadenceDays": 30,
+        "nextRequiredAt": "2026-08-24T00:00:00Z"
+      }
+    },
+    {
+      "id": "fire-tv",
+      "scope": "4.0",
+      "platformId": "fire-tv",
+      "backendId": "react-native-android",
+      "hostRuntime": "React Native TV build",
+      "targetSelection": {
+        "state": "unresolved",
+        "requestedDeviceFamily": "Fire TV physical device and BLE adapter",
+        "exactTarget": null,
+        "decisionBlocker": "No Fire TV physical allocation is recorded."
+      },
+      "assetIds": [
+        "fire-tv-device",
+        "polar-h10"
+      ],
+      "scenarioIds": [
+        "fire-tv-vertical"
+      ],
+      "gateId": "G4",
+      "support": {
+        "label": "unclaimed",
+        "level": "none",
+        "status": "unverified",
+        "limitations": [
+          "No completed Fire TV evidence exists."
+        ]
+      },
+      "revalidation": {
+        "cadenceDays": 30,
+        "nextRequiredAt": "2026-08-24T00:00:00Z"
+      }
+    },
+    {
+      "id": "web-bluetooth-chromium-macos",
+      "scope": "4.0",
+      "platformId": "web",
+      "backendId": "web-bluetooth",
+      "hostRuntime": "Chromium browser on macOS",
+      "targetSelection": {
+        "state": "unresolved",
+        "requestedDeviceFamily": "macOS Chromium physical browser host and browser-exposed BLE adapter",
+        "exactTarget": null,
+        "decisionBlocker": "No browser, chooser, permission, or physical-radio allocation is recorded."
+      },
+      "assetIds": [
+        "chromium-macos-host",
+        "polar-h10"
+      ],
+      "scenarioIds": [
+        "web-chromium-macos-chooser-vertical"
+      ],
+      "gateId": "G4",
+      "support": {
+        "label": "unclaimed",
+        "level": "none",
+        "status": "unverified",
+        "limitations": [
+          "No completed Chromium macOS chooser evidence exists."
+        ]
+      },
+      "revalidation": {
+        "cadenceDays": 30,
+        "nextRequiredAt": "2026-08-24T00:00:00Z"
+      }
+    },
+    {
+      "id": "web-bluetooth-chromium-windows",
+      "scope": "4.0",
+      "platformId": "web",
+      "backendId": "web-bluetooth",
+      "hostRuntime": "Chromium browser on Windows",
+      "targetSelection": {
+        "state": "unresolved",
+        "requestedDeviceFamily": "Windows Chromium physical browser host and browser-exposed BLE adapter",
+        "exactTarget": null,
+        "decisionBlocker": "No Windows browser, chooser, permission, or physical-radio allocation is recorded."
+      },
+      "assetIds": [
+        "chromium-windows-host",
+        "polar-h10"
+      ],
+      "scenarioIds": [
+        "web-chromium-windows-chooser-vertical"
+      ],
+      "gateId": "G4",
+      "support": {
+        "label": "unclaimed",
+        "level": "none",
+        "status": "unverified",
+        "limitations": [
+          "No completed Chromium Windows chooser evidence exists."
+        ]
+      },
+      "revalidation": {
+        "cadenceDays": 30,
+        "nextRequiredAt": "2026-08-24T00:00:00Z"
+      }
+    }
+  ],
+  "assets": [
+    {
+      "id": "windows-winrt-host",
+      "scope": "4.0",
+      "assetClass": "host",
+      "profileIds": [
+        "windows-winrt-node-electron"
+      ],
+      "description": "Physical Windows host and WinRT-compatible BLE adapter for Node and Electron proof.",
+      "requiredAccessories": [
+        "host power cable",
+        "WinRT-compatible BLE adapter"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "Windows model and adapter",
+          "ABI and signing setup",
+          "allocation"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "freeze-windows-profile"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "linux-ubuntu-bluez-host",
+      "scope": "4.0",
+      "assetClass": "host",
+      "profileIds": [
+        "linux-ubuntu-bluez-node-electron"
+      ],
+      "description": "Physical Ubuntu host, BlueZ stack, kernel, and BLE adapter for live proof.",
+      "requiredAccessories": [
+        "host power cable",
+        "BlueZ-compatible BLE adapter"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "Ubuntu and BlueZ versions",
+          "BLE adapter",
+          "allocation"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "freeze-linux-profiles"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "linux-fedora-bluez-host",
+      "scope": "4.0",
+      "assetClass": "host",
+      "profileIds": [
+        "linux-fedora-bluez-node-electron"
+      ],
+      "description": "Physical Fedora host, BlueZ stack, kernel, and BLE adapter for variance proof.",
+      "requiredAccessories": [
+        "host power cable",
+        "BlueZ-compatible BLE adapter"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "Fedora and BlueZ versions",
+          "BLE adapter",
+          "allocation"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "freeze-linux-profiles"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "macos-arm64-corebluetooth-host",
+      "scope": "4.0",
+      "assetClass": "host",
+      "profileIds": [
+        "macos-arm64-corebluetooth-node-electron"
+      ],
+      "description": "Allocated macOS arm64 CoreBluetooth host required for Node and Electron proof.",
+      "requiredAccessories": [
+        "host power cable",
+        "integrated CoreBluetooth adapter"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "lab allocation",
+          "adapter state",
+          "Node and Electron matrix"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "approve-booking-escalation"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "ios-physical-device",
+      "scope": "4.0",
+      "assetClass": "physical-device",
+      "profileIds": [
+        "ios-physical-restoration-background"
+      ],
+      "description": "Physical iPhone required for iOS restoration and background proof.",
+      "requiredAccessories": [
+        "USB-C data cable",
+        "Apple development host cable"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "iPhone model and OS",
+          "signing access",
+          "physical allocation"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "freeze-apple-matrix"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "ipados-physical-device",
+      "scope": "4.0",
+      "assetClass": "physical-device",
+      "profileIds": [
+        "ipados-physical-restoration-background"
+      ],
+      "description": "Physical iPad required for iPadOS restoration and background proof.",
+      "requiredAccessories": [
+        "USB-C data cable",
+        "Apple development host cable"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "iPad model and OS",
+          "signing access",
+          "physical allocation"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "freeze-apple-matrix"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "tvos-physical-device",
+      "scope": "4.0",
+      "assetClass": "physical-device",
+      "profileIds": [
+        "tvos-physical-central"
+      ],
+      "description": "Physical Apple TV required for tvOS central live proof.",
+      "requiredAccessories": [
+        "Apple TV power cable",
+        "Apple development host cable"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "Apple TV model and tvOS",
+          "signing access",
+          "physical allocation"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "freeze-apple-matrix"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "android-reference-device",
+      "scope": "4.0",
+      "assetClass": "physical-device",
+      "profileIds": [
+        "android-reference-background"
+      ],
+      "description": "Android reference device for permissions, foreground service, Doze, and live BLE proof.",
+      "requiredAccessories": [
+        "USB-C data cable",
+        "Android development host cable"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "device model and API range",
+          "developer setup",
+          "physical allocation"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "freeze-android-matrix"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "android-oem-device",
+      "scope": "4.0",
+      "assetClass": "physical-device",
+      "profileIds": [
+        "android-oem-background"
+      ],
+      "description": "Android OEM-variant device for background and permission variance proof.",
+      "requiredAccessories": [
+        "USB-C data cable",
+        "Android development host cable"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "OEM model and firmware",
+          "developer setup",
+          "physical allocation"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "freeze-android-matrix"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "android-tv-device",
+      "scope": "4.0",
+      "assetClass": "physical-device",
+      "profileIds": [
+        "android-tv"
+      ],
+      "description": "Android TV physical device and BLE adapter for TV live proof.",
+      "requiredAccessories": [
+        "device power cable",
+        "Android development host cable"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "Android TV model",
+          "adapter capability",
+          "physical allocation"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "freeze-android-matrix"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "fire-tv-device",
+      "scope": "4.0",
+      "assetClass": "physical-device",
+      "profileIds": [
+        "fire-tv"
+      ],
+      "description": "Fire TV physical device and BLE adapter for Fire OS live proof.",
+      "requiredAccessories": [
+        "device power cable",
+        "Android development host cable"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "Fire TV model and OS",
+          "adapter capability",
+          "physical allocation"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "freeze-android-matrix"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "chromium-macos-host",
+      "scope": "4.0",
+      "assetClass": "host",
+      "profileIds": [
+        "web-bluetooth-chromium-macos"
+      ],
+      "description": "Physical macOS Chromium host for chooser, permission, and radio proof.",
+      "requiredAccessories": [
+        "host power cable",
+        "integrated BLE adapter"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "Chromium version",
+          "chooser policy",
+          "physical allocation"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "freeze-web-matrix"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "chromium-windows-host",
+      "scope": "4.0",
+      "assetClass": "host",
+      "profileIds": [
+        "web-bluetooth-chromium-windows"
+      ],
+      "description": "Physical Windows Chromium host for chooser, permission, and radio proof.",
+      "requiredAccessories": [
+        "host power cable",
+        "WinRT-compatible BLE adapter"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "Chromium version",
+          "chooser policy",
+          "physical allocation"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "freeze-web-matrix"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "polar-h10",
+      "scope": "4.0",
+      "assetClass": "fixed-function-peripheral",
+      "profileIds": [
+        "windows-winrt-node-electron",
+        "linux-ubuntu-bluez-node-electron",
+        "linux-fedora-bluez-node-electron",
+        "macos-arm64-corebluetooth-node-electron",
+        "ios-physical-restoration-background",
+        "ipados-physical-restoration-background",
+        "tvos-physical-central",
+        "android-reference-background",
+        "android-oem-background",
+        "android-tv",
+        "fire-tv",
+        "web-bluetooth-chromium-macos",
+        "web-bluetooth-chromium-windows"
+      ],
+      "description": "Fixed-function Polar H10 for ordinary live vertical slices only; it cannot prove controllable fault injection.",
+      "requiredAccessories": [
+        "Polar H10 charging clip"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "physical device",
+          "firmware",
+          "battery state",
+          "owner"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "verify-peripheral-inventory"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "movesense-device",
+      "scope": "4.0",
+      "assetClass": "fixed-function-peripheral",
+      "profileIds": [
+        "ios-physical-restoration-background",
+        "android-reference-background"
+      ],
+      "description": "Fixed-function Movesense device for its ordinary live vertical slice only.",
+      "requiredAccessories": [
+        "Movesense charging cable"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "physical device",
+          "firmware",
+          "battery state",
+          "owner"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "verify-peripheral-inventory"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "generic-fixed-function-peripheral",
+      "scope": "4.0",
+      "assetClass": "fixed-function-peripheral",
+      "profileIds": [
+        "macos-arm64-corebluetooth-node-electron"
+      ],
+      "description": "Generic fixed-function GATT peripheral limited to ordinary live vertical slices.",
+      "requiredAccessories": [
+        "manufacturer-supplied power or charging accessory"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "device selection",
+          "firmware",
+          "owner",
+          "allocation"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners",
+          "verify-peripheral-inventory"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G4"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "deterministic-test-backend",
+      "scope": "4.0",
+      "assetClass": "deterministic-test",
+      "profileIds": [],
+      "description": "Planned deterministic software controller; it can satisfy deterministic TCK proof but never live-radio proof.",
+      "requiredAccessories": [
+        "no physical accessory required for deterministic software"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "implemented deterministic backend",
+          "TCK evidence owner",
+          "scenario artifact"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "not-required",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": [
+          "assign-owners"
+        ]
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "G1"
+        ],
+        "satisfiedGateIds": []
+      }
+    },
+    {
+      "id": "deferred-physical-fault-provider",
+      "scope": "4.1-deferred",
+      "assetClass": "deferred-physical-fault-provider",
+      "profileIds": [],
+      "description": "Unselected future controllable physical fault provider, explicitly outside the 4.0 procurement matrix.",
+      "requiredAccessories": [
+        "provider-specific power and programming accessories"
+      ],
+      "remoteAccess": {
+        "viability": "unverified",
+        "mechanism": null
+      },
+      "shareability": "unverified",
+      "evidenceOwnerId": null,
+      "inventory": {
+        "state": "unverified",
+        "stateHistory": [
+          {
+            "state": "unverified",
+            "recordedAt": "2026-07-25T00:00:00Z",
+            "evidenceRecordId": "inventory-truth-unverified"
+          }
+        ],
+        "physicalEvidenceRecordId": null,
+        "setupEvidenceRecordId": null,
+        "lastConfirmedAt": null,
+        "missingFacts": [
+          "4.1 feasibility decision",
+          "provider selection",
+          "physical procurement"
+        ]
+      },
+      "acquisition": {
+        "ownerId": null,
+        "supplierId": null,
+        "orderId": null,
+        "locationId": null,
+        "bookingId": null,
+        "escalationId": null,
+        "budgetStatus": "approval-pending",
+        "budgetAmount": null,
+        "currency": null
+      },
+      "readiness": {
+        "state": "blocked",
+        "blockerActionIds": []
+      },
+      "allocation": {
+        "eligibleGateIds": [
+          "future-4-1"
+        ],
+        "satisfiedGateIds": []
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "windows-winrt-node-electron-vertical",
+      "scope": "4.0",
+      "profileIds": [
+        "windows-winrt-node-electron"
+      ],
+      "kind": "ordinary-live-vertical",
+      "evidenceRequirement": "live-radio",
+      "requiredGateId": "G4",
+      "assetRoles": [
+        {
+          "assetId": "windows-winrt-host",
+          "role": "host"
+        },
+        {
+          "assetId": "polar-h10",
+          "role": "physical-peripheral"
+        }
+      ],
+      "faultMode": "none",
+      "canSatisfy4Gate": true
+    },
+    {
+      "id": "linux-ubuntu-bluez-vertical",
+      "scope": "4.0",
+      "profileIds": [
+        "linux-ubuntu-bluez-node-electron"
+      ],
+      "kind": "ordinary-live-vertical",
+      "evidenceRequirement": "live-radio",
+      "requiredGateId": "G4",
+      "assetRoles": [
+        {
+          "assetId": "linux-ubuntu-bluez-host",
+          "role": "host"
+        },
+        {
+          "assetId": "polar-h10",
+          "role": "physical-peripheral"
+        }
+      ],
+      "faultMode": "none",
+      "canSatisfy4Gate": true
+    },
+    {
+      "id": "linux-fedora-bluez-vertical",
+      "scope": "4.0",
+      "profileIds": [
+        "linux-fedora-bluez-node-electron"
+      ],
+      "kind": "ordinary-live-vertical",
+      "evidenceRequirement": "live-radio",
+      "requiredGateId": "G4",
+      "assetRoles": [
+        {
+          "assetId": "linux-fedora-bluez-host",
+          "role": "host"
+        },
+        {
+          "assetId": "polar-h10",
+          "role": "physical-peripheral"
+        }
+      ],
+      "faultMode": "none",
+      "canSatisfy4Gate": true
+    },
+    {
+      "id": "macos-corebluetooth-node-electron-vertical",
+      "scope": "4.0",
+      "profileIds": [
+        "macos-arm64-corebluetooth-node-electron"
+      ],
+      "kind": "ordinary-live-vertical",
+      "evidenceRequirement": "live-radio",
+      "requiredGateId": "G4",
+      "assetRoles": [
+        {
+          "assetId": "macos-arm64-corebluetooth-host",
+          "role": "host"
+        },
+        {
+          "assetId": "polar-h10",
+          "role": "physical-peripheral"
+        }
+      ],
+      "faultMode": "none",
+      "canSatisfy4Gate": true
+    },
+    {
+      "id": "generic-fixed-function-live-vertical",
+      "scope": "4.0",
+      "profileIds": [
+        "macos-arm64-corebluetooth-node-electron"
+      ],
+      "kind": "ordinary-live-vertical",
+      "evidenceRequirement": "live-radio",
+      "requiredGateId": "G4",
+      "assetRoles": [
+        {
+          "assetId": "macos-arm64-corebluetooth-host",
+          "role": "host"
+        },
+        {
+          "assetId": "generic-fixed-function-peripheral",
+          "role": "physical-peripheral"
+        }
+      ],
+      "faultMode": "none",
+      "canSatisfy4Gate": true
+    },
+    {
+      "id": "ios-restoration-background-vertical",
+      "scope": "4.0",
+      "profileIds": [
+        "ios-physical-restoration-background"
+      ],
+      "kind": "ordinary-live-vertical",
+      "evidenceRequirement": "background-live",
+      "requiredGateId": "G4",
+      "assetRoles": [
+        {
+          "assetId": "ios-physical-device",
+          "role": "host"
+        },
+        {
+          "assetId": "polar-h10",
+          "role": "physical-peripheral"
+        },
+        {
+          "assetId": "movesense-device",
+          "role": "physical-peripheral"
+        }
+      ],
+      "faultMode": "none",
+      "canSatisfy4Gate": true
+    },
+    {
+      "id": "ipados-restoration-background-vertical",
+      "scope": "4.0",
+      "profileIds": [
+        "ipados-physical-restoration-background"
+      ],
+      "kind": "ordinary-live-vertical",
+      "evidenceRequirement": "background-live",
+      "requiredGateId": "G4",
+      "assetRoles": [
+        {
+          "assetId": "ipados-physical-device",
+          "role": "host"
+        },
+        {
+          "assetId": "polar-h10",
+          "role": "physical-peripheral"
+        }
+      ],
+      "faultMode": "none",
+      "canSatisfy4Gate": true
+    },
+    {
+      "id": "tvos-central-vertical",
+      "scope": "4.0",
+      "profileIds": [
+        "tvos-physical-central"
+      ],
+      "kind": "ordinary-live-vertical",
+      "evidenceRequirement": "live-radio",
+      "requiredGateId": "G4",
+      "assetRoles": [
+        {
+          "assetId": "tvos-physical-device",
+          "role": "host"
+        },
+        {
+          "assetId": "polar-h10",
+          "role": "physical-peripheral"
+        }
+      ],
+      "faultMode": "none",
+      "canSatisfy4Gate": true
+    },
+    {
+      "id": "android-reference-background-vertical",
+      "scope": "4.0",
+      "profileIds": [
+        "android-reference-background"
+      ],
+      "kind": "ordinary-live-vertical",
+      "evidenceRequirement": "background-live",
+      "requiredGateId": "G4",
+      "assetRoles": [
+        {
+          "assetId": "android-reference-device",
+          "role": "host"
+        },
+        {
+          "assetId": "polar-h10",
+          "role": "physical-peripheral"
+        },
+        {
+          "assetId": "movesense-device",
+          "role": "physical-peripheral"
+        }
+      ],
+      "faultMode": "none",
+      "canSatisfy4Gate": true
+    },
+    {
+      "id": "android-oem-background-vertical",
+      "scope": "4.0",
+      "profileIds": [
+        "android-oem-background"
+      ],
+      "kind": "ordinary-live-vertical",
+      "evidenceRequirement": "background-live",
+      "requiredGateId": "G4",
+      "assetRoles": [
+        {
+          "assetId": "android-oem-device",
+          "role": "host"
+        },
+        {
+          "assetId": "polar-h10",
+          "role": "physical-peripheral"
+        }
+      ],
+      "faultMode": "none",
+      "canSatisfy4Gate": true
+    },
+    {
+      "id": "android-tv-vertical",
+      "scope": "4.0",
+      "profileIds": [
+        "android-tv"
+      ],
+      "kind": "ordinary-live-vertical",
+      "evidenceRequirement": "live-radio",
+      "requiredGateId": "G4",
+      "assetRoles": [
+        {
+          "assetId": "android-tv-device",
+          "role": "host"
+        },
+        {
+          "assetId": "polar-h10",
+          "role": "physical-peripheral"
+        }
+      ],
+      "faultMode": "none",
+      "canSatisfy4Gate": true
+    },
+    {
+      "id": "fire-tv-vertical",
+      "scope": "4.0",
+      "profileIds": [
+        "fire-tv"
+      ],
+      "kind": "ordinary-live-vertical",
+      "evidenceRequirement": "live-radio",
+      "requiredGateId": "G4",
+      "assetRoles": [
+        {
+          "assetId": "fire-tv-device",
+          "role": "host"
+        },
+        {
+          "assetId": "polar-h10",
+          "role": "physical-peripheral"
+        }
+      ],
+      "faultMode": "none",
+      "canSatisfy4Gate": true
+    },
+    {
+      "id": "web-chromium-macos-chooser-vertical",
+      "scope": "4.0",
+      "profileIds": [
+        "web-bluetooth-chromium-macos"
+      ],
+      "kind": "ordinary-live-vertical",
+      "evidenceRequirement": "live-radio",
+      "requiredGateId": "G4",
+      "assetRoles": [
+        {
+          "assetId": "chromium-macos-host",
+          "role": "host"
+        },
+        {
+          "assetId": "polar-h10",
+          "role": "physical-peripheral"
+        }
+      ],
+      "faultMode": "none",
+      "canSatisfy4Gate": true
+    },
+    {
+      "id": "web-chromium-windows-chooser-vertical",
+      "scope": "4.0",
+      "profileIds": [
+        "web-bluetooth-chromium-windows"
+      ],
+      "kind": "ordinary-live-vertical",
+      "evidenceRequirement": "live-radio",
+      "requiredGateId": "G4",
+      "assetRoles": [
+        {
+          "assetId": "chromium-windows-host",
+          "role": "host"
+        },
+        {
+          "assetId": "polar-h10",
+          "role": "physical-peripheral"
+        }
+      ],
+      "faultMode": "none",
+      "canSatisfy4Gate": true
+    },
+    {
+      "id": "deterministic-contract-scenarios",
+      "scope": "4.0",
+      "profileIds": [],
+      "kind": "deterministic-contract",
+      "evidenceRequirement": "deterministic",
+      "requiredGateId": "G1",
+      "assetRoles": [
+        {
+          "assetId": "deterministic-test-backend",
+          "role": "deterministic-controller"
+        }
+      ],
+      "faultMode": "deterministic-only",
+      "canSatisfy4Gate": true
+    },
+    {
+      "id": "deferred-physical-fault-scenarios",
+      "scope": "4.1-deferred",
+      "profileIds": [],
+      "kind": "physical-controllable-fault",
+      "evidenceRequirement": "live-radio",
+      "requiredGateId": "future-4-1",
+      "assetRoles": [
+        {
+          "assetId": "deferred-physical-fault-provider",
+          "role": "physical-controller"
+        }
+      ],
+      "faultMode": "physical-controllable-4.1",
+      "requiredControllerFeatures": [
+        "inject-att-error",
+        "trigger-services-changed"
+      ],
+      "canSatisfy4Gate": false
+    }
+  ],
+  "gates": [
+    {
+      "id": "G0",
+      "scope": "4.0",
+      "state": "ready",
+      "profileIds": [],
+      "scenarioIds": [],
+      "assetIds": [],
+      "actionIds": []
+    },
+    {
+      "id": "G1",
+      "scope": "4.0",
+      "state": "blocked",
+      "profileIds": [],
+      "scenarioIds": [
+        "deterministic-contract-scenarios"
+      ],
+      "assetIds": [
+        "deterministic-test-backend"
+      ],
+      "actionIds": []
+    },
+    {
+      "id": "G4",
+      "scope": "4.0",
+      "state": "blocked",
+      "profileIds": [
+        "windows-winrt-node-electron",
+        "linux-ubuntu-bluez-node-electron",
+        "linux-fedora-bluez-node-electron",
+        "macos-arm64-corebluetooth-node-electron",
+        "ios-physical-restoration-background",
+        "ipados-physical-restoration-background",
+        "tvos-physical-central",
+        "android-reference-background",
+        "android-oem-background",
+        "android-tv",
+        "fire-tv",
+        "web-bluetooth-chromium-macos",
+        "web-bluetooth-chromium-windows"
+      ],
+      "scenarioIds": [
+        "windows-winrt-node-electron-vertical",
+        "linux-ubuntu-bluez-vertical",
+        "linux-fedora-bluez-vertical",
+        "macos-corebluetooth-node-electron-vertical",
+        "generic-fixed-function-live-vertical",
+        "ios-restoration-background-vertical",
+        "ipados-restoration-background-vertical",
+        "tvos-central-vertical",
+        "android-reference-background-vertical",
+        "android-oem-background-vertical",
+        "android-tv-vertical",
+        "fire-tv-vertical",
+        "web-chromium-macos-chooser-vertical",
+        "web-chromium-windows-chooser-vertical"
+      ],
+      "assetIds": [
+        "windows-winrt-host",
+        "linux-ubuntu-bluez-host",
+        "linux-fedora-bluez-host",
+        "macos-arm64-corebluetooth-host",
+        "ios-physical-device",
+        "ipados-physical-device",
+        "tvos-physical-device",
+        "android-reference-device",
+        "android-oem-device",
+        "android-tv-device",
+        "fire-tv-device",
+        "chromium-macos-host",
+        "chromium-windows-host",
+        "polar-h10",
+        "movesense-device",
+        "generic-fixed-function-peripheral"
+      ],
+      "actionIds": [
+        "assign-owners",
+        "approve-acquisition-path",
+        "freeze-windows-profile",
+        "freeze-linux-profiles",
+        "freeze-apple-matrix",
+        "freeze-android-matrix",
+        "freeze-web-matrix",
+        "verify-peripheral-inventory",
+        "approve-booking-escalation"
+      ]
+    },
+    {
+      "id": "future-4-1",
+      "scope": "4.1-deferred",
+      "state": "blocked",
+      "profileIds": [],
+      "scenarioIds": [
+        "deferred-physical-fault-scenarios"
+      ],
+      "assetIds": [
+        "deferred-physical-fault-provider"
+      ],
+      "actionIds": []
+    }
+  ],
+  "deferredScopeRecords": [
+    {
+      "id": "physical-fault-provider-4-1",
+      "assetId": "deferred-physical-fault-provider",
+      "scenarioId": "deferred-physical-fault-scenarios",
+      "reason": "A controllable physical provider is a separate 4.1 feasibility, selection, procurement, and live-radio decision; it cannot satisfy any 4.0 claim."
+    }
+  ],
+  "liveEvidenceActions": [
+    {
+      "id": "assign-owners",
+      "gateId": "G4",
+      "state": "open",
+      "title": "Assign acquisition and evidence owners for every 4.0 asset.",
+      "profileIds": [
+        "windows-winrt-node-electron",
+        "linux-ubuntu-bluez-node-electron",
+        "linux-fedora-bluez-node-electron",
+        "macos-arm64-corebluetooth-node-electron",
+        "ios-physical-restoration-background",
+        "ipados-physical-restoration-background",
+        "tvos-physical-central",
+        "android-reference-background",
+        "android-oem-background",
+        "android-tv",
+        "fire-tv",
+        "web-bluetooth-chromium-macos",
+        "web-bluetooth-chromium-windows"
+      ],
+      "assetIds": [
+        "windows-winrt-host",
+        "linux-ubuntu-bluez-host",
+        "linux-fedora-bluez-host",
+        "macos-arm64-corebluetooth-host",
+        "ios-physical-device",
+        "ipados-physical-device",
+        "tvos-physical-device",
+        "android-reference-device",
+        "android-oem-device",
+        "android-tv-device",
+        "fire-tv-device",
+        "chromium-macos-host",
+        "chromium-windows-host",
+        "polar-h10",
+        "movesense-device",
+        "generic-fixed-function-peripheral"
+      ],
+      "resolutionEvidenceIds": []
+    },
+    {
+      "id": "approve-acquisition-path",
+      "gateId": "G4",
+      "state": "open",
+      "title": "Approve budget, supplier or reservation, dated arrival path, fallback, and location for missing physical assets.",
+      "profileIds": [
+        "windows-winrt-node-electron",
+        "linux-ubuntu-bluez-node-electron",
+        "linux-fedora-bluez-node-electron",
+        "ios-physical-restoration-background",
+        "ipados-physical-restoration-background",
+        "tvos-physical-central",
+        "android-reference-background",
+        "android-oem-background",
+        "android-tv",
+        "fire-tv"
+      ],
+      "assetIds": [
+        "windows-winrt-host",
+        "linux-ubuntu-bluez-host",
+        "linux-fedora-bluez-host",
+        "ios-physical-device",
+        "ipados-physical-device",
+        "tvos-physical-device",
+        "android-reference-device",
+        "android-oem-device",
+        "android-tv-device",
+        "fire-tv-device",
+        "polar-h10",
+        "movesense-device",
+        "generic-fixed-function-peripheral"
+      ],
+      "resolutionEvidenceIds": []
+    },
+    {
+      "id": "freeze-windows-profile",
+      "gateId": "G4",
+      "state": "open",
+      "title": "Record Windows model, adapter, ABI, signing, and remote-access policy.",
+      "profileIds": [
+        "windows-winrt-node-electron",
+        "web-bluetooth-chromium-windows"
+      ],
+      "assetIds": [
+        "windows-winrt-host",
+        "chromium-windows-host",
+        "polar-h10"
+      ],
+      "resolutionEvidenceIds": []
+    },
+    {
+      "id": "freeze-linux-profiles",
+      "gateId": "G4",
+      "state": "open",
+      "title": "Record separate Ubuntu and Fedora version, kernel, BlueZ, adapter, and access profiles.",
+      "profileIds": [
+        "linux-ubuntu-bluez-node-electron",
+        "linux-fedora-bluez-node-electron"
+      ],
+      "assetIds": [
+        "linux-ubuntu-bluez-host",
+        "linux-fedora-bluez-host",
+        "polar-h10"
+      ],
+      "resolutionEvidenceIds": []
+    },
+    {
+      "id": "freeze-apple-matrix",
+      "gateId": "G4",
+      "state": "open",
+      "title": "Record iPhone, iPad, Apple TV, OS, signing, and restoration requirements.",
+      "profileIds": [
+        "ios-physical-restoration-background",
+        "ipados-physical-restoration-background",
+        "tvos-physical-central"
+      ],
+      "assetIds": [
+        "ios-physical-device",
+        "ipados-physical-device",
+        "tvos-physical-device",
+        "polar-h10",
+        "movesense-device"
+      ],
+      "resolutionEvidenceIds": []
+    },
+    {
+      "id": "freeze-android-matrix",
+      "gateId": "G4",
+      "state": "open",
+      "title": "Record Android reference, OEM, Android TV, and Fire TV device and background prerequisites.",
+      "profileIds": [
+        "android-reference-background",
+        "android-oem-background",
+        "android-tv",
+        "fire-tv"
+      ],
+      "assetIds": [
+        "android-reference-device",
+        "android-oem-device",
+        "android-tv-device",
+        "fire-tv-device",
+        "polar-h10",
+        "movesense-device"
+      ],
+      "resolutionEvidenceIds": []
+    },
+    {
+      "id": "freeze-web-matrix",
+      "gateId": "G4",
+      "state": "open",
+      "title": "Record Chromium versions, chooser policy, secure-context, and physical peripheral setup on macOS and Windows.",
+      "profileIds": [
+        "web-bluetooth-chromium-macos",
+        "web-bluetooth-chromium-windows"
+      ],
+      "assetIds": [
+        "chromium-macos-host",
+        "chromium-windows-host",
+        "polar-h10"
+      ],
+      "resolutionEvidenceIds": []
+    },
+    {
+      "id": "verify-peripheral-inventory",
+      "gateId": "G4",
+      "state": "open",
+      "title": "Record Polar, Movesense, and generic fixed-function peripheral possession, firmware, batteries, and replacement paths.",
+      "profileIds": [
+        "ios-physical-restoration-background",
+        "android-reference-background",
+        "macos-arm64-corebluetooth-node-electron"
+      ],
+      "assetIds": [
+        "polar-h10",
+        "movesense-device",
+        "generic-fixed-function-peripheral"
+      ],
+      "resolutionEvidenceIds": []
+    },
+    {
+      "id": "approve-booking-escalation",
+      "gateId": "G4",
+      "state": "open",
+      "title": "Approve booking, lease, replacement, and escalation records for shared live-gate assets.",
+      "profileIds": [
+        "windows-winrt-node-electron",
+        "linux-ubuntu-bluez-node-electron",
+        "linux-fedora-bluez-node-electron",
+        "macos-arm64-corebluetooth-node-electron",
+        "ios-physical-restoration-background",
+        "ipados-physical-restoration-background",
+        "tvos-physical-central",
+        "android-reference-background",
+        "android-oem-background",
+        "android-tv",
+        "fire-tv",
+        "web-bluetooth-chromium-macos",
+        "web-bluetooth-chromium-windows"
+      ],
+      "assetIds": [
+        "windows-winrt-host",
+        "linux-ubuntu-bluez-host",
+        "linux-fedora-bluez-host",
+        "macos-arm64-corebluetooth-host",
+        "ios-physical-device",
+        "ipados-physical-device",
+        "tvos-physical-device",
+        "android-reference-device",
+        "android-oem-device",
+        "android-tv-device",
+        "fire-tv-device",
+        "chromium-macos-host",
+        "chromium-windows-host",
+        "polar-h10",
+        "movesense-device",
+        "generic-fixed-function-peripheral"
+      ],
+      "resolutionEvidenceIds": []
+    }
+  ]
+}

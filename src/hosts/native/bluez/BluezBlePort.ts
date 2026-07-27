@@ -34,23 +34,26 @@ export type BluezIface = {
 }
 
 export type BluezBusLike = {
-  getProxyObject(name: string, path: string): Promise<{
+  getProxyObject(
+    name: string,
+    path: string
+  ): Promise<{
     getInterface(iface: string): BluezIface
   }>
   disconnect?: () => void
-  /** dbus-next MessageBus event API — used to swallow async handshake errors */
+  /** dbus-next MessageBus event API — used to observe async handshake errors */
   on?: (event: string, listener: (...args: unknown[]) => void) => void
   removeListener?: (event: string, listener: (...args: unknown[]) => void) => void
 }
 
 /** Prevent dbus-next async handshake failures from crashing Jest/CI after suite end. */
-function silenceBusErrors(bus: BluezBusLike): void {
+function observeBusErrors(bus: BluezBusLike): void {
   try {
-    bus.on?.('error', () => {
-      /* intentional no-op */
+    bus.on?.('error', error => {
+      console.error('[BluezBlePort] D-Bus asynchronous error:', error)
     })
-  } catch {
-    /* ignore */
+  } catch (error) {
+    console.error('[BluezBlePort] Unable to attach D-Bus error observer:', error)
   }
 }
 
@@ -58,8 +61,8 @@ function safeDisconnect(bus: BluezBusLike | null | undefined): void {
   if (!bus) return
   try {
     bus.disconnect?.()
-  } catch {
-    /* ignore */
+  } catch (error) {
+    console.error('[BluezBlePort] D-Bus disconnect failed:', error)
   }
 }
 
@@ -86,14 +89,14 @@ export async function isBluezAvailable(createBus?: () => Promise<BluezBusLike>):
   try {
     if (createBus) {
       bus = await createBus()
-      silenceBusErrors(bus)
+      observeBusErrors(bus)
       return true
     }
     // Dynamic require keeps package installable without native dbus on Windows/macOS
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+
     const dbus = require('dbus-next') as { systemBus: () => BluezBusLike }
     bus = dbus.systemBus()
-    silenceBusErrors(bus)
+    observeBusErrors(bus)
     // Probe BlueZ service itself — system D-Bus without bluez is common on CI images.
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
@@ -107,7 +110,8 @@ export async function isBluezAvailable(createBus?: () => Promise<BluezBusLike>):
       if (timer !== undefined) clearTimeout(timer)
     }
     return true
-  } catch {
+  } catch (error) {
+    console.error('[BluezBlePort.isBluezAvailable] BlueZ probe failed:', error)
     return false
   } finally {
     safeDisconnect(bus)
@@ -135,14 +139,13 @@ export class BluezBlePort implements BlePort {
     if (this.bus) return this.bus
     if (this.options.createBus) {
       this.bus = await this.options.createBus()
-      silenceBusErrors(this.bus)
+      observeBusErrors(this.bus)
       return this.bus
     }
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const dbus = require('dbus-next') as { systemBus: () => BluezBusLike }
       this.bus = dbus.systemBus()
-      silenceBusErrors(this.bus)
+      observeBusErrors(this.bus)
       return this.bus
     } catch (e) {
       throw new Error(
@@ -192,8 +195,8 @@ export class BluezBlePort implements BlePort {
       const obj = await bus.getProxyObject(BLUEZ_SERVICE, '/org/bluez/hci0')
       const adapter = obj.getInterface(BLUEZ_ADAPTER_IFACE)
       await requireMethod(adapter, 'StopDiscovery')()
-    } catch {
-      // ignore
+    } catch (error) {
+      console.error('[BluezBlePort.stopScan] StopDiscovery failed after local scan state cleared:', error)
     }
   }
 
@@ -232,11 +235,13 @@ export class BluezBlePort implements BlePort {
         const obj = await bus.getProxyObject(BLUEZ_SERVICE, meta.path)
         const device = obj.getInterface(BLUEZ_DEVICE_IFACE)
         await requireMethod(device, 'Disconnect')()
-      } catch {
-        // Best-effort disconnect: still mark disconnected locally
+      } catch (error) {
+        console.error('[BluezBlePort.disconnect] D-Bus Disconnect failed; preserving connected state:', error)
+        throw error instanceof Error ? error : new Error(String(error))
       }
     }
     this.states.set(deviceId, 'disconnected')
+    this.clearDeviceMonitors(deviceId)
   }
 
   getConnectionState(deviceId: PortDeviceId): PortConnectionState {
@@ -255,10 +260,7 @@ export class BluezBlePort implements BlePort {
     )
   }
 
-  async discoverCharacteristics(
-    deviceId: PortDeviceId,
-    serviceUUID: string
-  ): Promise<PortCharacteristicMeta[]> {
+  async discoverCharacteristics(deviceId: PortDeviceId, serviceUUID: string): Promise<PortCharacteristicMeta[]> {
     this.assertConnected(deviceId)
     const out: PortCharacteristicMeta[] = []
     for (const key of this.charPaths.keys()) {
@@ -275,12 +277,7 @@ export class BluezBlePort implements BlePort {
     return out
   }
 
-  registerCharacteristic(
-    deviceId: PortDeviceId,
-    serviceUUID: string,
-    characteristicUUID: string,
-    path: string
-  ): void {
+  registerCharacteristic(deviceId: PortDeviceId, serviceUUID: string, characteristicUUID: string, path: string): void {
     this.charPaths.set(`${deviceId}::${serviceUUID}::${characteristicUUID}`, path)
   }
 
@@ -303,8 +300,11 @@ export class BluezBlePort implements BlePort {
         const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf as ArrayLike<number>)
         this.values.set(key, bytes)
         return new Uint8Array(bytes)
-      } catch {
-        // fall through to cache
+      } catch (error) {
+        // A registered live characteristic must not report a stale cached value as a
+        // successful radio read. The caller needs the actual D-Bus failure to recover.
+        console.error('[BluezBlePort.readCharacteristicBytes] D-Bus read failed:', error)
+        throw error instanceof Error ? error : new Error(String(error))
       }
     }
     const cached = this.values.get(key)
@@ -329,8 +329,7 @@ export class BluezBlePort implements BlePort {
         const ch = obj.getInterface(BLUEZ_GATT_CHAR_IFACE)
         // Pass bytes as Buffer/Uint8Array (ay) — avoid Array.from dense number[] allocation.
         const g = globalThis as { Buffer?: { from(data: Uint8Array): Uint8Array } }
-        const payload =
-          typeof g.Buffer !== 'undefined' ? g.Buffer.from(value) : value
+        const payload = typeof g.Buffer !== 'undefined' ? g.Buffer.from(value) : value
         // BlueZ WriteValue options: type "request" (with response) vs "command" (without).
         const withResponse = options?.withResponse !== false
         const dbusOptions = withResponse ? {} : { type: 'command' }
@@ -360,13 +359,7 @@ export class BluezBlePort implements BlePort {
     valueBase64: string,
     options?: WriteCharacteristicOptions
   ): Promise<void> {
-    await this.writeCharacteristicBytes(
-      deviceId,
-      serviceUUID,
-      characteristicUUID,
-      base64ToBytes(valueBase64),
-      options
-    )
+    await this.writeCharacteristicBytes(deviceId, serviceUUID, characteristicUUID, base64ToBytes(valueBase64), options)
   }
 
   async monitorCharacteristic(
@@ -389,37 +382,51 @@ export class BluezBlePort implements BlePort {
         const ch = obj.getInterface(BLUEZ_GATT_CHAR_IFACE)
         await requireMethod(ch, 'StartNotify')()
       } catch (e) {
-        this.monitors.get(key)?.delete(onValue)
+        const listeners = this.monitors.get(key)
+        listeners?.delete(onValue)
+        if (listeners?.size === 0) {
+          this.monitors.delete(key)
+        }
         throw e instanceof Error ? e : new Error(String(e))
       }
     }
     return async () => {
       this.monitors.get(key)?.delete(onValue)
+      if ((this.monitors.get(key)?.size ?? 0) === 0) this.monitors.delete(key)
       if (path && (this.monitors.get(key)?.size ?? 0) === 0) {
         try {
           const bus = await this.ensureBus()
           const obj = await bus.getProxyObject(BLUEZ_SERVICE, path)
           const ch = obj.getInterface(BLUEZ_GATT_CHAR_IFACE)
           await requireMethod(ch, 'StopNotify')()
-        } catch {
+        } catch (error) {
           // best-effort StopNotify on last unsub
+          console.error('[BluezBlePort.monitorCharacteristic] StopNotify failed during final unsubscribe:', error)
         }
       }
     }
   }
 
   /** Test helper / BlueZ PropertiesChanged hook */
-  emitNotification(
-    deviceId: PortDeviceId,
-    serviceUUID: string,
-    characteristicUUID: string,
-    value: Uint8Array
-  ): void {
+  emitNotification(deviceId: PortDeviceId, serviceUUID: string, characteristicUUID: string, value: Uint8Array): void {
     const key = `${deviceId}::${serviceUUID}::${characteristicUUID}`
     this.values.set(key, new Uint8Array(value))
     const listeners = this.monitors.get(key)
     if (!listeners) return
-    for (const cb of listeners) cb(new Uint8Array(value))
+    for (const cb of Array.from(listeners)) {
+      try {
+        cb(new Uint8Array(value))
+      } catch (error) {
+        console.error('[BluezBlePort.emitNotification] Notification listener failed:', error)
+      }
+    }
+  }
+
+  private clearDeviceMonitors(deviceId: PortDeviceId): void {
+    const prefix = `${deviceId}::`
+    for (const key of Array.from(this.monitors.keys())) {
+      if (key.startsWith(prefix)) this.monitors.delete(key)
+    }
   }
 
   private assertConnected(deviceId: PortDeviceId): void {

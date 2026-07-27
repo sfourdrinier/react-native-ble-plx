@@ -1,7 +1,8 @@
 /**
  * Runtime BLE permission helpers (Android 12+ / legacy location caveats).
  * iOS uses system prompts via CoreBluetooth — helpers report "not required".
- * Web: secure context + browser permission model; we only report availability.
+ * Web has no React Native app-level permission API, so callers must use the
+ * Web Bluetooth secure-context and chooser preflight rather than treating it as granted.
  *
  * Aligns with Expo config plugin defaults: neverForLocation=false means
  * ACCESS_FINE_LOCATION is still required for usable scan results on many
@@ -34,15 +35,11 @@ export type BluetoothPermissionOptions = {
 }
 
 const FINE_LOCATION: Permission =
-  PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION ||
-  ('android.permission.ACCESS_FINE_LOCATION' as Permission)
+  PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION || ('android.permission.ACCESS_FINE_LOCATION' as Permission)
 
 function androidBlePermissions(options?: BluetoothPermissionOptions): Permission[] {
   // API 31+ (Android 12)
-  const sdk =
-    typeof Platform.Version === 'number'
-      ? Platform.Version
-      : parseInt(String(Platform.Version), 10) || 0
+  const sdk = typeof Platform.Version === 'number' ? Platform.Version : parseInt(String(Platform.Version), 10) || 0
 
   if (sdk >= 31) {
     const perms: Permission[] = [
@@ -63,9 +60,7 @@ function androidBlePermissions(options?: BluetoothPermissionOptions): Permission
  * Check whether BLE-related runtime permissions are granted (Android).
  * On iOS returns granted=true (system owns the prompt).
  */
-export async function checkBluetoothPermissions(
-  options?: BluetoothPermissionOptions
-): Promise<PermissionCheckResult> {
+export async function checkBluetoothPermissions(options?: BluetoothPermissionOptions): Promise<PermissionCheckResult> {
   if (Platform.OS === 'ios') {
     return {
       granted: true,
@@ -75,11 +70,20 @@ export async function checkBluetoothPermissions(
     }
   }
   if (Platform.OS !== 'android') {
+    if (Platform.OS === 'web') {
+      return {
+        granted: false,
+        platform: 'web',
+        permissions: [],
+        detail:
+          'Web Bluetooth has no app-level runtime permission API; verify secure context and requestDevice availability'
+      }
+    }
     return {
-      granted: true,
+      granted: false,
       platform: 'unknown',
       permissions: [],
-      detail: 'No Android/iOS runtime permission model for this host'
+      detail: 'No supported app-level BLE runtime permission model for this host'
     }
   }
   const perms = androidBlePermissions(options)
@@ -90,7 +94,8 @@ export async function checkBluetoothPermissions(
       const status = await PermissionsAndroid.check(p)
       results.push(`${p}=${status}`)
       if (!status) allGranted = false
-    } catch {
+    } catch (error) {
+      console.error('[checkBluetoothPermissions] Failed to check Android BLE permission:', error)
       results.push(`${p}=error`)
       allGranted = false
     }
@@ -121,19 +126,16 @@ export async function requestBluetoothPermissions(
     const result = await PermissionsAndroid.requestMultiple(perms)
     const permissions = Object.entries(result).map(([k, v]) => `${k}=${v}`)
     const values = Object.values(result)
-    const neverAskAgain = values.some(
-      v => v === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN || v === 'never_ask_again'
-    )
-    const granted = values.every(
-      v => v === PermissionsAndroid.RESULTS.GRANTED || v === 'granted'
-    )
+    const neverAskAgain = values.some(v => v === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN || v === 'never_ask_again')
+    const granted = values.every(v => v === PermissionsAndroid.RESULTS.GRANTED || v === 'granted')
     return { granted, platform: 'android', permissions, neverAskAgain }
-  } catch (e) {
+  } catch (error) {
+    console.error('[requestBluetoothPermissions] Failed to request Android BLE permissions:', error)
     return {
       granted: false,
       platform: 'android',
       permissions: perms.map(String),
-      detail: e instanceof Error ? e.message : String(e)
+      detail: error instanceof Error ? error.message : String(error)
     }
   }
 }

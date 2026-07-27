@@ -1,4 +1,8 @@
-# ROADMAP 4.0 E2E Review — Fix Tracker
+<!-- docs/FIX_TRACKER.4.0.md -->
+
+# Historical ROADMAP 4.0 E2E Review — Fix Tracker
+
+> **Historical record:** this tracker records fixes against the transitional source tree. It is not 4.0 architecture, sequencing, compatibility, or release authority. See [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
 
 Generated from workflow `roadmap-4-e2e-review`. Updated after multi-lane fix run.
 

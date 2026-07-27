@@ -271,8 +271,7 @@ export function shapeDeviceRequestOptions(
     })
   }
 
-  const optionalServices =
-    options.optionalServices !== undefined ? options.optionalServices : defaultOptionalServices
+  const optionalServices = options.optionalServices !== undefined ? options.optionalServices : defaultOptionalServices
 
   if (!Array.isArray(optionalServices)) {
     throw makeBleError(BleErrorCode.InvalidIdentifiers, {
@@ -350,9 +349,7 @@ export class WebBluetoothPort implements BlePort {
    * Intentional {@link disconnect} also notifies with `errorMessage: null`.
    * Tab/page death remains unobservable from JS.
    */
-  onDisconnect(
-    listener: (deviceId: PortDeviceId, errorMessage: string | null) => void
-  ): PortUnsubscribe {
+  onDisconnect(listener: (deviceId: PortDeviceId, errorMessage: string | null) => void): PortUnsubscribe {
     this.disconnectListeners.add(listener)
     return () => {
       this.disconnectListeners.delete(listener)
@@ -360,11 +357,11 @@ export class WebBluetoothPort implements BlePort {
   }
 
   private fireDisconnect(deviceId: PortDeviceId, errorMessage: string | null): void {
-    for (const listener of this.disconnectListeners) {
+    for (const listener of Array.from(this.disconnectListeners)) {
       try {
         listener(deviceId, errorMessage)
-      } catch {
-        // ignore listener errors
+      } catch (error) {
+        console.error('[WebBluetoothPort.fireDisconnect] Disconnect listener failed:', error)
       }
     }
   }
@@ -386,9 +383,7 @@ export class WebBluetoothPort implements BlePort {
    * Accepts full {@link DeviceRequestOptions}, or a filters array (compat overload).
    * Selection does not connect — call connect(deviceId) separately.
    */
-  async requestDevice(
-    options?: DeviceRequestOptions | BluetoothLEScanFilter[]
-  ): Promise<PortAdvertisement> {
+  async requestDevice(options?: DeviceRequestOptions | BluetoothLEScanFilter[]): Promise<PortAdvertisement> {
     const bt = this.nav.bluetooth
     if (!bt?.requestDevice) {
       if (!isSecureContext()) {
@@ -461,7 +456,8 @@ export class WebBluetoothPort implements BlePort {
     if (typeof bt.getAvailability === 'function') {
       try {
         return await bt.getAvailability()
-      } catch {
+      } catch (error) {
+        console.error('[WebBluetoothPort.getAvailability] Availability query failed:', error)
         return false
       }
     }
@@ -493,8 +489,38 @@ export class WebBluetoothPort implements BlePort {
     if (server?.connected) {
       try {
         server.disconnect()
-      } catch {
-        // ignore — still purge local state
+      } catch (error) {
+        console.error('[WebBluetoothPort.disconnect] Native disconnect failed; preserving local state:', error)
+        const device = this.devices.get(deviceId)
+        if (device) {
+          try {
+            this.attachDisconnectListener(deviceId, device)
+          } catch (restoreError) {
+            console.error(
+              '[WebBluetoothPort.disconnect] Failed to restore disconnect listener after native failure:',
+              restoreError
+            )
+          }
+        }
+        throw mapWebBluetoothError(error, { deviceID: deviceId })
+      }
+      if (server.connected) {
+        const device = this.devices.get(deviceId)
+        if (device) {
+          try {
+            this.attachDisconnectListener(deviceId, device)
+          } catch (restoreError) {
+            console.error(
+              '[WebBluetoothPort.disconnect] Failed to restore disconnect listener after incomplete disconnect:',
+              restoreError
+            )
+          }
+        }
+        throw makeBleError(BleErrorCode.DeviceConnectionFailed, {
+          reason: `Web Bluetooth disconnect did not close the GATT server for ${deviceId}`,
+          deviceID: deviceId,
+          internalMessage: 'server remained connected after disconnect'
+        })
       }
     }
     // Local intentional disconnect: notify then purge (mirrors FakeBlePort).
@@ -614,13 +640,7 @@ export class WebBluetoothPort implements BlePort {
     valueBase64: string,
     options?: WriteCharacteristicOptions
   ): Promise<void> {
-    await this.writeCharacteristicBytes(
-      deviceId,
-      serviceUUID,
-      characteristicUUID,
-      base64ToBytes(valueBase64),
-      options
-    )
+    await this.writeCharacteristicBytes(deviceId, serviceUUID, characteristicUUID, base64ToBytes(valueBase64), options)
   }
 
   async monitorCharacteristic(
@@ -641,8 +661,12 @@ export class WebBluetoothPort implements BlePort {
           if (!view) return
           // Detached copy — WebBT may reuse the underlying ArrayBuffer on subsequent events.
           const copy = Uint8Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength))
-          for (const cb of listeners) {
-            cb(new Uint8Array(copy))
+          for (const cb of Array.from(listeners)) {
+            try {
+              cb(new Uint8Array(copy))
+            } catch (error) {
+              console.error('[WebBluetoothPort.monitorCharacteristic] Notification listener failed:', error)
+            }
           }
         }
         entry = { char: c, domHandler, listeners }
@@ -651,7 +675,14 @@ export class WebBluetoothPort implements BlePort {
         try {
           await c.startNotifications()
         } catch (startErr) {
-          c.removeEventListener('characteristicvaluechanged', domHandler)
+          try {
+            c.removeEventListener('characteristicvaluechanged', domHandler)
+          } catch (cleanupError) {
+            console.error(
+              '[WebBluetoothPort.monitorCharacteristic] Failed to remove listener after setup failure:',
+              cleanupError
+            )
+          }
           this.monitorHandlers.delete(key)
           throw startErr
         }
@@ -666,8 +697,11 @@ export class WebBluetoothPort implements BlePort {
         this.monitorHandlers.delete(key)
         try {
           await current.char.stopNotifications()
-        } catch {
-          // ignore
+        } catch (error) {
+          console.error(
+            '[WebBluetoothPort.monitorCharacteristic] Failed to stop notifications during unsubscribe:',
+            error
+          )
         }
       }
     } catch (err) {
@@ -699,8 +733,8 @@ export class WebBluetoothPort implements BlePort {
     if (device && typeof device.removeEventListener === 'function') {
       try {
         device.removeEventListener('gattserverdisconnected', handler)
-      } catch {
-        // ignore
+      } catch (error) {
+        console.error('[WebBluetoothPort.detachDisconnectListener] Failed to remove disconnect listener:', error)
       }
     }
     this.disconnectHandlers.delete(deviceId)
@@ -723,14 +757,16 @@ export class WebBluetoothPort implements BlePort {
       if (!entry) continue
       try {
         entry.char.removeEventListener('characteristicvaluechanged', entry.domHandler)
-      } catch {
-        // ignore
+      } catch (error) {
+        console.error('[WebBluetoothPort.purgeDeviceGatt] Failed to remove notification listener:', error)
       }
       // Best-effort: purge is sync; stopNotifications is async in the WebBT surface.
       try {
-        void entry.char.stopNotifications()
-      } catch {
-        // ignore
+        entry.char.stopNotifications().catch(error => {
+          console.error('[WebBluetoothPort.purgeDeviceGatt] Failed to stop notifications during purge:', error)
+        })
+      } catch (error) {
+        console.error('[WebBluetoothPort.purgeDeviceGatt] Failed to start notification cleanup:', error)
       }
       entry.listeners.clear()
     }
@@ -859,12 +895,17 @@ export class BleManager extends PortBleManager {
     options: Record<string, unknown> | null | undefined,
     listener: (error: Error | null, device: { id: string; name: string | null; rssi: number | null } | null) => void
   ): Promise<void> {
+    this.assertActive()
     if (!this.supports('continuousScan')) {
       const err = unsupportedOperationError(
         'startDeviceScan',
         'Web Bluetooth uses requestDevice() after a user gesture'
       )
-      listener(err, null)
+      try {
+        listener(err, null)
+      } catch (error) {
+        this.reportListenerFailure('startDeviceScan', error)
+      }
       return
     }
     return super.startDeviceScan(UUIDs, options, listener)
@@ -886,12 +927,7 @@ export class BleManager extends PortBleManager {
       )
       return { value: valueBase64 }
     }
-    return super.writeCharacteristicWithoutResponseForDevice(
-      deviceId,
-      serviceUUID,
-      characteristicUUID,
-      valueBase64
-    )
+    return super.writeCharacteristicWithoutResponseForDevice(deviceId, serviceUUID, characteristicUUID, valueBase64)
   }
 
   async writeCharacteristicWithoutResponseForDeviceFromBytes(
@@ -908,12 +944,7 @@ export class BleManager extends PortBleManager {
       )
       return { value }
     }
-    return super.writeCharacteristicWithoutResponseForDeviceFromBytes(
-      deviceId,
-      serviceUUID,
-      characteristicUUID,
-      value
-    )
+    return super.writeCharacteristicWithoutResponseForDeviceFromBytes(deviceId, serviceUUID, characteristicUUID, value)
   }
 }
 

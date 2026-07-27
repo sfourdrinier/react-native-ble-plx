@@ -1,7 +1,11 @@
 import { AndroidConfig, XML } from '@expo/config-plugins'
 import { resolve } from 'path'
 
-import { setBlePlxDebugLoggingAndroidManifest, setBlePlxDebugLoggingInfoPlist } from '../withBLEDebugLogging'
+import {
+  setBlePlxDebugLoggingAndroidManifest,
+  setBlePlxDebugLoggingInfoPlist,
+  type AndroidManifestWithNullableMetadata
+} from '../withBLEDebugLogging'
 
 const { readAndroidManifestAsync } = AndroidConfig.Manifest
 
@@ -39,22 +43,16 @@ describe('setBlePlxDebugLoggingAndroidManifest', () => {
     expect(xml).toMatch(/<meta-data android:name="BlePlxDebugLogging" android:value="false"\/>/)
   })
 
-  it('handles null meta-data gracefully', () => {
-    const androidManifest = {
-      manifest: {
-        application: [
-          {
-            $: { 'android:name': '.MainApplication' },
-            'meta-data': null
-          }
-        ]
-      }
+  it('handles null meta-data gracefully', async () => {
+    const androidManifest: AndroidManifestWithNullableMetadata = await readAndroidManifestAsync(sampleManifestPath)
+    const mainApp = androidManifest.manifest.application?.[0]
+    if (!mainApp) {
+      throw new Error('Test fixture is missing its application entry')
     }
+    mainApp['meta-data'] = null
 
-    const result = setBlePlxDebugLoggingAndroidManifest(androidManifest as any, true)
-
-    const mainApp = AndroidConfig.Manifest.getMainApplicationOrThrow(result)
-    const metaData = mainApp['meta-data']
+    const result = setBlePlxDebugLoggingAndroidManifest(androidManifest, true)
+    const metaData = result.manifest.application?.[0]?.['meta-data']
 
     expect(Array.isArray(metaData)).toBe(true)
     expect(metaData).toHaveLength(1)
@@ -62,27 +60,36 @@ describe('setBlePlxDebugLoggingAndroidManifest', () => {
     expect(metaData[0].$['android:value']).toBe('true')
   })
 
-  it('handles empty array meta-data', () => {
-    const androidManifest = {
-      manifest: {
-        application: [
-          {
-            $: { 'android:name': '.MainApplication' },
-            'meta-data': []
-          }
-        ]
-      }
+  it('handles empty array meta-data', async () => {
+    const androidManifest: AndroidManifestWithNullableMetadata = await readAndroidManifestAsync(sampleManifestPath)
+    const mainApp = androidManifest.manifest.application?.[0]
+    if (!mainApp) {
+      throw new Error('Test fixture is missing its application entry')
     }
+    mainApp['meta-data'] = []
 
-    const result = setBlePlxDebugLoggingAndroidManifest(androidManifest as any, true)
-
-    const mainApp = AndroidConfig.Manifest.getMainApplicationOrThrow(result)
-    const metaData = mainApp['meta-data']
+    const result = setBlePlxDebugLoggingAndroidManifest(androidManifest, true)
+    const metaData = result.manifest.application?.[0]?.['meta-data']
 
     expect(Array.isArray(metaData)).toBe(true)
     expect(metaData).toHaveLength(1)
     expect(metaData[0].$['android:name']).toBe('BlePlxDebugLogging')
     expect(metaData[0].$['android:value']).toBe('true')
+  })
+
+  it('uses the application element when it has no android:name', async () => {
+    const androidManifest: AndroidManifestWithNullableMetadata = await readAndroidManifestAsync(sampleManifestPath)
+    const application = androidManifest.manifest.application?.[0]
+    if (!application) {
+      throw new Error('Test fixture is missing its application entry')
+    }
+    delete application.$['android:name']
+
+    const result = setBlePlxDebugLoggingAndroidManifest(androidManifest, true)
+    const metadata = result.manifest.application?.[0]?.['meta-data']
+
+    expect(Array.isArray(metadata)).toBe(true)
+    expect(metadata?.[0].$['android:name']).toBe('BlePlxDebugLogging')
   })
 
   it('preserves existing meta-data when it is a single object (not array)', () => {

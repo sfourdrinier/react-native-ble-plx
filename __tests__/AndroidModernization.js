@@ -1,3 +1,5 @@
+// __tests__/AndroidModernization.js
+
 const fs = require('fs')
 const path = require('path')
 
@@ -52,7 +54,7 @@ describe('Android modernization defaults', () => {
     expect(ownedAdapter).not.toContain('RxBleClient')
   })
 
-  test('does not expose newArchEnabled as an architecture switch', () => {
+  test('uses the direct RN 0.86 ReactHost bootstrap without a legacy host compatibility path', () => {
     const buildGradle = read('android/build.gradle')
     const exampleGradleProperties = read('example/android/gradle.properties')
     const mainApplication = read('example/android/app/src/main/java/com/bleplxexample/MainApplication.kt')
@@ -64,9 +66,68 @@ describe('Android modernization defaults', () => {
     expect(buildGradle).not.toContain('isNewArchitectureEnabled')
     expect(buildGradle).not.toContain('newArchEnabled')
     expect(exampleGradleProperties).not.toContain('newArchEnabled')
-    expect(mainApplication).toContain('override val isNewArchEnabled: Boolean = true')
+    expect(mainApplication).toContain('private val packages: List<ReactPackage> =')
+    expect(mainApplication).toContain('PackageList(this).packages.apply')
+    expect(mainApplication).toContain('add(Ub4JsiBinaryBootstrapPackage())')
+    expect(mainApplication).toMatch(/getDefaultReactHost\(\s*applicationContext,\s*packages,/)
     expect(mainApplication).toContain('load()')
+    expect(mainApplication).not.toContain('ReactNativeHost')
+    expect(mainApplication).not.toContain('DefaultReactNativeHost')
+    expect(mainApplication).not.toContain('isNewArchEnabled')
+    expect(mainApplication).not.toContain('isHermesEnabled')
     expect(mainApplication).not.toContain('BuildConfig.IS_NEW_ARCHITECTURE_ENABLED')
+  })
+
+  test('declares the RN 0.86 Java 17 toolchain resolver for clean Gradle builds', () => {
+    const settingsGradle = read('example/android/settings.gradle')
+    const gradleProperties = read('example/android/gradle.properties')
+
+    expect(settingsGradle).toMatch(
+      /id\(["']org\.gradle\.toolchains\.foojay-resolver-convention["']\)\.version\(["']1\.0\.0["']\)/
+    )
+    expect(gradleProperties).not.toContain('org.gradle.java.installations.auto-download=false')
+  })
+
+  test('keeps Android 13+ GATT values and notification state in owned models', () => {
+    const characteristic = read(
+      'android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/Characteristic.java'
+    )
+    const descriptor = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/Descriptor.java')
+    const descriptorConverter = read(
+      'android/src/main/java/com/sfourdrinier/unifiedblemanager/converter/DescriptorToJsObjectConverter.java'
+    )
+    const radio = read(
+      'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedAndroidGattRadio.kt'
+    )
+    const adapter = read(
+      'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedBleAdapter.kt'
+    )
+
+    expect(characteristic).toContain('private volatile boolean notifying = false;')
+    expect(characteristic).toContain('public void setNotifying(boolean notifying)')
+    expect(characteristic).not.toContain('descriptor.getValue()')
+    expect(characteristic).not.toContain('gattCharacteristic.getValue()')
+    expect(descriptor).not.toContain('descriptor.getValue()')
+    expect(descriptor).not.toContain('setValueFromCache')
+    expect(descriptorConverter).not.toContain('setValueFromCache')
+    expect(radio).not.toContain('pendingDescValues')
+    expect(radio).not.toContain('descriptor.value = stashed')
+    expect(adapter).toContain('entry.model.setNotifying(true)')
+    expect(adapter).toContain('entry.model.setNotifying(false)')
+  })
+
+  test('does not use deprecated Android metadata or foreground-service APIs', () => {
+    const debugLogging = read(
+      'android/src/main/java/com/sfourdrinier/unifiedblemanager/utils/BlePlxDebugLogging.java'
+    )
+    const foregroundService = read(
+      'android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxForegroundService.java'
+    )
+
+    expect(debugLogging).not.toContain('metaData.get(META_DATA_NAME)')
+    expect(debugLogging).toContain('OwnedAndroidLog.e("BlePlxDebugLogging metadata lookup", exception)')
+    expect(foregroundService).not.toContain('stopForeground(true)')
+    expect(foregroundService).toContain('stopForeground(STOP_FOREGROUND_REMOVE)')
   })
 
   test('README documents the Android API floors used by the library', () => {

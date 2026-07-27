@@ -1,5 +1,10 @@
+// __tests__/BleManager.js
+
 /* eslint-disable no-import-assign */
-import { BleManager, Device, Service, Characteristic } from '../src'
+import { BleManager } from '../src/BleManager'
+import { Device } from '../src/Device'
+import { Service } from '../src/Service'
+import { Characteristic } from '../src/Characteristic'
 import { BleErrorCode, BleErrorCodeMessage } from '../src/BleError'
 import * as Native from '../src/BleModule'
 import { Platform } from 'react-native'
@@ -681,23 +686,10 @@ test('BleManager monitorCharacteristicForDevice strips subscriptionType on iOS',
   Native.BleModule.monitorCharacteristicForDevice = jest.fn().mockReturnValue(new Promise(() => {}))
   const listener = jest.fn()
 
-  const sub = bleManager.monitorCharacteristicForDevice(
-    'id',
-    'aaaa',
-    'bbbb',
-    listener,
-    'tx-ios',
-    'indication'
-  )
+  const sub = bleManager.monitorCharacteristicForDevice('id', 'aaaa', 'bbbb', listener, 'tx-ios', 'indication')
   await flushMicrotasks(8)
 
-  expect(Native.BleModule.monitorCharacteristicForDevice).toBeCalledWith(
-    'id',
-    'aaaa',
-    'bbbb',
-    'tx-ios',
-    null
-  )
+  expect(Native.BleModule.monitorCharacteristicForDevice).toBeCalledWith('id', 'aaaa', 'bbbb', 'tx-ios', null)
   sub.remove()
 })
 
@@ -741,12 +733,6 @@ test('BleManager monitorCharacteristicForDeviceAsBytes strips subscriptionType o
   )
   await flushMicrotasks(8)
 
-  expect(Native.BleModule.monitorCharacteristicForDevice).toBeCalledWith(
-    'id',
-    'aaaa',
-    'bbbb',
-    'tx-bytes-ios',
-    null
-  )
+  expect(Native.BleModule.monitorCharacteristicForDevice).toBeCalledWith('id', 'aaaa', 'bbbb', 'tx-bytes-ios', null)
   sub.remove()
 })

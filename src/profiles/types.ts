@@ -30,7 +30,7 @@ function u8(bytes: Uint8Array, offset: number): number {
 export function parseBleTimestamp(
   bytes: Uint8Array,
   offset: number,
-  label: string = 'timestamp'
+  label = 'timestamp'
 ): { ts: BleTimestamp; next: number } {
   if (offset + 7 > bytes.length) {
     throw new Error(`${label} missing (need 7 bytes)`)

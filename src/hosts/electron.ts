@@ -15,24 +15,16 @@ import { PortBleManager } from '../port/PortBleManager'
 import { supports as supportsCapability, type BleCapability } from '../supports'
 import { BluezBlePort, BLUEZ_RADIO_ID, isBluezAvailable } from './native/bluez/BluezBlePort'
 import { createWinRtBlePort, WINRT_RADIO_ID } from './native/winrt/WinRtBlePort'
-import {
-  createCoreBluetoothBlePort,
-  COREBLUETOOTH_RADIO_ID
-} from './native/corebluetooth/CoreBluetoothBlePort'
+import { createCoreBluetoothBlePort, COREBLUETOOTH_RADIO_ID } from './native/corebluetooth/CoreBluetoothBlePort'
 
-export type ElectronNativeBackend =
-  | 'mock'
-  | 'bluez'
-  | 'corebluetooth'
-  | 'winrt'
-  | 'unavailable'
+export type ElectronNativeBackend = 'mock' | 'bluez' | 'corebluetooth' | 'winrt' | 'unavailable'
 
 export type ElectronBleManagerOptions = {
   port?: BlePort
   backend?: ElectronNativeBackend
   /**
-   * When true (default for alpha/CI), fall back to FakeBlePort if native radio cannot load.
-   * Production releases should set allowMockFallback: false and inject a real port.
+   * When explicitly true, fall back to FakeBlePort if native radio cannot load.
+   * The default fails closed: inject a real port or use createPlatformElectronPort().
    */
   allowMockFallback?: boolean
   /** Prefer auto-detect OS backend when port not provided */
@@ -59,6 +51,9 @@ export function honestBackendForPort(
   port: BlePort,
   preferredWhenReal: ElectronNativeBackend = 'mock'
 ): ElectronNativeBackend {
+  if (port instanceof FakeBlePort) {
+    return 'mock'
+  }
   const id = (port?.id || '').toLowerCase()
   if (
     !id ||
@@ -75,11 +70,7 @@ export function honestBackendForPort(
   if (id.includes('winrt')) return 'winrt'
   if (id.includes('corebluetooth')) return 'corebluetooth'
   // Unknown real-ish id: trust preferred when it names a live radio family.
-  if (
-    preferredWhenReal === 'bluez' ||
-    preferredWhenReal === 'winrt' ||
-    preferredWhenReal === 'corebluetooth'
-  ) {
+  if (preferredWhenReal === 'bluez' || preferredWhenReal === 'winrt' || preferredWhenReal === 'corebluetooth') {
     return preferredWhenReal
   }
   return preferredWhenReal === 'unavailable' ? 'unavailable' : 'mock'
@@ -89,11 +80,13 @@ export function honestBackendForPort(
  * Select a platform native BlePort for Electron main.
  * Fail-closed: when allowMockFallback is false and native is absent, throws on all OS branches.
  */
-export async function createPlatformElectronPort(options: {
-  allowMockFallback?: boolean
-} = {}): Promise<{ port: BlePort; backend: ElectronNativeBackend }> {
+export async function createPlatformElectronPort(
+  options: {
+    allowMockFallback?: boolean
+  } = {}
+): Promise<{ port: BlePort; backend: ElectronNativeBackend }> {
   const platform = detectPlatform()
-  const allowMock = options.allowMockFallback !== false
+  const allowMock = options.allowMockFallback === true
 
   if (platform === 'linux') {
     const available = await isBluezAvailable()
@@ -102,8 +95,8 @@ export async function createPlatformElectronPort(options: {
         const port = new BluezBlePort()
         await port.ensureBus()
         return { port, backend: 'bluez' }
-      } catch {
-        // fall through to mock
+      } catch (error) {
+        console.error('[createPlatformElectronPort] BlueZ initialization failed:', error)
       }
     }
     if (allowMock) {
@@ -116,7 +109,8 @@ export async function createPlatformElectronPort(options: {
     try {
       const port = createWinRtBlePort({ requireNative: true })
       return { port, backend: 'winrt' }
-    } catch {
+    } catch (error) {
+      console.error('[createPlatformElectronPort] WinRT initialization failed:', error)
       if (allowMock) {
         return {
           port: new FakeBlePort({ id: `${WINRT_RADIO_ID}-fallback` }),
@@ -131,7 +125,8 @@ export async function createPlatformElectronPort(options: {
     try {
       const port = createCoreBluetoothBlePort({ requireNative: true })
       return { port, backend: 'corebluetooth' }
-    } catch {
+    } catch (error) {
+      console.error('[createPlatformElectronPort] CoreBluetooth initialization failed:', error)
       if (allowMock) {
         return {
           port: new FakeBlePort({ id: `${COREBLUETOOTH_RADIO_ID}-fallback` }),
@@ -186,12 +181,12 @@ export class BleManager extends PortBleManager {
     let backend: ElectronNativeBackend = options.backend ?? (options.port ? 'mock' : 'unavailable')
 
     if (!port) {
-      const allowMock = options.allowMockFallback !== false
+      const allowMock = options.allowMockFallback === true
       if (options.autoDetectNative) {
         // Sync constructor cannot await ensureBus / async probes (R2-F060).
         // Prefer requireNative factories; label Fake/fallback as mock — never claim
         // live bluez without a successful bus probe (use createPlatformElectronPort).
-        // R3-F008: only assign Fake when allowMockFallback !== false (match createPlatformElectronPort).
+        // Only assign Fake when explicitly requested (match createPlatformElectronPort).
         if (platform === 'linux') {
           // Sync path cannot prove BlueZ; never silent-mock when mock fallback disabled.
           if (allowMock) {
@@ -202,7 +197,8 @@ export class BleManager extends PortBleManager {
           try {
             port = createWinRtBlePort({ requireNative: true })
             backend = honestBackendForPort(port, 'winrt')
-          } catch {
+          } catch (error) {
+            console.error('[ElectronBleManager] WinRT initialization failed:', error)
             if (allowMock) {
               port = new FakeBlePort({ id: `${WINRT_RADIO_ID}-fallback` })
               backend = 'mock'
@@ -212,7 +208,8 @@ export class BleManager extends PortBleManager {
           try {
             port = createCoreBluetoothBlePort({ requireNative: true })
             backend = honestBackendForPort(port, 'corebluetooth')
-          } catch {
+          } catch (error) {
+            console.error('[ElectronBleManager] CoreBluetooth initialization failed:', error)
             if (allowMock) {
               port = new FakeBlePort({ id: `${COREBLUETOOTH_RADIO_ID}-fallback` })
               backend = 'mock'
@@ -233,8 +230,8 @@ export class BleManager extends PortBleManager {
         }
       }
     } else if (options.backend) {
-      // Explicit backend is trusted for injected test/prod ports.
-      backend = options.backend
+      // An explicit preference cannot make a fake port claim live radio capabilities.
+      backend = honestBackendForPort(port, options.backend)
     } else {
       // Infer from port id — never claim live radio for Fake/fallback ids.
       backend = honestBackendForPort(port, 'mock')
@@ -273,9 +270,7 @@ export class BleManager extends PortBleManager {
   }
 }
 
-export function createElectronBleManager(
-  options: ElectronBleManagerOptions & { port: BlePort }
-): BleManager {
+export function createElectronBleManager(options: ElectronBleManagerOptions & { port: BlePort }): BleManager {
   return new BleManager(options)
 }
 

@@ -69,4 +69,8 @@ test('fullUUID properly transforms 128bit UUID', () => {
 test('string replacment based on object', () => {
   expect(fillStringWithArguments('hello', {})).toBe('hello')
   expect(fillStringWithArguments('My {id} is {a} or {b}', { a: 'OK', id: 'X' })).toBe('My X is OK or ?')
+  expect(fillStringWithArguments('zero={zero}; empty={empty}', { zero: 0, empty: '' })).toBe('zero=0; empty=')
+  expect(fillStringWithArguments('null={null}; undefined={undefined}', { null: null, undefined: undefined })).toBe(
+    'null=?; undefined=?'
+  )
 })

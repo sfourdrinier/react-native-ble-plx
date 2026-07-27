@@ -1,3 +1,5 @@
+# unified-ble-manager.podspec
+
 require "json"
 
 package = JSON.parse(File.read(File.join(__dir__, "package.json")))
@@ -20,12 +22,19 @@ Pod::Spec.new do |s|
   s.module_name  = "BlePlx"
   s.source_files = [
     "ios/*.{h,m,mm}",
+    "ios/Generated/**/*.swift",
+    "ios/NativeProtocol/**/*.{h,m,mm}",
     "ios/Owned/**/*.swift",
+    "native/protocol/src/**/*.cpp",
     "ios/vendor/MultiplatformBleAdapter/classes/BleAdapter.swift",
     "ios/vendor/MultiplatformBleAdapter/classes/BleAdapterFactory.swift",
     "ios/vendor/MultiplatformBleAdapter/classes/BleEvent.swift",
     # SafePromise only — DisposableMap is RxSwift-era and is not used by Owned radio.
     "ios/vendor/MultiplatformBleAdapter/classes/Utils/SafePromise.swift"
+  ]
+  s.preserve_paths = [
+    "native/protocol/include/**/*.hpp",
+    "native/protocol/generated/**/*.hpp"
   ]
   s.exclude_files = [
     "ios/vendor/MultiplatformBleAdapter/classes/BleModule.swift",
@@ -34,11 +43,15 @@ Pod::Spec.new do |s|
     "ios/vendor/MultiplatformBleAdapter/RxSwift/**/*"
   ]
   s.resource_bundles = { 'BlePlx' => ['ios/PrivacyInfo.xcprivacy'] }
+  s.frameworks = "CoreBluetooth"
   # Do not add -fmodules/-fcxx-modules: under -fcxx-modules, clang can emit fmt
   # inline functions (via RCT-Folly) as strong definitions in BlePlx.o /
   # BlePlxTurboModule.o, causing duplicate-symbol link failures when RN is built
   # from source (libfmt.a). See #31.
   s.compiler_flags = "-DOWNED_COREBLUETOOTH_RADIO=1"
+  s.pod_target_xcconfig = {
+    "CLANG_CXX_LANGUAGE_STANDARD" => "c++20"
+  }
 
   # Without :none, CocoaPods treats ALL subspecs as default dependencies of the root pod,
   # so `pod 'react-native-ble-plx'` would always link Restoration (#32). Keep Restoration
@@ -63,7 +76,7 @@ Pod::Spec.new do |s|
     s.pod_target_xcconfig = {
       "HEADER_SEARCH_PATHS" => "\"$(PODS_ROOT)/boost\"",
       "OTHER_CPLUSPLUSFLAGS" => "-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1",
-      "CLANG_CXX_LANGUAGE_STANDARD" => "c++17"
+      "CLANG_CXX_LANGUAGE_STANDARD" => "c++20"
     }
     s.dependency "React-Codegen"
     s.dependency "RCT-Folly"

@@ -1,9 +1,15 @@
+// __tests__/BleManager.phase2.test.js
+
 /**
  * GAP-RN-Q / GAP-RN-LW / GAP-RN-SC — RN BleManager Phase-2 surfaces.
  * Drives shipped BleManager methods (queue, long-write, services-changed).
  */
 /* eslint-disable no-import-assign */
-import { BleManager, Characteristic } from '../src'
+import { BleManager } from '../src/BleManager'
+import { Characteristic } from '../src/Characteristic'
+import { Service } from '../src/Service'
+import { Descriptor } from '../src/Descriptor'
+import { BleErrorCode } from '../src/BleError'
 import * as Native from '../src/BleModule'
 import { NativeEventEmitter } from './Utils'
 import { supports } from '../src/supports'
@@ -14,13 +20,7 @@ import {
   createMockDevice,
   createMockDescriptor
 } from './helpers/nativeBleModule'
-import {
-  useFakeTimers,
-  useRealTimers,
-  advanceTimers,
-  flushMicrotasks,
-  delay
-} from './helpers/async'
+import { useFakeTimers, useRealTimers, advanceTimers, flushMicrotasks, delay } from './helpers/async'
 
 Native.EventEmitter = NativeEventEmitter
 
@@ -138,13 +138,9 @@ describe('BleManager Phase-2 (GAP-RN-Q / LW / SC)', () => {
 
     const manager = new BleManager()
     const payload = new Uint8Array([1, 2, 3, 4, 5])
-    const result = await manager.writeLongCharacteristicForDeviceFromBytes(
-      deviceId,
-      service,
-      characteristic,
-      payload,
-      { chunkSize: 2 }
-    )
+    const result = await manager.writeLongCharacteristicForDeviceFromBytes(deviceId, service, characteristic, payload, {
+      chunkSize: 2
+    })
 
     expect(result.chunks).toBe(3)
     expect(result.bytesWritten).toBe(5)
@@ -236,11 +232,7 @@ describe('BleManager Phase-2 (GAP-RN-Q / LW / SC)', () => {
       createMockCharacteristic({ id: 42, deviceID: deviceId, uuid: characteristic, serviceUUID: service }),
       manager
     )
-    const { Service } = require('../src')
-    const serviceObj = new Service(
-      { id: 9, uuid: service, deviceID: deviceId, isPrimary: true },
-      manager
-    )
+    const serviceObj = new Service({ id: 9, uuid: service, deviceID: deviceId, isPrimary: true }, manager)
 
     const pending = Promise.all([
       char.read(),
@@ -279,9 +271,7 @@ describe('BleManager Phase-2 (GAP-RN-Q / LW / SC)', () => {
     })
     Native.BleModule.readDescriptorForDevice = jest.fn(() => hold(desc))
     Native.BleModule.writeDescriptorForDevice = jest.fn(() => hold(desc))
-    Native.BleModule.writeCharacteristicForDevice = jest.fn(() =>
-      hold(createMockCharacteristic({ value: 'AQ==' }))
-    )
+    Native.BleModule.writeCharacteristicForDevice = jest.fn(() => hold(createMockCharacteristic({ value: 'AQ==' })))
 
     const manager = new BleManager()
     const pending = Promise.all([
@@ -321,17 +311,12 @@ describe('BleManager Phase-2 (GAP-RN-Q / LW / SC)', () => {
     Native.BleModule.writeCharacteristic = jest.fn(() => hold(createMockCharacteristic({ value: 'AQ==' })))
 
     const manager = new BleManager()
-    const { Descriptor } = require('../src')
     const descriptor = new Descriptor(nativeDesc, manager)
     const char = new Characteristic(
       createMockCharacteristic({ id: 42, deviceID: deviceId, uuid: characteristic, serviceUUID: service }),
       manager
     )
-    const pending = Promise.all([
-      descriptor.read(),
-      char.writeWithResponse('AQ=='),
-      descriptor.write('Ag==')
-    ])
+    const pending = Promise.all([descriptor.read(), char.writeWithResponse('AQ=='), descriptor.write('Ag==')])
     await advanceTimers(15)
     await advanceTimers(15)
     await advanceTimers(15)
@@ -375,7 +360,6 @@ describe('BleManager Phase-2 (GAP-RN-Q / LW / SC)', () => {
     }
   })
 
-
   test('monitorCharacteristicForDevice setup is serialized via _runForDevice (R3-F018)', async () => {
     const order = []
     let releaseWrite
@@ -393,19 +377,9 @@ describe('BleManager Phase-2 (GAP-RN-Q / LW / SC)', () => {
       return null
     })
     const manager = new BleManager()
-    const writeP = manager.writeCharacteristicWithResponseForDevice(
-      deviceId,
-      service,
-      characteristic,
-      'AQ=='
-    )
+    const writeP = manager.writeCharacteristicWithResponseForDevice(deviceId, service, characteristic, 'AQ==')
     await flushMicrotasks(2)
-    const sub = manager.monitorCharacteristicForDevice(
-      deviceId,
-      service,
-      characteristic,
-      () => {}
-    )
+    const sub = manager.monitorCharacteristicForDevice(deviceId, service, characteristic, () => {})
     await flushMicrotasks(4)
     expect(order).toEqual(['write-start'])
     expect(order).not.toContain('monitor-setup')
@@ -455,7 +429,7 @@ describe('BleManager Phase-2 (GAP-RN-Q / LW / SC)', () => {
     await flushMicrotasks(8)
     await expect(longWrite).rejects.toMatchObject({
       name: 'DeviceQueueCancelled',
-      errorCode: require('../src').BleErrorCode.OperationCancelled
+      errorCode: BleErrorCode.OperationCancelled
     })
     await cancelP
     expect(order).toContain('cancel')
@@ -491,7 +465,6 @@ describe('BleManager Phase-2 (GAP-RN-Q / LW / SC)', () => {
 
   test('requestConnectionPriorityForDevice rejects on iOS (F025)', async () => {
     const { Platform } = require('react-native')
-    const { BleErrorCode } = require('../src')
     const prev = Platform.OS
     Platform.OS = 'ios'
     try {
@@ -507,7 +480,6 @@ describe('BleManager Phase-2 (GAP-RN-Q / LW / SC)', () => {
 
   test('requestMTUForDevice rejects on iOS (R2-F027)', async () => {
     const { Platform } = require('react-native')
-    const { BleErrorCode } = require('../src')
     const prev = Platform.OS
     Platform.OS = 'ios'
     try {
@@ -535,19 +507,14 @@ describe('BleManager Phase-2 (GAP-RN-Q / LW / SC)', () => {
       BleErrorCodeMessage
     )
     Native.BleModule.readCharacteristicForDevice = jest.fn(() => Promise.reject(structured))
-    await expect(manager.readCharacteristicForDevice(deviceId, service, characteristic)).rejects.toBe(
-      structured
-    )
-    await expect(
-      manager.readCharacteristicForDevice(deviceId, service, characteristic)
-    ).rejects.toMatchObject({
+    await expect(manager.readCharacteristicForDevice(deviceId, service, characteristic)).rejects.toBe(structured)
+    await expect(manager.readCharacteristicForDevice(deviceId, service, characteristic)).rejects.toMatchObject({
       errorCode: BleErrorCode.BluetoothManagerDestroyed,
       name: 'BleError'
     })
   })
 
   test('destroy epoch-cancels queued ops with BluetoothManagerDestroyed (R2-F084)', async () => {
-    const { BleErrorCode } = require('../src')
     let release
     const gate = new Promise(r => {
       release = r
@@ -569,4 +536,3 @@ describe('BleManager Phase-2 (GAP-RN-Q / LW / SC)', () => {
     await destroyP
   })
 })
-

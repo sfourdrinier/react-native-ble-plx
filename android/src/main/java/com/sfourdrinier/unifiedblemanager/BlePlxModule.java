@@ -1,7 +1,11 @@
+// android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxModule.java
+
 package com.sfourdrinier.unifiedblemanager;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+
+import android.util.Log;
 
 import com.sfourdrinier.unifiedblemanager.NativeBlePlxSpec;
 import com.sfourdrinier.unifiedblemanager.adapter.BleAdapter;
@@ -94,15 +98,21 @@ public class BlePlxModule extends NativeBlePlxSpec {
     if (bleAdapter != null) {
       try {
         bleAdapter.destroyClient();
-      } catch (Exception e) {
-        // Best-effort teardown — still replace with a fresh adapter below.
+      } catch (RuntimeException e) {
+        Log.e(NAME, "Failed to destroy the previous BLE adapter before replacement", e);
+        // Teardown did not release every required Android resource. Keep the closed adapter owned
+        // by this module so destroyClient can be retried; never create a replacement in this state.
+        return;
       }
       bleAdapter = null;
     }
     bleAdapter = BleAdapterFactory.getNewAdapter(reactContext);
     if (bleAdapter instanceof com.sfourdrinier.unifiedblemanager.radio.OwnedBleAdapter) {
       ((com.sfourdrinier.unifiedblemanager.radio.OwnedBleAdapter) bleAdapter).setServicesChangedListener(
-        deviceId -> sendEvent(Event.ServicesChangedEvent, deviceId)
+        deviceId -> {
+          sendEvent(Event.ServicesChangedEvent, deviceId);
+          return kotlin.Unit.INSTANCE;
+        }
       );
     }
     bleAdapter.createClient(restoreStateIdentifier,
@@ -131,13 +141,20 @@ public class BlePlxModule extends NativeBlePlxSpec {
 
   @ReactMethod
   public void destroyClient(final Promise promise) {
-    if (!this.isRequestPossibleHandler("destroyClient", promise)) {
+    if (bleAdapter == null) {
+      BleError bleError = new BleError(BleErrorCode.BluetoothManagerDestroyed, "BleManager cannot call the destroyClient function because BleManager has been destroyed", null);
+      promise.reject(DEFAULT_ERROR_CODE, errorConverter.toJs(bleError));
       return;
     }
 
-    bleAdapter.destroyClient();
-    bleAdapter = null;
-    promise.resolve(null);
+    try {
+      bleAdapter.destroyClient();
+      bleAdapter = null;
+      promise.resolve(null);
+    } catch (RuntimeException e) {
+      Log.e(NAME, "Failed to destroy the BLE adapter", e);
+      promise.reject(DEFAULT_ERROR_CODE, "BLE adapter teardown failed; retry destroyClient before creating a replacement", e);
+    }
   }
 
   // Mark: Common --------------------------------------------------------------------------------
@@ -1204,6 +1221,13 @@ public class BlePlxModule extends NativeBlePlxSpec {
     if(this.bleAdapter == null){
       BleError bleError = new BleError(BleErrorCode.BluetoothManagerDestroyed, String.format("BleManager cannot call the %s function because BleManager has been destroyed", functionName), null);
 
+      promise.reject(DEFAULT_ERROR_CODE, errorConverter.toJs(bleError));
+      return false;
+    }
+
+    if (bleAdapter instanceof com.sfourdrinier.unifiedblemanager.radio.OwnedBleAdapter
+      && !((com.sfourdrinier.unifiedblemanager.radio.OwnedBleAdapter) bleAdapter).isLifecycleActive()) {
+      BleError bleError = new BleError(BleErrorCode.BluetoothManagerDestroyed, String.format("BleManager cannot call the %s function because BLE adapter teardown is incomplete", functionName), null);
       promise.reject(DEFAULT_ERROR_CODE, errorConverter.toJs(bleError));
       return false;
     }

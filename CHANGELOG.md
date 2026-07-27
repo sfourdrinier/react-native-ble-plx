@@ -1,3 +1,5 @@
+<!-- CHANGELOG.md -->
+
 # Changelog
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
@@ -20,7 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Real `/electron` host:** main-process-oriented injectable `BlePort`, mock fallback for Linux/CI; `example-electron/` simulates Polar H10 HR stream; `docs/ELECTRON.md`.
 - **Heart Rate helpers:** `example-shared/heartRate.js` — SIG parse/encode for Heart Rate Measurement (`0x2A37`).
 - **CI:** package tests matrix on Ubuntu + Windows + macOS; workflow triggers include branch `4.0`.
-- **ADR:** `docs/ADR/2026-07-4.0-host-and-bytes.md` (adversarial decision log).
+- **ADR:** `docs/ADR/2026-07-4.0-boundary.md` (current 4.0 boundary decision).
 
 ### Changed
 

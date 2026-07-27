@@ -1,3 +1,5 @@
+// __tests__/HeartRateExample.test.js
+
 /**
  * Drives the shipped example-shared Heart Rate parser (Polar H10 / SIG format).
  * Fails if encode/parse round-trip or flag handling is broken.
@@ -5,7 +7,7 @@
 const fs = require('fs')
 const path = require('path')
 
-// Drive package exports (source of truth); example-shared re-exports these.
+// Legacy example fixture coverage uses the direct profile module.
 const {
   HR_SERVICE_UUID,
   HR_MEASUREMENT_UUID,
@@ -16,7 +18,7 @@ const {
   rrIntervalsToIbiMs,
   isHeartRateService,
   isHeartRateMeasurement
-} = require('unified-ble-manager')
+} = require('../src/profiles/heartRate')
 
 describe('example-shared heartRate (Polar H10 / SIG)', () => {
   test('heartRate.js load order prefers pure profile paths (R2-F065)', () => {
@@ -33,9 +35,7 @@ describe('example-shared heartRate (Polar H10 / SIG)', () => {
     }
     // Same ordering philosophy as profiles.js
     expect(profilesJs.indexOf('commonjs')).toBeGreaterThan(-1)
-    expect(profilesJs.indexOf("require('unified-ble-manager')")).toBeGreaterThan(
-      profilesJs.indexOf('commonjs')
-    )
+    expect(profilesJs.indexOf("require('unified-ble-manager')")).toBeGreaterThan(profilesJs.indexOf('commonjs'))
   })
 
   test('UUID helpers recognize standard HR service and measurement', () => {

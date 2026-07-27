@@ -1,3 +1,5 @@
+// __tests__/CiRelease.dualIdentity.test.js
+
 /**
  * Focused guards for ROADMAP 4.0 ci-release dual-identity publish + multi-host gates.
  */
@@ -9,15 +11,33 @@ const root = path.join(__dirname, '..')
 const read = p => fs.readFileSync(path.join(root, p), 'utf8').replace(/\r\n/g, '\n')
 
 describe('ci-release dual identity (4.0)', () => {
-  test('root package identity is unified-ble-manager; shim is scoped re-export', () => {
+  test('root package identity is unified-ble-manager with strict v4 entrypoints', () => {
     const rootPkg = JSON.parse(read('package.json'))
     const shimPkg = JSON.parse(read('packages/react-native-ble-plx-shim/package.json'))
     expect(rootPkg.name).toBe('unified-ble-manager')
     expect(shimPkg.name).toBe('@sfourdrinier/react-native-ble-plx')
     expect(shimPkg.version).toBe(rootPkg.version)
+    expect(Object.keys(rootPkg.exports).sort()).toEqual([
+      '.',
+      './app.plugin.js',
+      './backend-sdk',
+      './cli',
+      './electron/main',
+      './electron/renderer',
+      './node/bluez',
+      './node/corebluetooth',
+      './node/winrt',
+      './package.json',
+      './react-native',
+      './testing',
+      './web'
+    ])
     expect(rootPkg.exports['./web']).toBeDefined()
-    expect(rootPkg.exports['./electron']).toBeDefined()
-    expect(rootPkg.exports['./node']).toBeDefined()
+    expect(rootPkg.exports['./node/bluez']).toBeDefined()
+    expect(rootPkg.exports['./node/winrt']).toBeDefined()
+    expect(rootPkg.exports['./electron/renderer']).toBeDefined()
+    expect(rootPkg.exports['./electron']).toBeUndefined()
+    expect(rootPkg.exports['./node']).toBeUndefined()
     expect(rootPkg.files).toContain('native')
     expect(rootPkg.files).toContain('*.podspec')
     expect(rootPkg.scripts['test:package']).not.toContain('passWithNoTests')
@@ -97,9 +117,7 @@ describe('ci-release dual identity (4.0)', () => {
     // Release notes list both artifacts (package ids + registry tarball URLs).
     expect(w).toContain('unified-ble-manager@${VER}')
     expect(w).toContain('@sfourdrinier/react-native-ble-plx@${VER}')
-    expect(w).toContain(
-      'https://registry.npmjs.org/unified-ble-manager/-/unified-ble-manager-${VER}.tgz'
-    )
+    expect(w).toContain('https://registry.npmjs.org/unified-ble-manager/-/unified-ble-manager-${VER}.tgz')
     expect(w).toContain(
       'https://registry.npmjs.org/@sfourdrinier/react-native-ble-plx/-/react-native-ble-plx-${VER}.tgz'
     )
@@ -110,22 +128,15 @@ describe('ci-release dual identity (4.0)', () => {
     expect(w).toContain('Shim package name must be @sfourdrinier/react-native-ble-plx')
   })
 
-  test('RELEASE.md documents dual publish and unified-ble-manager.podspec', () => {
+  test('RELEASE.md makes the clean-baseline plan the 4.0 publication authority', () => {
     const doc = read('RELEASE.md')
     expect(doc).toContain('unified-ble-manager')
     expect(doc).toContain('@sfourdrinier/react-native-ble-plx')
-    expect(doc).toContain('unified-ble-manager.podspec')
-    expect(doc).not.toContain('react-native-ble-plx.podspec')
-    expect(doc).toMatch(/prepare-shim-pack\.js|prepare-shim-for-publish\.js/)
-    expect(doc).toContain('npm view unified-ble-manager@<version>')
-    expect(doc).toContain('npm view @sfourdrinier/react-native-ble-plx@<version>')
-    expect(doc).toMatch(/pre-merge/i)
-    expect(doc).toContain('ci:apple')
-    // F003: Path A dual publish + both tarballs in release notes
-    expect(doc).toMatch(/registry tarball URL/i)
-    expect(doc).toMatch(/independent of (shim|root)/i)
-    expect(doc).toContain('dist.tarball')
-    expect(doc).toContain('(cd "$SHIM_DIR" && npm publish --access public)')
+    expect(doc).toContain('UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
+    expect(doc).toContain('does not authorize publishing 4.0')
+    expect(doc).toContain('no permanent scoped shim')
+    expect(doc).toContain('packed artifact')
+    expect(doc).not.toMatch(/publishes the \*\*4\.0 dual identity\*\*/i)
   })
 
   test('verify-release.sh is multi-host (electron + host exports + dual pack)', () => {
@@ -218,26 +229,21 @@ describe('ci-release dual identity (4.0)', () => {
     expect(smoke).toMatch(/bonding N on electron|must not advertise bonding/)
   })
 
-  // R3-F068: verify-release + RELEASE share vite gate with publish
-  test('R3-F068 verify-release and RELEASE.md include web vite smoke', () => {
+  // The historical release script remains characterization; 4.0 release approval is plan-gated.
+  test('verify-release keeps its current web vite smoke while RELEASE stays plan-gated', () => {
     const sh = read('scripts/verify-release.sh')
     const release = read('RELEASE.md')
     expect(sh).toMatch(/vite build --config example-web\/vite\.config\.js/)
-    expect(release).toMatch(/Web vite|vite build smoke/)
+    expect(release).toContain('controlling plan')
+    expect(release).toContain('packed artifact')
   })
 
-  // R3-F066: shim monorepo fallback is gated
-  test('R3-F066 shim loadCanonical gates monorepo fallback', () => {
-    for (const rel of [
-      'packages/react-native-ble-plx-shim/index.js',
-      'packages/react-native-ble-plx-shim/web.js',
-      'packages/react-native-ble-plx-shim/electron.js',
-      'packages/react-native-ble-plx-shim/node.js'
-    ]) {
-      const src = read(rel)
-      expect(src).toMatch(/UBM_SHIM_MONOREPO|monorepoFallbackAllowed/)
-      expect(src).toMatch(/Install.*unified-ble-manager|Cannot resolve unified-ble-manager/)
-    }
+  // The scoped shim must preserve canonical resolution and initialization errors unchanged.
+  test('shim root loads only the exact canonical package without a workspace fallback', () => {
+    const src = read('packages/react-native-ble-plx-shim/index.js')
+    expect(src.match(/require\(['"]unified-ble-manager['"]\)/g)).toHaveLength(1)
+    expect(src).not.toMatch(/UBM_SHIM_MONOREPO|monorepoFallbackAllowed|require\(['"]\.\.\/\.\.['"]\)/)
+    expect(src).not.toMatch(/\bcatch\b/)
   })
 
   // R2-F038: Linux BlueZ soft-probe (explicit skip, never silent success)
@@ -292,15 +298,15 @@ describe('ci-release dual identity (4.0)', () => {
     expect(ci).not.toMatch(/name:\s*Package checks \(\$\{\{ matrix\.os \}\}/)
   })
 
-  // R2-F097: publish host export smoke asserts typeof BleManager (shared script)
-  test('R2-F097 publish.yml and check-host-exports assert typeof BleManager', () => {
+  // The package gate checks only the public root plus explicit authoring subpaths.
+  test('publish.yml and check-host-exports assert the strict v4 package boundary', () => {
     const publish = read('.github/workflows/publish.yml')
     const checker = read('scripts/ci/check-host-exports.js')
     expect(publish).toContain('scripts/ci/check-host-exports.js')
-    expect(publish).not.toMatch(/if \(!web \|\| !electron \|\| !nodeHost\)/)
-    expect(checker).toContain("typeof web.BleManager, 'function'")
-    expect(checker).toContain("typeof electron.BleManager, 'function'")
-    expect(checker).toContain("typeof nodeHost.BleManager, 'function'")
+    expect(checker).toContain("typeof publicRoot.BleManager, 'function'")
+    expect(checker).toContain("typeof backendSdk.runBackendTck, 'function'")
+    expect(checker).toMatch(/typeof\s+testing\.createDeterministicTestBackend,\s*'function'/)
+    expect(checker).toContain('host export must remain unavailable')
   })
 
   // R2-F117: drop dead test:example and turbo test_project paths

@@ -1,3 +1,5 @@
+// android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/Descriptor.java
+
 package com.sfourdrinier.unifiedblemanager.adapter;
 
 import android.bluetooth.BluetoothGattDescriptor;
@@ -96,19 +98,13 @@ public class Descriptor {
     this.value = value;
   }
 
-  public void setValueFromCache() {
-    value = descriptor.getValue();
-  }
-
   public BluetoothGattDescriptor getNativeDescriptor() {
     return descriptor;
   }
 
   public void logValue(String message, byte[] value) {
-    if (value == null) {
-      value = descriptor.getValue();
-    }
-    String hexValue = value != null ? ByteUtils.bytesToHex(value) : "(null)";
+    byte[] valueToLog = value != null ? value : this.value;
+    String hexValue = valueToLog != null ? ByteUtils.bytesToHex(valueToLog) : "(null)";
     OwnedAndroidLog.v(message +
       " Descriptor(uuid: " + descriptor.getUuid().toString() +
       ", id: " + id +

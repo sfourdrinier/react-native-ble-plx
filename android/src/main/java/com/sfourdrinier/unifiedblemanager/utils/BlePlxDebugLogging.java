@@ -1,9 +1,13 @@
+// android/src/main/java/com/sfourdrinier/unifiedblemanager/utils/BlePlxDebugLogging.java
+
 package com.sfourdrinier.unifiedblemanager.utils;
 
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+
+import com.sfourdrinier.unifiedblemanager.radio.OwnedAndroidLog;
 
 public final class BlePlxDebugLogging {
   private static final String META_DATA_NAME = "BlePlxDebugLogging";
@@ -26,17 +30,10 @@ public final class BlePlxDebugLogging {
               .getApplicationInfo(context.getPackageName(), PackageManager.GET_META_DATA);
       Bundle metaData = appInfo.metaData;
       if (metaData != null && metaData.containsKey(META_DATA_NAME)) {
-        Object value = metaData.get(META_DATA_NAME);
-        if (value instanceof Boolean) {
-          enabled = (Boolean) value;
-        } else if (value instanceof String) {
-          String normalized = ((String) value).trim().toLowerCase();
-          enabled = normalized.equals("1") || normalized.equals("true") || normalized.equals("yes");
-        } else if (value instanceof Integer) {
-          enabled = ((Integer) value) != 0;
-        }
+        enabled = metaData.getBoolean(META_DATA_NAME, false);
       }
-    } catch (Exception ignored) {
+    } catch (PackageManager.NameNotFoundException exception) {
+      OwnedAndroidLog.e("BlePlxDebugLogging metadata lookup", exception);
       enabled = false;
     }
 
@@ -48,4 +45,3 @@ public final class BlePlxDebugLogging {
     cachedEnabled = null;
   }
 }
-

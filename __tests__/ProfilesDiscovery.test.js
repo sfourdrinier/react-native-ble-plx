@@ -1,15 +1,20 @@
+// __tests__/ProfilesDiscovery.test.js
+
 /**
  * Package discovery helpers + Heart Rate profile — drive shipped modules only.
  */
 const {
   resolveScanServiceUUIDs,
   resolveDiscoveryScanFilter,
-  requestDeviceFiltersFromServices,
+  requestDeviceFiltersFromServices
+} = require('../src/discovery/filters')
+const {
   serviceUuidMatchesFilters,
   anyServiceMatchesFilters,
   expandBluetoothUuid,
-  normalizeUuidToken,
-  fullUUID,
+  normalizeUuidToken
+} = require('../src/discovery/uuidMatch')
+const {
   HR_SERVICE_UUID,
   HR_SERVICE_ALIAS,
   HR_MEASUREMENT_UUID,
@@ -26,10 +31,10 @@ const {
   rrIntervalsToIbiMs,
   isHeartRateService,
   isHeartRateMeasurement
-} = require('unified-ble-manager')
-const { FakeBlePort } = require('unified-ble-manager')
+} = require('../src/profiles/heartRate')
+const { FakeBlePort } = require('../src/port/BlePort')
 const { useFakeTimers, useRealTimers, flushScan } = require('./helpers/async')
-const { PortBleManager } = require('unified-ble-manager')
+const { PortBleManager } = require('../src/port/PortBleManager')
 
 describe('discovery helpers (generic)', () => {
   test('resolveScanServiceUUIDs null when empty; expands + dedupes forms', () => {
@@ -38,9 +43,7 @@ describe('discovery helpers (generic)', () => {
     // short 16-bit expands to full 128-bit
     expect(resolveScanServiceUUIDs([' 180d '])).toEqual([HR_SERVICE_UUID])
     expect(resolveScanServiceUUIDs(['0x180d'])).toEqual([HR_SERVICE_UUID])
-    expect(resolveScanServiceUUIDs(['{0000180d-0000-1000-8000-00805f9b34fb}'])).toEqual([
-      HR_SERVICE_UUID
-    ])
+    expect(resolveScanServiceUUIDs(['{0000180d-0000-1000-8000-00805f9b34fb}'])).toEqual([HR_SERVICE_UUID])
     const undashed = '0000180d00001000800000805f9b34fb'
     expect(resolveScanServiceUUIDs([undashed])).toEqual([HR_SERVICE_UUID])
     // short + full + 0x collapse to one entry
@@ -97,7 +100,6 @@ describe('discovery helpers (generic)', () => {
     expect(serviceUuidMatchesFilters('180d', heartRateScanServiceUUIDs())).toBe(true)
   })
 
-
   test('resolveScanServiceUUIDs expands known assigned names for continuous scan (R3-F020)', () => {
     const resolved = resolveScanServiceUUIDs(['heart_rate'])
     expect(resolved).toEqual([HR_SERVICE_UUID])
@@ -122,19 +124,13 @@ describe('discovery helpers (generic)', () => {
 
   test('uuid normalize accepts 0x prefix, braces, undashed 128-bit', () => {
     expect(normalizeUuidToken('0x180d')).toBe('180d')
-    expect(normalizeUuidToken('{0000180d-0000-1000-8000-00805f9b34fb}')).toBe(
-      '0000180d00001000800000805f9b34fb'
-    )
+    expect(normalizeUuidToken('{0000180d-0000-1000-8000-00805f9b34fb}')).toBe('0000180d00001000800000805f9b34fb')
     expect(expandBluetoothUuid('0x180d')).toBe(HR_SERVICE_UUID)
     expect(expandBluetoothUuid('{0000180d-0000-1000-8000-00805f9b34fb}')).toBe(HR_SERVICE_UUID)
     const undashed = '0000180d00001000800000805f9b34fb'
     expect(expandBluetoothUuid(undashed)).toBe(HR_SERVICE_UUID)
-    expect(fullUUID('0x180d')).toBe(HR_SERVICE_UUID)
-    expect(fullUUID('180d')).toBe(HR_SERVICE_UUID)
     expect(serviceUuidMatchesFilters('0x180d', heartRateScanServiceUUIDs())).toBe(true)
-    expect(
-      serviceUuidMatchesFilters('{0000180d-0000-1000-8000-00805f9b34fb}', heartRateScanServiceUUIDs())
-    ).toBe(true)
+    expect(serviceUuidMatchesFilters('{0000180d-0000-1000-8000-00805f9b34fb}', heartRateScanServiceUUIDs())).toBe(true)
   })
 })
 
@@ -217,9 +213,7 @@ describe('Heart Rate profile (package)', () => {
   })
 
   test('body sensor location parse/encode', () => {
-    expect(parseBodySensorLocation(encodeBodySensorLocation(BodySensorLocation.Chest))).toBe(
-      BodySensorLocation.Chest
-    )
+    expect(parseBodySensorLocation(encodeBodySensorLocation(BodySensorLocation.Chest))).toBe(BodySensorLocation.Chest)
     expect(parseBodySensorLocation(new Uint8Array([2]))).toBe(BodySensorLocation.Wrist)
     expect(() => parseBodySensorLocation(new Uint8Array([]))).toThrow(/too short/)
   })

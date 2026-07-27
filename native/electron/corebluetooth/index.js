@@ -1,3 +1,5 @@
+// native/electron/corebluetooth/index.js
+
 /**
  * macOS CoreBluetooth BlePort for Electron main (GAP-E-MAC-PORT).
  * Full vertical slice: scan → connect → discover → R/W → notify.
@@ -37,8 +39,7 @@ function bytesToBase64(bytes) {
 }
 
 /** Standard Base64 alphabet + optional padding; parity with src/encoding.ts (R3-F071). */
-const STRICT_BASE64 =
-  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+const STRICT_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 
 function assertValidBase64(base64) {
   if (!STRICT_BASE64.test(base64)) {
@@ -158,11 +159,7 @@ function wrapAsBlePort(radio) {
     },
 
     async readCharacteristicBytes(deviceId, serviceUUID, characteristicUUID) {
-      const buf = await radio.readCharacteristic(
-        String(deviceId),
-        String(serviceUUID),
-        String(characteristicUUID)
-      )
+      const buf = await radio.readCharacteristic(String(deviceId), String(serviceUUID), String(characteristicUUID))
       return toUint8Array(buf)
     },
 
@@ -295,9 +292,7 @@ function createPort() {
   }
   const native = tryLoadNative()
   if (!native) {
-    throw new Error(
-      'unified-ble-corebluetooth native addon not built; run pnpm run build:electron:macos on darwin'
-    )
+    throw new Error('unified-ble-corebluetooth native addon not built; run pnpm run build:electron:macos on darwin')
   }
   let radio
   if (typeof native.createNativeRadio === 'function') {
@@ -310,8 +305,211 @@ function createPort() {
   return wrapAsBlePort(radio)
 }
 
+/**
+ * Direct contract-v1 boundary for the shared CoreBluetooth backend.
+ *
+ * This intentionally does not wrap `wrapAsBlePort`: Base64 and the legacy
+ * port manager are excluded from the production 4.0 execution path.
+ */
+function createContractBoundary() {
+  if (process.platform !== 'darwin') {
+    throw new Error('CoreBluetooth contract boundary is macOS-only')
+  }
+  const native = tryLoadNative()
+  if (!native || typeof native.createNativeRadio !== 'function') {
+    throw new Error('CoreBluetooth contract boundary requires a built direct native addon')
+  }
+  const radio = native.createNativeRadio()
+  const requiredMethods = [
+    'startScan',
+    'stopScan',
+    'connect',
+    'disconnect',
+    'getConnectionState',
+    'getAdapterState',
+    'discoverServices',
+    'discoverCharacteristicsAt',
+    'readCharacteristicAt',
+    'writeCharacteristicAt',
+    'startNotifyAt',
+    'stopNotifyAt',
+    'setDisconnectHandler',
+    'setAdapterStateHandler',
+    'destroy'
+  ]
+  for (const method of requiredMethods) {
+    if (typeof radio[method] !== 'function') {
+      throw new Error(`CoreBluetooth direct addon is missing required contract-v1 method ${method}`)
+    }
+  }
+  const unsubscribe = new Set()
+  const stateListeners = new Set()
+  radio.setAdapterStateHandler(state => {
+    const snapshot = adapterSnapshot(state)
+    for (const listener of stateListeners) {
+      listener(snapshot)
+    }
+  })
+  return {
+    adapterSnapshot: () => adapterSnapshot(radio.getAdapterState()),
+    startScan: async (onAdvertisement, serviceUuids) => {
+      await radio.startScan(
+        advertisement => {
+          onAdvertisement({
+            nativePeerId: String(advertisement.id),
+            localName: advertisement.name == null ? null : String(advertisement.name),
+            rssi: typeof advertisement.rssi === 'number' ? advertisement.rssi : null,
+            serviceUuids: null
+          })
+        },
+        serviceUuids.length === 0 ? null : Array.from(serviceUuids, String)
+      )
+    },
+    stopScan: () => radio.stopScan(),
+    connect: nativePeerId => radio.connect(String(nativePeerId)),
+    disconnect: nativePeerId => radio.disconnect(String(nativePeerId)),
+    connectionState: nativePeerId => {
+      const state = radio.getConnectionState(String(nativePeerId))
+      return state === 'connected' || state === 'connecting' ? state : 'disconnected'
+    },
+    discover: nativePeerId => discoverGattDatabase(radio, String(nativePeerId)),
+    read: address =>
+      radio
+        .readCharacteristicAt(
+          address.nativePeerId,
+          address.serviceUuid,
+          address.serviceOccurrence,
+          address.characteristicUuid,
+          address.characteristicOccurrence
+        )
+        .then(toUint8Array),
+    write: (address, bytes, withResponse) =>
+      radio.writeCharacteristicAt(
+        address.nativePeerId,
+        address.serviceUuid,
+        address.serviceOccurrence,
+        address.characteristicUuid,
+        address.characteristicOccurrence,
+        Buffer.from(toUint8Array(bytes)),
+        withResponse
+      ),
+    startNotify: (address, onValue) =>
+      radio.startNotifyAt(
+        address.nativePeerId,
+        address.serviceUuid,
+        address.serviceOccurrence,
+        address.characteristicUuid,
+        address.characteristicOccurrence,
+        value => onValue(toUint8Array(value))
+      ),
+    stopNotify: address =>
+      radio.stopNotifyAt(
+        address.nativePeerId,
+        address.serviceUuid,
+        address.serviceOccurrence,
+        address.characteristicUuid,
+        address.characteristicOccurrence
+      ),
+    onDisconnect: listener => {
+      const registration = (nativePeerId, safeMessage) => {
+        listener(String(nativePeerId), safeMessage == null ? null : String(safeMessage))
+      }
+      unsubscribe.add(registration)
+      radio.setDisconnectHandler((nativePeerId, safeMessage) => {
+        for (const current of unsubscribe) {
+          current(nativePeerId, safeMessage)
+        }
+      })
+      return () => unsubscribe.delete(registration)
+    },
+    onAdapterState: listener => {
+      stateListeners.add(listener)
+      return () => stateListeners.delete(listener)
+    },
+    destroy: async () => {
+      unsubscribe.clear()
+      stateListeners.clear()
+      radio.destroy()
+    }
+  }
+}
+
+async function discoverGattDatabase(radio, nativePeerId) {
+  const serviceUuids = await radio.discoverServices(nativePeerId)
+  const serviceOccurrences = new Map()
+  const services = []
+  for (const serviceUuidValue of serviceUuids) {
+    const uuid = String(serviceUuidValue)
+    const occurrence = serviceOccurrences.get(uuid) || 0
+    serviceOccurrences.set(uuid, occurrence + 1)
+    const nativeCharacteristics = await radio.discoverCharacteristicsAt(nativePeerId, uuid, occurrence)
+    const characteristicOccurrences = new Map()
+    const characteristics = []
+    for (const characteristic of nativeCharacteristics) {
+      const characteristicUuid = String(characteristic.uuid)
+      const characteristicOccurrence = characteristicOccurrences.get(characteristicUuid) || 0
+      characteristicOccurrences.set(characteristicUuid, characteristicOccurrence + 1)
+      characteristics.push({
+        uuid: characteristicUuid,
+        occurrence: characteristicOccurrence,
+        readable: characteristic.isReadable === true,
+        writableWithResponse: characteristic.isWritableWithResponse === true,
+        writableWithoutResponse: characteristic.isWritableWithoutResponse === true,
+        notifiable: characteristic.isNotifiable === true
+      })
+    }
+    services.push({ uuid, occurrence, characteristics })
+  }
+  return { services }
+}
+
+function adapterSnapshot(state) {
+  if (state === 'PoweredOn') {
+    return { availability: 'available', authorization: 'granted', power: 'on', safeReason: null }
+  }
+  if (state === 'PoweredOff') {
+    return {
+      availability: 'available',
+      authorization: 'granted',
+      power: 'off',
+      safeReason: 'CoreBluetooth reports the adapter is powered off'
+    }
+  }
+  if (state === 'Unauthorized') {
+    return {
+      availability: 'available',
+      authorization: 'denied',
+      power: 'unknown',
+      safeReason: 'CoreBluetooth authorization is denied'
+    }
+  }
+  if (state === 'Unsupported') {
+    return {
+      availability: 'unsupported',
+      authorization: 'unavailable',
+      power: 'unsupported',
+      safeReason: 'CoreBluetooth is unsupported on this host'
+    }
+  }
+  if (state === 'Resetting') {
+    return {
+      availability: 'available',
+      authorization: 'granted',
+      power: 'resetting',
+      safeReason: 'CoreBluetooth is resetting'
+    }
+  }
+  return {
+    availability: 'unknown',
+    authorization: 'unavailable',
+    power: 'unknown',
+    safeReason: 'CoreBluetooth has not reported a usable adapter state'
+  }
+}
+
 module.exports = {
   createPort,
+  createContractBoundary,
   radioId,
   tryLoadNative,
   wrapAsBlePort,

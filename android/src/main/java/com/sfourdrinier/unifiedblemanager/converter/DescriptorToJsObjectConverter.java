@@ -1,3 +1,5 @@
+// android/src/main/java/com/sfourdrinier/unifiedblemanager/converter/DescriptorToJsObjectConverter.java
+
 package com.sfourdrinier.unifiedblemanager.converter;
 
 import com.sfourdrinier.unifiedblemanager.adapter.Descriptor;
@@ -30,9 +32,6 @@ public class DescriptorToJsObjectConverter extends JSObjectConverter<Descriptor>
     js.putString(Metadata.SERVICE_UUID, UUIDConverter.fromUUID(descriptor.getServiceUuid()));
     js.putString(Metadata.DEVICE_ID, descriptor.getDeviceId());
 
-    if (descriptor.getValue() == null) {
-      descriptor.setValueFromCache();
-    }
     js.putString(Metadata.VALUE, descriptor.getValue() != null ? Base64Converter.encode(descriptor.getValue()) : null);
     return js;
   }

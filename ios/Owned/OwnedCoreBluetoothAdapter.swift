@@ -1,3 +1,5 @@
+// ios/Owned/OwnedCoreBluetoothAdapter.swift
+
 import Foundation
 import CoreBluetooth
 
@@ -148,6 +150,28 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
     restoreAmbActive = false
     restoreEventEmitted = true
     bufferedRestoreEvent = nil
+  }
+
+  /// Transfers the restoration-owned central to the unified protocol radio exactly once.
+  /// The restoration adapter creates this owner before JavaScript starts; a later protocol
+  /// attachment must adopt it instead of creating another CBCentralManager for the same key.
+  @objc
+  public func takeUnifiedProtocolCentralTransfer() -> OwnedCoreBluetoothProtocolCentralTransfer? {
+    guard central != nil else { return nil }
+    let transferredPeripherals = Array(peripherals.values)
+    for peripheral in transferredPeripherals {
+      peripheral.delegate = nil
+    }
+    central.delegate = nil
+    let transfer = OwnedCoreBluetoothProtocolCentralTransfer(
+      central: central,
+      restoredPeripherals: transferredPeripherals,
+      restoreIdentifierKey: restoreKey
+    )
+    peripherals.removeAll()
+    servicesByDevice.removeAll()
+    central = nil
+    return transfer
   }
 
   public func invalidate() {
@@ -882,8 +906,16 @@ public class OwnedCoreBluetoothAdapter: NSObject, BleAdapter, CBCentralManagerDe
     var device = deviceJs(peripheral)
     device["rssi"] = RSSI
     let localName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
-    device["name"] = (peripheral.name ?? localName) as Any
-    device["localName"] = (localName as Any?) ?? NSNull()
+    if let name = peripheral.name ?? localName {
+      device["name"] = name
+    } else {
+      device["name"] = NSNull()
+    }
+    if let localName {
+      device["localName"] = localName
+    } else {
+      device["localName"] = NSNull()
+    }
     applyAdvertisementFields(advertisementData, to: &device)
     // Negotiated MTU unknown while scanning — keep ATT default until connected.
     device["mtu"] = 23

@@ -1,0 +1,9 @@
+# evidence/v1/artifacts/local-simulator-query-2026-07-26.log
+captured_at=2026-07-26T03:54:58.000Z
+command=xcrun simctl list runtimes
+exit_code=1
+result=CoreSimulatorService connection was invalid; no runtime inventory was returned during this capture.
+redacted_diagnostic=simctl could not open its user log and could not connect to CoreSimulatorService or simdiskimaged.
+scope=failed-local-toolchain-query-only
+radio_operations=none
+physical_device_claim=false

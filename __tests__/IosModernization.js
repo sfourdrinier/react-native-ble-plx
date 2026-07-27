@@ -1,3 +1,5 @@
+// __tests__/IosModernization.js
+
 const fs = require('fs')
 const path = require('path')
 
@@ -11,12 +13,19 @@ const iosImplementation = readText(iosImplementationPath)
 const iosXcodeProject = readText(path.join(__dirname, '..', 'ios/BlePlx.xcodeproj/project.pbxproj'))
 const examplePodfile = readText(path.join(__dirname, '..', 'example/ios/Podfile'))
 const iosTurboModulePath = path.join(__dirname, '..', 'ios/BlePlxTurboModule.mm')
-const iosTurboModule = fs.existsSync(iosTurboModulePath) ? readText(iosTurboModulePath) : ''
+const iosTurboModule = readText(iosTurboModulePath)
+const ownedAdapter = readText(path.join(__dirname, '..', 'ios/Owned/OwnedCoreBluetoothAdapter.swift'))
+const exampleAppDelegate = readText(path.join(__dirname, '..', 'example/ios/AppDelegate.swift'))
+const exampleInfoPlist = readText(path.join(__dirname, '..', 'example/ios/BlePlxExample/Info.plist'))
+const exampleIosProject = readText(
+  path.join(__dirname, '..', 'example/ios/BlePlxExample.xcodeproj/project.pbxproj')
+)
 
 // Bonding surface exists on iOS as typed OperationNotSupported stubs
 const hasBondStubs =
   iosImplementation.includes('createBond:(NSString*)deviceIdentifier') &&
   iosImplementation.includes('removeBond:(NSString*)deviceIdentifier') &&
+  iosImplementation.includes('bondedDevices:(RCTPromiseResolveBlock)resolve') &&
   iosImplementation.includes('getBondState:(NSString*)deviceIdentifier')
 
 describe('iOS modernization defaults', () => {
@@ -54,6 +63,8 @@ describe('iOS modernization defaults', () => {
   test('conforms to the generated RN 0.86 TurboModule spec', () => {
     expect(iosHeader).toContain('#import <BlePlxSpec/BlePlxSpec.h>')
     expect(iosHeader).toContain('@interface BlePlx : RCTEventEmitter <NativeBlePlxSpec>')
+    // RN 0.86 asks RCTModuleProviders for getTurboModule: on the primary class.
+    // A category can compile yet remain invisible to protocol-conformance analysis.
     expect(fs.existsSync(iosTurboModulePath)).toBe(true)
     expect(fs.existsSync(iosImplementationPath)).toBe(true)
     expect(iosXcodeProject).toContain('BlePlx.mm')
@@ -64,17 +75,100 @@ describe('iOS modernization defaults', () => {
     expect(iosXcodeProject).not.toContain('path = BlePlx.m;')
     expect(iosXcodeProject).not.toContain('IPHONEOS_DEPLOYMENT_TARGET = 12.0;')
     expect(iosXcodeProject).not.toContain('IPHONEOS_DEPLOYMENT_TARGET = 8.0;')
-    expect(iosTurboModule).toContain('#ifdef RCT_NEW_ARCH_ENABLED')
-    expect(iosTurboModule).toContain('NativeBlePlxSpecJSI')
-    expect(iosTurboModule).toContain('getTurboModule:')
+    expect(iosImplementation).toContain('#include <memory>')
+    expect(iosImplementation).toContain('#ifdef RCT_NEW_ARCH_ENABLED')
+    expect(iosImplementation).toContain('NativeBlePlxSpecJSI')
+    expect(iosImplementation).toContain('getTurboModule:')
+    expect(iosImplementation).toContain('@interface BlePlx () <BleClientManagerDelegate>')
+    expect(iosImplementation).not.toContain('@implementation BlePlx (TurboModule)')
+    expect(iosTurboModule).not.toContain('@implementation BlePlx')
+    expect(iosTurboModule).toContain('BlePlxInvokeClassVoidSelector')
+  })
+
+  test('keeps optional restoration dispatch type-safe without warning suppression', () => {
+    const optionalSelectors = [
+      'NSSelectorFromString(@"register")',
+      'NSSelectorFromString(@"shared")',
+      'NSSelectorFromString(@"adapterCount")',
+      'NSSelectorFromString(@"takeRestoredManager")',
+      'NSSelectorFromString(@"takeRestoredStatePayload")',
+      'NSSelectorFromString(@"completePendingRestoreStateEvent")'
+    ]
+
+    for (const selector of optionalSelectors) {
+      expect(iosImplementation).toContain(selector)
+    }
+
+    expect(iosImplementation).not.toContain('performSelector')
+    expect(iosImplementation).not.toContain('valueForKey:@"adapterCount"')
+    expect(iosImplementation).not.toContain('#pragma clang diagnostic')
+    expect(iosImplementation).not.toMatch(
+      /@selector\((?:register|adapterCount|takeRestoredManager|takeRestoredStatePayload)\)/
+    )
+    expect(iosImplementation).toContain('[super invalidate]')
+  })
+
+  test('represents optional scan names without implicit optional-to-Any coercion', () => {
+    expect(ownedAdapter).not.toContain('device["name"] = (peripheral.name ?? localName) as Any')
+    expect(ownedAdapter).not.toContain('device["localName"] = (localName as Any?) ?? NSNull()')
+    expect(ownedAdapter).toMatch(/if let name = peripheral\.name \?\? localName \{[\s\S]*device\["name"\] = name/)
+    expect(ownedAdapter).toMatch(/if let localName \{[\s\S]*device\["localName"\] = localName/)
+  })
+
+  test('starts the example with the RN 0.86 factory, not deprecated RCTAppDelegate', () => {
+    expect(exampleAppDelegate).toContain('RCTDefaultReactNativeFactoryDelegate')
+    expect(exampleAppDelegate).toContain('RCTReactNativeFactory(delegate: self)')
+    expect(exampleAppDelegate).toContain('startReactNative(')
+    expect(exampleAppDelegate).toContain('dependencyProvider = RCTAppDependencyProvider()')
+    expect(exampleAppDelegate).toContain('let window = UIWindow(frame: UIScreen.main.bounds)')
+    expect(exampleAppDelegate).toContain('self.window = window')
+    expect(exampleAppDelegate).toContain('in: window')
+    expect(exampleAppDelegate).not.toMatch(/class AppDelegate:\s*RCTAppDelegate/)
+    expect(exampleAppDelegate).not.toContain('sourceURL(for bridge')
+  })
+
+  test('declares the permissions and background mode actually required by the restoration demo', () => {
+    expect(exampleInfoPlist).toContain('NSBluetoothAlwaysUsageDescription')
+    expect(exampleInfoPlist).toMatch(/NSBluetoothAlwaysUsageDescription<\/key>\s*<string>[^<]+<\/string>/)
+    expect(exampleInfoPlist).not.toContain('NSLocationWhenInUseUsageDescription')
+    expect(exampleInfoPlist).toMatch(/UIBackgroundModes<\/key>\s*<array>\s*<string>bluetooth-central<\/string>/)
+  })
+
+  test('marks the React Native bundle phase intentionally always out of date', () => {
+    const bundlePhaseStart = exampleIosProject.indexOf(
+      '00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */ = {'
+    )
+    const bundlePhaseEnd = exampleIosProject.indexOf('[CP] Embed Pods Frameworks', bundlePhaseStart)
+    const bundlePhase = exampleIosProject.slice(bundlePhaseStart, bundlePhaseEnd)
+
+    expect(bundlePhaseStart).toBeGreaterThan(-1)
+    expect(bundlePhase).toContain('alwaysOutOfDate = 1;')
+    expect(bundlePhase).toMatch(/outputPaths = \(\s*\);/)
+  })
+
+  test('inherits the C++ runtime instead of linking it twice in the example app target', () => {
+    const debugStart = exampleIosProject.indexOf('13B07F941A680F5B00A75B9A /* Debug */ = {')
+    const releaseStart = exampleIosProject.indexOf('13B07F951A680F5B00A75B9A /* Release */ = {')
+    const projectDebugStart = exampleIosProject.indexOf('83CBBA201A601CBA00E9B192 /* Debug */ = {')
+    const appDebugConfiguration = exampleIosProject.slice(debugStart, releaseStart)
+    const appReleaseConfiguration = exampleIosProject.slice(releaseStart, projectDebugStart)
+
+    expect(debugStart).toBeGreaterThan(-1)
+    expect(releaseStart).toBeGreaterThan(-1)
+    expect(projectDebugStart).toBeGreaterThan(-1)
+    expect(appDebugConfiguration).toContain('"$(inherited)",')
+    expect(appReleaseConfiguration).toContain('"$(inherited)",')
+    expect(appDebugConfiguration).not.toContain('"-lc++",')
+    expect(appReleaseConfiguration).not.toContain('"-lc++",')
   })
 
   test('implements the generated RN 0.86 iOS TurboModule promise selectors', () => {
     const requiredSelectors = [
+      'createClient:(NSString * _Nullable)restoreIdentifierKey',
       'checkRestorationStatus:(RCTPromiseResolveBlock)resolve',
       'destroyClient:(RCTPromiseResolveBlock)resolve',
       'state:(RCTPromiseResolveBlock)resolve',
-      'startDeviceScan:(NSArray*)filteredUUIDs',
+      'startDeviceScan:(NSArray * _Nullable)filteredUUIDs',
       'options:(JS::NativeBlePlx::ScanOptions &)options',
       'NSDictionaryFromScanOptions(options)',
       'stopDeviceScan:(RCTPromiseResolveBlock)resolve',
@@ -95,7 +189,7 @@ describe('iOS modernization defaults', () => {
       'readCharacteristic:(double)characteristicIdentifier',
       'writeCharacteristic:(double)characteristicIdentifier',
       'monitorCharacteristicForDevice:(NSString*)deviceIdentifier',
-      'subscriptionType:(NSString*)subscriptionType',
+      'subscriptionType:(NSString * _Nullable)subscriptionType',
       'readDescriptor:(double)descriptorIdentifier',
       'writeDescriptor:(double)descriptorIdentifier',
       'enableBackgroundMode:(JS::NativeBlePlx::BackgroundModeOptions &)options',
@@ -104,6 +198,7 @@ describe('iOS modernization defaults', () => {
       'isBackgroundModeEnabled:(RCTPromiseResolveBlock)resolve',
       'createBond:(NSString*)deviceIdentifier',
       'removeBond:(NSString*)deviceIdentifier',
+      'bondedDevices:(RCTPromiseResolveBlock)resolve',
       'getBondState:(NSString*)deviceIdentifier',
       'cancelTransaction:(NSString*)transactionId',
       'setLogLevel:(NSString*)logLevel',
@@ -126,7 +221,7 @@ describe('iOS modernization defaults', () => {
     expect(iosImplementation).not.toContain('transactionID:')
     expect(iosImplementation).not.toContain('destroyClient) {')
     expect(iosImplementation).not.toContain('stopDeviceScan) {')
-    expect(iosImplementation).toContain('#else\nRCT_EXPORT_METHOD(startDeviceScan:(NSArray*)filteredUUIDs\n                          options:(NSDictionary*)options')
+    expect(iosImplementation).toContain('#else\nRCT_EXPORT_METHOD(startDeviceScan:(NSArray * _Nullable)filteredUUIDs\n                          options:(NSDictionary*)options')
     expect(iosImplementation).toContain('#else\nRCT_EXPORT_METHOD(connectToDevice:(NSString*)deviceIdentifier\n                          options:(NSDictionary*)options')
   })
 })

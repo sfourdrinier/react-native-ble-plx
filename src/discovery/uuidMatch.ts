@@ -41,7 +41,10 @@ export function expandBluetoothUuid(uuid: string): string {
     return `${u.slice(0, 8)}-${u.slice(8, 12)}-${u.slice(12, 16)}-${u.slice(16, 20)}-${u.slice(20)}`
   }
   // Non-hex / assigned names: return lowercased original (no invent)
-  return raw.toLowerCase().replace(/^\{|\}$/g, '').trim()
+  return raw
+    .toLowerCase()
+    .replace(/^\{|\}$/g, '')
+    .trim()
 }
 
 /**

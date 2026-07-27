@@ -1,0 +1,16 @@
+{
+  "validationAt": "2026-07-25T20:00:05.000Z",
+  "cases": [
+    { "id": "scenario-nonzero-command", "base": "valid-compile-l2.json", "operations": [{ "op": "set", "path": ["execution", "commands", 0, "exitCode"], "value": 1 }], "expected": "passed scenarios require zero-exit command" },
+    { "id": "scenario-result-not-bound", "base": "valid-compile-l2.json", "operations": [{ "op": "set", "path": ["proof", "scenarios", 0, "artifactIds"], "value": [] }], "expected": "must include command fixture-compile-command" },
+    { "id": "scenario-window-outside-command", "base": "valid-compile-l2.json", "operations": [{ "op": "set", "path": ["proof", "scenarios", 0, "startedAt"], "value": "2026-07-25T19:59:59.000Z" }], "expected": "must be inside command fixture-compile-command's time window" },
+    { "id": "package-artifact-mismatch", "base": "valid-live-preview-l4.json", "operations": [{ "op": "set", "path": ["subject", "packageArtifact", "path"], "value": "evidence/v1/fixtures/artifacts/fixture.log" }], "expected": "matching type, path, and sha256" },
+    { "id": "unknown-controller-feature", "base": "valid-live-preview-l4.json", "operations": [{ "op": "set", "path": ["proof", "scenarios", 3, "kind"], "value": "fault-injection" }, { "op": "set", "path": ["proof", "scenarios", 3, "requiredControllerFeatures"], "value": ["invented-controller-feature"] }], "expected": "must be one of" },
+    { "id": "supported-without-matrix", "base": "valid-live-preview-l4.json", "operations": [{ "op": "set", "path": ["claim", "publishedSupportLabel"], "value": "Supported" }, { "op": "set", "path": ["claim", "targetSupportLabel"], "value": "Supported" }], "expected": "require a declared capability/scenario/environment matrix" },
+    { "id": "boundary-range-excludes-version", "base": "valid-system-l3.json", "operations": [{ "op": "set", "path": ["boundary", "compatibility", "maximumVersion"], "value": 0 }], "expected": "must contain its declared protocol/ABI version" },
+    { "id": "future-capture", "base": "valid-compile-l2.json", "operations": [{ "op": "set", "path": ["execution", "capturedAt"], "value": "2026-07-25T20:05:05.001Z" }], "expected": "must not be more than" },
+    { "id": "legacy-package-test-mislabeled-tck", "base": "valid-live-preview-l4.json", "operations": [{ "op": "set", "path": ["execution", "commands", 0, "argv"], "value": ["pnpm", "test:package", "--runInBand"] }], "expected": "legacy package tests must be labeled legacy-regression" },
+    { "id": "cadence-overrun", "base": "valid-compile-l2.json", "operations": [{ "op": "set", "path": ["ownership", "revalidation", "nextDueAt"], "value": "2026-08-25T20:00:03.001Z" }], "expected": "must not exceed the declared revalidation cadence" },
+    { "id": "dirty-source-artifact-mismatch", "base": "valid-compile-l2.json", "operations": [{ "op": "set", "path": ["source", "dirty"], "value": true }, { "op": "set", "path": ["source", "dirtyPathCount"], "value": 1 }, { "op": "set", "path": ["source", "dirtyPathsSha256"], "value": "1939fa6b133eabb1967bc5239b79d55c2b7203fcd6aaf86cd891e697983f7f6f" }], "expected": "must equal the recomputed canonical dirty-status artifact state" }
+  ]
+}

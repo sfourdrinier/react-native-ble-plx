@@ -1,4 +1,8 @@
-# Cross-host central helpers (4.0)
+<!-- docs/HELPERS.md -->
+
+# Cross-host central helpers
+
+> **Transitional source characterization:** these duck-typed legacy helpers are audit input only. The future 4.0 helpers must be thin, bytes-only, cancellation-safe operations over the public primitives and must not preserve a second manager/port contract. See [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
 
 **Package:** `unified-ble-manager`  
 **Module:** `import { findDevice, connectAndDiscover, … } from 'unified-ble-manager'`

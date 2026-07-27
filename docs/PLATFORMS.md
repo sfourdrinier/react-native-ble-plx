@@ -1,64 +1,51 @@
-# Platform capability matrix (4.0 alpha)
+<!-- docs/PLATFORMS.md -->
 
-Honest matrix. Prefer `manager.supports(capability)` at runtime.
+# Platform support and evidence
 
-**Proof levels** (see [GAPS.4.0.md §1.3](./GAPS.4.0.md)): **L1** unit/contract · **L2** compile/link · **L3** OS smoke without hardware · **L4** live radio · **L5** background lab.  
-**Y** = supported at the stated proof level. **Partial / preview** = API or software path only; do not treat as production radio parity. **N** = not claimed; operations should fail typed or be absent.
+**Architecture and sequencing authority:** [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)
 
-| Capability | RN iOS/Android | Web | Electron main | Node |
-| ---------- | -------------- | --- | ------------- | ---- |
-| central | Y | Y (preview) | Y (backend-dependent) | Y (backend-dependent) |
-| continuous scan | Y (owned Kotlin/Swift radio) | **N** (use `requestDevice`; `OperationNotSupported`) | **Backend-dependent** — see note below | **Backend-dependent** |
-| findAndConnect | Y | N (no continuous scan) | Y when backend scan is real | Y when backend scan is real |
-| permission helpers | Y (Android request/check) | N/A browser model | N/A | N/A |
-| requestDevice chooser | N | Y (`supports('requestDevice')`) | N | N |
-| connect / discover / R/W / notify | Y | Y (preview) | Y when backend is real | Y when backend is real |
-| Base64 path | Y | Y | Y | Y |
-| bytes path (`AsBytes`/`FromBytes`) | **Y (API)** — public methods land; **RN internal still Base64 bridge** (F036/F092 / GAP-GA-PERF) until native TurboModule ArrayBuffer methods | Y (binary native) | Y (port bytes) | Y (port bytes) |
-| bonding | **Android Y** (`manager.supports('bonding')` OS-honest); **iOS N** (OS-driven pairing; `manager.supports` false — see [BONDING.md](./BONDING.md)) | N | N | N |
-| request MTU | **Y Android negotiate**; **iOS report-only** (`maximumWriteValueLength+3`; `requestMTUForDevice` does **not** negotiate — F080 / GAP-IOS-PARITY). `manager.supports('requestMtu')` is **Android-only** (OS-honest) | N | N (alpha) | N |
-| connection priority | Android (`manager.supports` OS-honest) | N | N | N |
-| iOS state restoration | Y (owned path; L5 lab open) | N | N | N |
-| Android FGS | Y (plugin + runtime; L5 lab open) | N | N | N |
-| L2CAP | N (later) | N | N | N |
-| preferred PHY | N (later) | N | N | N |
-| per-device operation queue | **Y** on RN `BleManager` (`DeviceOperationQueue`, GAP-RN-Q) and `PortBleManager` | Y (`PortBleManager`) | Y | Y |
-| services-changed surface | **Y** on RN (`onServicesReset` + native `ServicesChangedEvent`; iOS `didModifyServices`, Android API 31+ `onServiceChanged`) | **N** — `supports('servicesChanged')` **false** (software `emitServicesReset` is test inject only; no ATT bridge) | **N** — `supports('servicesChanged')` **false** (fail-closed until OS events; `emitServicesReset` test inject only) | **N** — same fail-closed desktop policy as Electron |
-| long-write helper | **Y** on RN `BleManager` (`writeLongCharacteristicForDeviceFromBytes`) + free helper + `PortBleManager` | Y (`PortBleManager`; browser MTU limits still apply) | Y | Y |
+This page is an evidence index, not a static 4.0 capability matrix. In 4.0, an application learns optional behavior from the typed capabilities of its instantiated backend; platform names, build success, or a compile-time helper never substitute for a capability implementation and its evidence.
 
-### Electron continuous scan (backend honesty)
+## Required stable-4.0 environments
 
-**Runtime source of truth:** prefer `manager.supports('continuousScan')` on the live `BleManager` instance (backend-aware). The free `supports(capability, 'electron')` host matrix is a coarse default only (R3-F030 / R3-F045).
+| Environment | Required 4.0 direction | Minimum truthful label before stable |
+| --- | --- | --- |
+| React Native Android | First-party Android backend over the shared contract | Evidence determined by its manifest |
+| React Native Apple | First-party Apple backend over the shared contract | Evidence determined by its manifest |
+| Web Bluetooth | First-party chooser/GATT backend | Evidence determined by its manifest |
+| BlueZ | Owned first-party Linux backend | Evidence determined by its manifest |
+| CoreBluetooth desktop | Owned first-party macOS backend | Evidence determined by its manifest |
+| WinRT | Owned first-party Windows backend | Evidence determined by its manifest |
+| Electron | Versioned main/renderer IPC over the selected owned backend | Evidence determined by its manifest |
+| Meta Quest | Deferred to 4.1 | No 4.0 claim or gate |
 
-| Backend | `manager.supports('continuousScan')` | Proof | Notes |
-| ------- | ------------------------------------ | ----- | ----- |
-| **macOS CoreBluetooth** | **true** when real CB port is injected | L2 software; **L4 lab open** | `pnpm run build:electron:macos` + Electron ABI rebuild (`@electron/rebuild`) for main process; `createCoreBluetoothBlePort({ requireNative: true })`; live Polar: `pnpm run example:electron:live` — see [ELECTRON.md](./ELECTRON.md) packaging |
-| **Linux BlueZ** | **true** when BlueZ port is real | L1 mock D-Bus contracts; L4 open | `BluezBlePort` + optional `dbus-next`; not full production discovery/GATT yet (GAP-E-LIN-*) |
-| **Windows WinRT** | **false** (placeholder / Fake) | Fake only | `createWinRtBlePort` / native addon throws or falls back; do not claim radio scan |
-| **Fake / mock backend** | **false** (or host inject only) | CI smoke | Headless `example-electron:smoke` / unit tests |
+`Experimental`, `Preview`, `Live Preview`, `Supported`, and `Reliability-qualified` have the exact meanings in Section 21.4 of the controlling plan. A lower proof level must remain visible as a limitation. The explicit 2026-07-25 maintainer scope decision moves Meta Quest to 4.1; its retained intent is recorded in [`platforms/META_QUEST_4.1_SCOPE.md`](platforms/META_QUEST_4.1_SCOPE.md).
 
-**FakeBlePort** is for **CI / unit tests / headless smoke only** when the `.node` addon is absent (Linux/Windows package jobs, `example-electron:smoke`). Production Electron main must inject a real OS port with `allowMockFallback: false`.
+## Current transitional characterization
 
-### servicesChanged contract (what `supports` means)
+Existing repository code has a host-oriented support helper and a legacy matrix. It also contains a Base64 bridge, byte convenience methods, port managers, a fake backend, current native work, and desktop experiments. These are current-source inputs only:
 
-**Product rule (4.0 alpha):** `manager.supports('servicesChanged')` is the runtime source of truth. Desktop is **fail-closed** until OS events are forwarded (R3-F013).
+- they do not determine 4.0 capability truth;
+- they do not authorize a support claim;
+- they must be re-proven through backend contract v1, the TCK, scenarios, and machine-readable evidence;
+- mocks and deterministic fault injection cannot be relabelled as live radio;
+- no Noble dependency or fallback survives in a first-party desktop backend.
 
-| Host | `supports('servicesChanged')` | Meaning |
-| ---- | ----------------------------- | ------- |
-| **RN** | **true** | Full meaning: native radio Services Changed / `didModifyServices` / `onServiceChanged` → `onServicesReset` |
-| **Web** | **false** | Fail-closed until a WebBT ATT Services Changed bridge lands. `PortBleManager.emitServicesReset` may still exist as **test inject only** — do not treat as radio fidelity ([WEB.md](./WEB.md)) |
-| **Electron / Node** | **false** | Fail-closed until OS/backend Services Changed events are forwarded. `onServicesReset` / `emitServicesReset` may still exist as **test inject / software listener only** — never document `true` while Electron `manager.supports` returns false |
+## Evidence records
 
-**Do not** treat software `emitServicesReset` as radio Services Changed fidelity on web/desktop.
+[`GAPS.4.0.md`](GAPS.4.0.md) inventories current evidence work. Final support pages must be generated from versioned evidence manifests containing backend identity, protocol versions, package digest, OS/runtime/hardware, commands, result artifacts, limitations, revalidation rules, and responsible maintainer.
 
-### request MTU honesty
+The current platform-specific documents linked below are historical/transitional characterization until rewritten against the packed 4.0 contract. They must not be used as 4.0 installation instructions:
 
-- **Android RN:** `requestMTUForDevice` negotiates; `manager.supports('requestMtu') === true`.
-- **iOS RN:** reporting only — returns an effective MTU derived from `maximumWriteValueLength + 3`; **cannot negotiate**. `manager.supports('requestMtu') === false` (OS-honest). See GAP-IOS-PARITY / F080.
-- **Web / Electron / Node:** N / alpha placeholder — no production negotiate claim.
+- [`EXPO_PLUGIN.md`](EXPO_PLUGIN.md)
+- [`BACKGROUND.md`](BACKGROUND.md)
+- [`WEB.md`](WEB.md)
+- [`ELECTRON.md`](ELECTRON.md)
+- [`NODE.md`](NODE.md)
+- [`TVOS.md`](TVOS.md)
 
-See also [WEB.md](./WEB.md), [ELECTRON.md](./ELECTRON.md), [BACKGROUND.md](./BACKGROUND.md), [PERFORMANCE.md](./PERFORMANCE.md).
+## Related records
 
-### Benchmark harness (alpha)
-
-See **[PERFORMANCE.md](./PERFORMANCE.md)** for dual-path honesty, how to run `__tests__/Benchmark.harness.test.js`, and the GAP-GA-PERF placeholder table. Numbers are harness smoke metrics, not production device-lab benches.
+- [`../ROADMAP.4.0.md`](../ROADMAP.4.0.md)
+- [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)
+- [`GAPS.4.0.md`](GAPS.4.0.md)

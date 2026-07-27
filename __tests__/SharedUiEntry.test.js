@@ -1,3 +1,5 @@
+// __tests__/SharedUiEntry.test.js
+
 /**
  * Shared UI is the single source for web + Electron renderer chrome.
  */
@@ -74,7 +76,7 @@ describe('example-shared/ui (DRY web + Electron)', () => {
 
   test('Electron main loads shared UI and uses Electron 43 preload IPC', () => {
     const main = fs.readFileSync(path.join(root, 'example-electron/main.js'), 'utf8')
-    expect(main).toContain("example-shared")
+    expect(main).toContain('example-shared')
     expect(main).toContain('ui')
     expect(main).toContain('index.html')
     expect(main).toContain('createCoreBluetoothBlePort')
@@ -116,8 +118,8 @@ describe('example-shared/ui (DRY web + Electron)', () => {
     expect(bridge).toMatch(/if\s*\(\s*caps\.bonding\s*===\s*true\s*\)/)
   })
 
-  // R3-F063: CJS profiles.js surface matches package profile modules (ESM export *)
-  test('example-shared profiles.js re-exports full profile surface (R3-F063)', () => {
+  // Transitional profile coverage validates direct legacy source modules, never the v4 root entrypoint.
+  test('example-shared profiles.js re-exports full legacy profile surface (R3-F063)', () => {
     const cjs = require('../example-shared/profiles.js')
     for (const key of [
       'HEART_RATE_CONTROL_POINT_UUID',
@@ -130,7 +132,7 @@ describe('example-shared/ui (DRY web + Electron)', () => {
     ]) {
       expect(cjs[key]).toBeDefined()
     }
-    const profilesRoot = path.join(root, 'lib', 'commonjs', 'profiles')
+    const profilesRoot = path.join(root, 'src', 'profiles')
     const full = {
       ...require(path.join(profilesRoot, 'heartRate')),
       ...require(path.join(profilesRoot, 'battery')),

@@ -1,3 +1,5 @@
+// __tests__/OwnedCore.structure.test.js
+
 /**
  * STRUCTURE-ONLY proof level (R2-F113 / L0–L1):
  * Source-string / factory presence guards for the owned radio default path.
@@ -5,6 +7,8 @@
  * Do not count this suite as L4/L5 end-to-end proof that subscriptionType, FGS, or
  * restoration works at runtime — pair with platform instrumented tests when claiming GA depth.
  */
+// __tests__/OwnedCore.structure.test.js
+
 const fs = require('fs')
 const path = require('path')
 
@@ -135,6 +139,35 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
       'utf8'
     )
     expect(event).toContain('ServicesChangedEvent')
+    const module = fs.readFileSync(
+      path.join(root, 'android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxModule.java'),
+      'utf8'
+    )
+    expect(module).toMatch(
+      /deviceId\s*->\s*\{[\s\S]*sendEvent\(Event\.ServicesChangedEvent, deviceId\);[\s\S]*return kotlin\.Unit\.INSTANCE;/
+    )
+  })
+
+  test('Owned Android drops unmatched notifications and maps bonded-list failures to shared error codes', () => {
+    const adapter = fs.readFileSync(
+      path.join(root, 'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedBleAdapter.kt'),
+      'utf8'
+    )
+
+    expect(adapter).toContain('radio.onNotification = notification@{ deviceId, serviceUuid, charUuid, value ->')
+    expect(adapter).toContain('val entry = notifyCallbacks[key] ?: return@notification')
+    expect(adapter).toContain('bondedDevices failed while retrieving bonded devices')
+    const bondedOperation = fs.readFileSync(
+      path.join(
+        root,
+        'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedBondedDevicesOperation.kt'
+      ),
+      'utf8'
+    )
+    expect(bondedOperation).toContain('SecurityException')
+    expect(bondedOperation).toContain('BleErrorCode.BluetoothUnauthorized')
+    expect(bondedOperation).toContain('BleErrorCode.UnknownError')
+    expect(adapter).not.toContain('BleErrorCode.BluetoothInternalException')
   })
 
   test('Electron macOS CoreBluetooth full BlePort native + wrap (GAP-E-MAC-PORT)', () => {
@@ -417,7 +450,7 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
       path.join(root, 'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedBleAdapter.kt'),
       'utf8'
     )
-    expect(adapter).toContain('data class NotifyEntry')
+    expect(adapter).toContain('class NotifyEntry')
     const notify = adapter.slice(
       adapter.indexOf('radio.onNotification'),
       adapter.indexOf('radio.onServicesChanged')
@@ -1260,7 +1293,7 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
       path.join(root, 'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedBleAdapter.kt'),
       'utf8'
     )
-    expect(adapter).toContain('data class PendingOp')
+    expect(adapter).toContain('class PendingOp')
     expect(adapter).toContain('trackPendingOp')
     expect(adapter).toContain('settlePendingOp')
     const cancel = adapter.slice(
@@ -1383,7 +1416,8 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
     )
     expect(plugin).toContain('POST_NOTIFICATIONS')
     const bg = fs.readFileSync(path.join(root, 'docs/BACKGROUND.md'), 'utf8')
-    expect(bg).toMatch(/POST_NOTIFICATIONS/)
+    expect(bg).toContain('transitional behavior characterization')
+    expect(bg).toContain('typed backend features')
   })
 
   test('R2-F111 Base64 decode rejects oversized payloads', () => {
@@ -1453,7 +1487,7 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
     expect(onState).toContain('completeGattTeardown')
   })
 
-  test('R3-F022 setNotify stashes CCCD payload for API 33+ isNotifying local cache', () => {
+  test('R3-F022 keeps notification state in the characteristic model after API 33+ descriptor writes', () => {
     const radio = fs.readFileSync(
       path.join(
         root,
@@ -1461,14 +1495,14 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
       ),
       'utf8'
     )
-    expect(radio).toContain('pendingDescValues')
+    expect(radio).not.toContain('pendingDescValues')
     const setNotify = radio.slice(radio.indexOf('fun setNotify'), radio.indexOf('fun readDescriptor'))
-    expect(setNotify).toMatch(/pendingDescValues\[key\]\s*=\s*payload/)
+    expect(setNotify).not.toMatch(/descriptor\.value\s*=/)
     const onDescWrite = radio.slice(
       radio.indexOf('override fun onDescriptorWrite'),
       radio.indexOf('override fun onDescriptorRead')
     )
-    expect(onDescWrite).toMatch(/descriptor\.value\s*=\s*stashed/)
+    expect(onDescWrite).not.toMatch(/descriptor\.value\s*=/)
     const charJava = fs.readFileSync(
       path.join(
         root,
@@ -1476,8 +1510,18 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
       ),
       'utf8'
     )
-    expect(charJava).toContain('isNotifying')
-    expect(charJava).toMatch(/descriptor\.getValue\(\)/)
+    expect(charJava).toContain('private volatile boolean notifying = false;')
+    expect(charJava).toContain('public void setNotifying(boolean notifying)')
+    expect(charJava).not.toMatch(/descriptor\.getValue\(\)/)
+    const adapter = fs.readFileSync(
+      path.join(
+        root,
+        'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedBleAdapter.kt'
+      ),
+      'utf8'
+    )
+    expect(adapter).toContain('entry.model.setNotifying(true)')
+    expect(adapter).toContain('entry.model.setNotifying(false)')
   })
 
   test('R3-F023 createClient destroys prior bleAdapter before replace', () => {

@@ -12,6 +12,9 @@
 		50D6A4712D4823CF003F04A9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50D6A4702D4823CA003F04A9 /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		AE8C3124373A144E7B92243D /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 53F2F6E20F494004B6B46B83 /* PrivacyInfo.xcprivacy */; };
+		E00100010000000000000001 /* Ub4JsiBinaryBootstrap.mm in Sources */ = {isa = PBXBuildFile; fileRef = E00100020000000000000002 /* Ub4JsiBinaryBootstrap.mm */; };
+		E00100030000000000000003 /* Ub4JsiBinaryBinding.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E00100040000000000000004 /* Ub4JsiBinaryBinding.cpp */; };
+		E00100050000000000000005 /* Ub4JsiBinaryProtocol.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E00100060000000000000006 /* Ub4JsiBinaryProtocol.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -36,6 +39,9 @@
 		5709B34CF0A7D63546082F79 /* Pods-BlePlxExample.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-BlePlxExample.release.xcconfig"; path = "Target Support Files/Pods-BlePlxExample/Pods-BlePlxExample.release.xcconfig"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-BlePlxExample.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-BlePlxExample.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = BlePlxExample/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		E00100020000000000000002 /* Ub4JsiBinaryBootstrap.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = Ub4JsiBinaryBootstrap.mm; path = "../../spikes/rn-jsi-binary/platform/ios/Ub4JsiBinaryBootstrap.mm"; sourceTree = "<group>"; };
+		E00100040000000000000004 /* Ub4JsiBinaryBinding.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Ub4JsiBinaryBinding.cpp; path = "../../spikes/rn-jsi-binary/native/src/Ub4JsiBinaryBinding.cpp"; sourceTree = "<group>"; };
+		E00100060000000000000006 /* Ub4JsiBinaryProtocol.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Ub4JsiBinaryProtocol.cpp; path = "../../spikes/rn-jsi-binary/native/src/Ub4JsiBinaryProtocol.cpp"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -91,6 +97,7 @@
 			isa = PBXGroup;
 			children = (
 				13B07FAE1A68108700A75B9A /* BlePlxExample */,
+				E00100070000000000000007 /* UB4 JSI Binary Spike */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
@@ -117,6 +124,16 @@
 				5709B34CF0A7D63546082F79 /* Pods-BlePlxExample.release.xcconfig */,
 			);
 			path = Pods;
+			sourceTree = "<group>";
+		};
+		E00100070000000000000007 /* UB4 JSI Binary Spike */ = {
+			isa = PBXGroup;
+			children = (
+				E00100020000000000000002 /* Ub4JsiBinaryBootstrap.mm */,
+				E00100040000000000000004 /* Ub4JsiBinaryBinding.cpp */,
+				E00100060000000000000006 /* Ub4JsiBinaryProtocol.cpp */,
+			);
+			name = "UB4 JSI Binary Spike";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -220,6 +237,7 @@
 /* Begin PBXShellScriptBuildPhase section */
 		00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -305,6 +323,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				50D6A4712D4823CF003F04A9 /* AppDelegate.swift in Sources */,
+				E00100010000000000000001 /* Ub4JsiBinaryBootstrap.mm in Sources */,
+				E00100030000000000000003 /* Ub4JsiBinaryBinding.cpp in Sources */,
+				E00100050000000000000005 /* Ub4JsiBinaryProtocol.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -379,6 +400,11 @@
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 457FBQ4469;
 				ENABLE_BITCODE = NO;
+				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../../spikes/rn-jsi-binary/native/include",
+				);
 				INFOPLIST_FILE = BlePlxExample/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -388,7 +414,6 @@
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
-					"-lc++",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.intent.BlePlxExample;
 				PRODUCT_NAME = BlePlxExample;
@@ -406,6 +431,11 @@
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 457FBQ4469;
+				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../../spikes/rn-jsi-binary/native/include",
+				);
 				INFOPLIST_FILE = BlePlxExample/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -415,7 +445,6 @@
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
-					"-lc++",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.intent.BlePlxExample;
 				PRODUCT_NAME = BlePlxExample;

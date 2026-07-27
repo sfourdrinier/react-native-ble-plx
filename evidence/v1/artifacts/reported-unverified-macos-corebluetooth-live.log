@@ -1,0 +1,7 @@
+# evidence/v1/artifacts/reported-unverified-macos-corebluetooth-live.log
+source=docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md section 5.5
+reported_fact=A maintainer previously exercised owned non-Noble Electron/Node BLE on macOS through CoreBluetooth.
+status=reported-unverified
+missing=original command output, original source/package artifact digest, macOS/Node/Electron versions, adapter identity, peripheral fixture identity, permissions/entitlements, timestamp, and attributable maintainer result artifact.
+support_gate=false
+required_revalidation=Run the named macOS Node and Electron vertical slices through the final public/core path and attach fresh artifact-bound evidence.

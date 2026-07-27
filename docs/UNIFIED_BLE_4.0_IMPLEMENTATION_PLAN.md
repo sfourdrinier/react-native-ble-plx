@@ -55,17 +55,136 @@ No product-specific abstraction is allowed into the package merely because the f
 
 The planning documents have distinct responsibilities:
 
-| Document | Authority |
-| --- | --- |
-| `ROADMAP.4.0.md` | Product scope, positioning, platform ambition, and release goals |
-| `docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md` | Architecture, sequencing, contracts, deletion gates, and engineering acceptance criteria |
-| `docs/GAPS.4.0.md` | Platform-specific code, CI, packaging, live-radio, and reliability proof inventory |
-| `docs/UNIFIED_SEMANTICS.md` | Normative runtime behavior once created in Phase 0 |
-| Contract ADRs | Frozen decisions for public API, backend contract, capabilities, native protocol, and serialization |
+| Document                                      | Authority                                                                                           |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `ROADMAP.4.0.md`                              | Product scope, positioning, platform ambition, and release goals                                    |
+| `docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md` | Architecture, sequencing, contracts, deletion gates, and engineering acceptance criteria            |
+| `docs/GAPS.4.0.md`                            | Platform-specific code, CI, packaging, live-radio, and reliability proof inventory                  |
+| `docs/UNIFIED_SEMANTICS.md`                   | Normative runtime behavior once created in Phase 0                                                  |
+| Contract ADRs                                 | Frozen decisions for public API, backend contract, capabilities, native protocol, and serialization |
 
 When an older roadmap or gap entry describes the transitional dual-manager, Base64, static-capability, or compatibility architecture, this plan controls the replacement work. The gap tracker continues to control platform proof requirements unless an explicit scope ADR changes them.
 
 No existing “done” status for the transitional `BlePort`, host matrix, RN queue wiring, or Base64 byte façade means that the corresponding clean-baseline work in this plan is complete.
+
+### 2.1 Implementation-first execution law
+
+This plan is executed through working vertical slices, not through a separate
+documentation phase:
+
+1. implement the smallest complete dependency-valid vertical slice;
+2. run it with focused deterministic tests;
+3. treat runtime, compiler, package, or native-build contradictions as the
+   authoritative feedback;
+4. update the affected type, semantic rule, ADR, and test together;
+5. rerun the focused slice;
+6. after the dependency gate passes, promote the accepted behavior immediately
+   into the production contract, core, TCK, or backend;
+7. continue to the next dependency gate.
+
+The first required slice is:
+
+`DeterministicBackend → unified core → scan → connect → discover → read → notify → destroy`
+
+It also proves cancellation, deadlines, overflow, late-event quarantine,
+generation invalidation, byte ownership, two-client arbitration, and zero
+cleanup counters.
+
+The following rules prevent execution from regressing into overplanning:
+
+- a Phase 0 artifact that passed a zero-actionable-finding review is not reopened
+  unless downstream executable evidence concretely contradicts it;
+- documents record decisions required by code and gates; document production is
+  not progress by itself;
+- reviews cover a coherent executable milestone and return findings as one
+  batch; fixes run in parallel where independent;
+- development uses focused tests; the expensive integrated
+  build/package/native suite runs once per coherent milestone;
+- hardware acquisition and live evidence continue independently; unavailable
+  hardware blocks only the associated evidence label, never deterministic
+  contracts, core, TCK, SDK, packaging, or unrelated backends;
+- after `G0`, accepted spike behavior moves directly into production contract
+  v1/core/TCK work; there is no second documentation-only interval;
+- implementation must advance the final clean baseline. Compatibility layers,
+  Base64 normal paths, static capability matrices, Noble fallbacks, fake
+  production success, placeholders, warning suppression, and reduced scope are
+  not acceptable shortcuts.
+
+#### G0 closure and production-promotion rule
+
+`G0` closes after the already-authorized semantic and JSI review batches have
+been fixed and one consolidated zero-diagnostic gate passes. That result freezes
+the accepted Phase 0 contract declarations, seven ADRs, deterministic executable
+model, and JSI binary-boundary proof. They are reopened only when downstream
+implementation produces concrete contradictory evidence.
+
+Immediately after that gate, the spike is deleted or reimplemented as production
+code. `G1` runs continuously in three independent lanes:
+
+The immutable Phase 0 correction records remain under
+[`docs/evidence/g0`](evidence/g0) as historical evidence only. They are not
+runtime source, production TypeScript input, package exports, or package
+artifacts; G1 absence checks enforce that the draft-contract and core-model
+runtime trees contain no files.
+
+1. production contract models, components, and feature declarations under
+   `src/backend-contract/**`;
+2. `DeterministicTestBackend` and its virtual peripheral;
+3. the base TCK plus ownership, lifecycle, and feature suites.
+
+The first production merge unit is an executable vertical slice:
+
+`public manager → unified core → DeterministicTestBackend → scan → connect → discover → read → notify → destroy`
+
+Each lane integrates when its frozen dependencies are available. `G2` work may
+start against an accepted production contract/core section without waiting for
+unrelated `G1` sections to finish. Apple and Android backend work starts after
+the contract surfaces each backend consumes are frozen; missing live hardware
+affects only the corresponding evidence label.
+
+SDK, CLI, generated public documentation, and bun-mono consumer migrations
+remain required for 4.0, but begin after `G2`; they must not interrupt
+contract/core/TCK convergence.
+
+#### Current execution state
+
+`G0` is complete and frozen as of 2026-07-25. Its consolidated gate passed the
+semantic and evidence validators, draft-contract compile fixtures, strict
+TypeScript and lint checks, the full package test suite, package build and
+packed-consumer smoke tests, Android JVM and APK builds, and the iOS simulator
+build/install/launch/JSI probe. The JSI evidence receipt is
+`893c6dbb9a559c1a84232e98823d295ba0d42e6810a5112669af80c6d0748a75`.
+
+The production contract/core/TCK/public-manager milestone was accepted on
+2026-07-26 after its consolidated zero-warning gate passed 60 suites and 940
+tests, package build and artifact verification, exact export checks, isolated
+canonical-plus-shim installation under CJS, ESM, Bundler, Node16, and NodeNext,
+and a final cold review returned zero actionable findings. The accepted
+production slice covers scan, connect, generation-consistent discovery, read,
+write, notification, destroy, cancellation, deadlines, overflow, ownership,
+retryable cleanup, late completion, quarantine accounting, and deterministic
+resource settlement.
+
+This is a one-way execution boundary, not a claim that 4.0 is nearly complete.
+The remaining work is platform backends, package SDK/CLI and documentation
+surfaces, consumer migrations, deletion gates, live evidence, and release
+qualification. The active engineering default is therefore:
+
+1. do not polish or broadly re-audit frozen `G0` work;
+2. reopen only the smallest affected `G0` authority when production code
+   supplies a concrete contradiction;
+3. spend the large majority of effort on production executable slices;
+4. review once per coherent gate, fix the complete finding batch, and run one
+   consolidated gate;
+5. start dependency-ready `G2` work without waiting for unrelated `G1` work;
+6. keep native and hardware evidence off the contract/core/TCK critical path.
+
+The accepted production authorities are `src/backend-contract/**`,
+`src/testing/deterministic/**`, `src/tck/**`, `src/core/**`, and
+`src/manager/**`. The active implementation lanes now move to dependency-ready
+first-party platform backends and their final public/core vertical slices.
+Progress is reported by dependency gate achieved and executable behavior added,
+not by document count.
 
 ---
 
@@ -77,7 +196,7 @@ The final system must support a unified BLE central programming model across:
 
 - React Native Android;
 - React Native Apple platforms;
-- Meta Quest as a required 4.0 platform, with other Android-derived XR devices added after their own validation;
+- Android-derived XR environments through the open backend/profile registration model; Meta Quest implementation is explicitly deferred to 4.1;
 - macOS Electron/CoreBluetooth;
 - Windows Electron/WinRT;
 - Linux Electron or Node/BlueZ;
@@ -183,16 +302,16 @@ Stable `4.0.0` therefore requires:
 - the independent-consumer proof and complete first-consumer convergence gates defined in Phase 6;
 - live proof for every environment described as supported.
 
-Meta Quest is a required 4.0 platform at a minimum `Live Preview` support level, even though it may be implemented last. `Live Preview` is the named evidence level in Section 21.4 above ordinary `Preview`: it requires a real, complete intended surface, clean contract/TCK, compile/package, permissions, and a named physical-device live vertical slice while allowing incomplete L5 soak and lifecycle reliability to remain explicit structured limitations. The Phase 0 platform spike determines Quest's correct backend composition, packaging, lifecycle semantics, capability limitations, and evidence plan; it does not decide whether Quest is quietly dropped. If the spike finds a genuine platform or store-policy blocker that prevents honest `Live Preview` support, implementation stops for a maintainer-approved architecture/scope decision. Phase 9/4.1 capabilities such as L2CAP CoC, preferred PHY, and a shared controllable physical test peripheral remain non-blocking unless a scope ADR explicitly promotes them into the stable 4.0 claim.
+Maintainer scope decision, 2026-07-25: Meta Quest is deferred to 4.1. It is not a 4.0 work package, evidence requirement, or release blocker. The 4.1 work retains the intended shared-Android-backend environment profile and evidence-bound `Live Preview` target recorded in `docs/platforms/META_QUEST_4.1_SCOPE.md`. L2CAP CoC, preferred PHY, and a shared controllable physical test peripheral are also post-4.0 unless a later scope ADR explicitly promotes them.
 
 Implementation feedback arrives through release maturity, not by silently reducing GA:
 
-| Milestone | Purpose | Minimum completion |
-| --- | --- | --- |
-| Experimental/alpha | Validate vocabulary, ownership, state machines, and external backend ergonomics | Phase 0 executable semantics spike, accepted draft ADRs, then `G1` and `G2` |
-| Beta | Exercise the complete intended API through real first-party hosts | `G4A`, `G4B`, and `G5`, with all claimed backend surfaces implemented |
-| Release candidate | Prove packaging, independent consumption, product convergence, live reliability, and public evidence | `G6A`, `G6B`, `G7`, Phase 8 evidence, and clean release artifacts |
-| Stable `4.0.0` | Publish the comprehensive clean baseline | All Section 31 requirements |
+| Milestone          | Purpose                                                                                              | Minimum completion                                                          |
+| ------------------ | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Experimental/alpha | Validate vocabulary, ownership, state machines, and external backend ergonomics                      | Phase 0 executable semantics spike, accepted draft ADRs, then `G1` and `G2` |
+| Beta               | Exercise the complete intended API through real first-party hosts                                    | `G4A`, `G4B`, and `G5`, with all claimed backend surfaces implemented       |
+| Release candidate  | Prove packaging, independent consumption, product convergence, live reliability, and public evidence | `G6A`, `G6B`, `G7`, Phase 8 evidence, and clean release artifacts           |
+| Stable `4.0.0`     | Publish the comprehensive clean baseline                                                             | All Section 31 requirements                                                 |
 
 Changing this decision requires an explicit scope ADR and maintainer approval. A schedule concern, mock pass, or incomplete backend is not permission to narrow the stable release implicitly.
 
@@ -343,17 +462,32 @@ There will not be parallel `read`/`readAsBytes` or `write`/`writeFromBytes` fami
 
 ### 6.3 Capabilities and implementations are one registration
 
-A feature cannot be declared without supplying its typed implementation:
+A feature cannot be declared merely because a backend namespace happens to exist. Every
+capability registration uses the canonical four-state model, and it carries the negotiated
+schema range, operating limits, evidence, and the TCK binding that proves the claim:
 
 ```ts
-interface BackendFeature<TImplementation> {
-  readonly level: 'native' | 'emulated' | 'partial'
+interface BackendFeatureRegistration<TImplementation> {
+  readonly id: string
+  readonly state: 'supported' | 'limited' | 'unsupported' | 'unavailable'
+  readonly selectedSchemaRange: InclusiveVersionRange
+  readonly limits: CapabilityLimits
+  readonly evidence: CapabilityEvidence
+  readonly tck: CapabilityTckBinding
+  /** How the implementation is realized; never a substitute for capability state. */
+  readonly implementationOrigin: 'backend-native' | 'core-emulated'
   readonly implementation: TImplementation
   readonly limitations: readonly CapabilityLimitation[]
 }
 ```
 
-Absence means unsupported. `supports()`, `capability()`, and `capabilities()` are derived views.
+`implementationOrigin` is deliberately separate from `state`: a core-emulated feature can be
+supported or limited, but must never be relabeled as native to conceal its realization. A
+capability cannot advertise support without a typed implementation, measurable limits,
+evidence, and its required TCK cases. Unsupported and unavailable states carry their explicit
+reason and applicable limitation codes; limited states name every observable difference.
+`supports()`, `capability()`, and `capabilities()` are derived views, never parallel sources of
+truth.
 
 The shared core registers emulated/core features separately from backend-native features. For example, a sequential chunked write must never be reported as an OS reliable-write transaction.
 
@@ -365,19 +499,30 @@ The contract may define constants for built-in identifiers, but adding `meta-que
 
 ### 6.5 Versions negotiate at runtime
 
-Version fields use `number`, not literal types:
+Every version axis uses a range, not a major-only identity:
 
 ```ts
-interface BackendProtocolIdentity {
-  readonly backendContractVersion: number
-  readonly capabilitySchemaVersion: number
-  readonly nativeProtocolVersion: number | null
-  readonly eventSchemaVersion: number
-  readonly traceFormatVersion: number
+interface InclusiveVersionRange {
+  readonly minimum: number
+  readonly maximum: number
+}
+
+interface NegotiatedVersionTuple {
+  readonly backendContract: number
+  readonly capabilitySchema: number
+  readonly nativeProtocol?: number
+  readonly eventSchema?: number
+  readonly traceFormat?: number
 }
 ```
 
-Factories reject incompatible major contract/protocol versions before radio work begins. Compatibility ranges and failure behavior are normative and tested.
+Before mutable work, each applicable axis exchanges an inclusive integer
+`[minimum, maximum]` offer. The selected value is the highest common version on that axis. The
+complete selected `NegotiatedVersionTuple` becomes immutable attachment data and is required on
+every cross-boundary message and diagnostic. Malformed offers, duplicate handshakes, an empty
+intersection, or a post-attachment version change reject the protocol; major-only comparison is
+not permitted. The registry schema also rejects unknown required fields rather than silently
+accepting a partial descriptor.
 
 ### 6.6 Public cancellation and backend correlation are separate
 
@@ -474,7 +619,7 @@ The core event/stream primitive is library-owned and standards-based. RxJS adapt
 
 The deterministic test backend is a fully implemented virtual BLE central with virtual time, programmable peripherals, fault injection, and complete lifecycle behavior. It exists to make semantics and the TCK deterministic; it is not a substitute for a platform backend.
 
-No first-party backend may contain a placeholder that returns success, empty data, or a nominal capability without performing the real operation. Unsupported operations are absent capabilities with typed explanations. A backend becomes supported only at its declared proof level, including live-radio evidence where the support claim requires it.
+No first-party backend may contain a placeholder that returns success, empty data, or a nominal capability without performing the real operation. Unsupported operations are registered as `unsupported` with typed explanations; they are not omitted from the capability authority. A backend becomes supported only at its declared proof level, including live-radio evidence where the support claim requires it.
 
 ### 6.15 First-party backends replace dependency wrappers
 
@@ -493,7 +638,10 @@ The public package does not create a manager/backend singleton on import.
 - A host factory enumerates/selects an adapter where the platform exposes multiple radios.
 - A backend instance has a stable runtime adapter identity.
 - A manager is created with an explicit backend instance and explicit ownership mode.
-- Destroying an owning manager destroys its backend; destroying a borrowing manager does not.
+- An owning manager may destroy its backend only after no registered borrowers remain. If
+  borrowers remain, it first closes admissions and awaits their resource settlement, then either
+  performs settled revocation or an atomic, verified ownership transfer. Borrowed managers only
+  release their lease; they never destroy the backend.
 - Sharing one backend across managers is unsupported unless the backend declares and TCK-proves multiplexing.
 - OS-global constraints such as one scan controller are coordinated once in the backend/core, not through application singletons.
 - React Native restoration may require a host-owned long-lived backend, but its lifecycle remains explicit and reconstructible.
@@ -502,7 +650,7 @@ Phase 0 must freeze the multi-client arbitration model before the manager constr
 
 - the backend/provider owns the physical adapter and its single physical scan controller;
 - a manager owns logical scan leases, connections, subscriptions, and operations created through it;
-- the default second scan request fails with `scanAlreadyActive`;
+- the default second scan request fails with `scan.already-active`;
 - joining an existing scan requires an explicit shared-session token/helper and identical documented session semantics; a borrowing manager does not gain scan multiplexing merely by borrowing the backend;
 - Electron main is the sole arbiter across renderer clients, associates every logical resource with an authorized renderer identity, and either rejects a second renderer's scan or explicitly joins it to the same session;
 - renderer reload, navigation, crash, window close, manager destroy, and backend restart define which leases are revoked, reconstructed, or preserved;
@@ -598,13 +746,13 @@ The package owns portable BLE-central behavior through an active connection. A c
 
 The following ownership split is normative:
 
-| Concern | Owner |
-| --- | --- |
-| Adapter state, scanning, chooser behavior, connection state, GATT discovery, operation ordering, ATT/GATT timeouts, cancellation, long-write mechanics, subscription lifecycle, stale handles, normalized BLE errors/events | `unified-ble-manager` |
-| OS radio calls, permissions integration, background/restoration mechanics, native error capture | Selected backend/host integration |
-| Standard Bluetooth SIG profile codecs/helpers | Optional package profile modules |
-| Vendor protocol state machines and device-specific commands | Consumer/vendor library |
-| Device selection, vendor inference, product session, auto-reconnect decision/backoff, telemetry, UI, storage | Consumer application |
+| Concern                                                                                                                                                                                                                     | Owner                             |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| Adapter state, scanning, chooser behavior, connection state, GATT discovery, operation ordering, ATT/GATT timeouts, cancellation, long-write mechanics, subscription lifecycle, stale handles, normalized BLE errors/events | `unified-ble-manager`             |
+| OS radio calls, permissions integration, background/restoration mechanics, native error capture                                                                                                                             | Selected backend/host integration |
+| Standard Bluetooth SIG profile codecs/helpers                                                                                                                                                                               | Optional package profile modules  |
+| Vendor protocol state machines and device-specific commands                                                                                                                                                                 | Consumer/vendor library           |
+| Device selection, vendor inference, product session, auto-reconnect decision/backoff, telemetry, UI, storage                                                                                                                | Consumer application              |
 
 The core may expose reconnect-safe primitives and restored-state records, but it does not silently reconnect unless a public, explicit, portable policy is selected by the caller. A product must not fight a hidden backend reconnect loop.
 
@@ -740,12 +888,19 @@ interface BleCentralBackend {
   readonly gatt: GattClientBackend
   readonly features: BackendFeatureRegistry
 
-  events(listener: BackendEventListener): BackendEventSubscription
+  events(): BoundedAsyncStream<BackendEvent>
   destroy(): Promise<void>
 }
 ```
 
 The core contract does not import React Native, Electron, Node, DOM, BlueZ, CoreBluetooth, Android, or WinRT types.
+
+Every backend event producer is a `BoundedAsyncStream<BackendEvent>` with a descriptor that
+declares capacity, byte quota, overflow policy, counters, and terminal state; an unbounded
+listener registration is not a backend event API. Callback-style adapters may be built on top of
+the bounded stream, but cannot bypass its descriptor or accounting. Every backend event carries
+an attachment tuple, monotonic backend ingress ordinal, receipt/source timestamps, and an
+explicit boundary-failure result. Event listeners never receive raw native callback objects.
 
 Backend host entrypoints also expose a provider/factory surface that can:
 
@@ -782,7 +937,10 @@ Required semantics:
 - adapter descriptor and identity;
 - read current adapter state;
 - subscribe to adapter-state changes;
-- distinguish unsupported, unauthorized, powered off, powered on, resetting, and unknown;
+- expose separate availability, authorization, and power snapshots with value, reason code,
+  timestamp, provenance, and attachment; never collapse those axes into a generic state;
+- distinguish unsupported, unauthorized, powered off, powered on, resetting, and unknown on the
+  applicable axis;
 - define initialization and first-event ordering;
 - define behavior after backend restart;
 - expose permission state through a typed feature when the platform allows meaningful inspection.
@@ -806,7 +964,7 @@ Required semantics:
 
 Web chooser discovery is a separate typed feature, not falsely represented as continuous scanning.
 
-Foundation rule: one physical scan is active per backend adapter. The public manager exposes one active `ScanSession`; a second start fails with normalized `scanAlreadyActive` unless it explicitly joins the same session through a documented shared-session helper. Backends do not each invent multiplex/restart behavior. A future multi-logical-scan coordinator must be a core feature with its own loss/order semantics and TCK.
+Foundation rule: one physical scan is active per backend adapter. The public manager exposes one active `ScanSession`; a second start fails with normalized `scan.already-active` unless it explicitly joins the same session through a documented shared-session helper. Backends do not each invent multiplex/restart behavior. A future multi-logical-scan coordinator must be a core feature with its own loss/order semantics and TCK.
 
 ### 9.5 Connection component
 
@@ -823,7 +981,7 @@ Required semantics:
 - timeout/cancellation race resolution;
 - disconnect preemption of queued GATT operations.
 
-Foundation rule: one active connection generation exists per backend/device identity. A second connect during `connecting` or `connected` fails with a normalized state error unless the caller explicitly requests the existing connection through a separate lookup/adoption API. Cancellation by one caller must never cancel another caller's already-established connection. Different devices may connect concurrently subject to a machine-readable backend limitation.
+Foundation rule: one active connection generation exists per backend/device identity. A second connect during `connecting` or `connected` fails with `connection.already-owned` unless the caller explicitly requests the existing connection through a separate lookup/adoption API. That operation succeeds only when the backend exposes connection sharing and the caller presents a verified adoption or transfer record. Cancellation by one caller must never cancel another caller's already-established connection. Different devices may connect concurrently subject to a machine-readable backend limitation.
 
 ### 9.6 GATT component
 
@@ -892,25 +1050,39 @@ Built-in capability IDs use stable namespaced strings. Third-party capability ID
 The advertisement model must be designed from the RN full-surface audit and the richest available platform sources:
 
 ```ts
+type ObservationField<T> =
+  | { readonly state: 'present'; readonly value: T; readonly provenance: ObservationProvenance }
+  | {
+      readonly state: 'absent' | 'unavailable'
+      readonly reason: ObservationReason
+      readonly provenance: ObservationProvenance
+    }
+
 interface Advertisement {
+  readonly attachment: AttachmentTuple
   readonly device: DeviceIdentity
-  readonly localName: string | null
-  readonly rssi: number | null
-  readonly connectable: boolean | null
-  readonly serviceUuids: readonly string[]
-  readonly solicitedServiceUuids: readonly string[]
-  readonly overflowServiceUuids: readonly string[]
-  readonly manufacturerData: ReadonlyMap<number, Uint8Array>
-  readonly serviceData: ReadonlyMap<string, Uint8Array>
-  readonly txPowerLevel: number | null
-  readonly appearance: number | null
-  readonly raw: Uint8Array | null
-  readonly observedAtMonotonicMs: number
+  readonly localName: ObservationField<string>
+  readonly rssi: ObservationField<number>
+  readonly connectable: ObservationField<boolean>
+  readonly serviceUuids: ObservationField<readonly string[]>
+  readonly solicitedServiceUuids: ObservationField<readonly string[]>
+  readonly overflowServiceUuids: ObservationField<readonly string[]>
+  readonly manufacturerData: ObservationField<readonly ManufacturerDataEntry[]>
+  readonly serviceData: ObservationField<readonly ServiceDataEntry[]>
+  readonly txPowerLevel: ObservationField<number>
+  readonly appearance: ObservationField<number>
+  readonly advertisementPayload: ObservationField<Uint8Array>
+  readonly scanResponsePayload: ObservationField<Uint8Array>
+  readonly sourceTimestamp: ObservationField<SourceTimestamp>
+  readonly receivedAtMonotonicMs: number
+  readonly ingressOrdinal: number
   readonly scanSessionId: string
 }
 ```
 
-The final model must define:
+Every observation field is `present`, `absent`, or `unavailable`; absent and unavailable fields
+carry an explicit reason, and all states carry provenance. Source and receipt timestamps remain
+separate. Advertisement and scan-response payloads remain separate. The final model must define:
 
 - absent versus unavailable;
 - immutable/copy ownership;
@@ -945,6 +1117,7 @@ UUID triples alone are insufficient because a database may contain repeated serv
 
 A path must include:
 
+- complete attachment tuple and owner lease;
 - device identity;
 - connection generation;
 - GATT database generation;
@@ -953,7 +1126,11 @@ A path must include:
 - characteristic instance index or stable instance key;
 - descriptor instance index or stable instance key where relevant.
 
-The public model must not expose the legacy global numeric native handle registry. Backends resolve structured generation-bound paths against their current native database.
+Every GATT path—discovery, read, write, subscription, MTU, PHY, RSSI, and connection
+control—validates the complete attachment tuple, owner lease, connection generation, database
+generation, and occurrence key before native dispatch. The public model must not expose the
+legacy global numeric native handle registry. Backends resolve structured generation-bound paths
+against their current native database.
 
 UUID normalization has one canonical algorithm and test corpus covering 16-bit, 32-bit, 128-bit, case, hyphenation, invalid input, Bluetooth base UUID expansion, and vendor UUIDs. Display formatting is separate from equality.
 
@@ -999,7 +1176,7 @@ Wire types must not leak into application APIs, and rich in-memory types must no
 
 After `destroy()`:
 
-- new operations fail with `managerDestroyed`;
+- new operations fail with `lifecycle.destroyed`;
 - queued operations reject;
 - active operations are cancelled where possible;
 - scans and subscriptions stop;
@@ -1055,7 +1232,8 @@ Every operation has:
 - deadline;
 - phase;
 - backend operation handle when dispatched;
-- exactly one terminal result: completed, failed, cancelled, or timed out.
+- exactly one immutable terminal record with the normative terminal kind and dotted terminal
+  cause (a cause is null only for successful completion).
 
 ### 12.3 Backend operation handle
 
@@ -1219,7 +1397,7 @@ Native protocol v1 is a prerequisite for React Native backend conformance.
 
 ### 16.1 Protocol goals
 
-- binary payload transport using TurboModule-supported `ArrayBuffer`/typed binary values;
+- C++ JSI-owned binary payload transport using direct `ArrayBuffer`/typed-array values;
 - structured generation-bound GATT paths;
 - serializable opaque operation IDs;
 - normalized event schema v1;
@@ -1229,22 +1407,27 @@ Native protocol v1 is a prerequisite for React Native backend conformance.
 - cancellation;
 - restoration records;
 - no legacy global numeric attribute handles in the public/native protocol;
-- no Base64 values in normal radio operations.
+- no Base64 values in normal radio operations;
+- Codegen/TurboModule control and bootstrap methods carry metadata only and never introduce a
+  second byte transport.
 
 ### 16.2 Mandatory binary-transport proof
 
 Before protocol implementation:
 
-1. create the smallest possible RN 0.86 TurboModule binary round-trip;
-2. prove Android codegen, iOS codegen, Hermes, Expo CNG, and classic RN builds;
+1. create the smallest possible RN 0.86 C++ JSI binary round-trip, installed through the
+   control/bootstrap module;
+2. prove Android and iOS control/bootstrap Codegen, Hermes, Expo CNG, and classic RN builds;
 3. verify ownership/copy behavior;
 4. verify zero-length and large payloads;
 5. benchmark against the current Base64 bridge;
-6. record supported codegen types and generated native signatures in the ADR.
+6. record supported control/bootstrap Codegen types and generated native signatures in the ADR.
 
-React Native 0.86 added first-class JSI `TypedArray`/`Uint8Array` support, but that runtime capability does not by itself prove that the TurboModule TypeScript Codegen specification accepts the desired binary signature on both generated platforms. The spike must inspect the current [React Native 0.86 release evidence](https://reactnative.dev/blog/2026/06/11/react-native-0.86) and [Codegen type table](https://reactnative.dev/docs/0.86/appendix), generate the actual bindings, and test them. Documentation inference is not sufficient.
+React Native 0.86 added first-class JSI `TypedArray`/`Uint8Array` support, but that runtime
+capability does not by itself prove the owned C++ JSI binary transport on both generated
+platforms. The spike must inspect the current [React Native 0.86 release evidence](https://reactnative.dev/blog/2026/06/11/react-native-0.86) and [Codegen type table](https://reactnative.dev/docs/0.86/appendix), generate the control/bootstrap bindings, prove that none carries BLE bytes, and exercise the owned JSI transport. Documentation inference is not sufficient.
 
-If the required ArrayBuffer transport cannot be generated on the modernization floor, stop and request an architecture decision. Do not silently retain Base64 or introduce a second bridge.
+The architecture decision was accepted on 2026-07-25: retain the React Native 0.86/Expo 57 floor and implement one owned, versioned C++ JSI binary transport. TypeScript TurboModule Codegen may provide supported control/bootstrap shapes, but Codegen's inability to generate `ArrayBuffer`/`Uint8Array` signatures does not block React Native or the owned JSI transport. Base64 is not a 4.0 normal data path, and no parallel bridge or compatibility fallback is permitted.
 
 ### 16.3 Structured path migration
 
@@ -1472,7 +1655,7 @@ interface TestPeripheralController {
 interface RecordedTestWrite {
   readonly path: TestGattPath
   readonly value: Uint8Array
-  readonly mode: "with-response" | "without-response"
+  readonly mode: 'with-response' | 'without-response'
   readonly observedAtMonotonicMs: number
   readonly connectionGeneration: number
 }
@@ -1522,42 +1705,20 @@ Implementations:
 - Apple restoration;
 - BlueZ daemon restart;
 - Windows radio toggle;
-- Meta Quest suspend/resume and permission behavior after the L0 spike.
+- Android-derived XR lifecycle scenarios in the deferred 4.1 Quest work.
 
 Fixed-function peripherals prove ordinary live vertical slices only. They do not prove controllable ATT failures, Services Changed, malformed payloads, notification floods, or precisely timed link loss unless the evidence manifest shows how the peripheral produced that condition. Those scenarios remain mandatory deterministic TCK/scenario proof in the 4.0 foundation. The controllable physical provider is explicitly deferred to 4.1 because an nRF52840-based setup is not feasible for the current project. The 4.1 plan selects viable hardware/provider architecture before procurement or implementation; the same scenario IDs then run over real radio and attach a distinct physical-fault evidence record. No 4.0 manifest may relabel deterministic injection as live proof.
 
 ---
 
-## 20. Meta Quest and open-platform validation
+## 20. Deferred Meta Quest and open-platform validation
 
-Meta Quest is a required `4.0.0` platform, may be implemented last, and must ship at least as `Live Preview`. Its claim is still evidence-bound: required scope means the project must do the validation and real implementation work, not that it may claim support before the proof exists.
+Meta Quest was removed from the 4.0 critical path by explicit maintainer scope
+decision on 2026-07-25. The retained 4.1 intent, maximum-DRY constraint, and
+evidence target are recorded in `docs/platforms/META_QUEST_4.1_SCOPE.md`.
+Nothing in Section 20 is a 4.0 gate.
 
-### 20.1 Phase 0 L0 spike
-
-Produce `docs/platforms/META_QUEST_BLE_SPIKE.md` containing:
-
-- supported Horizon OS/Quest device targets;
-- Android API and Bluetooth API availability;
-- BLE central hardware/runtime availability;
-- manifest and runtime permission behavior;
-- `BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT` behavior;
-- whether `neverForLocation` filters relevant advertisements;
-- app lifecycle, suspend, and background constraints;
-- Expo/RN packaging feasibility;
-- store policy and entitlement constraints;
-- emulator versus physical-device limitations;
-- minimum live-device proof needed;
-- differences from stock Android backend behavior.
-
-Official Android documentation confirms that modern Android BLE scanning and connection use runtime `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT` permissions and warns that `neverForLocation` can filter some beacons. Quest-specific behavior remains unproven until the spike cites current Meta documentation and physical evidence.
-
-### 20.2 Architecture consequence
-
-The spike must decide whether Quest composes the shared React Native Android GATT backend unchanged, adds a Quest-specific host adapter around that backend, or requires a distinct registered backend feature. Maximum DRY remains mandatory: platform registration, permissions, lifecycle, packaging, and evidence may differ, but stock Android and Quest must not fork radio/GATT logic without a proven platform requirement. Quest has a distinct platform/environment profile and structured limitations and must not be hardcoded into a closed platform union.
-
-Before stable 4.0, the declared Quest device/Horizon OS matrix must pass package/install, permission, shared-backend/profile TCK, scan, connect, discovery, read/write, notification, cancellation, teardown, and a physical-device live vertical slice. Suspend/resume and background behavior must be exercised and reported; unresolved L5 reliability may remain only as structured `Live Preview` limitations with failing/unsupported capabilities excluded honestly. Emulator or stock-Android-only evidence is insufficient. Promotion to `Supported` or `Reliability-qualified` requires the higher label's complete live or reliability matrix.
-
-### 20.3 Future platform registration
+### 20.1 Future platform registration
 
 Vision Pro, tvOS, embedded JS hosts, or third-party backends follow the same registration, capability, TCK, and proof process.
 
@@ -1671,13 +1832,13 @@ Each backend/platform pair publishes an evidence manifest containing:
 
 Generated docs render this evidence. Marketing/support labels map to proof requirements and cannot be edited independently:
 
-| Label | Minimum meaning |
-| --- | --- |
-| Experimental | Contract/TCK work may still change; no stability promise |
-| Preview | Complete intended surface, compile/package proof, deterministic TCK; live limitations explicit |
-| Live Preview | Every Preview requirement plus the declared essential physical-radio vertical slice; incomplete support/reliability scenarios remain explicit limitations |
-| Supported | Required live-radio scenarios and packaging pass on the declared environment |
-| Reliability-qualified | Required background/reconnect/soak evidence also passes |
+| Label                 | Minimum meaning                                                                                                                                           |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Experimental          | Contract/TCK work may still change; no stability promise                                                                                                  |
+| Preview               | Complete intended surface, compile/package proof, deterministic TCK; live limitations explicit                                                            |
+| Live Preview          | Every Preview requirement plus the declared essential physical-radio vertical slice; incomplete support/reliability scenarios remain explicit limitations |
+| Supported             | Required live-radio scenarios and packaging pass on the declared environment                                                                              |
+| Reliability-qualified | Required background/reconnect/soak evidence also passes                                                                                                   |
 
 ### 21.5 Security, privacy, and diagnostics
 
@@ -1767,32 +1928,32 @@ An unpublished temporary adapter is allowed only inside a single bounded migrati
 
 ### 22.2 Ownership boundary in bun-mono
 
-| Concern | After migration |
-| --- | --- |
-| Scan state/filter mechanics, adapter state, connect/disconnect, discovery cache, GATT operations, cancellation, queueing, timeout, long writes, notification lifecycle, BLE errors/events | `unified-ble-manager` |
-| Polar PMD/PSFTP, Movesense GSP/MDS, HRS decoding, device capability interpretation | `packages/sharedCore/src/bleDevices/vendors/**` |
-| Vendor selection and product connection flow | sharedCore session layer |
-| Live vendor-manager registry, selected device, telemetry routing, user-visible reconnect policy | `DeviceManagerHub` and app/product layers |
-| RxJS adaptation for existing domain event consumers | bun-mono domain boundary only; never the BLE package |
-| OS permission prompts and app background declarations | host application using backend capability guidance |
+| Concern                                                                                                                                                                                   | After migration                                      |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Scan state/filter mechanics, adapter state, connect/disconnect, discovery cache, GATT operations, cancellation, queueing, timeout, long writes, notification lifecycle, BLE errors/events | `unified-ble-manager`                                |
+| Polar PMD/PSFTP, Movesense GSP/MDS, HRS decoding, device capability interpretation                                                                                                        | `packages/sharedCore/src/bleDevices/vendors/**`      |
+| Vendor selection and product connection flow                                                                                                                                              | sharedCore session layer                             |
+| Live vendor-manager registry, selected device, telemetry routing, user-visible reconnect policy                                                                                           | `DeviceManagerHub` and app/product layers            |
+| RxJS adaptation for existing domain event consumers                                                                                                                                       | bun-mono domain boundary only; never the BLE package |
+| OS permission prompts and app background declarations                                                                                                                                     | host application using backend capability guidance   |
 
 Protocol-level retries remain with the vendor protocol only when the remote device protocol requires them. ATT/GATT busy handling, operation serialization, cancellation, and transport retries belong to the unified core. The migration audit must identify every retry/backoff and prove that exactly one owner remains.
 
 ### 22.3 Current-to-target deletion map
 
-| Current bun-mono surface | Target | Deletion condition |
-| --- | --- | --- |
-| `packages/sharedCore/src/bleDevices/transport/IGattTransport.ts` | published manager/connection/GATT contracts | all vendor managers and tests compile directly |
-| `packages/sharedCore/src/bleDevices/transport/webbluetooth.ts` | `unified-ble-manager/web` backend | Web scenarios pass |
-| `packages/sharedCore/src/bleDevices/transport/noble.ts` | owned CoreBluetooth/BlueZ/WinRT backends | Electron/Node OS scenarios pass |
-| `packages/sharedCore/src/bleDevices/transport/electron.ts` | `unified-ble-manager/electron/renderer` remote backend | renderer reload/rebind scenarios pass |
-| `packages/ble-transport-rn-plx/**` | `unified-ble-manager/react-native` | mobile + TV build and live scenarios pass |
-| direct `react-native-ble-plx` imports in mobile/TV/legacy Expo app | one app composition factory | import-boundary lint passes |
-| mobile/TV scan wrappers and manager singletons | unified scan sessions/shared manager ownership | scan/connect scenarios pass |
-| Electron `@stoprocent/noble`, `noble-gatt-main.ts`, legacy `ble-bridge.ts`, duplicate `ble2` IPC types | unified main backend + versioned renderer proxy | Electron macOS/Linux scenarios and IPC security tests pass |
-| root npm override for `react-native-ble-plx` | exact `unified-ble-manager@4.0.0` dependency after publication | packed RC integration passes |
-| app config plugin entries for the old package | new package plugin | clean Expo prebuild diff is correct and idempotent |
-| ESLint rules naming PLX/Noble/WebBT only | architecture rules for backend subpaths/composition roots | all workspaces lint |
+| Current bun-mono surface                                                                               | Target                                                         | Deletion condition                                         |
+| ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- | ---------------------------------------------------------- |
+| `packages/sharedCore/src/bleDevices/transport/IGattTransport.ts`                                       | published manager/connection/GATT contracts                    | all vendor managers and tests compile directly             |
+| `packages/sharedCore/src/bleDevices/transport/webbluetooth.ts`                                         | `unified-ble-manager/web` backend                              | Web scenarios pass                                         |
+| `packages/sharedCore/src/bleDevices/transport/noble.ts`                                                | owned CoreBluetooth/BlueZ/WinRT backends                       | Electron/Node OS scenarios pass                            |
+| `packages/sharedCore/src/bleDevices/transport/electron.ts`                                             | `unified-ble-manager/electron/renderer` remote backend         | renderer reload/rebind scenarios pass                      |
+| `packages/ble-transport-rn-plx/**`                                                                     | `unified-ble-manager/react-native`                             | mobile + TV build and live scenarios pass                  |
+| direct `react-native-ble-plx` imports in mobile/TV/legacy Expo app                                     | one app composition factory                                    | import-boundary lint passes                                |
+| mobile/TV scan wrappers and manager singletons                                                         | unified scan sessions/shared manager ownership                 | scan/connect scenarios pass                                |
+| Electron `@stoprocent/noble`, `noble-gatt-main.ts`, legacy `ble-bridge.ts`, duplicate `ble2` IPC types | unified main backend + versioned renderer proxy                | Electron macOS/Linux scenarios and IPC security tests pass |
+| root npm override for `react-native-ble-plx`                                                           | exact `unified-ble-manager@4.0.0` dependency after publication | packed RC integration passes                               |
+| app config plugin entries for the old package                                                          | new package plugin                                             | clean Expo prebuild diff is correct and idempotent         |
+| ESLint rules naming PLX/Noble/WebBT only                                                               | architecture rules for backend subpaths/composition roots      | all workspaces lint                                        |
 
 `apps/expo-trackourhearts` is not listed as the active mobile app in bun-mono's application registry. Before consumer migration begins, its owner must choose one complete outcome: delete/retire it, or migrate it through the same public composition path. It cannot preserve the old package as an untested compatibility island.
 
@@ -1832,19 +1993,19 @@ Protocol-level retries remain with the vendor protocol only when the remote devi
 
 ### 22.5 Consumer work packages
 
-| ID | Work package | Output |
-| --- | --- | --- |
-| `UB4-CONSUMER-AUDIT` | Freeze active bun-mono import/retry/queue/lifecycle inventory | Reviewed deletion and ownership ledger |
-| `UB4-CONSUMER-SOURCE` | RC artifact integration | Reproducible tarball/install workflow; no unpublished source coupling |
-| `UB4-CONSUMER-CONTRACT` | Migrate shared vendor managers | Direct public manager/connection/GATT use |
-| `UB4-CONSUMER-TESTS` | Replace transport mocks | Deterministic backend/peripheral scenarios |
-| `UB4-CONSUMER-WEB` | Replace Web transport | Web app composition and scenarios |
-| `UB4-CONSUMER-RN` | Replace PLX transport/app imports | Mobile composition, plugin, restoration/background |
-| `UB4-CONSUMER-TV` | Replace TV PLX path | Android TV/Fire TV/tvOS composition |
-| `UB4-CONSUMER-ELECTRON` | Rewrite Electron BLE | Owned main backend + standardized renderer proxy; Noble deleted |
-| `UB4-CONSUMER-LINT` | Enforce import/ownership boundaries | Updated architecture ESLint rules |
-| `UB4-CONSUMER-DELETE` | Delete all superseded BLE transports/packages/docs | No old dependency or implementation remains |
-| `UB4-CONSUMER-DOCS` | Rebaseline bun-mono BLE ADR/STACK/agent pairs | Accurate post-migration architecture |
+| ID                      | Work package                                                  | Output                                                                |
+| ----------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `UB4-CONSUMER-AUDIT`    | Freeze active bun-mono import/retry/queue/lifecycle inventory | Reviewed deletion and ownership ledger                                |
+| `UB4-CONSUMER-SOURCE`   | RC artifact integration                                       | Reproducible tarball/install workflow; no unpublished source coupling |
+| `UB4-CONSUMER-CONTRACT` | Migrate shared vendor managers                                | Direct public manager/connection/GATT use                             |
+| `UB4-CONSUMER-TESTS`    | Replace transport mocks                                       | Deterministic backend/peripheral scenarios                            |
+| `UB4-CONSUMER-WEB`      | Replace Web transport                                         | Web app composition and scenarios                                     |
+| `UB4-CONSUMER-RN`       | Replace PLX transport/app imports                             | Mobile composition, plugin, restoration/background                    |
+| `UB4-CONSUMER-TV`       | Replace TV PLX path                                           | Android TV/Fire TV/tvOS composition                                   |
+| `UB4-CONSUMER-ELECTRON` | Rewrite Electron BLE                                          | Owned main backend + standardized renderer proxy; Noble deleted       |
+| `UB4-CONSUMER-LINT`     | Enforce import/ownership boundaries                           | Updated architecture ESLint rules                                     |
+| `UB4-CONSUMER-DELETE`   | Delete all superseded BLE transports/packages/docs            | No old dependency or implementation remains                           |
+| `UB4-CONSUMER-DOCS`     | Rebaseline bun-mono BLE ADR/STACK/agent pairs                 | Accurate post-migration architecture                                  |
 
 ### 22.6 Consumer gates
 
@@ -1911,30 +2072,29 @@ The library's scenario/TCK result and bun-mono's vendor/product result are separ
 
 #### Work packages
 
-| ID | Work package | Output |
-| --- | --- | --- |
-| `UB4-DOCS-REBASELINE` | Remove obsolete compatibility authority | Roadmap/gaps/migration/docs/tests identify this plan as the only 4.0 execution authority |
-| `UB4-TOOLCHAIN-CLEAN` | Make verification honest and warning-free | Real build output, zero lint/package warnings, artifact assertions |
-| `UB4-AUDIT-ECOSYSTEM` | External-user/backend-author use-case audit | Framework-neutral requirements and hostile integration review |
-| `UB4-AUDIT-RN` | React Native full-surface audit | Method/event/data/cancellation/handle/restoration inventory across TS, Android, and Apple |
-| `UB4-AUDIT-HOSTS` | Web/BlueZ/CoreBluetooth/test/WinRT audit | Backend behavior and data-loss inventory |
-| `UB4-AUDIT-CONSUMERS` | First-consumer audit | bun-mono import, contract, queue, retry, IPC, plugin, and deletion map |
-| `UB4-EVIDENCE-BASELINE` | Capture existing platform proof | Machine-readable evidence for owned RN, CoreBluetooth, BlueZ, Web, packaging, and live runs |
-| `UB4-LAB-PROCUREMENT` | Establish the 4.0 hardware lab from day one | Owned device/OS/adapter/peripheral matrix, acquisition status, lead times, access plan, and per-platform evidence owner |
-| `UB4-PERF-BASELINE` | Measure current paths and set budgets | Reproducible bridge/IPC/throughput/latency/memory/resource/artifact baselines |
-| `UB4-SEMANTICS` | Unified semantics | `docs/UNIFIED_SEMANTICS.md` |
-| `UB4-DRAFT-TYPES` | Non-exported contract/API declaration skeleton | Typechecked ADR examples with no runtime implementation or package export |
-| `UB4-SPIKE-CORE-MODEL` | Executable semantics composition spike | Bounded scan/connect/discover/read model, traces, corrections, and deletion evidence |
-| `UB4-ADR-PUBLIC` | Public API ADR | Manager, handles, bytes, cancellation, streams |
-| `UB4-ADR-CONTRACT` | Backend contract ADR | Components, versions, paths, events, errors |
-| `UB4-ADR-CAP` | Capability ADR | Feature registration and capability schema v1 |
-| `UB4-ADR-BOUNDARY` | Serialization ADR | Buffer ownership, RN native protocol, Electron IPC |
-| `UB4-ADR-RN-BOOTSTRAP` | Pre-JS restoration bootstrap ADR | Native provider creation/adoption, restored-state handoff, and manager construction rules |
-| `UB4-ADR-PACKAGING` | Package/export ADR | Host isolation, subpaths, peers, native artifacts, third-party SDK |
-| `UB4-ADR-OSS` | Open-source governance ADR | Evidence labels, backend certification, security, version/deprecation policy |
-| `UB4-THREAT-MODEL` | Boundary/privacy threat model | Native, IPC, third-party backend, trace, and device-data controls |
-| `UB4-SPIKE-RN-BINARY` | RN binary transport spike | Generated Android/Apple proof and benchmark |
-| `UB4-SPIKE-QUEST` | Meta Quest L0 spike | Evidence-backed Quest platform report |
+| ID                      | Work package                                   | Output                                                                                                                  |
+| ----------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `UB4-DOCS-REBASELINE`   | Remove obsolete compatibility authority        | Roadmap/gaps/migration/docs/tests identify this plan as the only 4.0 execution authority                                |
+| `UB4-TOOLCHAIN-CLEAN`   | Make verification honest and warning-free      | Real build output, zero lint/package warnings, artifact assertions                                                      |
+| `UB4-AUDIT-ECOSYSTEM`   | External-user/backend-author use-case audit    | Framework-neutral requirements and hostile integration review                                                           |
+| `UB4-AUDIT-RN`          | React Native full-surface audit                | Method/event/data/cancellation/handle/restoration inventory across TS, Android, and Apple                               |
+| `UB4-AUDIT-HOSTS`       | Web/BlueZ/CoreBluetooth/test/WinRT audit       | Backend behavior and data-loss inventory                                                                                |
+| `UB4-AUDIT-CONSUMERS`   | First-consumer audit                           | bun-mono import, contract, queue, retry, IPC, plugin, and deletion map                                                  |
+| `UB4-EVIDENCE-BASELINE` | Capture existing platform proof                | Machine-readable evidence for owned RN, CoreBluetooth, BlueZ, Web, packaging, and live runs                             |
+| `UB4-LAB-PROCUREMENT`   | Establish the 4.0 hardware lab from day one    | Owned device/OS/adapter/peripheral matrix, acquisition status, lead times, access plan, and per-platform evidence owner |
+| `UB4-PERF-BASELINE`     | Measure current paths and set budgets          | Reproducible bridge/IPC/throughput/latency/memory/resource/artifact baselines                                           |
+| `UB4-SEMANTICS`         | Unified semantics                              | `docs/UNIFIED_SEMANTICS.md`                                                                                             |
+| `UB4-DRAFT-TYPES`       | Non-exported contract/API declaration skeleton | Typechecked ADR examples with no runtime implementation or package export                                               |
+| `UB4-SPIKE-CORE-MODEL`  | Executable semantics composition spike         | Bounded scan/connect/discover/read model, traces, corrections, and deletion evidence                                    |
+| `UB4-ADR-PUBLIC`        | Public API ADR                                 | Manager, handles, bytes, cancellation, streams                                                                          |
+| `UB4-ADR-CONTRACT`      | Backend contract ADR                           | Components, versions, paths, events, errors                                                                             |
+| `UB4-ADR-CAP`           | Capability ADR                                 | Feature registration and capability schema v1                                                                           |
+| `UB4-ADR-BOUNDARY`      | Serialization ADR                              | Buffer ownership, RN native protocol, Electron IPC                                                                      |
+| `UB4-ADR-RN-BOOTSTRAP`  | Pre-JS restoration bootstrap ADR               | Native provider creation/adoption, restored-state handoff, and manager construction rules                               |
+| `UB4-ADR-PACKAGING`     | Package/export ADR                             | Host isolation, subpaths, peers, native artifacts, third-party SDK                                                      |
+| `UB4-ADR-OSS`           | Open-source governance ADR                     | Evidence labels, backend certification, security, version/deprecation policy                                            |
+| `UB4-THREAT-MODEL`      | Boundary/privacy threat model                  | Native, IPC, third-party backend, trace, and device-data controls                                                       |
+| `UB4-SPIKE-RN-BINARY`   | RN binary transport spike                      | Owned JSI Android/Apple proof and benchmark                                                                             |
 
 #### Required audit contents
 
@@ -1973,9 +2133,8 @@ Its version-controlled lab manifest must identify:
 - shared versus non-shareable resources and a booking/lease mechanism for CI and maintainers;
 - failure/replacement policy so one broken or unavailable device cannot silently erase a support claim.
 
-The initial matrix covers at minimum:
+The initial 4.0 matrix covers at minimum:
 
-- the required Meta Quest headset/Horizon OS targets;
 - Windows hardware and BLE adapters for WinRT Node/Electron ABI and live-radio proof;
 - Linux distributions, BlueZ versions, kernels, and representative BLE adapters;
 - macOS hardware for CoreBluetooth Node/Electron proof;
@@ -1985,9 +2144,14 @@ The initial matrix covers at minimum:
 - Polar H10, Movesense, and any other real peripherals required by public or first-consumer vertical slices;
 - fixed-function BLE peripherals needed for 4.0 live vertical slices; the deferred controllable fault-injection peripheral is explicitly excluded from this 4.0 procurement matrix.
 
-4.0 evidence manifests distinguish deterministic fault-injection proof from live-radio proof. A Polar H10 or other fixed-function peripheral cannot be cited as evidence for controllable ATT-error or Services Changed scenarios it cannot produce. The 4.1 planning backlog owns controllable-peripheral feasibility, hardware/provider selection, procurement, firmware/toolchain setup, and real-radio execution of `injectAttError`, `triggerServicesChanged`, disconnect, notification-flood, malformed-value, and related scenarios.
+  4.0 evidence manifests distinguish deterministic fault-injection proof from live-radio proof. A Polar H10 or other fixed-function peripheral cannot be cited as evidence for controllable ATT-error or Services Changed scenarios it cannot produce. The 4.1 planning backlog owns controllable-peripheral feasibility, hardware/provider selection, procurement, firmware/toolchain setup, and real-radio execution of `injectAttError`, `triggerServicesChanged`, disconnect, notification-flood, malformed-value, and related scenarios.
 
-`G0` requires the approved matrix, owners, budgets, orders/reservations, expected delivery dates, and escalation plan—not delivery of every device. Each later live gate requires its assets to be received, configured, reproducible, and available before the gate can pass. Missing hardware produces an explicit blocked evidence state, never a waived or simulated support result.
+The lab matrix, ownership, and acquisition work run independently from the
+deterministic implementation gates. Each live support-label gate requires its
+assets to be received, configured, reproducible, and available before that gate
+can pass. Missing hardware produces an explicit blocked evidence state for that
+platform label; it does not block `G0`, contract/core/TCK/SDK/package work, or
+unrelated backends, and it is never converted into a waiver or simulated result.
 
 #### Phase 0 executable feedback loop
 
@@ -2031,13 +2195,14 @@ The ADR must define:
 - external-user and third-party-backend reviews find no product-specific contract;
 - package topology and host dependency isolation are frozen;
 - the initial evidence manifests reproduce all trustworthy existing proof;
-- the lab matrix is approved, every required 4.0 asset has an evidence owner, and all missing in-scope hardware has an approved order/reservation and dated acquisition path;
+- the lab/evidence system can represent every 4.0 platform requirement and
+  honestly blocks only the affected live label when an asset is unavailable;
 - performance/resource budgets and benchmark methodology are frozen;
 - the threat model has no unresolved foundation-level design issue;
 - RN binary transport proven on Android and Apple build paths;
 - the executable semantics loop has no unresolved contradiction, its examples compile, and its correction report is accepted;
 - the pre-JS restoration bootstrap and adoption ADR is accepted;
-- Quest implementation path, limitations, target device/OS matrix, and required physical evidence are explicitly decided; a blocker stops for maintainer decision rather than silently removing Quest from 4.0;
+- the Meta Quest 4.1 deferral is reflected in 4.0 scope and gates;
 - no foundation behavior left to “match existing implementation” without a written rule.
 
 No production contract implementation or public contract surface freezes before `G0`. The Phase 0 skeleton remains a non-exported design fixture until it is replaced and deleted.
@@ -2046,15 +2211,15 @@ No production contract implementation or public contract surface freezes before 
 
 #### Work packages
 
-| ID | Work package | Output |
-| --- | --- | --- |
-| `UB4-CONTRACT-MODELS` | Identity, versions, devices, advertisements, paths, errors, events | `src/backend-contract/**` |
-| `UB4-CONTRACT-COMPONENTS` | Adapter/scanner/connection/GATT interfaces | Contract components |
-| `UB4-CONTRACT-FEATURES` | Typed feature registry | Capability implementation binding |
-| `UB4-TEST-BACKEND` | Deterministic virtual BLE backend | Complete virtual central, peripheral controller, fault injection, and virtual time |
-| `UB4-TCK-BASE` | Base conformance kit | Identity/adapter/scan/connect/GATT/cleanup suites |
-| `UB4-TCK-FEATURES` | Feature suites | Capability-specific conformance |
-| `UB4-TCK-OWNERSHIP` | Buffer/serialization tests | Mutation, copy, transfer, zero-length, large payload |
+| ID                        | Work package                                                       | Output                                                                             |
+| ------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `UB4-CONTRACT-MODELS`     | Identity, versions, devices, advertisements, paths, errors, events | `src/backend-contract/**`                                                          |
+| `UB4-CONTRACT-COMPONENTS` | Adapter/scanner/connection/GATT interfaces                         | Contract components                                                                |
+| `UB4-CONTRACT-FEATURES`   | Typed feature registry                                             | Capability implementation binding                                                  |
+| `UB4-TEST-BACKEND`        | Deterministic virtual BLE backend                                  | Complete virtual central, peripheral controller, fault injection, and virtual time |
+| `UB4-TCK-BASE`            | Base conformance kit                                               | Identity/adapter/scan/connect/GATT/cleanup suites                                  |
+| `UB4-TCK-FEATURES`        | Feature suites                                                     | Capability-specific conformance                                                    |
+| `UB4-TCK-OWNERSHIP`       | Buffer/serialization tests                                         | Mutation, copy, transfer, zero-length, large payload                               |
 
 #### Contract freeze
 
@@ -2083,24 +2248,24 @@ After `G1`:
 
 #### Work packages
 
-| ID | Work package | Output |
-| --- | --- | --- |
-| `UB4-CORE-LIFECYCLE` | Manager/adapter/scan/connection state machines | Deterministic core |
-| `UB4-CORE-OPS` | Per-device scheduling and operation IDs | Operation coordinator |
-| `UB4-CORE-CANCEL` | Abort/deadline/backend-cancel propagation | Race-safe cancellation |
-| `UB4-CORE-GATT` | Database generations and stale handles | GATT policy |
-| `UB4-CORE-STREAMS` | Bounded callbacks/async streams | Overflow-aware stream primitive |
-| `UB4-CORE-CAP` | Backend + core capability composition | Runtime capability API |
-| `UB4-CORE-ERRORS` | Error enforcement | Normalized public errors |
-| `UB4-CORE-TRACE` | Trace hooks and invariant diagnostics | Trace format v1 producer |
-| `UB4-CORE-DESTROY` | Complete cleanup | Idempotent manager destruction |
-| `UB4-API-MANAGER` | New manager | One public manager over unified core |
-| `UB4-API-HANDLES` | Connection/GATT/attribute handles | Generation-bound public API |
-| `UB4-API-STREAMS` | Callback + async stream API | Bounded overflow semantics |
-| `UB4-API-CANCEL` | AbortSignal API | No public transaction IDs |
-| `UB4-API-HELPERS` | Unified generic helpers/commands | One tested helper family over public primitives |
-| `UB4-API-CODECS` | Explicit codecs/profile subpaths | Encodings and SIG codecs outside core BLE operations |
-| `UB4-SCENARIO-DSL` | Scenario runner foundation | Public-operation scenarios against deterministic backend |
+| ID                   | Work package                                   | Output                                                   |
+| -------------------- | ---------------------------------------------- | -------------------------------------------------------- |
+| `UB4-CORE-LIFECYCLE` | Manager/adapter/scan/connection state machines | Deterministic core                                       |
+| `UB4-CORE-OPS`       | Per-device scheduling and operation IDs        | Operation coordinator                                    |
+| `UB4-CORE-CANCEL`    | Abort/deadline/backend-cancel propagation      | Race-safe cancellation                                   |
+| `UB4-CORE-GATT`      | Database generations and stale handles         | GATT policy                                              |
+| `UB4-CORE-STREAMS`   | Bounded callbacks/async streams                | Overflow-aware stream primitive                          |
+| `UB4-CORE-CAP`       | Backend + core capability composition          | Runtime capability API                                   |
+| `UB4-CORE-ERRORS`    | Error enforcement                              | Normalized public errors                                 |
+| `UB4-CORE-TRACE`     | Trace hooks and invariant diagnostics          | Trace format v1 producer                                 |
+| `UB4-CORE-DESTROY`   | Complete cleanup                               | Idempotent manager destruction                           |
+| `UB4-API-MANAGER`    | New manager                                    | One public manager over unified core                     |
+| `UB4-API-HANDLES`    | Connection/GATT/attribute handles              | Generation-bound public API                              |
+| `UB4-API-STREAMS`    | Callback + async stream API                    | Bounded overflow semantics                               |
+| `UB4-API-CANCEL`     | AbortSignal API                                | No public transaction IDs                                |
+| `UB4-API-HELPERS`    | Unified generic helpers/commands               | One tested helper family over public primitives          |
+| `UB4-API-CODECS`     | Explicit codecs/profile subpaths               | Encodings and SIG codecs outside core BLE operations     |
+| `UB4-SCENARIO-DSL`   | Scenario runner foundation                     | Public-operation scenarios against deterministic backend |
 
 #### Exit gate `G2`
 
@@ -2120,17 +2285,17 @@ This workstream starts after `G0` and proceeds alongside unified-core and non-RN
 
 #### Work packages
 
-| ID | Work package | Output |
-| --- | --- | --- |
-| `UB4-NP-SCHEMA` | Native command/result/event/error schema | Native protocol v1 ADR/types |
-| `UB4-NP-CODEGEN` | TurboModule v1 spec | Binary, paths, operations, events |
-| `UB4-NP-ANDROID` | Android protocol implementation | Owned GATT mapped to protocol v1 |
-| `UB4-NP-APPLE` | Apple protocol implementation | Owned CoreBluetooth mapped to protocol v1 |
-| `UB4-NP-CANCEL` | Native operation registry | Opaque ID cancellation |
-| `UB4-NP-PATHS` | Generation-bound path resolver | Duplicate-safe GATT lookup |
-| `UB4-NP-EVENTS` | Event schema v1 | Rich serialized native events |
-| `UB4-NP-RESTORE` | Restoration schema | Reconstructible restored state |
-| `UB4-NP-TESTS` | Protocol tests | Binary/path/cancel/event/restoration proof |
+| ID               | Work package                             | Output                                     |
+| ---------------- | ---------------------------------------- | ------------------------------------------ |
+| `UB4-NP-SCHEMA`  | Native command/result/event/error schema | Native protocol v1 ADR/types               |
+| `UB4-NP-CODEGEN` | TurboModule v1 spec                      | Binary, paths, operations, events          |
+| `UB4-NP-ANDROID` | Android protocol implementation          | Owned GATT mapped to protocol v1           |
+| `UB4-NP-APPLE`   | Apple protocol implementation            | Owned CoreBluetooth mapped to protocol v1  |
+| `UB4-NP-CANCEL`  | Native operation registry                | Opaque ID cancellation                     |
+| `UB4-NP-PATHS`   | Generation-bound path resolver           | Duplicate-safe GATT lookup                 |
+| `UB4-NP-EVENTS`  | Event schema v1                          | Rich serialized native events              |
+| `UB4-NP-RESTORE` | Restoration schema                       | Reconstructible restored state             |
+| `UB4-NP-TESTS`   | Protocol tests                           | Binary/path/cancel/event/restoration proof |
 
 #### Exit gate `G3A — NATIVE_PROTOCOL_V1_FROZEN`
 
@@ -2167,9 +2332,8 @@ Backend implementation order:
 6. React Native Apple;
 7. Web live;
 8. BlueZ live;
-9. Meta Quest against the Phase 0 decision and physical-device evidence plan;
-10. WinRT;
-11. later platforms after their own evidence.
+9. WinRT;
+10. later platforms after their own evidence.
 
 RN richness is audited in Phase 0 alongside all other host constraints; implementation remains after simpler backends prove the contract.
 
@@ -2260,7 +2424,7 @@ RN richness is audited in Phase 0 alongside all other host constraints; implemen
 - `autoConnect`/background/foreground-service behavior exposed only through explicit semantics/features;
 - operation cancellation and late callback rejection through operation/generation IDs;
 - process/activity/lifecycle behavior, Doze, OEM variance, and resource teardown;
-- classic RN, Expo CNG, Android TV/Fire TV, and Quest build/runtime proof where claimed.
+- classic RN, Expo CNG, and Android TV/Fire TV where claimed.
 
 ##### React Native Apple
 
@@ -2316,13 +2480,13 @@ The RN legacy manager remains temporarily because its replacement is gated by na
 
 #### Work packages
 
-| ID | Work package | Output |
-| --- | --- | --- |
-| `UB4-API-EXPORTS` | Package exports | Root/host/backend-sdk/testing/profiles/codecs with isolation proof |
-| `UB4-BACKEND-SDK` | Third-party backend SDK | Stable authoring API, reference skeleton, TCK command |
-| `UB4-CLI` | Diagnostics/conformance CLI | Doctor, capabilities, trace, TCK, and scenario commands |
-| `UB4-API-DOCS` | Public documentation | Independent tutorials, reference, evidence, and backend-author guides |
-| `UB4-LEGACY-DELETE` | Final old-architecture deletion | Absence checks and clean artifact |
+| ID                  | Work package                    | Output                                                                |
+| ------------------- | ------------------------------- | --------------------------------------------------------------------- |
+| `UB4-API-EXPORTS`   | Package exports                 | Root/host/backend-sdk/testing/profiles/codecs with isolation proof    |
+| `UB4-BACKEND-SDK`   | Third-party backend SDK         | Stable authoring API, reference skeleton, TCK command                 |
+| `UB4-CLI`           | Diagnostics/conformance CLI     | Doctor, capabilities, trace, TCK, and scenario commands               |
+| `UB4-API-DOCS`      | Public documentation            | Independent tutorials, reference, evidence, and backend-author guides |
+| `UB4-LEGACY-DELETE` | Final old-architecture deletion | Absence checks and clean artifact                                     |
 
 #### Exit gate `G5 — LEGACY_ARCHITECTURE_DELETED`
 
@@ -2377,14 +2541,14 @@ The current comprehensive stable-release decision requires both `G6A` and `G6B`.
 
 #### Work packages
 
-| ID | Work package | Output |
-| --- | --- | --- |
-| `UB4-SCENARIO-HARNESSES` | Backend harnesses | Deterministic/Web/BlueZ/CoreBluetooth/RN |
-| `UB4-TRACE-EXPORT` | Trace recorder | Redacted portable trace format v1 |
-| `UB4-TRACE-SNAPSHOTS` | Deterministic trace snapshots | Deterministic diagnostics tests |
-| `UB4-PERF` | Benchmarks | Binary/queue/stream/IPC/native measurements |
-| `UB4-DOCS` | Generated capability docs | Runtime-derived platform reporting |
-| `UB4-RELEASE-GATES` | CI/release enforcement | Beta and GA checks |
+| ID                       | Work package                  | Output                                      |
+| ------------------------ | ----------------------------- | ------------------------------------------- |
+| `UB4-SCENARIO-HARNESSES` | Backend harnesses             | Deterministic/Web/BlueZ/CoreBluetooth/RN    |
+| `UB4-TRACE-EXPORT`       | Trace recorder                | Redacted portable trace format v1           |
+| `UB4-TRACE-SNAPSHOTS`    | Deterministic trace snapshots | Deterministic diagnostics tests             |
+| `UB4-PERF`               | Benchmarks                    | Binary/queue/stream/IPC/native measurements |
+| `UB4-DOCS`               | Generated capability docs     | Runtime-derived platform reporting          |
+| `UB4-RELEASE-GATES`      | CI/release enforcement        | Beta and GA checks                          |
 
 #### Exit gate `G7`
 
@@ -2405,7 +2569,7 @@ Continue the existing platform gap inventory against the new architecture:
 - WinRT addon, CI, packaging, and live radio;
 - Android bonding/permissions/foreground/Doze;
 - Apple restoration/background/tvOS/visionOS where supported;
-- Meta Quest compile/package, physical-device L2/L4 vertical slice, and lifecycle/suspend-resume characterization required for 4.0 `Live Preview`; complete L5 reliability is required for promotion to `Supported`/`Reliability-qualified`;
+- deferred Meta Quest 4.1 validation outside the 4.0 gate;
 - multi-device reconnect storms;
 - renderer reload and backend restart.
 
@@ -2450,7 +2614,6 @@ flowchart LR
   RNAPPLE["RN Apple backend"]
   G4B["G4B"]
   WINRT["WinRT backend"]
-  QUEST["Meta Quest Live Preview"]
   SDK["Backend SDK + CLI + public docs"]
   SHARED["Shared consumer migration<br/>BC0 + BC1"]
   G5["Legacy package architecture deleted<br/>G5"]
@@ -2460,7 +2623,6 @@ flowchart LR
   HARDEN["Scenario, trace, performance,<br/>security, evidence hardening"]
   GA["Stable 4.0.0"]
 
-  LAB --> G0
   G0 --> G1
   G0 --> NP
   G1 --> G2
@@ -2475,7 +2637,6 @@ flowchart LR
   RNAPPLE --> G4B
   G1 --> WINRT
   G2 --> WINRT
-  RNA --> QUEST
   G2 --> SDK
   G2 --> SHARED
   G4A --> G5
@@ -2492,17 +2653,14 @@ flowchart LR
   RNA --> HARDEN
   RNAPPLE --> HARDEN
   WINRT --> HARDEN
-  QUEST --> HARDEN
 
   LAB --> DESKTOP
   LAB --> RNA
   LAB --> RNAPPLE
   LAB --> WINRT
-  LAB --> QUEST
   LAB --> HARDEN
 
   WINRT --> GA
-  QUEST --> GA
   G6B --> GA
   HARDEN --> GA
 ```
@@ -2513,11 +2671,11 @@ Only the arrows above are hard ordering constraints. In particular:
 - native protocol schema/codegen may proceed after `G0` while contract/TCK and core mature;
 - Web, BlueZ, CoreBluetooth, WinRT, SDK/CLI/docs, scenario harnesses, and consumer-domain adaptation do not wait for bun-mono host migrations;
 - WinRT depends on the frozen contract/core, packaging/native tooling, and its lab assets—not on bun-mono Web, TV, mobile, or Electron cutover;
-- Quest depends on the Phase 0 Quest decision, lab assets, frozen shared surfaces, and the conforming React Native Android backend; it may run last without forcing unrelated work to wait;
+- deferred 4.1 Quest work depends on frozen shared surfaces and the conforming React Native Android backend but does not constrain 4.0;
 - bun-mono Web, mobile, TV, and Electron cutovers run in parallel once each selected backend is conforming and `G6A` has sealed the package-neutral public surface;
 - docs, evidence manifests, TCK profiles, and security review evolve with each lane; only their final publication gate waits for the complete implementation.
 
-The active critical path is calculated from actual completion and hardware lead-time data, not assumed from list position. Likely candidates are `G0 → G1 → G2 → RN Android → Quest Live Preview`, `G0 → G1 → G2 → WinRT`, and `G0 → G1/G2 → backend cutovers → G5 → G6A → G6B`. The lab manifest records dates and blockers so the longest path is visible at every milestone.
+The active critical path is calculated from actual completion and hardware lead-time data, not assumed from list position. Likely candidates are `G0 → G1 → G2 → RN Android`, `G0 → G1 → G2 → WinRT`, and `G0 → G1/G2 → backend cutovers → G5 → G6A → G6B`. The lab manifest records dates and blockers so the longest path is visible at every milestone.
 
 ### 24.2 Recommended integration order
 
@@ -2528,40 +2686,38 @@ The active critical path is calculated from actual completion and hardware lead-
 5. Web/BlueZ/CoreBluetooth/WinRT and package-host audit.
 6. Capture existing macOS/Linux/RN/Web evidence manifests and reproducible commands; commit the lab procurement matrix, assign evidence owners, and place/reserve all missing hardware.
 7. Capture the complete bun-mono consumer/deletion/ownership ledger.
-8. Meta Quest L0 spike.
-9. React Native binary-transport spike and ADR.
-10. Draft `UNIFIED_SEMANTICS.md`, the non-exported types-only skeleton, and standalone typechecked public examples.
-11. Execute the bounded deterministic core-model spike, reconcile traces/state transitions with the drafts, repeat until its correction report is accepted, and schedule spike/declaration deletion.
-12. Public API, backend contract, capability, serialization, React Native restoration-bootstrap, packaging, and open-source governance ADRs; reach `G0`.
-13. Contract identity, versions, models, errors, events, components, and feature registry.
-14. `DeterministicTestBackend`, virtual peripheral controller, and base TCK.
-15. Feature, ownership, multi-client arbitration, overflow, generation, version-skew, and cleanup TCK suites; delete the draft spike/skeleton and reach `G1`.
-16. Unified core lifecycle, operations, cancellation, GATT generations, streams, capabilities, errors, and tracing.
-17. Public manager, handles, generic helpers, codecs, deterministic scenario DSL, and examples against real exports; reach `G2`.
-18. Native protocol v1 schema/codegen and `G3A`.
-19. Web backend migration.
-20. BlueZ backend migration and parity with the proven non-Noble path.
-21. CoreBluetooth desktop backend and Electron IPC v1 migration using the shared Node/Electron backend implementation.
-22. Revalidate Web, macOS CoreBluetooth, and Linux BlueZ live operation through the final public/core path.
-23. Reach `G4A` and delete the old multi-host architecture only after the replacement live evidence exists.
-24. Begin bun-mono shared vendor-manager migration against a packed prerelease.
-25. React Native Android native protocol/backend.
-26. React Native Apple native protocol/backend, including the native pre-JS restoration bootstrap/adoption path.
-27. Reach `G3B` and `G4B`.
-28. Final package exports, third-party backend SDK, CLI, and public documentation.
-29. Reach `G5` and delete the legacy RN/public/native architecture and every Noble dependency in this repository.
-30. Prove a packed artifact in the independent third-party backend fixture plus two materially different clean consumer hosts running a real vendor protocol; reach `G6A`.
-31. Migrate bun-mono Web composition and delete its Web transport.
-32. Migrate bun-mono mobile composition/plugin/restoration/background path and delete PLX/Polar SDK islands after hardware proof.
-33. Migrate bun-mono TV composition and delete TV PLX wrappers.
-34. Rewrite bun-mono Electron around unified main/renderer surfaces and delete Noble, old bridges, and duplicate IPC.
-35. Delete bun-mono `IGattTransport`, `packages/ble-transport-rn-plx`, all stale imports/config/docs, and reach `G6B`.
-36. Complete shared backend scenario harnesses, trace snapshots, redaction, and performance benchmarks.
-37. Complete Android/iOS/tvOS live, restoration, foreground/background, cancellation, and soak gates.
-38. Implement and validate WinRT.
-39. Implement last and validate the required Meta Quest backend/profile at least to `Live Preview`, including physical hardware; stop for explicit maintainer decision if a genuine platform blocker prevents honest `Live Preview` support.
-40. Expand all platform reliability/evidence matrices beyond their cutover proofs.
-41. Run clean-checkout docs/examples, artifact/provenance/SBOM, beta soak, and all GA evidence gates.
+8. React Native owned-JSI binary-transport spike and ADR.
+9. Draft `UNIFIED_SEMANTICS.md`, the non-exported types-only skeleton, and standalone typechecked public examples.
+10. Execute the bounded deterministic core-model spike, reconcile traces/state transitions with the drafts, repeat until its correction report is accepted, and schedule spike/declaration deletion.
+11. Public API, backend contract, capability, serialization, React Native restoration-bootstrap, packaging, and open-source governance ADRs; reach `G0`.
+12. Contract identity, versions, models, errors, events, components, and feature registry.
+13. `DeterministicTestBackend`, virtual peripheral controller, and base TCK.
+14. Feature, ownership, multi-client arbitration, overflow, generation, version-skew, and cleanup TCK suites; delete the draft spike/skeleton and reach `G1`.
+15. Unified core lifecycle, operations, cancellation, GATT generations, streams, capabilities, errors, and tracing.
+16. Public manager, handles, generic helpers, codecs, deterministic scenario DSL, and examples against real exports; reach `G2`.
+17. Native protocol v1 schema/codegen and `G3A`.
+18. Web backend migration.
+19. BlueZ backend migration and parity with the proven non-Noble path.
+20. CoreBluetooth desktop backend and Electron IPC v1 migration using the shared Node/Electron backend implementation.
+21. Revalidate Web, macOS CoreBluetooth, and Linux BlueZ live operation through the final public/core path.
+22. Reach `G4A` and delete the old multi-host architecture only after the replacement live evidence exists.
+23. Begin bun-mono shared vendor-manager migration against a packed prerelease.
+24. React Native Android native protocol/backend.
+25. React Native Apple native protocol/backend, including the native pre-JS restoration bootstrap/adoption path.
+26. Reach `G3B` and `G4B`.
+27. Final package exports, third-party backend SDK, CLI, and public documentation.
+28. Reach `G5` and delete the legacy RN/public/native architecture and every Noble dependency in this repository.
+29. Prove a packed artifact in the independent third-party backend fixture plus two materially different clean consumer hosts running a real vendor protocol; reach `G6A`.
+30. Migrate bun-mono Web composition and delete its Web transport.
+31. Migrate bun-mono mobile composition/plugin/restoration/background path and delete PLX/Polar SDK islands after hardware proof.
+32. Migrate bun-mono TV composition and delete TV PLX wrappers.
+33. Rewrite bun-mono Electron around unified main/renderer surfaces and delete Noble, old bridges, and duplicate IPC.
+34. Delete bun-mono `IGattTransport`, `packages/ble-transport-rn-plx`, all stale imports/config/docs, and reach `G6B`.
+35. Complete shared backend scenario harnesses, trace snapshots, redaction, and performance benchmarks.
+36. Complete Android/iOS/tvOS live, restoration, foreground/background, cancellation, and soak gates.
+37. Implement and validate WinRT.
+38. Expand all 4.0 platform reliability/evidence matrices beyond their cutover proofs.
+39. Run clean-checkout docs/examples, artifact/provenance/SBOM, beta soak, and all GA evidence gates.
 
 PRs may be subdivided further. They may not combine unrelated backend migrations merely to reduce PR count.
 
@@ -2655,29 +2811,29 @@ obsolete compatibility tests and documentation
 
 ## 26. Test and proof matrix
 
-| Layer | Required proof |
-| --- | --- |
-| Contract types | Typecheck, declaration-shape assertions where added |
-| Deterministic test backend | Full mandatory TCK plus virtual-time/fault-injection proof |
-| Feature registration | Compile-time binding plus runtime capability/TCK assertions |
-| Unified core | Deterministic unit and state-machine tests |
-| Native protocol | Generated binding, schema, binary, cancellation, event, and compile tests |
-| Web | Mock TCK + browser build + live Chromium |
-| BlueZ | Mock D-Bus TCK + system probe + live radio |
-| Electron CoreBluetooth | Native mock/TCK + Node ABI + Electron ABI + live radio |
-| RN Android | Native protocol tests + assemble + emulator where meaningful + live radio/background |
-| RN Apple | Native protocol tests + Xcode builds + live radio/restoration |
-| WinRT | Mock TCK + native compile + Electron ABI + live radio |
-| Meta Quest | Minimum 4.0 `Live Preview`: L0 spike + shared-backend/profile TCK + compile/package + permissions/lifecycle characterization + physical-device L4; L5 required for higher labels |
-| Public manager | Shared scenario suite |
-| Generic helpers/commands | Primitive parity, cancellation, cleanup, and no-weaker-error scenarios |
-| Backend SDK | External fixture compile + version-skew + full declared TCK |
-| Diagnostics | Trace snapshots and redaction tests |
-| Performance | Binary/notification/write/IPC/native benchmarks |
-| Package isolation | Root and every subpath install/import/bundle with unrelated peers absent |
-| bun-mono shared domain | Polar/Movesense/HRS/vendor unit and deterministic scenarios |
-| bun-mono hosts | Web/mobile/TV/Electron build plus applicable live end-to-end scenarios |
-| Release | Pack/install/export smoke, provenance/SBOM, evidence manifests, and no-legacy-artifact assertions |
+| Layer                      | Required proof                                                                                    |
+| -------------------------- | ------------------------------------------------------------------------------------------------- |
+| Contract types             | Typecheck, declaration-shape assertions where added                                               |
+| Deterministic test backend | Full mandatory TCK plus virtual-time/fault-injection proof                                        |
+| Feature registration       | Compile-time binding plus runtime capability/TCK assertions                                       |
+| Unified core               | Deterministic unit and state-machine tests                                                        |
+| Native protocol            | Generated binding, schema, binary, cancellation, event, and compile tests                         |
+| Web                        | Mock TCK + browser build + live Chromium                                                          |
+| BlueZ                      | Mock D-Bus TCK + system probe + live radio                                                        |
+| Electron CoreBluetooth     | Native mock/TCK + Node ABI + Electron ABI + live radio                                            |
+| RN Android                 | Native protocol tests + assemble + emulator where meaningful + live radio/background              |
+| RN Apple                   | Native protocol tests + Xcode builds + live radio/restoration                                     |
+| WinRT                      | Mock TCK + native compile + Electron ABI + live radio                                             |
+| Meta Quest                 | Deferred to 4.1; no 4.0 claim or gate                                                             |
+| Public manager             | Shared scenario suite                                                                             |
+| Generic helpers/commands   | Primitive parity, cancellation, cleanup, and no-weaker-error scenarios                            |
+| Backend SDK                | External fixture compile + version-skew + full declared TCK                                       |
+| Diagnostics                | Trace snapshots and redaction tests                                                               |
+| Performance                | Binary/notification/write/IPC/native benchmarks                                                   |
+| Package isolation          | Root and every subpath install/import/bundle with unrelated peers absent                          |
+| bun-mono shared domain     | Polar/Movesense/HRS/vendor unit and deterministic scenarios                                       |
+| bun-mono hosts             | Web/mobile/TV/Electron build plus applicable live end-to-end scenarios                            |
+| Release                    | Pack/install/export smoke, provenance/SBOM, evidence manifests, and no-legacy-artifact assertions |
 
 Proof levels retain the existing L0–L5 meanings in `GAPS.4.0.md`.
 
@@ -2717,7 +2873,7 @@ Where hosted hardware permits:
 - browser BLE;
 - BlueZ adapter;
 - WinRT Node/Electron BLE;
-- Meta Quest physical-device vertical slice;
+- Meta Quest physical-device work only in the deferred 4.1 matrix;
 - device farm or local-lab Android/Apple;
 - controllable real-radio fault scenarios after the deferred 4.1 provider exists;
 - long-duration notification/connection soak.
@@ -2786,42 +2942,42 @@ Contract changes after `G1` require:
 
 ## 29. Risk register
 
-| Risk | Consequence | Mitigation/gate |
-| --- | --- | --- |
-| RN codegen cannot carry required binary values cleanly | Bytes-first design blocked | Phase 0 binary spike; stop for ADR rather than retain Base64 silently |
-| Contract designed from easy backends | RN richness lost again | RN full-surface audit is a mandatory `G0` input alongside other hosts |
-| Contract is designed without executable feedback | Internally elegant ADRs fail during first composition | Phase 0 types-only examples plus bounded executable semantics loop, correction report, and revision before `G0` |
-| Phase 0 spike becomes unreviewed production scaffolding | A shortcut creates the first contract/core debt | Non-exported boundary, zero-diagnostic bounded behavior, no production dependency, and deletion/absence gate before `G1` |
-| UUID-only paths collide | Wrong attribute accessed | Duplicate-safe instance keys and database generations in v1 |
-| Async iteration buffers indefinitely | Memory growth or silent loss | Bounded stream contract and overflow TCK |
-| Abort races with native completion | Double settlement/stale events | Opaque operation IDs and normative race rules |
-| Electron renderer reload loses live state | Orphans, leaks, false handles | IPC v1 reconstruction and subscription rebind semantics |
-| Capability metadata drifts | Applications call unavailable features | Feature registration bundles typed implementation; feature TCK |
-| Old architecture remains because it works | Permanent duplication | `G4A` and `G5` hard deletion gates |
-| Mock conformance authorizes deletion of a proven live path | New architecture regresses real radio operation | Web/macOS/Linux live replacement proof is part of `G4A`, before deletion |
-| Native rewrite drops platform features | Regression despite clean JS | RN audit, capability parity checklist, native protocol TCK |
-| Contract freezes too early | Expensive v2 before 4.0.0 | Multi-backend design review and rich RN input before `G1` |
-| Backend errors remain inconsistent | Cross-platform app branches | Boundary normalization and semantic error TCK |
-| Buffer copy rules are implicit | Mutation bugs or performance surprises | Ownership ADR and transfer/copy tests |
-| Required platform hardware is ordered after software is ready | Quest/WinRT/BlueZ/Android/Apple live gates idle for months or get pressured into waivers | `UB4-LAB-PROCUREMENT` starts day one; manifest freezes owners, budgets, orders, lead times, replacements, and per-gate assets at `G0` |
-| Deterministic fault injection is mistaken for live-radio proof while no feasible controllable peripheral exists | 4.0 evidence overstates ATT-error, Services Changed, flood, or timed-link-loss validation | Explicit 4.1 deferral and feasibility/selection ADR; 4.0 manifests mark these scenarios deterministic-only and fixed-function devices cannot satisfy them |
-| Quest assumption is false | Architecture justification/platform promise weakens | Early L0 evidence spike; no support claim before L4 |
-| Background behavior differs by OEM/OS | False portability promise | Structured capability limitations and L5 lab proof |
-| Trace payload leaks identifiers/data | Privacy/security issue | Redaction defaults and trace privacy tests |
-| First consumer shapes the generic API | Public package becomes a Track Our Health transport | Ecosystem audit, neutrality law, `BC0`, independent examples/backend fixture |
-| “Maximum DRY” forces one wire/in-memory/native representation | Leaky types or unsafe serialization | One authority with explicit generated/tested boundary projections |
-| Host dependencies leak through root exports | RN/browser/Node installs break or bloat | Strict subpaths, dependency-direction tests, isolated install/bundle matrix |
-| Convenience helpers become a second semantic API | Different cancellation/error/cleanup behavior | Helpers built only over public primitives and scenario parity tests |
-| Third-party backend lies about capabilities | Users call unsafe/unimplemented behavior | Implementation-bound registration, public TCK, evidence manifest, governance labels |
-| Noble survives as a hidden desktop fallback | Two desktop stacks and support ambiguity | Fail-closed owned backends, dependency/artifact absence gates at `G5`/`G6B` |
-| bun-mono keeps `IGattTransport` “temporarily” | Permanent mirror contract and duplicated policy | Direct public contract migration and hard `BC1`/`BC3` deletion gates |
-| Existing macOS/Linux success is lost during rewrite | Clean architecture regresses working radio | Evidence baseline capture and identical live scenarios rerun through each cutover |
-| Complete bun-mono migration shapes or delays package architecture | Product scheduling becomes public contract authority | Independent packed two-host/vendor proof at `G6A`; public surface freezes before full `G6B` product convergence |
-| Comprehensive 4.0 scope is silently narrowed under schedule pressure | The clean-baseline opportunity is lost | Explicit Section 4.1 scope decision; any reduction requires a maintainer-approved scope ADR |
-| Apple restoration owner exists before JS but construction assumes JS-first lifecycle | Duplicate central managers, lost restored state, or incorrect destroy | Named `UB4-ADR-RN-BOOTSTRAP`, native early-owner/adoption protocol, and restart/restoration TCK |
-| Node and Electron CoreBluetooth subpaths diverge | Duplicate platform policy and incompatible behavior | One internal backend/native source authority; subpaths add only host wiring/ABI selection and pass parity/provenance tests |
-| One-package multi-host artifact becomes unmaintainable | Install failures or native binary conflicts | Packaging ADR, strict subpaths, cross-host clean installs; split only by evidence-backed ADR |
-| Public API stabilizes without external use | Ecosystem ergonomics/versioning defects | independent examples, backend skeleton, clean-room external integration review before RC |
+| Risk                                                                                                            | Consequence                                                                               | Mitigation/gate                                                                                                                                                   |
+| --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RN codegen cannot carry required binary values cleanly                                                          | Bytes-first design blocked                                                                | Phase 0 binary spike; stop for ADR rather than retain Base64 silently                                                                                             |
+| Contract designed from easy backends                                                                            | RN richness lost again                                                                    | RN full-surface audit is a mandatory `G0` input alongside other hosts                                                                                             |
+| Contract is designed without executable feedback                                                                | Internally elegant ADRs fail during first composition                                     | Phase 0 types-only examples plus bounded executable semantics loop, correction report, and revision before `G0`                                                   |
+| Phase 0 spike becomes unreviewed production scaffolding                                                         | A shortcut creates the first contract/core debt                                           | Non-exported boundary, zero-diagnostic bounded behavior, no production dependency, and deletion/absence gate before `G1`                                          |
+| UUID-only paths collide                                                                                         | Wrong attribute accessed                                                                  | Duplicate-safe instance keys and database generations in v1                                                                                                       |
+| Async iteration buffers indefinitely                                                                            | Memory growth or silent loss                                                              | Bounded stream contract and overflow TCK                                                                                                                          |
+| Abort races with native completion                                                                              | Double settlement/stale events                                                            | Opaque operation IDs and normative race rules                                                                                                                     |
+| Electron renderer reload loses live state                                                                       | Orphans, leaks, false handles                                                             | IPC v1 reconstruction and subscription rebind semantics                                                                                                           |
+| Capability metadata drifts                                                                                      | Applications call unavailable features                                                    | Feature registration bundles typed implementation; feature TCK                                                                                                    |
+| Old architecture remains because it works                                                                       | Permanent duplication                                                                     | `G4A` and `G5` hard deletion gates                                                                                                                                |
+| Mock conformance authorizes deletion of a proven live path                                                      | New architecture regresses real radio operation                                           | Web/macOS/Linux live replacement proof is part of `G4A`, before deletion                                                                                          |
+| Native rewrite drops platform features                                                                          | Regression despite clean JS                                                               | RN audit, capability parity checklist, native protocol TCK                                                                                                        |
+| Contract freezes too early                                                                                      | Expensive v2 before 4.0.0                                                                 | Multi-backend design review and rich RN input before `G1`                                                                                                         |
+| Backend errors remain inconsistent                                                                              | Cross-platform app branches                                                               | Boundary normalization and semantic error TCK                                                                                                                     |
+| Buffer copy rules are implicit                                                                                  | Mutation bugs or performance surprises                                                    | Ownership ADR and transfer/copy tests                                                                                                                             |
+| Required platform hardware is ordered after software is ready                                                   | WinRT/BlueZ/Android/Apple live gates idle for months or get pressured into waivers        | `UB4-LAB-PROCUREMENT` runs independently from day one; missing hardware blocks only the associated evidence label, never deterministic contract/core/TCK progress |
+| Deterministic fault injection is mistaken for live-radio proof while no feasible controllable peripheral exists | 4.0 evidence overstates ATT-error, Services Changed, flood, or timed-link-loss validation | Explicit 4.1 deferral and feasibility/selection ADR; 4.0 manifests mark these scenarios deterministic-only and fixed-function devices cannot satisfy them         |
+| Deferred Quest work accidentally re-enters 4.0                                                                  | Critical-path delay and an unproved support claim                                         | 4.1 scope record plus absence from every 4.0 gate                                                                                                                 |
+| Background behavior differs by OEM/OS                                                                           | False portability promise                                                                 | Structured capability limitations and L5 lab proof                                                                                                                |
+| Trace payload leaks identifiers/data                                                                            | Privacy/security issue                                                                    | Redaction defaults and trace privacy tests                                                                                                                        |
+| First consumer shapes the generic API                                                                           | Public package becomes a Track Our Health transport                                       | Ecosystem audit, neutrality law, `BC0`, independent examples/backend fixture                                                                                      |
+| “Maximum DRY” forces one wire/in-memory/native representation                                                   | Leaky types or unsafe serialization                                                       | One authority with explicit generated/tested boundary projections                                                                                                 |
+| Host dependencies leak through root exports                                                                     | RN/browser/Node installs break or bloat                                                   | Strict subpaths, dependency-direction tests, isolated install/bundle matrix                                                                                       |
+| Convenience helpers become a second semantic API                                                                | Different cancellation/error/cleanup behavior                                             | Helpers built only over public primitives and scenario parity tests                                                                                               |
+| Third-party backend lies about capabilities                                                                     | Users call unsafe/unimplemented behavior                                                  | Implementation-bound registration, public TCK, evidence manifest, governance labels                                                                               |
+| Noble survives as a hidden desktop fallback                                                                     | Two desktop stacks and support ambiguity                                                  | Fail-closed owned backends, dependency/artifact absence gates at `G5`/`G6B`                                                                                       |
+| bun-mono keeps `IGattTransport` “temporarily”                                                                   | Permanent mirror contract and duplicated policy                                           | Direct public contract migration and hard `BC1`/`BC3` deletion gates                                                                                              |
+| Existing macOS/Linux success is lost during rewrite                                                             | Clean architecture regresses working radio                                                | Evidence baseline capture and identical live scenarios rerun through each cutover                                                                                 |
+| Complete bun-mono migration shapes or delays package architecture                                               | Product scheduling becomes public contract authority                                      | Independent packed two-host/vendor proof at `G6A`; public surface freezes before full `G6B` product convergence                                                   |
+| Comprehensive 4.0 scope is silently narrowed under schedule pressure                                            | The clean-baseline opportunity is lost                                                    | Explicit Section 4.1 scope decision; any reduction requires a maintainer-approved scope ADR                                                                       |
+| Apple restoration owner exists before JS but construction assumes JS-first lifecycle                            | Duplicate central managers, lost restored state, or incorrect destroy                     | Named `UB4-ADR-RN-BOOTSTRAP`, native early-owner/adoption protocol, and restart/restoration TCK                                                                   |
+| Node and Electron CoreBluetooth subpaths diverge                                                                | Duplicate platform policy and incompatible behavior                                       | One internal backend/native source authority; subpaths add only host wiring/ABI selection and pass parity/provenance tests                                        |
+| One-package multi-host artifact becomes unmaintainable                                                          | Install failures or native binary conflicts                                               | Packaging ADR, strict subpaths, cross-host clean installs; split only by evidence-backed ADR                                                                      |
+| Public API stabilizes without external use                                                                      | Ecosystem ergonomics/versioning defects                                                   | independent examples, backend skeleton, clean-room external integration review before RC                                                                          |
 
 ---
 
@@ -2868,13 +3024,12 @@ This architecture plan preserves the ambitious platform and reliability scope in
 4. required live-radio and background/reliability gates for each declared label are complete;
 5. all build, typecheck, lint, TCK, scenario, packaging, and release verification gates pass;
 6. no transitional architecture remains in the published package;
-7. Meta Quest ships no lower than `Live Preview` and passes its physical-device L4 vertical slice, packaging, permission, lifecycle characterization, TCK, and honest limitation gates;
-8. `G6A` independently proves the packed artifact across two materially different hosts, a real vendor protocol, and a third-party backend fixture;
-9. bun-mono passes `G6B` as a packed-artifact consumer across Web, mobile, TV, and Electron without a mirror BLE transport contract;
-10. independent public examples pass from clean checkouts;
-11. security/privacy, governance, support, evidence, provenance, SBOM/license, and artifact policies are published and verified;
-12. beta soak produces no unresolved actionable findings;
-13. the release checklist in the product roadmap and gap tracker is fully rebaselined and reconciled with this plan.
+7. `G6A` independently proves the packed artifact across two materially different hosts, a real vendor protocol, and a third-party backend fixture;
+8. bun-mono passes `G6B` as a packed-artifact consumer across Web, mobile, TV, and Electron without a mirror BLE transport contract;
+9. independent public examples pass from clean checkouts;
+10. security/privacy, governance, support, evidence, provenance, SBOM/license, and artifact policies are published and verified;
+11. beta soak produces no unresolved actionable findings;
+12. the release checklist in the product roadmap and gap tracker is fully rebaselined and reconciled with this plan.
 
 If release scope changes, it requires a separate explicit scope ADR. Architecture incompleteness may not be hidden by reducing capability truth or leaving compatibility paths.
 
@@ -2884,14 +3039,14 @@ If release scope changes, it requires a separate explicit scope ADR. Architectur
 
 Launch these Phase 0 lanes immediately and run them concurrently. Ordering applies within a lane; Section 24 defines dependencies between lanes.
 
-| Lane | Immediate sequence |
-| --- | --- |
-| Authority/toolchain | Rebaseline compatibility/dual-path authority in the roadmap, gaps, migration/release docs, and honesty tests → make lint/build/prepack honest and warning-free |
-| Lab/evidence | Create `UB4-LAB-PROCUREMENT`, assign evidence owners, approve budgets, and place/reserve missing in-scope hardware including Quest/WinRT/Linux/Android/Apple and fixed-function BLE peripherals → capture existing non-Noble macOS/Linux/RN/Web evidence → record performance/resource baselines |
-| Independent audits | Run the ecosystem/backend-author, RN full-surface, host/package-isolation, bun-mono consumer/deletion, and threat-model audits in parallel |
-| Boundary/platform spikes | Run RN binary transport and Meta Quest L0 spikes in parallel as soon as their required build hosts/hardware are available |
-| Semantic composition | Draft `UNIFIED_SEMANTICS.md`, the non-exported types-only API/contract skeleton, and standalone examples → execute/reconcile the bounded core-model spike until its correction report is accepted |
-| ADR convergence | Feed all completed audit, spike, evidence, threat, packaging, and lab decisions into the public API, backend contract, capability, serialization, RN restoration-bootstrap, packaging, and governance ADRs → reach `G0` |
+| Lane                     | Immediate sequence                                                                                                                                                                                                                           |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Authority/toolchain      | Rebaseline compatibility/dual-path authority in the roadmap, gaps, migration/release docs, and honesty tests → make lint/build/prepack honest and warning-free                                                                               |
+| Lab/evidence             | Maintain acquisition/evidence ownership for in-scope WinRT/Linux/Android/Apple and fixed-function BLE assets independently of software work → capture existing non-Noble macOS/Linux/RN/Web evidence → record performance/resource baselines |
+| Independent audits       | Run the ecosystem/backend-author, RN full-surface, host/package-isolation, bun-mono consumer/deletion, and threat-model audits in parallel                                                                                                   |
+| Boundary/platform spikes | Prove the one owned RN JSI binary transport on Android and Apple                                                                                                                                                                             |
+| Semantic composition     | Draft `UNIFIED_SEMANTICS.md`, the non-exported types-only API/contract skeleton, and standalone examples → execute/reconcile the bounded core-model spike until its correction report is accepted                                            |
+| ADR convergence          | Feed all completed audit, spike, evidence, threat, packaging, and lab decisions into the public API, backend contract, capability, serialization, RN restoration-bootstrap, packaging, and governance ADRs → reach `G0`                      |
 
 After `G0`, contract v1/`DeterministicTestBackend`/TCK implementation begins while native protocol tooling, lab readiness, documentation, and other dependency-ready lanes continue in parallel. Accepted spike behavior is reimplemented under Phase 1 standards, and the draft spike/skeleton is deleted before `G1`.
 

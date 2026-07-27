@@ -45,10 +45,7 @@ function cmpName(a: string | null | undefined, b: string | null | undefined): nu
  * Return a new array sorted by {@link DeviceSortKey}.
  * Does not mutate the input.
  */
-export function sortDevices<T extends SortableDevice>(
-  devices: readonly T[],
-  options: DeviceSortOptions = {}
-): T[] {
+export function sortDevices<T extends SortableDevice>(devices: readonly T[], options: DeviceSortOptions = {}): T[] {
   const key: DeviceSortKey = options.key || 'lastSeen'
   const order = options.order || defaultOrder(key)
   const dir = order === 'asc' ? 1 : -1
@@ -57,8 +54,7 @@ export function sortDevices<T extends SortableDevice>(
     let c = 0
     if (key === 'name') c = cmpName(a.name as string | null, b.name as string | null)
     else if (key === 'rssi') c = cmpNullableNumber(a.rssi as number | null, b.rssi as number | null)
-    else if (key === 'lastSeen')
-      c = cmpNullableNumber(a.lastSeen as number | null, b.lastSeen as number | null)
+    else if (key === 'lastSeen') c = cmpNullableNumber(a.lastSeen as number | null, b.lastSeen as number | null)
     else c = cmpName(a.id, b.id)
     if (c !== 0) return c * dir
     // stable-ish tie-break by id

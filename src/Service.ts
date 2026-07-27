@@ -236,16 +236,8 @@ export class Service implements NativeService {
   // --- 4.0 parallel bytes path (existing Base64 methods unchanged) ---
 
   /** Read characteristic as {@link Uint8Array}. Parallel to {@link #servicereadcharacteristic|readCharacteristic}. */
-  readCharacteristicAsBytes(
-    characteristicUUID: UUID,
-    transactionId?: TransactionId
-  ): Promise<CharacteristicAsBytes> {
-    return this._manager.readCharacteristicForDeviceAsBytes(
-      this.deviceID,
-      this.uuid,
-      characteristicUUID,
-      transactionId
-    )
+  readCharacteristicAsBytes(characteristicUUID: UUID, transactionId?: TransactionId): Promise<CharacteristicAsBytes> {
+    return this._manager.readCharacteristicForDeviceAsBytes(this.deviceID, this.uuid, characteristicUUID, transactionId)
   }
 
   /** Write with response from {@link Uint8Array}. */

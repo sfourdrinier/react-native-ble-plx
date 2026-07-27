@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "specs/NativeUb4JsiBinaryBootstrap.ts",
+    "fixtures/JsiBinaryRuntimeProbe.tsx"
+  ]
+}

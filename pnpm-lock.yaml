@@ -137,9 +137,6 @@ importers:
       node-gyp:
         specifier: ^13.0.1
         version: 13.0.1
-      pod-install:
-        specifier: ^0.1.0
-        version: 0.1.39
       prettier:
         specifier: ^3.0.3
         version: 3.6.2
@@ -177,7 +174,6 @@ importers:
       dbus-next:
         specifier: ^0.10.2
         version: 0.10.2
-
 packages:
 
   '@ampproject/remapping@2.3.0':
@@ -6666,10 +6662,6 @@ packages:
   pngjs@3.4.0:
     resolution: {integrity: sha512-NCrCHhWmnQklfH4MtJMRjZ2a8c80qXeMlQMv2uVp9ISJMTt562SbGd6n2oq0PaPgKm7Z6pL9E2UlLIhC+SHL3w==}
     engines: {node: '>=4.0.0'}
-
-  pod-install@0.1.39:
-    resolution: {integrity: sha512-0kVvdLYe0CtfJEr+ISvTMxAEB0UF4JMRToPjuu9xAAq1mEqA2Ql5u7uLWX1m45BMM+7NfU4LnBbnfNjmQE9GCw==}
-    hasBin: true
 
   posix-character-classes@0.1.1:
     resolution: {integrity: sha512-xTgYBc3fuo7Yt7JbiuFxSYGToMoz8fLoE6TC9Wx1P/u+LfeThMOAqmuyECnlBaaJb+u1m9hHiXUEtwW4OzfUJg==}
@@ -17258,8 +17250,6 @@ snapshots:
       xmlbuilder: 15.1.1
 
   pngjs@3.4.0: {}
-
-  pod-install@0.1.39: {}
 
   posix-character-classes@0.1.1: {}
 

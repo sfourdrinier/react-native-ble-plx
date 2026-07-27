@@ -1,7 +1,7 @@
-import { fillStringWithArguments } from './stringUtils'
+import { fillStringWithArguments, type StringArgumentValues } from './stringUtils'
 import type { BleErrorCodeMessageMapping } from './TypeDefinition'
 
-export interface NativeBleError {
+export interface NativeBleError extends StringArgumentValues {
   errorCode: BleErrorCode
   attErrorCode: BleATTErrorCode | null
   iosErrorCode: BleIOSErrorCode | null
@@ -298,8 +298,7 @@ export const BleErrorCodeMessage: BleErrorCodeMessageMapping = {
   [BleErrorCode.OperationTimedOut]: 'Operation timed out',
   [BleErrorCode.OperationStartFailed]: 'Operation was rejected',
   [BleErrorCode.InvalidIdentifiers]: 'Invalid UUIDs or IDs were passed: {internalMessage}',
-  [BleErrorCode.OperationNotSupported]:
-    'Operation is not supported on this host/platform: {internalMessage}',
+  [BleErrorCode.OperationNotSupported]: 'Operation is not supported on this host/platform: {internalMessage}',
 
   // Bluetooth global states
   [BleErrorCode.BluetoothUnsupported]: 'BluetoothLE is unsupported on this device',

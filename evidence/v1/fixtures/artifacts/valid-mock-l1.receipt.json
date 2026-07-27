@@ -1,0 +1,48 @@
+{
+  "schema": "unified-ble-manager/evidence-command-receipt",
+  "version": 1,
+  "command": {
+    "id": "fixture-mock-command",
+    "argv": [
+      "pnpm",
+      "test"
+    ],
+    "cwd": ".",
+    "startedAt": "2026-07-25T20:00:00.000Z",
+    "endedAt": "2026-07-25T20:00:02.000Z",
+    "exitCode": 0,
+    "toolIdentity": "unified-ble-tck",
+    "profileId": "fixture-tck"
+  },
+  "scenarios": [
+    {
+      "id": "fixture-mock-tck",
+      "kind": "tck",
+      "result": "passed",
+      "provenance": "mock",
+      "level": "L1",
+      "startedAt": "2026-07-25T20:00:00.000Z",
+      "endedAt": "2026-07-25T20:00:02.000Z"
+    }
+  ],
+  "environment": {},
+  "executable": {
+    "path": "pnpm",
+    "sha256": "b276da51dc8ca5b0d3ee3371695b50fc8b3244b281b091c63a3f082a88dadeb9",
+    "version": "10.14.0"
+  },
+  "output": {
+    "artifactId": "fixture-log",
+    "sha256": "3c9d8614c2d8eb8ce74c07ed07cf11c179f254ca684c2bee6551a9f64fbda0fb"
+  },
+  "runtime": {
+    "node": "22.16.0",
+    "nodeModuleAbi": 127
+  },
+  "repository": {
+    "remote": "fixture-repository",
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "dirtyStatusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "receiptSha256": "0116648b292aa92e4abcb292a049cacd303ebf5ce409b7545a759702b6709d98"
+}

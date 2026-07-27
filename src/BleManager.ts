@@ -25,7 +25,7 @@ import type {
   BackgroundModeOptions
 } from './TypeDefinition'
 import { isIOS } from './Utils'
-import { Platform } from 'react-native'
+import { Platform, type EventSubscription } from 'react-native'
 import { base64ToBytes, bytesToBase64 } from './encoding'
 import { DeviceOperationQueue, deviceQueueCancelledError } from './DeviceOperationQueue'
 import { writeLongCharacteristicFromBytes, type LongWriteOptions, type LongWriteResult } from './longWrite'
@@ -58,6 +58,20 @@ export type DescriptorAsBytes = {
   value: Uint8Array | null
 }
 
+function hasStructuredBleError(error: object): boolean {
+  return 'name' in error && error.name === 'BleError' && 'errorCode' in error && typeof error.errorCode === 'number'
+}
+
+function messageFromErrorObject(error: object): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+  if ('message' in error && typeof error.message === 'string') {
+    return error.message
+  }
+  return String(error)
+}
+
 /**
  *
  * BleManager is an entry point for react-native-ble-plx library. It provides all means to discover and work with
@@ -75,11 +89,9 @@ export type DescriptorAsBytes = {
  */
 export class BleManager {
   // Scan subscriptions
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  _scanEventSubscription: any | null
+  _scanEventSubscription!: EventSubscription | null
   // Listening to BleModule events
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  _eventEmitter: any
+  _eventEmitter!: InstanceType<typeof EventEmitter>
   // Unique identifier used to create internal transactionIds
   _uniqueId!: number
   // Map of active promises with functions to forcibly cancel them
@@ -140,7 +152,7 @@ export class BleManager {
     this._restoredState = undefined
     this._restoreStateWaiters = []
     this._deviceQueue = new DeviceOperationQueue()
-    this._serializeDeviceOps = (options as BleManagerOptions & { serializeDeviceOps?: boolean }).serializeDeviceOps !== false
+    this._serializeDeviceOps = options.serializeDeviceOps !== false
     this._servicesResetListeners = new Set()
 
     // Empty/whitespace identifier is treated as unconfigured (matches native createClient
@@ -157,15 +169,13 @@ export class BleManager {
     if (restoreStateIdentifier != null) {
       this._activeSubscriptions[this._nextUniqueID()] = this._eventEmitter.addListener(
         BleModule.RestoreStateEvent,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (nativeRestoredState: NativeBleRestoredState | any) => {
+        (nativeRestoredState: NativeBleRestoredState | null) => {
           const mapped: BleRestoredState | null =
             nativeRestoredState == null
               ? null
               : {
                   connectedPeripherals: nativeRestoredState.connectedPeripherals.map(
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    (nativeDevice: any) => new Device(nativeDevice, this)
+                    nativeDevice => new Device(nativeDevice, this)
                   )
                 }
 
@@ -359,16 +369,16 @@ export class BleManager {
       delete this._activePromises[id]
       // Preserve structured BleError (destroy race / queue cancel) — do not re-parse (R2-F083).
       // Duck-type as well as instanceof so dual module copies of BleError still pass through.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const err: any = error
-      if (
-        error instanceof BleError ||
-        (err && err.name === 'BleError' && typeof err.errorCode === 'number')
-      ) {
+      if (error instanceof BleError) {
         throw error
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      throw parseBleError((error as any).message, this._errorCodesToMessagesMapping)
+      if (typeof error === 'object' && error !== null) {
+        if (hasStructuredBleError(error)) {
+          throw error
+        }
+        throw parseBleError(messageFromErrorObject(error), this._errorCodesToMessagesMapping)
+      }
+      throw parseBleError(String(error), this._errorCodesToMessagesMapping)
     }
   }
 
@@ -666,10 +676,7 @@ export class BleManager {
    * Scan until a device matching `predicate` is found, then connect.
    * Stops the scan before connecting. Times out with {@link BleErrorCode.DeviceNotFound}.
    */
-  async findAndConnect(
-    predicate: (device: Device) => boolean,
-    options: FindAndConnectOptions = {}
-  ): Promise<Device> {
+  async findAndConnect(predicate: (device: Device) => boolean, options: FindAndConnectOptions = {}): Promise<Device> {
     const timeoutMs = options.scanTimeoutMs ?? 10000
     const serviceUUIDs = options.serviceUUIDs ?? null
     return new Promise<Device>((resolve, reject) => {
@@ -677,40 +684,53 @@ export class BleManager {
       const timer = setTimeout(() => {
         if (settled) return
         settled = true
-        void this.stopDeviceScan().finally(() => {
-          reject(
-            parseBleError(
-              JSON.stringify({
-                errorCode: BleErrorCode.DeviceNotFound,
-                attErrorCode: null,
-                iosErrorCode: null,
-                androidErrorCode: null,
-                reason: null,
-                deviceID: undefined,
-                internalMessage: `findAndConnect timed out after ${timeoutMs}ms`
-              }),
-              this._errorCodesToMessagesMapping
-            )
-          )
-        })
+        const timeoutError = parseBleError(
+          JSON.stringify({
+            errorCode: BleErrorCode.DeviceNotFound,
+            attErrorCode: null,
+            iosErrorCode: null,
+            androidErrorCode: null,
+            reason: null,
+            deviceID: undefined,
+            internalMessage: `findAndConnect timed out after ${timeoutMs}ms`
+          }),
+          this._errorCodesToMessagesMapping
+        )
+        this.stopDeviceScan().then(
+          () => reject(timeoutError),
+          stopError => {
+            console.error('[BleManager.findAndConnect] Failed to stop scan after timeout:', stopError)
+            reject(timeoutError)
+          }
+        )
       }, timeoutMs)
 
-      void this.startDeviceScan(serviceUUIDs, options.scanOptions ?? null, (error, device) => {
+      this.startDeviceScan(serviceUUIDs, options.scanOptions ?? null, (error, device) => {
         if (settled) return
         if (error) {
           settled = true
           clearTimeout(timer)
-          void this.stopDeviceScan().finally(() => reject(error))
+          this.stopDeviceScan().then(
+            () => reject(error),
+            stopError => {
+              console.error('[BleManager.findAndConnect] Failed to stop scan after scan error:', stopError)
+              reject(error)
+            }
+          )
           return
         }
         if (!device || !predicate(device)) return
         settled = true
         clearTimeout(timer)
-        void this.stopDeviceScan()
-          .catch(() => undefined)
+        this.stopDeviceScan()
+          .then(
+            () => undefined,
+            stopError => {
+              console.error('[BleManager.findAndConnect] Failed to stop scan before connection:', stopError)
+            }
+          )
           .then(() => this.connectToDevice(device.id, options))
-          .then(resolve)
-          .catch(reject)
+          .then(resolve, reject)
       }).catch(err => {
         if (settled) return
         settled = true
@@ -807,9 +827,7 @@ export class BleManager {
       transactionId = this._nextUniqueID()
     }
     return this._runForDevice(deviceIdentifier, async () => {
-      const nativeDevice = await this._callPromise(
-        BleModule.requestMTUForDevice(deviceIdentifier, mtu, transactionId)
-      )
+      const nativeDevice = await this._callPromise(BleModule.requestMTUForDevice(deviceIdentifier, mtu, transactionId))
       return new Device(nativeDevice, this)
     })
   }
@@ -1534,8 +1552,7 @@ export class BleManager {
       () => {
         wrappedSubscription.remove()
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (error: any) => {
+      (error: BleError) => {
         listener(parseBleError(error.message, this._errorCodesToMessagesMapping), null)
         wrappedSubscription.remove()
       }
@@ -1768,12 +1785,7 @@ export class BleManager {
     }
     return this._runForDevice(deviceIdentifier, async () => {
       const nativeDescriptor = await this._callPromise(
-        BleModule.writeDescriptorForCharacteristic(
-          characteristicIdentifier,
-          descriptorUUID,
-          valueBase64,
-          transactionId
-        )
+        BleModule.writeDescriptorForCharacteristic(characteristicIdentifier, descriptorUUID, valueBase64, transactionId)
       )
       return new Descriptor(nativeDescriptor, this)
     })
@@ -1961,9 +1973,7 @@ export class BleManager {
     if (!this.supports('bonding') || Platform.OS !== 'android') {
       return rejectUnsupported(
         'removeBond',
-        Platform.OS === 'ios'
-          ? 'iOS has no removeBond API'
-          : 'bonding requires Android react-native host'
+        Platform.OS === 'ios' ? 'iOS has no removeBond API' : 'bonding requires Android react-native host'
       )
     }
     await this._callPromise(BleModule.removeBond(deviceIdentifier))
@@ -1976,9 +1986,7 @@ export class BleManager {
     if (!this.supports('bonding') || Platform.OS !== 'android') {
       return rejectUnsupported(
         'getBondState',
-        Platform.OS === 'ios'
-          ? 'iOS has no bond-state API'
-          : 'bonding requires Android react-native host'
+        Platform.OS === 'ios' ? 'iOS has no bond-state API' : 'bonding requires Android react-native host'
       )
     }
     const state = await this._callPromise(BleModule.getBondState(deviceIdentifier))

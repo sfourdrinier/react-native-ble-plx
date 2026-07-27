@@ -1,4 +1,8 @@
+<!-- docs/CONNECTION_MANAGER.md -->
+
 # ConnectionManager
+
+> **Transitional source characterization:** this legacy manager and its reconnect policy are audit input only. The 4.0 shared core owns portable connection mechanics, while applications own reconnect policy; this file is not a 4.0 API guide. See [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
 
 `ConnectionManager` is the supported reliability API for this fork. It unifies connection attempts, exponential backoff retries, timeouts, automatic reconnection, and (from **3.9.0**) host-owned **`attemptConnectOnce`** gated attempts in a **single state machine per device**.
 

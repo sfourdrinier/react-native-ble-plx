@@ -1,0 +1,359 @@
+{
+  "schema": "unified-ble-native-protocol",
+  "version": 1,
+  "abiVersion": 1,
+  "abiManifest": "native-protocol-v1-abi.json",
+  "maximumControlRecordBytes": 262144,
+  "maximumBinaryPayloadBytes": 524288,
+  "recordKinds": [
+    "attachment",
+    "connectionPath",
+    "databasePath",
+    "servicePath",
+    "characteristicPath",
+    "descriptorPath",
+    "operationCorrelation",
+    "binaryReference",
+    "serviceDataEntry",
+    "manufacturerDataEntry",
+    "scanOptions",
+    "adapterStateSnapshot",
+    "characteristicSnapshot",
+    "databaseSnapshot",
+    "command",
+    "terminal",
+    "result",
+    "advertisement",
+    "event",
+    "error",
+    "restorationRecord",
+    "restorationAdoptionRequest",
+    "restorationAdoptionResult"
+  ],
+  "commandKinds": [
+    "scanStart",
+    "scanStop",
+    "connect",
+    "disconnect",
+    "discover",
+    "read",
+    "write",
+    "subscribe",
+    "unsubscribe",
+    "cancel",
+    "adoptRestoration",
+    "destroy",
+    "readRssi",
+    "requestMtu"
+  ],
+  "resultKinds": [
+    "accepted",
+    "scanStarted",
+    "connected",
+    "database",
+    "read",
+    "write",
+    "subscribed",
+    "unsubscribed",
+    "cancelled",
+    "restoration",
+    "destroyed",
+    "rssi",
+    "mtu"
+  ],
+  "eventKinds": [
+    "adapterState",
+    "advertisement",
+    "connectionLost",
+    "databaseChanged",
+    "notification",
+    "backendRestarted",
+    "restorationAvailable",
+    "diagnostic"
+  ],
+  "terminalOutcomes": ["succeeded", "failed"],
+  "cancellationStates": ["cancellationRequested", "alreadyTerminal", "notCancellable"],
+  "binaryOwnership": ["nativeOwnedCopy", "javascriptOwnedCopy", "transferred"],
+  "writeModes": ["withResponse", "withoutResponse"],
+  "adapterAvailability": ["available", "unavailable", "unsupported", "unknown"],
+  "adapterAuthorization": ["granted", "denied", "restricted", "notDetermined", "unavailable"],
+  "adapterPower": ["on", "off", "resetting", "unsupported", "unknown"],
+  "restorationKinds": ["adapter", "connection", "subscription", "event"],
+  "restorationOutcomes": [
+    "adopted",
+    "alreadyConsumed",
+    "attachmentMismatch",
+    "backendMismatch",
+    "namespaceMismatch",
+    "epochMismatch"
+  ],
+  "records": [
+    {
+      "name": "attachment",
+      "fields": [
+        ["attachmentId", "string", true],
+        ["backendInstanceId", "string", true],
+        ["backendGeneration", "string", true],
+        ["adapterId", "string", true],
+        ["adapterGeneration", "string", true]
+      ]
+    },
+    {
+      "name": "connectionPath",
+      "fields": [
+        ["attachment", "record:attachment", true],
+        ["peerId", "string", true],
+        ["connectionId", "string", true],
+        ["ownerLeaseId", "string", true],
+        ["connectionGeneration", "string", true]
+      ]
+    },
+    {
+      "name": "databasePath",
+      "fields": [
+        ["connection", "record:connectionPath", true],
+        ["databaseId", "string", true],
+        ["databaseGeneration", "string", true]
+      ]
+    },
+    {
+      "name": "servicePath",
+      "fields": [
+        ["database", "record:databasePath", true],
+        ["serviceUuid", "string", true],
+        ["serviceOccurrence", "string", true]
+      ]
+    },
+    {
+      "name": "characteristicPath",
+      "fields": [
+        ["service", "record:servicePath", true],
+        ["characteristicUuid", "string", true],
+        ["characteristicOccurrence", "string", true]
+      ]
+    },
+    {
+      "name": "descriptorPath",
+      "fields": [
+        ["characteristic", "record:characteristicPath", true],
+        ["descriptorUuid", "string", true],
+        ["descriptorOccurrence", "string", true]
+      ]
+    },
+    {
+      "name": "operationCorrelation",
+      "fields": [
+        ["attachment", "record:attachment", true],
+        ["dispatchEpoch", "uint64", true],
+        ["nonce", "string", true]
+      ]
+    },
+    {
+      "name": "binaryReference",
+      "fields": [
+        ["ownerToken", "string", true],
+        ["byteOffset", "uint64", true],
+        ["byteLength", "uint64", true],
+        ["ownership", "enum:binaryOwnership", true],
+        ["operationCorrelation", "string", true]
+      ]
+    },
+    {
+      "name": "serviceDataEntry",
+      "fields": [
+        ["serviceUuid", "string", true],
+        ["binary", "record:binaryReference", true]
+      ]
+    },
+    {
+      "name": "manufacturerDataEntry",
+      "fields": [
+        ["companyIdentifier", "uint64", true],
+        ["binary", "record:binaryReference", true]
+      ]
+    },
+    {
+      "name": "scanOptions",
+      "fields": [
+        ["serviceUuids", "strings", true],
+        ["allowDuplicates", "boolean", true],
+        ["scanMode", "int64", true],
+        ["callbackType", "int64", true],
+        ["legacyScan", "boolean", true]
+      ]
+    },
+    {
+      "name": "adapterStateSnapshot",
+      "fields": [
+        ["availability", "enum:adapterAvailability", true],
+        ["authorization", "enum:adapterAuthorization", true],
+        ["power", "enum:adapterPower", true],
+        ["safeReason", "string", false]
+      ]
+    },
+    {
+      "name": "characteristicSnapshot",
+      "fields": [
+        ["path", "record:characteristicPath", true],
+        ["readable", "boolean", true],
+        ["writableWithResponse", "boolean", true],
+        ["writableWithoutResponse", "boolean", true],
+        ["notifiable", "boolean", true]
+      ]
+    },
+    {
+      "name": "databaseSnapshot",
+      "fields": [
+        ["databasePath", "record:databasePath", true],
+        ["services", "records:servicePath", true],
+        ["characteristics", "records:characteristicSnapshot", true],
+        ["descriptors", "records:descriptorPath", true]
+      ]
+    },
+    {
+      "name": "command",
+      "fields": [
+        ["protocolVersion", "uint64", true],
+        ["correlation", "record:operationCorrelation", true],
+        ["kind", "enum:commandKinds", true],
+        ["characteristicPath", "record:characteristicPath", false],
+        ["descriptorPath", "record:descriptorPath", false],
+        ["binary", "record:binaryReference", false],
+        ["subscriptionId", "string", false],
+        ["cancellationCorrelation", "record:operationCorrelation", false],
+        ["restorationRequest", "record:restorationAdoptionRequest", false],
+        ["connectionPath", "record:connectionPath", false],
+        ["databasePath", "record:databasePath", false],
+        ["scanOptions", "record:scanOptions", false],
+        ["writeMode", "enum:writeModes", false],
+        ["requestedMtu", "uint64", false]
+      ]
+    },
+    {
+      "name": "terminal",
+      "fields": [
+        ["correlation", "record:operationCorrelation", true],
+        ["outcome", "enum:terminalOutcomes", true],
+        ["cause", "string", false]
+      ]
+    },
+    {
+      "name": "result",
+      "fields": [
+        ["protocolVersion", "uint64", true],
+        ["kind", "enum:resultKinds", true],
+        ["terminal", "record:terminal", true],
+        ["databasePath", "record:databasePath", false],
+        ["characteristicPath", "record:characteristicPath", false],
+        ["binary", "record:binaryReference", false],
+        ["subscriptionId", "string", false],
+        ["cancellationState", "enum:cancellationStates", false],
+        ["restoration", "record:restorationAdoptionResult", false],
+        ["error", "record:error", false],
+        ["connectionPath", "record:connectionPath", false],
+        ["databaseSnapshot", "record:databaseSnapshot", false],
+        ["rssi", "int64", false],
+        ["negotiatedMtu", "uint64", false]
+      ]
+    },
+    {
+      "name": "advertisement",
+      "fields": [
+        ["peerId", "string", true],
+        ["observedAt", "uint64", true],
+        ["ingressOrdinal", "uint64", true],
+        ["source", "string", true],
+        ["localName", "string", false],
+        ["rssi", "int64", false],
+        ["txPower", "int64", false],
+        ["connectable", "boolean", false],
+        ["appearance", "uint64", false],
+        ["serviceUuids", "strings", false],
+        ["solicitedServiceUuids", "strings", false],
+        ["overflowServiceUuids", "strings", false],
+        ["serviceData", "records:serviceDataEntry", false],
+        ["manufacturerData", "records:manufacturerDataEntry", false],
+        ["rawRecord", "record:binaryReference", false],
+        ["scanResponseRecord", "record:binaryReference", false],
+        ["fieldProvenance", "strings", true]
+      ]
+    },
+    {
+      "name": "event",
+      "fields": [
+        ["protocolVersion", "uint64", true],
+        ["eventId", "string", true],
+        ["kind", "enum:eventKinds", true],
+        ["attachment", "record:attachment", true],
+        ["ingressOrdinal", "uint64", true],
+        ["monotonicTimestamp", "uint64", true],
+        ["connectionPath", "record:connectionPath", false],
+        ["databasePath", "record:databasePath", false],
+        ["characteristicPath", "record:characteristicPath", false],
+        ["operationCorrelation", "record:operationCorrelation", false],
+        ["subscriptionId", "string", false],
+        ["advertisement", "record:advertisement", false],
+        ["binary", "record:binaryReference", false],
+        ["error", "record:error", false],
+        ["adapterState", "record:adapterStateSnapshot", false]
+      ]
+    },
+    {
+      "name": "error",
+      "fields": [
+        ["code", "string", true],
+        ["domain", "string", true],
+        ["operation", "string", true],
+        ["retryability", "string", true],
+        ["platformDomain", "string", false],
+        ["platformCode", "string", false],
+        ["safeMessage", "string", false],
+        ["androidGattStatus", "int64", false],
+        ["coreBluetoothDomain", "string", false],
+        ["coreBluetoothCode", "int64", false],
+        ["safeMetadata", "strings", false]
+      ]
+    },
+    {
+      "name": "restorationRecord",
+      "fields": [
+        ["recordVersion", "uint64", true],
+        ["namespace", "string", true],
+        ["attachment", "record:attachment", true],
+        ["ordinal", "uint64", true],
+        ["adoptionEpoch", "string", true],
+        ["kind", "enum:restorationKinds", true],
+        ["peerId", "string", false],
+        ["connectionPath", "record:connectionPath", false],
+        ["characteristicPath", "record:characteristicPath", false],
+        ["subscriptionId", "string", false],
+        ["event", "record:event", false]
+      ]
+    },
+    {
+      "name": "restorationAdoptionRequest",
+      "fields": [
+        ["namespace", "string", true],
+        ["attachmentId", "string", true],
+        ["expectedBackendInstanceId", "string", true],
+        ["expectedEpoch", "string", true],
+        ["nativeProtocolMinimum", "uint64", true],
+        ["nativeProtocolMaximum", "uint64", true],
+        ["clientId", "string", true],
+        ["hostSessionScope", "string", true]
+      ]
+    },
+    {
+      "name": "restorationAdoptionResult",
+      "fields": [
+        ["attachmentId", "string", true],
+        ["receiptId", "string", true],
+        ["namespace", "string", true],
+        ["boundClientId", "string", true],
+        ["adoptionEpoch", "string", true],
+        ["outcome", "enum:restorationOutcomes", true],
+        ["records", "records:restorationRecord", true]
+      ]
+    }
+  ]
+}

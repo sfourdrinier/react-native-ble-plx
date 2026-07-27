@@ -1,4 +1,8 @@
-# Roadmap — `@sfourdrinier/react-native-ble-plx`
+<!-- ROADMAP.md -->
+
+# Historical 3.x roadmap — `@sfourdrinier/react-native-ble-plx`
+
+> **Authority boundary:** this is an archival/current-3.x planning record. Its compatibility, Base64, parallel-bytes, capability-matrix, port, shim, and host statements do not govern 4.0. The clean-baseline 4.0 architecture and sequence are controlled only by [`docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
 
 **Status:** living document  
 **Last updated:** 2026-07  
@@ -7,7 +11,7 @@
 
 This roadmap describes how this fork becomes the most modern, reliable, and feature-complete Bluetooth Low Energy library for React Native—and, over time, a multiplatform BLE client (mobile, web, desktop, Linux). It is intentional product planning, not a release schedule. Priorities can shift when real app needs (especially production background reliability) demand it.
 
-**For the ambitious 4.x release train** (alpha → GA → multi-host preview; TDD-first foundation; product identity **`unified-ble-manager`** on npm/CocoaPods/Android/`com.sfourdrinier.unifiedblemanager`, with `@sfourdrinier/react-native-ble-plx` as npm-only shim), see **[ROADMAP.4.0.md](./ROADMAP.4.0.md)**.
+For 4.0 product scope, see [`ROADMAP.4.0.md`](./ROADMAP.4.0.md). Do not use this historical document to infer a 4.0 API, package name, compatibility path, or support claim.
 
 ---
 

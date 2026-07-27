@@ -1,8 +1,11 @@
+// __tests__/BondingAndDx.test.js
+
 /* eslint-disable no-import-assign */
 /**
  * Phase 1 GA surface: bonding, findAndConnect, permissions helpers, OperationNotSupported.
  */
-import { BleManager, BleErrorCode } from '../src'
+import { BleManager } from '../src/BleManager'
+import { BleErrorCode } from '../src/BleError'
 import * as Native from '../src/BleModule'
 import { NativeEventEmitter } from './Utils'
 import { Platform } from 'react-native'
@@ -10,11 +13,7 @@ import { supports } from '../src/supports'
 import { unsupportedOperationError } from '../src/unsupported'
 import { FakeBlePort } from '../src/port/BlePort'
 import { PortBleManager } from '../src/port/PortBleManager'
-import {
-  installBleModuleMock,
-  assertBleModuleEventConstants,
-  createMockDevice
-} from './helpers/nativeBleModule'
+import { installBleModuleMock, assertBleModuleEventConstants, createMockDevice } from './helpers/nativeBleModule'
 import { useFakeTimers, useRealTimers, advanceTimers, flushMicrotasks, flushScan } from './helpers/async'
 
 Native.EventEmitter = NativeEventEmitter
@@ -46,11 +45,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
-  try {
-    await bleManager.destroy()
-  } catch {
-    // ignore
-  }
+  await bleManager.destroy()
   BleManager.sharedInstance = null
   useRealTimers()
 })
@@ -81,12 +76,13 @@ describe('Android bonding via BleManager', () => {
     expect(Native.BleModule.getBondState).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF')
   })
 
-
   test('bondedDevices maps native devices to Device[] (R3-F010)', async () => {
-    Native.BleModule.bondedDevices = jest.fn().mockResolvedValue([
-      mockDevice({ id: 'AA:BB:CC:DD:EE:01', name: 'Bonded-1' }),
-      mockDevice({ id: 'AA:BB:CC:DD:EE:02', name: 'Bonded-2' })
-    ])
+    Native.BleModule.bondedDevices = jest
+      .fn()
+      .mockResolvedValue([
+        mockDevice({ id: 'AA:BB:CC:DD:EE:01', name: 'Bonded-1' }),
+        mockDevice({ id: 'AA:BB:CC:DD:EE:02', name: 'Bonded-2' })
+      ])
     const list = await bleManager.bondedDevices()
     expect(Native.BleModule.bondedDevices).toHaveBeenCalled()
     expect(list).toHaveLength(2)
@@ -121,10 +117,7 @@ describe('findAndConnect', () => {
   test('connects when scan emits matching device', async () => {
     Native.BleModule.startDeviceScan = jest.fn().mockImplementation(async () => {
       setTimeout(() => {
-        Native.BleModule.emit(Native.BleModule.ScanEvent, [
-          null,
-          mockDevice({ id: 'target-1', name: 'Wanted' })
-        ])
+        Native.BleModule.emit(Native.BleModule.ScanEvent, [null, mockDevice({ id: 'target-1', name: 'Wanted' })])
       }, 5)
     })
     Native.BleModule.connectToDevice = jest.fn().mockResolvedValue(mockDevice({ id: 'target-1', name: 'Wanted' }))

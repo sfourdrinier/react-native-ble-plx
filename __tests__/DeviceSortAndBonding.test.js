@@ -1,7 +1,12 @@
+// __tests__/DeviceSortAndBonding.test.js
+
 /**
  * Device list sorting + FakeBlePort simulated bonding (paired list / unpair).
  */
-const { sortDevices, FakeBlePort, PortBleManager, BleErrorCode } = require('unified-ble-manager')
+const { sortDevices } = require('../src/discovery/deviceSort')
+const { FakeBlePort } = require('../src/port/BlePort')
+const { PortBleManager } = require('../src/port/PortBleManager')
+const { BleErrorCode } = require('../src/BleError')
 
 describe('sortDevices (package helper)', () => {
   const devices = [
@@ -49,9 +54,7 @@ describe('FakeBlePort bonding list', () => {
     expect(await mgr.getBondState('polar-1')).toBe('bonded')
     const list = await mgr.bondedDevices()
     // Prefer seed / advertisement casing over normalized map keys
-    expect(list).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: 'polar-1', name: 'Polar H10' })])
-    )
+    expect(list).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'polar-1', name: 'Polar H10' })]))
     await mgr.removeBond('polar-1')
     expect(await mgr.getBondState('polar-1')).toBe('none')
     expect(await mgr.bondedDevices()).toEqual([])

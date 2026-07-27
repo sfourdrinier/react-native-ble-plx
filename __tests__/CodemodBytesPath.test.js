@@ -1,3 +1,5 @@
+// __tests__/CodemodBytesPath.test.js
+
 /**
  * Optional EXPERIMENTAL codemod fixture tests — drives transform-bytes-path.js.
  * Not required for 4.0 upgrade (Base64 path remains default).
@@ -130,11 +132,10 @@ describe('codemod transform-bytes-path (fixture-driven, F018/F055/F044/F099)', (
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  test('MIGRATION documents monorepo-only experimental codemod (F044)', () => {
+  test('MIGRATION does not present the transitional codemod as a 4.0 path', () => {
     const mig = fs.readFileSync(path.join(root, 'MIGRATION_4.0.md'), 'utf8')
-    expect(mig).toMatch(/optional bytes codemod \(experimental/i)
-    expect(mig).toMatch(/monorepo-only/i)
-    expect(mig).toMatch(/not published/i)
-    expect(mig).toContain('--write')
+    expect(mig).toContain('no released 4.0 API instructions yet')
+    expect(mig).not.toMatch(/optional bytes codemod \(experimental/i)
+    expect(mig).not.toContain('--write')
   })
 })

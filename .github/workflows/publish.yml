@@ -86,6 +86,9 @@ jobs:
       - name: Run package tests
         run: pnpm test:package
 
+      - name: Validate current evidence records
+        run: pnpm validate:evidence
+
       - name: Run plugin tests
         run: pnpm test:plugin
 

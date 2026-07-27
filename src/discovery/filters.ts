@@ -164,9 +164,7 @@ export function requestDeviceFiltersFromServices(
   const hasName = options.name != null && options.name !== ''
   const hasPrefix = options.namePrefix != null && options.namePrefix !== ''
   if (hasName && hasPrefix) {
-    console.warn(
-      '[discovery] name and namePrefix are mutually exclusive; using name and ignoring namePrefix'
-    )
+    console.warn('[discovery] name and namePrefix are mutually exclusive; using name and ignoring namePrefix')
   }
   const filters: DeviceRequestFilter[] = []
   for (const s of svc) {

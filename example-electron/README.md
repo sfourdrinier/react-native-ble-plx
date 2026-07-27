@@ -1,4 +1,8 @@
-# example-electron — Electron UI (shared with web)
+<!-- example-electron/README.md -->
+
+# Historical Electron example
+
+> This example exercises transitional source behavior only. It is not a 4.0 public example, support claim, or package-install recipe. The future Electron fixture must use the packed clean-baseline artifact, versioned IPC, and evidence manifest. See [`../docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](../docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
 
 Uses **Electron 43.2.x** (current stable) and the **same UI** as Chrome:
 

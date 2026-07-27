@@ -1,3 +1,5 @@
+// __tests__/CompatBase64.skeleton.test.js
+
 /**
  * 3.x / 3.9 Base64 golden call patterns — GAP-GA-COMPAT complete suite (F039).
  * Covers encoding edge, FakeBlePort Base64 R/W/WWR, and RN BleManager 3.x call sites:
@@ -8,7 +10,11 @@
 /* eslint-disable no-import-assign */
 const { FakeBlePort } = require('../src/port/BlePort')
 const { base64ToBytes, bytesToBase64, roundTripBase64 } = require('../src/encoding')
-const { BleManager, BleErrorCode, Characteristic, Device, Descriptor } = require('../src')
+const { BleManager } = require('../src/BleManager')
+const { BleErrorCode } = require('../src/BleError')
+const { Characteristic } = require('../src/Characteristic')
+const { Device } = require('../src/Device')
+const { Descriptor } = require('../src/Descriptor')
 const Native = require('../src/BleModule')
 const { NativeEventEmitter } = require('./Utils')
 const {
@@ -79,13 +85,7 @@ describe('compat Base64 (3.9 golden patterns)', () => {
     await port.writeCharacteristicBase64(deviceId, service, characteristic, payload, {
       withResponse: false
     })
-    expect(spy).toHaveBeenCalledWith(
-      deviceId,
-      service,
-      characteristic,
-      expect.any(Uint8Array),
-      { withResponse: false }
-    )
+    expect(spy).toHaveBeenCalledWith(deviceId, service, characteristic, expect.any(Uint8Array), { withResponse: false })
     const after = await port.readCharacteristicBase64(deviceId, service, characteristic)
     expect(after).toBe(payload)
     spy.mockRestore()
@@ -108,11 +108,7 @@ describe('compat Base64 RN BleManager golden APIs (3.x call sites)', () => {
   })
 
   afterEach(async () => {
-    try {
-      await manager.destroy()
-    } catch {
-      // ignore
-    }
+    await manager.destroy()
     BleManager.sharedInstance = null
   })
 
@@ -177,12 +173,7 @@ describe('compat Base64 RN BleManager golden APIs (3.x call sites)', () => {
       })
     )
 
-    const read = await manager.readDescriptorForDevice(
-      deviceId,
-      serviceUUID,
-      characteristicUUID,
-      descriptorUUID
-    )
+    const read = await manager.readDescriptorForDevice(deviceId, serviceUUID, characteristicUUID, descriptorUUID)
     expect(read).toBeInstanceOf(Descriptor)
     expect(typeof read.value).toBe('string')
     expect(read.value).toBe(cccdValue)
@@ -216,13 +207,7 @@ describe('compat Base64 RN BleManager golden APIs (3.x call sites)', () => {
       uuid: characteristicUUID
     })
     const listener = jest.fn()
-    const sub = manager.monitorCharacteristicForDevice(
-      deviceId,
-      serviceUUID,
-      characteristicUUID,
-      listener,
-      'tx-compat'
-    )
+    const sub = manager.monitorCharacteristicForDevice(deviceId, serviceUUID, characteristicUUID, listener, 'tx-compat')
     // R3-F018: monitor setup is device-queued
     await flushMicrotasks(8)
     expect(Native.BleModule.monitorCharacteristicForDevice).toHaveBeenCalledWith(
@@ -246,13 +231,7 @@ describe('compat Base64 RN BleManager golden APIs (3.x call sites)', () => {
   test('monitor error codes: OperationCancelled via native JSON payload', async () => {
     Native.BleModule.monitorCharacteristicForDevice = jest.fn().mockReturnValue(new Promise(() => {}))
     const listener = jest.fn()
-    const sub = manager.monitorCharacteristicForDevice(
-      deviceId,
-      serviceUUID,
-      characteristicUUID,
-      listener,
-      'tx-err'
-    )
+    const sub = manager.monitorCharacteristicForDevice(deviceId, serviceUUID, characteristicUUID, listener, 'tx-err')
     // 3.x monitor error channel: error JSON string + null characteristic
     Native.BleModule.emit(Native.BleModule.ReadEvent, [nativeOperationCancelledError, null, 'tx-err'])
     expect(listener).toHaveBeenCalledTimes(1)
@@ -269,9 +248,7 @@ describe('compat Base64 RN BleManager golden APIs (3.x call sites)', () => {
     Native.BleModule.readCharacteristicForDevice = jest
       .fn()
       .mockRejectedValue({ message: nativeOperationCancelledError })
-    await expect(
-      manager.readCharacteristicForDevice(deviceId, serviceUUID, characteristicUUID)
-    ).rejects.toMatchObject({
+    await expect(manager.readCharacteristicForDevice(deviceId, serviceUUID, characteristicUUID)).rejects.toMatchObject({
       name: 'BleError',
       errorCode: BleErrorCode.OperationCancelled
     })
@@ -280,15 +257,9 @@ describe('compat Base64 RN BleManager golden APIs (3.x call sites)', () => {
   test('AsBytes path never changes Base64 return types on classic APIs', async () => {
     const raw = new Uint8Array([9, 8, 7])
     const b64 = bytesToBase64(raw)
-    Native.BleModule.readCharacteristicForDevice = jest
-      .fn()
-      .mockResolvedValue(createMockCharacteristic({ value: b64 }))
+    Native.BleModule.readCharacteristicForDevice = jest.fn().mockResolvedValue(createMockCharacteristic({ value: b64 }))
 
-    const asBytes = await manager.readCharacteristicForDeviceAsBytes(
-      deviceId,
-      serviceUUID,
-      characteristicUUID
-    )
+    const asBytes = await manager.readCharacteristicForDeviceAsBytes(deviceId, serviceUUID, characteristicUUID)
     expect(asBytes.value).toBeInstanceOf(Uint8Array)
 
     const asB64 = await manager.readCharacteristicForDevice(deviceId, serviceUUID, characteristicUUID)
@@ -302,9 +273,7 @@ describe('compat Base64 RN BleManager golden APIs (3.x call sites)', () => {
   })
 
   test('connectToDevice returns Device with Base64-era fields', async () => {
-    Native.BleModule.connectToDevice = jest
-      .fn()
-      .mockResolvedValue(createMockDevice({ id: deviceId, name: 'Compat' }))
+    Native.BleModule.connectToDevice = jest.fn().mockResolvedValue(createMockDevice({ id: deviceId, name: 'Compat' }))
     const device = await manager.connectToDevice(deviceId)
     expect(device).toBeInstanceOf(Device)
     expect(device.id).toBe(deviceId)
@@ -334,12 +303,7 @@ describe('compat Base64 RN BleManager golden APIs (3.x call sites)', () => {
 
     const without = await char.writeWithoutResponse(payload)
     expect(typeof without.value).toBe('string')
-    expect(Native.BleModule.writeCharacteristic).toHaveBeenLastCalledWith(
-      7,
-      payload,
-      false,
-      expect.any(String)
-    )
+    expect(Native.BleModule.writeCharacteristic).toHaveBeenLastCalledWith(7, payload, false, expect.any(String))
   })
 
   test('Device.writeCharacteristic*ForService Base64 3.x names', async () => {
@@ -349,11 +313,7 @@ describe('compat Base64 RN BleManager golden APIs (3.x call sites)', () => {
       .mockResolvedValue(createMockCharacteristic({ value: payload, deviceID: deviceId }))
 
     const device = new Device(createMockDevice({ id: deviceId }), manager)
-    const written = await device.writeCharacteristicWithResponseForService(
-      serviceUUID,
-      characteristicUUID,
-      payload
-    )
+    const written = await device.writeCharacteristicWithResponseForService(serviceUUID, characteristicUUID, payload)
     expect(typeof written.value).toBe('string')
     expect(Native.BleModule.writeCharacteristicForDevice).toHaveBeenCalledWith(
       deviceId,

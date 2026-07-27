@@ -7,7 +7,11 @@
 
 type NodeBufferLike = {
   from(data: string, encoding: string): { buffer: ArrayBufferLike; byteOffset: number; byteLength: number } & Uint8Array
-  from(arrayBuffer: ArrayBufferLike, byteOffset?: number, length?: number): {
+  from(
+    arrayBuffer: ArrayBufferLike,
+    byteOffset?: number,
+    length?: number
+  ): {
     toString(encoding: string): string
   }
 }
@@ -18,8 +22,7 @@ function nodeBuffer(): NodeBufferLike | undefined {
 }
 
 /** Standard Base64 alphabet + optional padding; rejects whitespace and url-safe variants. */
-const STRICT_BASE64 =
-  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+const STRICT_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 
 function assertValidBase64(base64: string): void {
   if (!STRICT_BASE64.test(base64)) {

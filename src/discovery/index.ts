@@ -1,8 +1,4 @@
-export {
-  resolveScanServiceUUIDs,
-  requestDeviceFiltersFromServices,
-  resolveDiscoveryScanFilter
-} from './filters'
+export { resolveScanServiceUUIDs, requestDeviceFiltersFromServices, resolveDiscoveryScanFilter } from './filters'
 export type { DeviceRequestFilter, DiscoveryScanFilter, ResolvedDiscoveryScan } from './filters'
 export {
   normalizeUuidKey,

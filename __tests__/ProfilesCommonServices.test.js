@@ -1,3 +1,5 @@
+// __tests__/ProfilesCommonServices.test.js
+
 /**
  * Battery, Device Information, Health Thermometer, Blood Pressure + IEEE-11073.
  * Mocks via FakeBlePort; edge cases for flags, truncation, special floats.
@@ -14,7 +16,9 @@ const {
   isBatteryService,
   isBatteryLevel,
   parseBatteryLevel,
-  encodeBatteryLevel,
+  encodeBatteryLevel
+} = require('../src/profiles/battery')
+const {
   // DIS
   DEVICE_INFORMATION_SERVICE_UUID,
   DEVICE_INFORMATION_SERVICE_ALIAS,
@@ -34,7 +38,9 @@ const {
   encodePnpId,
   isPnpId,
   SYSTEM_ID_UUID,
-  PNP_ID_UUID,
+  PNP_ID_UUID
+} = require('../src/profiles/deviceInformation')
+const {
   // HT
   HEALTH_THERMOMETER_SERVICE_UUID,
   HEALTH_THERMOMETER_SERVICE_ALIAS,
@@ -45,7 +51,9 @@ const {
   parseTemperatureMeasurement,
   encodeTemperatureMeasurement,
   resolveHealthThermometerScanUUIDs,
-  healthThermometerOptionalServices,
+  healthThermometerOptionalServices
+} = require('../src/profiles/healthThermometer')
+const {
   // BP
   BLOOD_PRESSURE_SERVICE_UUID,
   BLOOD_PRESSURE_SERVICE_ALIAS,
@@ -55,7 +63,9 @@ const {
   parseBloodPressureMeasurement,
   encodeBloodPressureMeasurement,
   bloodPressureScanServiceUUIDs,
-  bloodPressureOptionalServices,
+  bloodPressureOptionalServices
+} = require('../src/profiles/bloodPressure')
+const {
   // 11073
   parseIeee11073Float,
   encodeIeee11073Float,
@@ -66,14 +76,16 @@ const {
   FLOAT_RFU_A,
   SFLOAT_RFU_A,
   SFLOAT_NRES,
-  decodeBleString,
+  decodeBleString
+} = require('../src/profiles/ieee11073')
+const {
   // HR (existing) for multi-service fake
   HR_SERVICE_UUID,
   HR_MEASUREMENT_UUID,
-  encodeHeartRateMeasurement,
-  FakeBlePort,
-  PortBleManager
-} = require('unified-ble-manager')
+  encodeHeartRateMeasurement
+} = require('../src/profiles/heartRate')
+const { FakeBlePort } = require('../src/port/BlePort')
+const { PortBleManager } = require('../src/port/PortBleManager')
 
 const { useFakeTimers, useRealTimers, flushScan } = require('./helpers/async')
 
@@ -112,12 +124,8 @@ describe('IEEE-11073 FLOAT / SFLOAT', () => {
 
   test('FLOAT specials NaN / ±Infinity', () => {
     expect(Number.isNaN(parseIeee11073Float(encodeIeee11073Float(Number.NaN)))).toBe(true)
-    expect(parseIeee11073Float(encodeIeee11073Float(Number.POSITIVE_INFINITY))).toBe(
-      Number.POSITIVE_INFINITY
-    )
-    expect(parseIeee11073Float(encodeIeee11073Float(Number.NEGATIVE_INFINITY))).toBe(
-      Number.NEGATIVE_INFINITY
-    )
+    expect(parseIeee11073Float(encodeIeee11073Float(Number.POSITIVE_INFINITY))).toBe(Number.POSITIVE_INFINITY)
+    expect(parseIeee11073Float(encodeIeee11073Float(Number.NEGATIVE_INFINITY))).toBe(Number.NEGATIVE_INFINITY)
   })
 
   test('FLOAT NRes is classified distinctly from NaN', () => {
@@ -152,9 +160,7 @@ describe('IEEE-11073 FLOAT / SFLOAT', () => {
 
   test('SFLOAT specials and out-of-range → NRes', () => {
     expect(Number.isNaN(parseIeee11073Sfloat(encodeIeee11073Sfloat(Number.NaN)))).toBe(true)
-    expect(parseIeee11073Sfloat(encodeIeee11073Sfloat(Number.POSITIVE_INFINITY))).toBe(
-      Number.POSITIVE_INFINITY
-    )
+    expect(parseIeee11073Sfloat(encodeIeee11073Sfloat(Number.POSITIVE_INFINITY))).toBe(Number.POSITIVE_INFINITY)
     const huge = encodeIeee11073Sfloat(1e20)
     expect(decodeIeee11073Sfloat(huge).special).toBe('nres')
     // RFU mantissa with exp 0 (little-endian UINT16)
@@ -203,9 +209,7 @@ describe('Battery Service', () => {
     expect(resolveBatteryScanUUIDs(true)).toEqual([BATTERY_SERVICE_UUID])
     expect(batteryScanServiceUUIDs()).toEqual(expect.arrayContaining([BATTERY_SERVICE_UUID, '180f']))
     expect(resolveBatteryScanUUIDs(false)).toBe(null)
-    expect(batteryRequestFilters({ namePrefix: 'Polar' }).every(f => f.namePrefix === 'Polar')).toBe(
-      true
-    )
+    expect(batteryRequestFilters({ namePrefix: 'Polar' }).every(f => f.namePrefix === 'Polar')).toBe(true)
   })
 
   test('FakeBlePort read Battery Level', async () => {
@@ -226,11 +230,7 @@ describe('Battery Service', () => {
     const mgr = new PortBleManager({ port, host: 'fake' })
     await mgr.connectToDevice(id)
     await mgr.discoverAllServicesAndCharacteristicsForDevice(id)
-    const snap = await mgr.readCharacteristicForDeviceAsBytes(
-      id,
-      BATTERY_SERVICE_UUID,
-      BATTERY_LEVEL_UUID
-    )
+    const snap = await mgr.readCharacteristicForDeviceAsBytes(id, BATTERY_SERVICE_UUID, BATTERY_LEVEL_UUID)
     expect(parseBatteryLevel(snap.value).level).toBe(64)
   })
 })
@@ -291,9 +291,9 @@ describe('Device Information Service', () => {
       Array.from(sigWire)
     )
     // R3-F054: overflow fails closed (no silent truncate)
-    expect(() =>
-      encodeSystemId({ manufacturerId: 0x10000000000n, organizationallyUniqueId: 0x123456 })
-    ).toThrow(/uint40|manufacturerId/)
+    expect(() => encodeSystemId({ manufacturerId: 0x10000000000n, organizationallyUniqueId: 0x123456 })).toThrow(
+      /uint40|manufacturerId/
+    )
     expect(() => encodeSystemId({ manufacturerId: 1, organizationallyUniqueId: 0x1000000 })).toThrow(
       /uint24|organizationallyUniqueId/
     )
@@ -334,15 +334,11 @@ describe('optionalServices service-only across profiles', () => {
     expect(bat).not.toContain(BATTERY_LEVEL_UUID)
 
     const ht = healthThermometerOptionalServices()
-    expect(ht).toEqual(
-      expect.arrayContaining([HEALTH_THERMOMETER_SERVICE_ALIAS, HEALTH_THERMOMETER_SERVICE_UUID])
-    )
+    expect(ht).toEqual(expect.arrayContaining([HEALTH_THERMOMETER_SERVICE_ALIAS, HEALTH_THERMOMETER_SERVICE_UUID]))
     expect(ht).not.toContain(TEMPERATURE_MEASUREMENT_UUID)
 
     const bp = bloodPressureOptionalServices()
-    expect(bp).toEqual(
-      expect.arrayContaining([BLOOD_PRESSURE_SERVICE_ALIAS, BLOOD_PRESSURE_SERVICE_UUID])
-    )
+    expect(bp).toEqual(expect.arrayContaining([BLOOD_PRESSURE_SERVICE_ALIAS, BLOOD_PRESSURE_SERVICE_UUID]))
     expect(bp).not.toContain(BLOOD_PRESSURE_MEASUREMENT_UUID)
   })
 })
@@ -575,11 +571,7 @@ describe('Multi-profile FakeBlePort (Polar-like + clinical devices)', () => {
     // Connect polar and parse battery + DIS
     await mgr.connectToDevice(polar)
     await mgr.discoverAllServicesAndCharacteristicsForDevice(polar)
-    const bat = await mgr.readCharacteristicForDeviceAsBytes(
-      polar,
-      BATTERY_SERVICE_UUID,
-      BATTERY_LEVEL_UUID
-    )
+    const bat = await mgr.readCharacteristicForDeviceAsBytes(polar, BATTERY_SERVICE_UUID, BATTERY_LEVEL_UUID)
     expect(parseBatteryLevel(bat.value).level).toBe(81)
     const mfg = await mgr.readCharacteristicForDeviceAsBytes(
       polar,
@@ -592,7 +584,10 @@ describe('Multi-profile FakeBlePort (Polar-like + clinical devices)', () => {
     await mgr.connectToDevice(thermo)
     await mgr.discoverAllServicesAndCharacteristicsForDevice(thermo)
     const tChars = await port.discoverCharacteristics(thermo, HEALTH_THERMOMETER_SERVICE_UUID)
-    const tMeta = tChars.find(c => c.uuid === TEMPERATURE_MEASUREMENT_UUID || c.uuid.toLowerCase() === TEMPERATURE_MEASUREMENT_UUID.toLowerCase())
+    const tMeta = tChars.find(
+      c =>
+        c.uuid === TEMPERATURE_MEASUREMENT_UUID || c.uuid.toLowerCase() === TEMPERATURE_MEASUREMENT_UUID.toLowerCase()
+    )
     expect(tMeta).toBeTruthy()
     expect(tMeta.isNotifiable).toBe(true)
 
@@ -615,12 +610,7 @@ describe('Multi-profile FakeBlePort (Polar-like + clinical devices)', () => {
     )
     await flush()
     const htNotifyBytes = encodeTemperatureMeasurement(36.5, { temperatureType: TemperatureType.Body })
-    await port.emitNotification(
-      thermo,
-      HEALTH_THERMOMETER_SERVICE_UUID,
-      TEMPERATURE_MEASUREMENT_UUID,
-      htNotifyBytes
-    )
+    await port.emitNotification(thermo, HEALTH_THERMOMETER_SERVICE_UUID, TEMPERATURE_MEASUREMENT_UUID, htNotifyBytes)
     await flush()
     expect(htNotes.length).toBe(1)
     expect(htNotes[0].temperature).toBeCloseTo(36.5, 1)
@@ -630,7 +620,9 @@ describe('Multi-profile FakeBlePort (Polar-like + clinical devices)', () => {
     await mgr.discoverAllServicesAndCharacteristicsForDevice(bp)
     const bpChars = await port.discoverCharacteristics(bp, BLOOD_PRESSURE_SERVICE_UUID)
     const bpMeta = bpChars.find(
-      c => c.uuid === BLOOD_PRESSURE_MEASUREMENT_UUID || c.uuid.toLowerCase() === BLOOD_PRESSURE_MEASUREMENT_UUID.toLowerCase()
+      c =>
+        c.uuid === BLOOD_PRESSURE_MEASUREMENT_UUID ||
+        c.uuid.toLowerCase() === BLOOD_PRESSURE_MEASUREMENT_UUID.toLowerCase()
     )
     expect(bpMeta).toBeTruthy()
     expect(bpMeta.isNotifiable).toBe(true)
@@ -726,5 +718,4 @@ describe('Multi-profile FakeBlePort (Polar-like + clinical devices)', () => {
       expect(parseIeee11073Sfloat(encodeIeee11073Sfloat(v))).toBe(v)
     }
   })
-
 })

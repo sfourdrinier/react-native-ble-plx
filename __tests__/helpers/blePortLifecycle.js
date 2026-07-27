@@ -4,18 +4,22 @@
 const { base64ToBytes, bytesToBase64 } = require('../../src/encoding')
 
 /**
+ * @typedef {object} BlePortLifecycleContext
+ * @property {string} deviceId
+ * @property {string} serviceUUID
+ * @property {string} characteristicUUID
+ * @property {Uint8Array} [initialBytes]
+ * @property {(port: import('../../src/port/BlePort').BlePort, context: BlePortLifecycleContext) => Promise<void>|void} [prepare]
+ * @property {(port: import('../../src/port/BlePort').BlePort, context: BlePortLifecycleContext, bytes: Uint8Array) => Promise<void>|void} [emitNotification]
+ * @property {(port: import('../../src/port/BlePort').BlePort, onDevice: (advertisement: import('../../src/port/BlePort').PortAdvertisement) => void) => Promise<void>} [startScan]
+ * @property {() => Promise<void>} [flush]
+ */
+
+/**
  * Run scan → connect → discover → read/write Base64 + bytes → notify → disconnect.
  *
  * @param {import('../../src/port/BlePort').BlePort} port
- * @param {object} ctx
- * @param {string} ctx.deviceId
- * @param {string} ctx.serviceUUID
- * @param {string} ctx.characteristicUUID
- * @param {Uint8Array} [ctx.initialBytes]
- * @param {(port: any, ctx: object) => Promise<void>|void} [ctx.prepare] register devices / requestDevice
- * @param {(port: any, ctx: object, bytes: Uint8Array) => Promise<void>|void} [ctx.emitNotification]
- * @param {(port: any, onDevice: Function) => Promise<void>} [ctx.startScan] override scan (Web)
- * @param {() => Promise<void>} [ctx.flush]
+ * @param {BlePortLifecycleContext} ctx
  */
 async function runBlePortLifecycle(port, ctx) {
   const {

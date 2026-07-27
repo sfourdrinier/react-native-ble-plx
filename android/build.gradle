@@ -1,3 +1,5 @@
+// android/build.gradle
+
 buildscript {
   ext.kotlin_version = "1.9.24"
   repositories {
@@ -40,7 +42,7 @@ def supportsNamespace() {
 
 android {
   if (supportsNamespace()) {
-    namespace "com.sfourdrinier.unifiedblemanager"
+    namespace = "com.sfourdrinier.unifiedblemanager"
 
     sourceSets {
       main {
@@ -58,11 +60,21 @@ android {
     targetSdkVersion getExtOrIntegerDefault("targetSdkVersion")
     buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", "true"
     buildConfigField "String", "OWNED_RADIO_ID", "\"owned-android-gatt-v1\""
+    externalNativeBuild {
+      cmake {
+        arguments "-DANDROID_STL=c++_shared"
+        cppFlags "-std=c++20"
+      }
+    }
   }
   buildTypes {
     release {
       minifyEnabled false
     }
+  }
+
+  buildFeatures {
+    prefab true
   }
 
   lintOptions {
@@ -77,6 +89,11 @@ android {
   kotlinOptions {
     jvmTarget = "17"
   }
+  externalNativeBuild {
+    cmake {
+      path file("src/main/jni/CMakeLists.txt")
+    }
+  }
 }
 
 repositories {
@@ -87,6 +104,7 @@ repositories {
 dependencies {
   implementation "com.facebook.react:react-android"
   implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+  testImplementation "junit:junit:4.13.2"
   // 4.0 GA: RxAndroidBle / RxJava removed from the default product path.
   // Legacy sources live under android/src/legacy (not compiled by default).
 }

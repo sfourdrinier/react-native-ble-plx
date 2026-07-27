@@ -14,6 +14,10 @@ const CHR = '00002a29-0000-1000-8000-00805f9b34fb'
 const DEVICE = 'e-1'
 
 describe('unified-ble-manager/electron (shipped host)', () => {
+  test('requires an injected native port unless mock fallback is explicitly enabled', () => {
+    expect(() => new ElectronBleManager()).toThrow(/injected BlePort/)
+  })
+
   test('constructs with mock fallback and reports main-process orientation', () => {
     const manager = new ElectronBleManager({ allowMockFallback: true })
     expect(manager.isMainProcessOriented).toBe(true)
@@ -35,17 +39,19 @@ describe('unified-ble-manager/electron (shipped host)', () => {
       backend: 'mock'
     })
     expect(mockMgr.supports('continuousScan')).toBe(false)
-    const bluezMgr = new ElectronBleManager({
+    const fakeBluezMgr = new ElectronBleManager({
       port: new FakeBlePort({ id: 'bluez-dbus-v1' }),
       backend: 'bluez'
     })
-    expect(bluezMgr.supports('continuousScan')).toBe(true)
-    expect(bluezMgr.supports('servicesChanged')).toBe(false)
-    const cbMgr = new ElectronBleManager({
+    expect(fakeBluezMgr.getHostInfo().backend).toBe('mock')
+    expect(fakeBluezMgr.supports('continuousScan')).toBe(false)
+    expect(fakeBluezMgr.supports('servicesChanged')).toBe(false)
+    const fakeCoreBluetoothMgr = new ElectronBleManager({
       port: new FakeBlePort({ id: 'corebluetooth-electron-v1' }),
       backend: 'corebluetooth'
     })
-    expect(cbMgr.supports('continuousScan')).toBe(true)
+    expect(fakeCoreBluetoothMgr.getHostInfo().backend).toBe('mock')
+    expect(fakeCoreBluetoothMgr.supports('continuousScan')).toBe(false)
   })
 
   test('autoDetectNative never claims live bluez without bus probe (R2-F060)', () => {
@@ -102,7 +108,7 @@ describe('unified-ble-manager/electron (shipped host)', () => {
       }
     })
     const manager = createElectronBleManager({ port, backend: 'bluez' })
-    expect(manager.getHostInfo().backend).toBe('bluez')
+    expect(manager.getHostInfo().backend).toBe('mock')
 
     await manager.connectToDevice(DEVICE)
     const r = await manager.readCharacteristicForDevice(DEVICE, SVC, CHR)

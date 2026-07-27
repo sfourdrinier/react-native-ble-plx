@@ -1,376 +1,249 @@
+// __tests__/Docs4.0.honesty.test.js
+
 /**
- * Documentation honesty guards for the 4.0 docs batch.
- * Keeps ROADMAP / GAPS / PLATFORMS / identity docs aligned with shipped code.
+ * Guards the clean-baseline 4.0 documentation decision.
+ * Transitional source facts are allowed only when the document labels them as
+ * characterization; these tests deliberately make no claim about production code.
  */
 const fs = require('fs')
 const path = require('path')
-const { supports } = require('../src/supports')
 
 const root = path.join(__dirname, '..')
-const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8').replace(/\r\n/g, '\n')
+const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8').replace(/\r\n/g, '\n')
 
-describe('4.0 docs honesty (docs batch)', () => {
-  test('supports() ships requestDevice (not deviceChooser); ROADMAP matches (F021)', () => {
-    expect(supports('requestDevice', 'web')).toBe(true)
-    expect(supports('deviceChooser', 'web')).toBe(false)
+const architectureAuthorityDocuments = [
+  'README.md',
+  'ROADMAP.4.0.md',
+  'MIGRATION_4.0.md',
+  'RELEASE.md',
+  'docs/GAPS.4.0.md',
+  'docs/GETTING_STARTED.md',
+  'docs/PLATFORMS.md',
+  'docs/ELECTRON.md',
+  'docs/NODE.md',
+  'docs/EXPO_PLUGIN.md',
+  'docs/BACKGROUND.md',
+  'docs/WEB.md',
+  'docs/TVOS.md',
+  'docs/PERFORMANCE.md',
+  'packages/react-native-ble-plx-shim/README.md',
+]
 
-    const roadmap40 = read('ROADMAP.4.0.md')
-    const roadmap = read('ROADMAP.md')
-    expect(roadmap40).toContain("supports('requestDevice')")
-    expect(roadmap40).not.toContain("supports('deviceChooser')")
-    expect(roadmap).toContain("supports('requestDevice')")
-    expect(roadmap).not.toContain("supports('deviceChooser')")
+const transitionalCharacterizationDocuments = [
+  'docs/BONDING.md',
+  'docs/CONNECTION_MANAGER.md',
+  'docs/DISCOVERY_AND_PROFILES.md',
+  'docs/HELPERS.md',
+  'example-web/README.md',
+  'example-electron/README.md',
+]
+
+const supersededAuthorityDocuments = [
+  'ROADMAP.md',
+  'docs/FIX_TRACKER.4.0.md',
+  'docs/FIX_TRACKER.4.0-round2.md',
+  'docs/FIX_TRACKER.4.0-round3.md',
+]
+
+const canonicalAdrDocuments = [
+  'docs/ADR/2026-07-4.0-public-api.md',
+  'docs/ADR/2026-07-4.0-backend-contract.md',
+  'docs/ADR/2026-07-4.0-capability-registry.md',
+  'docs/ADR/2026-07-4.0-boundary.md',
+  'docs/ADR/2026-07-4.0-rn-restoration-bootstrap.md',
+  'docs/ADR/2026-07-4.0-packaging.md',
+  'docs/ADR/2026-07-4.0-open-source-governance.md',
+]
+
+const deletedTransitionalAdrs = [
+  'docs/ADR/2026-07-4.0-host-and-bytes.md',
+  'docs/ADR/2026-07-4.0-electron-macos-corebluetooth.md',
+  'docs/ADR/2026-07-4.0-owned-core-and-electron-natives.md',
+]
+
+describe('4.0 documentation honesty', () => {
+  test('controlling implementation plan records the clean-baseline decisions', () => {
+    const plan = read('docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
+
+    expect(plan).toContain('new open-source package with no production users')
+    expect(plan).toContain('one versioned backend contract')
+    expect(plan).toContain('one shared manager/policy core')
+    expect(plan).toContain('All payloads are `Uint8Array`')
+    expect(plan).toContain('AbortSignal')
+    expect(plan).toContain('No static host capability matrix')
+    expect(plan).toContain('No duplicated Base64 and byte method families')
+    expect(plan).toContain('does not wrap Noble')
+    expect(plan).toContain('Meta Quest is deferred to 4.1')
+    expect(plan).toContain('It is not a 4.0 work package, evidence requirement, or release blocker')
+    expect(plan).toContain('explicitly deferred to 4.1')
   })
 
-  test('ROADMAP links to root MIGRATION_4.0.md (F118)', () => {
-    const roadmap40 = read('ROADMAP.4.0.md')
-    expect(fs.existsSync(path.join(root, 'MIGRATION_4.0.md'))).toBe(true)
-    expect(roadmap40).toMatch(/\]\(\.\/MIGRATION_4\.0\.md\)|`MIGRATION_4\.0\.md`/)
-    expect(roadmap40).not.toContain('docs/MIGRATION_4.0.md')
+  test('plan keeps Quest out of the 4.0 execution graph and Android acceptance checklist', () => {
+    const plan = read('docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
+    const graphStart = plan.indexOf('### 24.1 Hard dependency graph')
+    const graphEnd = plan.indexOf('### 24.2 Recommended integration order', graphStart)
+    const graph = plan.slice(graphStart, graphEnd)
+
+    expect(graphStart).toBeGreaterThanOrEqual(0)
+    expect(graphEnd).toBeGreaterThan(graphStart)
+    expect(graph).not.toMatch(/\bQUEST\b/)
+    expect(graph.match(/\bQuest\b/g)).toHaveLength(1)
+    expect(graph).toContain('deferred 4.1 Quest work depends on frozen shared surfaces')
+    expect(plan).not.toContain('and Quest build/runtime proof where claimed.')
   })
 
-  test('GAPS §2 baseline matches wired RN Phase-2 + macOS BlePort L2 (F023)', () => {
-    const gaps = read('docs/GAPS.4.0.md')
-    expect(gaps).toMatch(/supports\(\).*true|RN queue\/services\/longWrite.*true/i)
-    expect(gaps).not.toMatch(/false\*\* until wired|false until wired/)
-    // Baseline must not claim full BlePort still open for macOS
-    expect(gaps).toMatch(/macOS.*full BlePort|CoreBluetooth.*L2|done \(L2 software\)/i)
+  test('plan and canonical ADRs retain normative capability, ownership, event, and transport contracts', () => {
+    const plan = read('docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
+    const publicApi = read('docs/ADR/2026-07-4.0-public-api.md')
+    const backendContract = read('docs/ADR/2026-07-4.0-backend-contract.md')
+
+    expect(plan).toContain("'supported' | 'limited' | 'unsupported' | 'unavailable'")
+    expect(plan).toContain('selectedSchemaRange')
+    expect(plan).toContain('implementationOrigin')
+    expect(plan).toContain('CapabilityEvidence')
+    expect(plan).toContain('CapabilityTckBinding')
+    expect(plan).toContain('Unsupported operations are registered as `unsupported`')
+    expect(plan).toContain('highest common version')
+    expect(plan).toContain('complete selected `NegotiatedVersionTuple` becomes immutable attachment data')
+    expect(plan).toContain('Malformed offers, duplicate handshakes')
+    expect(plan).toContain('BoundedAsyncStream<BackendEvent>')
+    expect(plan).toContain('Every observation field is `present`, `absent`, or `unavailable`')
+    expect(plan).toContain('advertisementPayload')
+    expect(plan).toContain('scanResponsePayload')
+    expect(plan).toContain('owner lease, connection generation, database')
+    expect(plan).toContain('C++ JSI-owned binary payload transport')
+    expect(plan).toContain('Codegen/TurboModule control and bootstrap methods carry metadata only')
+    expect(plan).toContain('prove that none carries BLE bytes')
+    expect(plan).not.toMatch(/\bscanAlreadyActive\b/)
+    expect(plan).not.toMatch(/\bmanagerDestroyed\b/)
+    expect(plan).not.toContain('TurboModule-supported `ArrayBuffer`/typed binary values')
+    expect(plan).not.toContain('TurboModule binary round-trip')
+    expect(plan).not.toContain('Unsupported operations are absent capabilities')
+
+    expect(publicApi).toContain('only when no registered borrowers')
+    expect(publicApi).toContain('settled revocation')
+    expect(publicApi).toContain('atomic, verified ownership')
+    expect(backendContract).toContain('BoundedAsyncStream<BackendEvent>')
+    expect(backendContract).toContain('owner lease')
   })
 
-  test('GAPS has a single GAP-E-MAC-PORT catalog row (F064)', () => {
-    const gaps = read('docs/GAPS.4.0.md')
-    // Count table rows that start with | **GAP-E-MAC-PORT**
-    const rows = gaps.match(/^\| \*\*GAP-E-MAC-PORT\*\*/gm) || []
-    expect(rows.length).toBe(1)
-    expect(gaps).toMatch(/GAP-E-MAC-PORT.*done \(L2 software\)/)
+  test.each(architectureAuthorityDocuments)('%s identifies the controlling architecture authority', (relativePath) => {
+    const document = read(relativePath)
+
+    expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
+    expect(document).toContain('UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
   })
 
-  test('GAPS Electron macOS runbook uses real build:electron:macos (F107)', () => {
-    const gaps = read('docs/GAPS.4.0.md')
-    expect(gaps).toContain('pnpm run build:electron:macos')
-    expect(gaps).not.toMatch(/build:electron:macos\s+# to be added/)
+  test.each(transitionalCharacterizationDocuments)('%s labels inherited behavior as transitional characterization', (relativePath) => {
+    const document = read(relativePath)
+
+    expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
+    expect(document).toMatch(/transitional source characterization|transitional source behavior|legacy manager/i)
+    expect(document).toContain('UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
   })
 
-  test('PLATFORMS continuous scan is backend-aware for Electron (F024)', () => {
-    const platforms = read('docs/PLATFORMS.md')
-    // Must not claim uniform Y via all three backends including WinRT
-    expect(platforms).not.toMatch(/Y \(BlueZ \/ WinRT \/ CoreBluetooth backends\)/)
-    expect(platforms).toMatch(/CoreBluetooth|BlueZ|WinRT/)
-    expect(platforms.toLowerCase()).toMatch(/placeholder|partial|preview|l2/)
+  test.each(supersededAuthorityDocuments)('%s cannot compete with the clean-baseline authority', (relativePath) => {
+    const document = read(relativePath)
+
+    expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
+    expect(document).toMatch(/historical|superseded|authority boundary/i)
+    expect(document).toContain('UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
   })
 
-  test('PLATFORMS services-changed honesty for port hosts (F065)', () => {
-    const platforms = read('docs/PLATFORMS.md')
-    // RN remains native-backed Y; port hosts must not claim full radio Services Changed
-    expect(platforms).toMatch(/services-changed|servicesChanged|onServicesReset/)
-    expect(platforms).toMatch(/partial|listener API|software|test inject|emitServicesReset/i)
+  test('the seven canonical ADRs replace every transitional ADR path', () => {
+    const adrDirectory = path.join(root, 'docs/ADR')
+    const actual = fs.readdirSync(adrDirectory).sort()
+    const expected = canonicalAdrDocuments.map((relativePath) => path.basename(relativePath)).sort()
+
+    expect(actual).toEqual(expected)
+    deletedTransitionalAdrs.forEach((relativePath) => {
+      expect(fs.existsSync(path.join(root, relativePath))).toBe(false)
+    })
   })
 
-  test('HELPERS.md documents strategic central recipes + package exports', () => {
-    const helpers = read('docs/HELPERS.md')
-    expect(helpers).toMatch(/findDevice/)
-    expect(helpers).toMatch(/connectAndDiscover/)
-    expect(helpers).toMatch(/firstNotification/)
-    expect(helpers).toMatch(/tryReadCharacteristicBytes/)
-    expect(helpers).toMatch(/waitForState/)
-    expect(helpers).toMatch(/safeTeardown/)
-    expect(helpers).toMatch(/assertSupported/)
-    expect(helpers).toMatch(/continuousScan|requestDevice/)
-    const getting = read('docs/GETTING_STARTED.md')
-    expect(getting).toMatch(/HELPERS\.md|helpers/)
-    const { findDevice, connectAndDiscover, waitForState } = require('unified-ble-manager')
-    expect(typeof findDevice).toBe('function')
-    expect(typeof connectAndDiscover).toBe('function')
-    expect(typeof waitForState).toBe('function')
+  test.each(canonicalAdrDocuments)('%s is an accepted canonical decision record', (relativePath) => {
+    const document = read(relativePath)
+
+    expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
+    expect(document).toContain('**Status:** Accepted design baseline')
+    expect(document).toContain('## Decision')
+    expect(document).toContain('## Consequences and gates')
+    expect(document).toContain('## Rejected alternatives')
   })
 
-  test('EXPO_PLUGIN / GETTING_STARTED / CONNECTION_MANAGER lead with unified-ble-manager (F016, F022)', () => {
-    const expo = read('docs/EXPO_PLUGIN.md')
-    const getting = read('docs/GETTING_STARTED.md')
-    const cm = read('docs/CONNECTION_MANAGER.md')
+  test('canonical ADRs record the accepted binary, restoration, and scope decisions', () => {
+    const boundary = read('docs/ADR/2026-07-4.0-boundary.md')
+    const restoration = read('docs/ADR/2026-07-4.0-rn-restoration-bootstrap.md')
+    const governance = read('docs/ADR/2026-07-4.0-open-source-governance.md')
 
-    expect(expo).toMatch(/unified-ble-manager/)
-    expect(expo).toMatch(/plugins":\s*\[\s*"unified-ble-manager"|plugins.*unified-ble-manager/)
-    expect(expo).toMatch(/unified-ble-manager\/Restoration|pod 'unified-ble-manager\/Restoration'/)
-
-    expect(getting).toContain("from 'unified-ble-manager'")
-    // Ex.1 / Ex.2 primary samples use 4.0 package
-    expect(getting).toMatch(/#### Ex\.1[\s\S]*from 'unified-ble-manager'/)
-    expect(getting).toMatch(/#### Ex\.2[\s\S]*from 'unified-ble-manager'/)
-
-    expect(cm).toContain("from 'unified-ble-manager'")
+    expect(boundary).toMatch(/one\s+owned, versioned C\+\+ JSI binary transport/)
+    expect(boundary).toMatch(/never use Base64, a parallel bridge, a compatibility\s+fallback/)
+    expect(boundary).toContain('Electron main is the only production radio owner')
+    expect(restoration).toContain('exactly one `CBCentralManager`')
+    expect(restoration).toContain('It never creates a second central')
+    expect(governance).toContain('Meta Quest is explicitly deferred to 4.1')
+    expect(governance).toContain('absent from 4.0 work packages')
   })
 
-  test('FORK.md and TVOS.md lead with Path A unified-ble-manager (R2-F041, R2-F042)', () => {
-    const fork = read('docs/FORK.md')
-    const tvos = read('docs/TVOS.md')
+  test('roadmap rejects compatibility, dual APIs, static matrices, Noble, and reduced scope', () => {
+    const roadmap = read('ROADMAP.4.0.md')
 
-    expect(fork).toMatch(/Canonical package \(4\.0 Path A\).*unified-ble-manager/s)
-    expect(fork).toContain('unified-ble-manager')
-    expect(fork).toMatch(/MIGRATION_4\.0\.md/)
-    // Must not present scoped name as the sole product identity
-    expect(fork).not.toMatch(/^\*\*Package:\*\* `@sfourdrinier\/react-native-ble-plx`\s*$/m)
-
-    expect(tvos).toContain("from 'unified-ble-manager'")
-    expect(tvos).not.toMatch(/from '@sfourdrinier\/react-native-ble-plx'/)
+    expect(roadmap).toContain('not a compatibility release')
+    expect(roadmap).toContain('bytes-only public and backend BLE contracts')
+    expect(roadmap).toContain('does not preserve a permanent 3.x API')
+    expect(roadmap).toContain('Meta Quest, peripheral mode, Bluetooth Classic, LE Audio, L2CAP CoC')
+    expect(roadmap).toContain('retains an evidence-bound `Live Preview` target but is not a 4.0 gate')
+    expect(roadmap).toContain('are deferred to 4.1')
+    expect(roadmap).not.toMatch(/hard compatibility guarantee/i)
+    expect(roadmap).not.toMatch(/Base64 still available unless 5\.0/i)
+    expect(roadmap).not.toMatch(/thin install\/import shim/i)
   })
 
-  test('BACKGROUND covers FGS matrix and owned restore path (F062, F077)', () => {
-    const bg = read('docs/BACKGROUND.md')
-    expect(bg).toMatch(/foreground service|FGS|enableBackgroundMode/i)
-    expect(bg).toMatch(/com\.sfourdrinier\.unifiedblemanager\.BlePlxForegroundService/)
-    expect(bg).toMatch(/OwnedCoreBluetoothAdapter|owned CoreBluetooth|willRestoreState/)
-    expect(bg).not.toMatch(/reused `BleClientManager`/)
-    expect(bg).toMatch(/unified-ble-manager\/Restoration|pod 'unified-ble-manager\/Restoration'/)
-  })
-
-  test('ELECTRON documents per-OS status (F063)', () => {
-    const electron = read('docs/ELECTRON.md')
-    expect(electron).not.toMatch(/Linux \*\*BlueZ\*\*.*is the implemented desktop-native path today/)
-    expect(electron).toMatch(/macOS|CoreBluetooth/)
-    expect(electron).toMatch(/BlueZ|Linux/)
-    expect(electron).toMatch(/WinRT|Windows/)
-  })
-
-  test('RN bytes path interim Base64 bridge is documented (F092 / GAP-GA-PERF)', () => {
-    const gaps = read('docs/GAPS.4.0.md')
-    const platforms = read('docs/PLATFORMS.md')
+  test('migration and release docs refuse to invent a compatibility publication path', () => {
     const migration = read('MIGRATION_4.0.md')
-    const bleManager = read('src/BleManager.ts')
+    const release = read('RELEASE.md')
 
-    expect(gaps).toMatch(/GAP-GA-PERF/)
-    expect(gaps).toMatch(/Base64 native bridge|TurboModule ArrayBuffer|F036|F092/)
-    expect(platforms).toMatch(/Base64 bridge|TurboModule ArrayBuffer|F036|F092/)
-    expect(migration).toMatch(/Interim \(RN host|Base64 native bridge|TurboModule/)
-    expect(bleManager).toMatch(/INTERIM \(F036 \/ F092 \/ GAP-GA-PERF\)/)
-    expect(bleManager).toMatch(/bytesToBase64 → BleModule\.write\*/)
+    expect(migration).toContain('no released 4.0 API instructions yet')
+    expect(migration).toContain('not a source-compatible rename')
+    expect(migration).toContain('Base64 only as an explicit codec helper')
+    expect(migration).not.toMatch(/zero-change (JS )?API/i)
+    expect(migration).not.toMatch(/optional bytes codemod/i)
+    expect(migration).not.toMatch(/install `?unified-ble-manager/i)
+
+    expect(release).toContain('does not define a 4.0 API')
+    expect(release).toContain('does not authorize publishing 4.0')
+    expect(release).toContain('no permanent scoped shim')
+    expect(release).not.toMatch(/publishes the \*\*4\.0 dual identity\*\*/i)
   })
 
-  test('GETTING_STARTED leads with requestBluetoothPermissions helper (F085)', () => {
-    const getting = read('docs/GETTING_STARTED.md')
-    expect(getting).toMatch(/requestBluetoothPermissions/)
-    expect(getting).toMatch(/neverForLocation/)
-    expect(getting).toMatch(/ACCESS_FINE_LOCATION/)
-  })
-
-  test('ELECTRON packaging + Fake CI-only honesty (F067)', () => {
-    const electron = read('docs/ELECTRON.md')
-    expect(electron).toContain('build:electron:macos')
-    const gaps = read('docs/GAPS.4.0.md')
+  test('platform pages make instantiated backend evidence, not static source behavior, authoritative', () => {
     const platforms = read('docs/PLATFORMS.md')
-
-    // Per-OS truth: mac L2 full BlePort; BlueZ partial; WinRT placeholder
-    expect(electron).toMatch(/L2 full BlePort|full BlePort/)
-    expect(electron).toMatch(/Partial|preview/)
-    expect(electron).toMatch(/Placeholder|placeholder/)
-    expect(electron).not.toMatch(/full BlePort still open/i)
-
-    // electron-rebuild / @electron/rebuild install notes (not node-gyp alone)
-    expect(electron).toMatch(/@electron\/rebuild|electron-rebuild/)
-    expect(electron).toMatch(/node-gyp/)
-    expect(electron).toMatch(/com\.apple\.security\.device\.bluetooth/)
-
-    // Fake is CI / tests / smoke — not production radio
-    expect(electron).toMatch(/CI.*only|tests.*only|headless smoke/i)
-    expect(electron).toMatch(/allowMockFallback:\s*false|allowMockFallback: false/)
-
-    // GAPS baseline must not claim mac BlePort still open; PKG docs landed
-    expect(gaps).not.toMatch(/full BlePort still open/i)
-    expect(gaps).toMatch(/macOS:.*full CoreBluetooth BlePort.*done \(L2 software\)/)
-    expect(gaps).toMatch(/GAP-E-MAC-PKG.*done \(L0 docs\)/)
-
-    // PLATFORMS aligns Fake = CI-only + rebuild note
-    expect(platforms).toMatch(/CI|unit tests|headless smoke/i)
-    expect(platforms).toMatch(/@electron\/rebuild|electron-rebuild/)
-  })
-
-  test('Claude/CLAUDE floors match Expo 57 / RN 0.86 / Node 20 (F016)', () => {
-    const claude = read('CLAUDE.md')
-    expect(claude).toMatch(/Expo 57|expo \^57|Expo SDK 57/)
-    expect(claude).toMatch(/0\.86|React Native 0\.86/)
-    expect(claude).toMatch(/Node.*20|engines.*20|>= 20|Node \^20/)
-    expect(claude).toMatch(/unified-ble-manager/)
-    expect(claude).not.toMatch(/Expo 54/)
-    expect(claude).not.toMatch(/0\.81\.4/)
-    expect(claude).not.toMatch(/Node >= 18\.0\.0/)
-  })
-
-  // R2-F006 / R2-F010: README leads with 4.0 identity + bonding honesty
-  test('R2-F006/F010 README Path A unified-ble-manager + does not claim createBond unsupported', () => {
-    const readme = read('README.md')
-    expect(readme).toMatch(/pnpm add unified-ble-manager|npm install unified-ble-manager/)
-    expect(readme).toMatch(/plugins":\s*\[\s*"unified-ble-manager"|plugins.*unified-ble-manager/)
-    expect(readme).toMatch(/pod 'unified-ble-manager\/Restoration'|unified-ble-manager\/Restoration/)
-    expect(readme).toMatch(/from 'unified-ble-manager'/)
-    // Manual Android install must lead with Path A (not scoped-only)
-    expect(readme).toMatch(/### Android \(Manual Setup\)[\s\S]*?pnpm add unified-ble-manager/)
-    // Bonding honesty: Android createBond is supported; must not list createBond as unsupported
-    expect(readme).not.toMatch(/does NOT support[\s\S]*createBond/i)
-    expect(readme).not.toMatch(/Explicit OS bonding\/pairing APIs \(`createBond`-style control\)/)
-    expect(readme).toMatch(/createBond|BONDING\.md|Android bonding/i)
-    // Dead 3.x pod path must not remain as the primary recipe
-    expect(readme).not.toContain("pod 'react-native-ble-plx/Restoration'")
-  })
-
-  // R2-F011: Phase 5 must not claim live CoreBluetooth radio still open
-  test('R2-F011 ROADMAP Phase 5 Electron status matches GAPS macOS L2 done', () => {
-    const roadmap40 = read('ROADMAP.4.0.md')
-    expect(roadmap40).not.toMatch(/live WinRT\/CoreBluetooth radio still open/)
-    expect(roadmap40).not.toMatch(/CoreBluetooth radio still open/)
-    expect(roadmap40).toMatch(/macOS CoreBluetooth BlePort done \(L2 software\)|CoreBluetooth BlePort \*\*done \(L2 software\)\*\*/)
     const gaps = read('docs/GAPS.4.0.md')
-    expect(gaps).toMatch(/GAP-E-MAC-PORT.*done \(L2 software\)/)
+
+    expect(platforms).toContain('not a static 4.0 capability matrix')
+    expect(platforms).toContain('typed capabilities of its instantiated backend')
+    expect(gaps).toContain('not architecture authority')
+    expect(gaps).toContain('current-state characterization and migration input')
+    expect(gaps).toContain('must never be presented as live-radio proof')
   })
 
-  // R2-F013: live scripts split headless CLI vs Electron UI rebuild
-  test('R2-F013 example:electron:live is live-polar; ui:live uses @electron/rebuild', () => {
-    const pkg = JSON.parse(read('package.json'))
-    expect(pkg.scripts['example:electron:live']).toMatch(/live-polar\.js/)
-    expect(pkg.scripts['example:electron:live']).not.toMatch(/electron example-electron\/main\.js/)
-    expect(pkg.scripts['example:electron:ui:live']).toMatch(/@electron\/rebuild|electron\/rebuild/)
-    expect(pkg.scripts['example:electron:ui:live']).toMatch(/ELECTRON_BLE_REQUIRE_NATIVE=1/)
-    expect(pkg.scripts['example:electron:ui:live']).toMatch(/electron example-electron\/main\.js/)
-    const electronDoc = read('docs/ELECTRON.md')
-    expect(electronDoc).toContain('example:electron:ui:live')
-    expect(electronDoc).toContain('example:electron:live')
-  })
+  test('profile discovery documentation names only supported hyphenated package exports', () => {
+    const discovery = read('docs/DISCOVERY_AND_PROFILES.md')
+    const commands = read('docs/PROFILES_AND_COMMANDS.md')
+    const supportedProfileSubpaths = [
+      'unified-ble-manager/profiles/heart-rate',
+      'unified-ble-manager/profiles/battery-service',
+      'unified-ble-manager/profiles/device-information',
+      'unified-ble-manager/profiles/health-thermometer',
+      'unified-ble-manager/profiles/blood-pressure'
+    ]
 
-  // R2-F115: WEB.md documents service-less filter fail-closed
-  test('R2-F115 WEB.md documents service-less filters require optionalServices', () => {
-    const web = read('docs/WEB.md')
-    expect(web).toMatch(/service-less|namePrefix|name \/ namePrefix/i)
-    expect(web).toMatch(/Fail closed|fail closed/i)
-    expect(web).toMatch(/optionalServices/)
-  })
-
-  // R2-F049: PERFORMANCE.md is a real deliverable (not a dangling ROADMAP path)
-  test('R2-F049 PERFORMANCE.md exists with dual-path honesty + harness', () => {
-    expect(fs.existsSync(path.join(root, 'docs/PERFORMANCE.md'))).toBe(true)
-    const perf = read('docs/PERFORMANCE.md')
-    expect(perf).toMatch(/GAP-GA-PERF|Base64 native bridge|Benchmark\.harness/)
-    expect(perf).toMatch(/interim|F092|F036/i)
-    const roadmap = read('ROADMAP.4.0.md')
-    expect(roadmap).toMatch(/docs\/PERFORMANCE\.md/)
-  })
-
-  // R2-F050: Phase 3 Status distinguishes owned default vs GAP-GA-LEGACY
-  test('R2-F050 ROADMAP Phase 3 has Status + GAP-GA-LEGACY honesty', () => {
-    const roadmap = read('ROADMAP.4.0.md')
-    expect(roadmap).toMatch(/### Phase 3[\s\S]*?\| Work \| Status \|/)
-    expect(roadmap).toMatch(/GAP-GA-LEGACY/)
-    expect(roadmap).toMatch(/Done \(L2 default path\)|default path|L2 default/i)
-    expect(roadmap).toMatch(/android\/src\/legacy|ios\/vendor/)
-  })
-
-  // R2-F051: BONDING.md OS-honest manager.supports
-  test('R2-F051 BONDING.md OS-honest manager.supports bonding on iOS', () => {
-    const bonding = read('docs/BONDING.md')
-    expect(bonding).toMatch(/manager\.supports\('bonding'\) === false/)
-    expect(bonding).toMatch(/OS-honest/i)
-    expect(bonding).not.toMatch(/supports\('bonding'\) is `?true`? on the react-native host/)
-  })
-
-  // R2-F052: multi-host NODE + Electron recipes + GETTING_STARTED links
-  test('R2-F052 NODE.md and multi-host recipes exist', () => {
-    expect(fs.existsSync(path.join(root, 'docs/NODE.md'))).toBe(true)
-    const node = read('docs/NODE.md')
-    expect(node).toMatch(/unified-ble-manager\/node/)
-    expect(node).toMatch(/allowMockFallback:\s*false|allowMockFallback: false/)
-    expect(node).toMatch(/FakeBlePort|inject/)
-    const electron = read('docs/ELECTRON.md')
-    expect(electron).toMatch(/GAP-E-LIN-LAB|Linux L4/)
-    expect(electron).toMatch(/requireNative:\s*true|requireNative: true/)
-    expect(electron).toMatch(/What works today|placeholder/i)
-    const getting = read('docs/GETTING_STARTED.md')
-    expect(getting).toMatch(/unified-ble-manager\/node|NODE\.md/)
-    expect(getting).toMatch(/Multi-host/)
-  })
-
-  // R2-F053: GAPS issue index includes RN-BYTES + B3; next work not stale RN-Q/LW only
-  test('R2-F053 GAPS indexes GAP-RN-BYTES and GAP-B3; next TS work updated', () => {
-    const gaps = read('docs/GAPS.4.0.md')
-    expect(gaps).toMatch(/GAP-RN-BYTES/)
-    expect(gaps).toMatch(/GAP-B3/)
-    expect(gaps).toMatch(/catalog[\s\S]{0,80}GAP-RN-BYTES|GAP-RN-BYTES[\s\S]{0,120}open/)
-    expect(gaps).toMatch(/catalog[\s\S]{0,40}GAP-B3|GAP-B3[\s\S]{0,80}open/)
-    expect(gaps).toMatch(/GAP-RN-BYTES|native ArrayBuffer|GAP-GA-PERF/)
-    expect(gaps).toMatch(/GAP-RN-Q[\s\S]{0,80}done|already \*\*done L1\*\*|are done \(L1/)
-  })
-
-  // R2-F054 / R2-F055: requestMTU iOS report-only + servicesChanged contract
-  test('R2-F054/F055 PLATFORMS requestMTU report-only + servicesChanged contract', () => {
-    const platforms = read('docs/PLATFORMS.md')
-    expect(platforms).toMatch(/report-only|cannot negotiate|maximumWriteValueLength/i)
-    expect(platforms).toMatch(/request MTU[\s\S]{0,220}Android/)
-    expect(platforms).toMatch(/servicesChanged contract|fail-closed|test inject/i)
-    expect(platforms).toMatch(/supports\('servicesChanged'\)[\s\S]{0,120}false|Web[\s\S]{0,60}false/)
-  })
-
-  // R3-F013: servicesChanged fail-closed on electron/node matrix + docs
-  test('R3-F013 servicesChanged fail-closed for electron/node (manager.supports truth)', () => {
-    expect(supports('servicesChanged', 'electron')).toBe(false)
-    expect(supports('servicesChanged', 'node')).toBe(false)
-    expect(supports('servicesChanged', 'web')).toBe(false)
-    expect(supports('servicesChanged', 'react-native')).toBe(true)
-    const platforms = read('docs/PLATFORMS.md')
-    const node = read('docs/NODE.md')
-    expect(platforms).not.toMatch(/Electron \/ Node[\s\S]{0,40}\*\*true \(partial\)\*\*/)
-    expect(platforms).toMatch(/Electron \/ Node[\s\S]{0,80}\*\*false\*\*/)
-    expect(node).toMatch(/servicesChanged.*false|servicesChanged` \*\*false\*\*/)
-  })
-
-  // R3-F014: ROADMAP requestDevice is PortAdvertisement handle, not Promise<Device>
-  test('R3-F014 ROADMAP requestDevice is PortAdvertisement handle (not Promise<Device>)', () => {
-    const roadmap40 = read('ROADMAP.4.0.md')
-    const roadmap = read('ROADMAP.md')
-    expect(roadmap40).not.toMatch(/requestDevice\([^)]*\):\s*Promise<\s*Device\s*>/)
-    expect(roadmap).not.toMatch(/requestDevice\([^)]*\):\s*Promise<\s*Device\s*>/)
-    expect(roadmap40).toMatch(/PortAdvertisement|id,\s*name,\s*rssi|connectToDevice/)
-    expect(roadmap).toMatch(/PortAdvertisement|id;\s*name;\s*rssi|connectToDevice/)
-  })
-
-  // R3-F060: WEB disconnect honesty
-  test('R3-F060 WEB.md documents onDeviceDisconnected not wired', () => {
-    const web = read('docs/WEB.md')
-    expect(web).toMatch(/onDeviceDisconnected/)
-    expect(web).toMatch(/onDisconnect|not yet wired|poll isDeviceConnected/i)
-  })
-
-  // R3-F070: GAPS done GAPs not re-opened as implement steps
-  test('R3-F070 GAPS M2/M3 residual L4; issue title uses open GAP', () => {
-    const gaps = read('docs/GAPS.4.0.md')
-    expect(gaps).toMatch(/GAP-IOS-DESC[\s\S]{0,120}done \(L2|L4 device lab/)
-    expect(gaps).toMatch(/GAP-E-MAC-PORT[\s\S]{0,120}done \(L2|GAP-E-MAC-LAB/)
-    expect(gaps).toMatch(/\[GAP-E-MAC-LAB\]/)
-    expect(gaps).not.toMatch(/\[GAP-E-MAC-PORT\] Electron macOS: implement real CoreBluetooth BlePort/)
-  })
-
-  // R3-F074: codemod GA bullets checked
-  test('R3-F074 ROADMAP.4.0 GA codemod bullets marked done', () => {
-    const roadmap40 = read('ROADMAP.4.0.md')
-    expect(roadmap40).toMatch(/- \[x\] Optional codemod \+ fixtures in CI/)
-    expect(roadmap40).toMatch(/- \[x\] No .must run codemod to upgrade. messaging/)
-  })
-
-  // R2-F068: BACKGROUND cold-null vs optional Restoration subspec
-  test('R2-F068 BACKGROUND restore matrix cold-null vs optional subspec', () => {
-    const bg = read('docs/BACKGROUND.md')
-    expect(bg).toMatch(/[Cc]old-null|cold launch|Cold launch/)
-    expect(bg).toMatch(/Owned default path|owned.*willRestoreState|Owned \+ identifier/i)
-    expect(bg).toMatch(/Optional Restoration subspec|optional.*Restoration subspec/i)
-    expect(bg).not.toMatch(/Restoration subspec off \+ identifier \| May wait until destroy/)
-    expect(bg).toMatch(/Identifier-only is enough|subspec is not required|not required for cold-null/i)
-  })
-
-  // R2-F098: CI baseline vs GAP-CI-* residual honesty
-  test('R2-F098 GAPS CI baseline vs GAP-CI-* residual honesty', () => {
-    const gaps = read('docs/GAPS.4.0.md')
-    expect(gaps).toMatch(/GAP-E-MAC-CI/)
-    expect(gaps).toMatch(/GAP-CI-WIN|fail-closed/)
-    expect(gaps).toMatch(/GAP-CI-LIN|mock only/)
-    const macCiRow = gaps.match(/^\| \*\*GAP-E-MAC-CI\*\*[^\n]+/m)
-    expect(macCiRow).toBeTruthy()
-    expect(macCiRow[0]).toMatch(/partial|open|Residual|residual/)
-    expect(gaps).toMatch(/lib\/commonjs\/hosts\/electron|Electron L2|GAP-E-MAC-CI/)
+    for (const subpath of supportedProfileSubpaths) {
+      expect(discovery).toContain(subpath)
+      expect(commands).toContain(subpath)
+    }
+    expect(discovery).not.toMatch(
+      /profiles\/(heartRate|battery(?!-service)|deviceInformation|healthThermometer|bloodPressure)/
+    )
   })
 })

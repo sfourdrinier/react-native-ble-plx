@@ -1,4 +1,8 @@
-# ROADMAP 4.0 Round 3 — Confirmed findings (77)
+<!-- docs/FIX_TRACKER.4.0-round3.md -->
+
+# Historical ROADMAP 4.0 Round 3 — Confirmed findings
+
+> **Historical record:** this tracker records findings against the transitional source tree. It is not 4.0 architecture, sequencing, compatibility, or release authority. See [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
 
 Adversarially verified from e2e-review-3. Fix all severities.
 
@@ -90,4 +94,3 @@ All **77** confirmed R3 findings addressed in working tree (code, docs, tests, o
 **Verify:** `pnpm test:package` (714) + `pnpm typecheck` green.
 
 **Not re-run:** adversarial e2e review (expensive; stop per product decision). Residual product charter still open outside R3 list: L4/L5 device lab, native ArrayBuffer RN path (GAP-RN-BYTES), WinRT/BlueZ L4.
-

@@ -85,8 +85,9 @@ type ResolvedConnectionOptions = {
   timeoutMs: number
 }
 
-const ignoreConnectionCancellationError = () => {
-  // Native cancellation can reject if the connection already ended.
+const reportConnectionCancellationFailure = (operation: string, error: unknown): void => {
+  // Cancellation races are expected at the BLE boundary, but must remain observable.
+  console.error(`[ConnectionManager] ${operation} failed:`, error)
 }
 
 /**
@@ -125,6 +126,8 @@ interface DeviceConnectionState {
   attemptId: number // Generation token to invalidate old async attempts
   /** True while attemptConnectOnce owns the in-flight attempt for this device. */
   gatedAttempt: boolean
+  /** Monotonic native-connect sequence used to reconcile a source promise that settles after timeout. */
+  nativeAttemptSerial: number
   /**
    * After user cancel of an in-flight connect on an auto-reconnect device, ignore the
    * next disconnect for auto-rearm (that disconnect is from cancelDeviceConnection).
@@ -353,6 +356,7 @@ export class ConnectionManager {
         cancelled: false,
         attemptId: existing ? existing.attemptId + 1 : 0,
         gatedAttempt: mode.gated,
+        nativeAttemptSerial: 0,
         pendingPromise: { resolve, reject }
       }
 
@@ -424,7 +428,8 @@ export class ConnectionManager {
         callbacks,
         cancelled: false,
         attemptId: 0,
-        gatedAttempt: false
+        gatedAttempt: false,
+        nativeAttemptSerial: 0
       }
 
       this._devices.set(deviceId, state)
@@ -511,9 +516,7 @@ export class ConnectionManager {
       // after the deviceIds snapshot (would leave native work + unsettled promises).
       if (!this._destroying) {
         invokeUserCallback('onConnectFailed', () => state.callbacks?.onConnectFailed?.(deviceId, error))
-        invokeUserCallback('global onConnectFailed', () =>
-          this._globalCallbacks.onConnectFailed?.(deviceId, error)
-        )
+        invokeUserCallback('global onConnectFailed', () => this._globalCallbacks.onConnectFailed?.(deviceId, error))
       }
     }
 
@@ -622,22 +625,18 @@ export class ConnectionManager {
         suppressGeneration = state.suppressGeneration
       }
       const deviceId = state.deviceId
-      this._manager.cancelDeviceConnection(deviceId).then(
-        () => {
-          // Cancel accepted — keep suppress until the cancel-induced disconnect is consumed.
-        },
-        () => {
-          ignoreConnectionCancellationError()
-          const current = this._devices.get(deviceId)
-          if (
-            current &&
-            current.suppressNextAutoReconnect &&
-            current.suppressGeneration === suppressGeneration
-          ) {
-            current.suppressNextAutoReconnect = false
-          }
+      const handleCancellationFailure = (error: unknown) => {
+        reportConnectionCancellationFailure('cancelDeviceConnection during state cancellation', error)
+        const current = this._devices.get(deviceId)
+        if (current && current.suppressNextAutoReconnect && current.suppressGeneration === suppressGeneration) {
+          current.suppressNextAutoReconnect = false
         }
-      )
+      }
+      try {
+        this._manager.cancelDeviceConnection(deviceId).catch(handleCancellationFailure)
+      } catch (error) {
+        handleCancellationFailure(error)
+      }
     }
   }
 
@@ -698,6 +697,53 @@ export class ConnectionManager {
   }
 
   /**
+   * A native connect can fulfill after its wall-clock timeout when the initial
+   * cancellation failed. Disconnect it only while no newer native attempt owns
+   * this device id; device-level cancellation cannot distinguish two attempts.
+   */
+  private _reconcileLateTimedOutConnection(
+    state: DeviceConnectionState,
+    attemptId: number,
+    nativeAttemptSerial: number
+  ): void {
+    const current = this._devices.get(state.deviceId)
+    if (
+      current &&
+      (current !== state || state.attemptId !== attemptId || state.nativeAttemptSerial !== nativeAttemptSerial)
+    ) {
+      console.error(
+        '[ConnectionManager] Timed-out native connect succeeded after a newer attempt began; refusing device-level cleanup that could cancel the newer attempt:',
+        state.deviceId
+      )
+      return
+    }
+
+    console.error(
+      '[ConnectionManager] Timed-out native connect later succeeded; reconciling with a best-effort disconnect:',
+      state.deviceId
+    )
+    try {
+      this._manager.cancelDeviceConnection(state.deviceId).then(
+        () => {
+          const currentAfterCleanup = this._devices.get(state.deviceId)
+          if (
+            currentAfterCleanup === state &&
+            state.attemptId === attemptId &&
+            state.nativeAttemptSerial === nativeAttemptSerial
+          ) {
+            state.isConnecting = false
+          }
+        },
+        error => {
+          reportConnectionCancellationFailure('cancelDeviceConnection after late timed-out connection success', error)
+        }
+      )
+    } catch (error) {
+      reportConnectionCancellationFailure('start cancelDeviceConnection after late timed-out connection success', error)
+    }
+  }
+
+  /**
    * Attempt to connect to a device with timeout and retry logic
    */
   private async _attemptConnection(state: DeviceConnectionState): Promise<void> {
@@ -719,6 +765,8 @@ export class ConnectionManager {
 
     // Capture attempt ID to detect if this attempt was invalidated during async operations
     const myAttemptId = state.attemptId
+    state.nativeAttemptSerial += 1
+    const myNativeAttemptSerial = state.nativeAttemptSerial
 
     state.isConnecting = true
     state.retryCount++
@@ -733,24 +781,51 @@ export class ConnectionManager {
       this._globalCallbacks.onConnecting?.(state.deviceId, state.retryCount, maxRetries)
     )
 
-    // Set up connection timeout if configured
-    let timeoutError: BleError | null = null
     const timeoutMs = state.options.timeoutMs ?? 0
 
-    if (timeoutMs > 0) {
-      state.connectionTimeoutId = setTimeout(() => {
-        timeoutError = makeBleError(
-          BleErrorCode.OperationTimedOut,
-          `Connection timeout after ${timeoutMs}ms for device ${state.deviceId}`
-        )
-
-        // Cancel the connection attempt
-        this._manager.cancelDeviceConnection(state.deviceId).catch(ignoreConnectionCancellationError)
-      }, timeoutMs)
-    }
-
     try {
-      const device = await this._manager.connectToDevice(state.deviceId, state.options.connectionOptions)
+      const connect = this._manager.connectToDevice(state.deviceId, state.options.connectionOptions)
+      let timedOut = false
+      connect
+        .then(
+          () => {
+            if (timedOut) {
+              this._reconcileLateTimedOutConnection(state, myAttemptId, myNativeAttemptSerial)
+            }
+          },
+          error => {
+            if (timedOut) {
+              console.error('[ConnectionManager] Timed-out native connect later rejected:', error)
+            }
+          }
+        )
+        .catch(error => {
+          console.error('[ConnectionManager] Failed to observe a late native connection settlement:', error)
+        })
+      const timeout =
+        timeoutMs > 0
+          ? new Promise<never>((_resolve, reject) => {
+              state.connectionTimeoutId = setTimeout(() => {
+                const timeoutError = makeBleError(
+                  BleErrorCode.OperationTimedOut,
+                  `Connection timeout after ${timeoutMs}ms for device ${state.deviceId}`
+                )
+                // Settle the race first: a synchronous/native cancellation rejection is a
+                // side effect of this timeout, never the caller-visible failure reason.
+                timedOut = true
+                reject(timeoutError)
+                try {
+                  this._manager.cancelDeviceConnection(state.deviceId).catch(error => {
+                    reportConnectionCancellationFailure('cancelDeviceConnection after connection timeout', error)
+                  })
+                } catch (error) {
+                  reportConnectionCancellationFailure('start cancelDeviceConnection after connection timeout', error)
+                }
+                // The raced native promise may remain pending, but cannot hold the caller open.
+              }, timeoutMs)
+            })
+          : null
+      const device = timeout ? await Promise.race([connect, timeout]) : await connect
 
       // Check if this attempt was invalidated during the async connect operation
       if (state.attemptId !== myAttemptId) {
@@ -770,16 +845,15 @@ export class ConnectionManager {
       // cancelDeviceConnection rejects — not via a post-success timer window that
       // would drop a real disconnect.
 
-      // Check if we timed out or were cancelled
-      if (timeoutError) {
-        throw timeoutError
-      }
-
       // Check if cancelled or removed after await (race condition protection)
       const currentState = this._devices.get(state.deviceId)
       if (!currentState || currentState !== state || currentState.cancelled) {
         // State was cancelled during connection - disconnect immediately
-        await this._manager.cancelDeviceConnection(state.deviceId).catch(ignoreConnectionCancellationError)
+        try {
+          await this._manager.cancelDeviceConnection(state.deviceId)
+        } catch (error) {
+          reportConnectionCancellationFailure('cancelDeviceConnection after stale connection success', error)
+        }
 
         // Check again after the disconnect await
         if (state.attemptId !== myAttemptId) {
@@ -822,8 +896,7 @@ export class ConnectionManager {
         state.connectionTimeoutId = undefined
       }
 
-      // Use timeout error if it occurred
-      const actualError = timeoutError || error
+      const actualError = error
 
       // Check if cancelled after await
       const currentState = this._devices.get(state.deviceId)
@@ -849,9 +922,7 @@ export class ConnectionManager {
           state.pendingPromise = undefined
         }
 
-        invokeUserCallback('onConnectFailed', () =>
-          state.callbacks?.onConnectFailed?.(state.deviceId, failureError)
-        )
+        invokeUserCallback('onConnectFailed', () => state.callbacks?.onConnectFailed?.(state.deviceId, failureError))
         invokeUserCallback('global onConnectFailed', () =>
           this._globalCallbacks.onConnectFailed?.(state.deviceId, failureError)
         )

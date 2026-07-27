@@ -172,6 +172,51 @@ describe('ConnectionManager', () => {
     expect(ble.cancelDeviceConnection).toHaveBeenCalledWith('D1');
   });
 
+  test('timeout settles even when native connect and native cancellation both never reject', async () => {
+    ble.connectToDevice.mockImplementation(() => new Promise(() => {}));
+    ble.cancelDeviceConnection.mockResolvedValue(undefined);
+    const p = mgr.connect('d1', { timeoutMs: 100, maxRetries: 1 });
+    const assertion = expect(p).rejects.toMatchObject({ errorCode: BleErrorCode.OperationTimedOut });
+
+    jest.advanceTimersByTime(100);
+    await flushMicrotasks();
+
+    await assertion;
+    expect(ble.cancelDeviceConnection).toHaveBeenCalledWith('D1');
+    expect(mgr.isConnecting('d1')).toBe(false);
+  });
+
+  test('late native success after timeout is reconciled with a second best-effort disconnect', async () => {
+    let resolveLateConnect;
+    ble.connectToDevice.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveLateConnect = resolve;
+        })
+    );
+    ble.cancelDeviceConnection.mockResolvedValue(undefined);
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const pending = mgr.connect('d1', { timeoutMs: 100, maxRetries: 1 });
+
+      jest.advanceTimersByTime(100);
+      await expect(pending).rejects.toMatchObject({ errorCode: BleErrorCode.OperationTimedOut });
+
+      resolveLateConnect(createDevice('d1'));
+      await flushMicrotasks();
+
+      expect(ble.cancelDeviceConnection).toHaveBeenCalledTimes(2);
+      expect(mgr.isConnecting('d1')).toBe(false);
+      expect(mgr.activeCount).toBe(0);
+      expect(errorLog).toHaveBeenCalledWith(
+        '[ConnectionManager] Timed-out native connect later succeeded; reconciling with a best-effort disconnect:',
+        'D1'
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
 
   test('normalizes mixed-case deviceId for connect cancel and disconnect (R3-F019)', async () => {
     const manager = createMockBleManager();
@@ -247,6 +292,27 @@ describe('ConnectionManager', () => {
     expect(cancelled).toBe(true);
 
     await expect(p).rejects.toMatchObject({ errorCode: BleErrorCode.OperationCancelled });
+  });
+
+  test('synchronous native cancel failure cannot throw from cancel or strand the pending promise', async () => {
+    ble.cancelDeviceConnection.mockImplementation(() => {
+      throw new Error('native cancel threw synchronously');
+    });
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const pending = mgr.connect('d1', { timeoutMs: 0 });
+
+      expect(() => mgr.cancel('d1')).not.toThrow();
+      await expect(pending).rejects.toMatchObject({ errorCode: BleErrorCode.OperationCancelled });
+      expect(mgr.isConnecting('d1')).toBe(false);
+      expect(mgr.activeCount).toBe(0);
+      expect(errorLog).toHaveBeenCalledWith(
+        '[ConnectionManager] cancelDeviceConnection during state cancellation failed:',
+        expect.any(Error)
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   test('BUG4 regression check: cancel should NOT trigger retries for autoReconnect devices', async () => {

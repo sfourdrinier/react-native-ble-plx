@@ -1,3 +1,5 @@
+// android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedBleAdapter.kt
+
 package com.sfourdrinier.unifiedblemanager.radio
 
 import android.annotation.SuppressLint
@@ -52,15 +54,20 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
 
   /** Monitor / pending ops cancellable via [cancelTransaction]. */
   private val transactionsById = ConcurrentHashMap<String, Cancellable>()
+  private val pendingOperations = ConcurrentHashMap.newKeySet<Cancellable.PendingOp>()
+  private val connectionOperations = ConcurrentHashMap.newKeySet<ConnectionOperation>()
+  private val lifecycle = OwnedAdapterLifecycleCoordinator()
 
   private var logLevel = "None"
   /** JS bridge: ATT Services Changed (API 31+ onServiceChanged). */
   private var servicesChangedListener: ((String) -> Unit)? = null
 
-  private data class NotifyEntry(
+  private class NotifyEntry(
     val callback: OnEventCallback<Characteristic>,
     /** Cached model at arm time — avoid full cacheServices rebuild per notify packet. */
-    val model: Characteristic
+    val model: Characteristic,
+    val ownership: OwnedMonitorOwnership,
+    val notificationDeliveryBlocked: AtomicBoolean = AtomicBoolean(false)
   )
 
   private sealed class Cancellable {
@@ -69,18 +76,35 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
       val deviceId: String,
       val serviceUuid: UUID,
       val charUuid: UUID,
-      val onError: OnErrorCallback
+      val onError: OnErrorCallback,
+      val entry: NotifyEntry
     ) : Cancellable()
 
     /**
      * Non-monitor op (R/W/descriptor/MTU/RSSI/discover) cancellable via [cancelTransaction].
      * [finished] gates double-settle when radio completes after cancel.
      */
-    data class PendingOp(
+    class PendingOp(
+      val transactionId: String,
       val finished: AtomicBoolean,
+      val ownership: OwnedOperationOwnership,
       val onError: OnErrorCallback
     ) : Cancellable()
   }
+
+  private class ConnectionOperation(
+    val finished: AtomicBoolean,
+    val ownership: OwnedOperationOwnership,
+    val onError: OnErrorCallback
+  )
+
+  /** Throwable propagated to the Java module so replacement remains fail-closed after teardown. */
+  internal class TeardownException(result: OwnedRadioTeardownResult) : IllegalStateException(
+    result.failures.joinToString(
+      prefix = "Owned Android radio teardown failed: ",
+      separator = "; "
+    ) { failure -> "${failure.operation}: ${failure.throwable.message}" }
+  )
 
   /**
    * Register listener for GATT services-changed (device id). Called from BlePlxModule.
@@ -89,30 +113,49 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     servicesChangedListener = listener
   }
 
+  fun isLifecycleActive(): Boolean = lifecycle.acquireOperation() != null
+
   override fun createClient(
     restoreStateIdentifier: String?,
     onAdapterStateChangeCallback: OnEventCallback<String>,
     onStateRestored: OnEventCallback<Int>
   ) {
     IdGenerator.clear()
+    val clientOwnership = lifecycle.activate()
     radio.onAdapterState = { state ->
-      mainHandler.post { onAdapterStateChangeCallback.onEvent(state) }
+      mainHandler.post {
+        if (lifecycle.owns(clientOwnership)) {
+          onAdapterStateChangeCallback.onEvent(state)
+        }
+      }
     }
     // Global hook for logging only — multi-device delivery uses registerConnectionListener.
     radio.onConnectionState = { id, connected, gattStatus ->
       OwnedAndroidLog.d("connection $id connected=$connected status=$gattStatus")
     }
-    radio.onNotification = { deviceId, serviceUuid, charUuid, value ->
+    radio.onNotification = notification@{ deviceId, serviceUuid, charUuid, value ->
       val key = notifyKey(deviceId, serviceUuid, charUuid)
-      val entry = notifyCallbacks[key] ?: return@onNotification
+      // No registered monitor owns this packet. Do not schedule a JS callback.
+      val entry = notifyCallbacks[key] ?: return@notification
       // value is already cloned on the radio binder thread; snapshot model before post.
       val snapshot = Characteristic(entry.model)
       // R2-F021: Base64 encode on binder/background so main thread only posts the event.
       val valueBase64 = Base64Converter.encode(value)
       snapshot.setValue(value, valueBase64)
-      mainHandler.post { entry.callback.onEvent(snapshot) }
+      mainHandler.post {
+        if (
+          lifecycle.owns(entry.ownership) &&
+            !entry.notificationDeliveryBlocked.get() &&
+            notifyCallbacks[key] === entry
+        ) {
+          entry.callback.onEvent(snapshot)
+        }
+      }
     }
-    radio.onServicesChanged = { deviceId ->
+    radio.onServicesChanged = servicesChanged@{ deviceId ->
+      if (!lifecycle.owns(clientOwnership)) {
+        return@servicesChanged
+      }
       // Clear cached GATT tree so next discover rebuilds (Android docs: rediscover).
       serviceById.entries.removeIf { (_, svc) ->
         svc.deviceID.equals(deviceId, ignoreCase = true)
@@ -126,7 +169,11 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
       // Stale GATT handles: settle monitors with OperationCancelled (no CCCD write needed;
       // rediscover will re-arm). Keeps transactionsById in sync with notifyCallbacks.
       tearDownMonitorsForDevice(deviceId, disableRadio = false, emitCancelled = true)
-      mainHandler.post { servicesChangedListener?.invoke(deviceId) }
+      mainHandler.post {
+        if (lifecycle.owns(clientOwnership)) {
+          servicesChangedListener?.invoke(deviceId)
+        }
+      }
     }
     radio.onScanFailed = { errorCode ->
       // Wired per startDeviceScan; default log only if no scan active.
@@ -135,20 +182,35 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     radio.registerAdapterStateReceiver()
     // Owned core does not restore MBA-style state; emit null restore signal if key present
     if (restoreStateIdentifier != null) {
-      mainHandler.post { onStateRestored.onEvent(null) }
+      mainHandler.post {
+        if (lifecycle.owns(clientOwnership)) {
+          onStateRestored.onEvent(null)
+        }
+      }
     }
-    mainHandler.post { onAdapterStateChangeCallback.onEvent(radio.currentState()) }
+    mainHandler.post {
+      if (lifecycle.owns(clientOwnership)) {
+        onAdapterStateChangeCallback.onEvent(radio.currentState())
+      }
+    }
   }
 
   override fun destroyClient() {
+    lifecycle.stopAdmission()
+    settleDestroyedOperations()
+    settleDestroyedMonitors()
     transactionsById.clear()
     notifyCallbacks.clear()
-    radio.destroy()
+    lifecycle.invalidateRetiredGeneration()
+    val teardownResult = radio.destroy()
     devices.clear()
     serviceById.clear()
     charById.clear()
     descById.clear()
     IdGenerator.clear()
+    if (!teardownResult.isSuccessful) {
+      throw TeardownException(teardownResult)
+    }
   }
 
   override fun getCurrentState(): String = radio.currentState()
@@ -161,6 +223,11 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     onEventCallback: OnEventCallback<ScanResult>,
     onErrorCallback: OnErrorCallback
   ) {
+    val scanOwnership = lifecycle.acquireOperation()
+    if (scanOwnership == null) {
+      onErrorCallback.onError(destroyedError())
+      return
+    }
     try {
       radio.onScanResult = { id, name, rssi, connectable, raw ->
         val device = devices.getOrPut(id.uppercase()) { Device(id, name) }
@@ -172,21 +239,28 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
         // R3-F050: Base64-encode manufacturer/service/raw scan fields on the scanner/binder
         // thread so main only posts a ready payload (mirrors R2-F021 notify path).
         result.preEncodeBase64Fields()
-        mainHandler.post { onEventCallback.onEvent(result) }
+        mainHandler.post {
+          if (lifecycle.owns(scanOwnership)) {
+            onEventCallback.onEvent(result)
+          }
+        }
       }
       radio.onScanFailed = { errorCode ->
         mainHandler.post {
-          onErrorCallback.onError(
-            BleError(
-              BleErrorCode.ScanStartFailed,
-              OwnedAndroidGattRadio.scanFailMessage(errorCode),
-              errorCode
+          if (lifecycle.owns(scanOwnership)) {
+            onErrorCallback.onError(
+              BleError(
+                BleErrorCode.ScanStartFailed,
+                OwnedAndroidGattRadio.scanFailMessage(errorCode),
+                errorCode
+              )
             )
-          )
+          }
         }
       }
       radio.startScan(filteredUUIDs, scanMode, callbackType, legacyScan)
     } catch (t: Throwable) {
+      OwnedAndroidLog.e("startDeviceScan", t)
       onErrorCallback.onError(BleError(BleErrorCode.ScanStartFailed, t.message, null))
     }
   }
@@ -227,24 +301,23 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     onSuccessCallback: OnSuccessCallback<Device>,
     onErrorCallback: OnErrorCallback
   ) {
-    val finished = trackPendingOp(transactionId, onErrorCallback)
+    val pending = trackPendingOp(transactionId, onErrorCallback) ?: return
     radio.readRemoteRssi(deviceIdentifier) { result ->
-      result.fold(
-        onSuccess = { rssi ->
-          if (!settlePendingOp(transactionId, finished)) return@fold
-          val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
-          d.rssi = rssi
-          mainHandler.post { onSuccessCallback.onSuccess(d) }
-        },
-        onFailure = { err ->
-          if (!settlePendingOp(transactionId, finished)) return@fold
-          mainHandler.post {
+      mainHandler.post {
+        if (!settlePendingOp(pending)) return@post
+        result.fold(
+          onSuccess = { rssi ->
+            val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
+            d.rssi = rssi
+            onSuccessCallback.onSuccess(d)
+          },
+          onFailure = { err ->
             onErrorCallback.onError(
               BleError(BleErrorCode.DeviceRSSIReadFailed, err.message, null)
             )
           }
-        }
-      )
+        )
+      }
     }
   }
 
@@ -255,24 +328,23 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     onSuccessCallback: OnSuccessCallback<Device>,
     onErrorCallback: OnErrorCallback
   ) {
-    val finished = trackPendingOp(transactionId, onErrorCallback)
+    val pending = trackPendingOp(transactionId, onErrorCallback) ?: return
     radio.requestMtu(deviceIdentifier, mtu) { result ->
-      result.fold(
-        onSuccess = { negotiated ->
-          if (!settlePendingOp(transactionId, finished)) return@fold
-          val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
-          d.mtu = negotiated
-          mainHandler.post { onSuccessCallback.onSuccess(d) }
-        },
-        onFailure = { err ->
-          if (!settlePendingOp(transactionId, finished)) return@fold
-          mainHandler.post {
+      mainHandler.post {
+        if (!settlePendingOp(pending)) return@post
+        result.fold(
+          onSuccess = { negotiated ->
+            val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
+            d.mtu = negotiated
+            onSuccessCallback.onSuccess(d)
+          },
+          onFailure = { err ->
             onErrorCallback.onError(
               BleError(BleErrorCode.DeviceMTUChangeFailed, err.message, null)
             )
           }
-        }
-      )
+        )
+      }
     }
   }
 
@@ -336,8 +408,8 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     onConnectionStateChangedCallback: OnEventCallback<ConnectionState>,
     onErrorCallback: OnErrorCallback
   ) {
+    val operation = trackConnectionOperation(onErrorCallback) ?: return
     try {
-      val done = AtomicBoolean(false)
       val requestMtu = connectionOptions.requestMTU
       val timeoutMs = connectionOptions.timeoutInMillis
       val refreshMoment = connectionOptions.refreshGattMoment
@@ -345,17 +417,16 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
 
       val timeoutRunnable =
         Runnable {
-          if (done.compareAndSet(false, true)) {
+          if (settleConnectionOperation(operation)) {
             try {
               radio.unregisterConnectionListener(deviceIdentifier)
               radio.disconnect(deviceIdentifier)
-            } catch (_: Exception) {
+            } catch (throwable: Throwable) {
+              OwnedAndroidLog.e("connectToDevice timeout cleanup for $deviceIdentifier", throwable)
             }
-            mainHandler.post {
-              onErrorCallback.onError(
-                BleError(BleErrorCode.OperationTimedOut, "connection timeout", null)
-              )
-            }
+            onErrorCallback.onError(
+              BleError(BleErrorCode.OperationTimedOut, "connection timeout", null)
+            )
           }
         }
       if (timeoutMs != null && timeoutMs > 0) {
@@ -367,20 +438,20 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
       }
 
       fun completeSuccess(device: Device) {
-        if (!done.compareAndSet(false, true)) return
-        clearTimeout()
         // Keep connection listener registered for post-connect DISCONNECTED delivery.
         mainHandler.post {
+          if (!settleConnectionOperation(operation)) return@post
+          clearTimeout()
           onConnectionStateChangedCallback.onEvent(ConnectionState.CONNECTED)
           onSuccessCallback.onSuccess(device)
         }
       }
 
       fun completeConnectFailure(status: Int, reason: String) {
-        if (!done.compareAndSet(false, true)) return
-        clearTimeout()
         radio.unregisterConnectionListener(deviceIdentifier)
         mainHandler.post {
+          if (!settleConnectionOperation(operation)) return@post
+          clearTimeout()
           onConnectionStateChangedCallback.onEvent(ConnectionState.DISCONNECTED)
           onErrorCallback.onError(
             BleError(BleErrorCode.DeviceConnectionFailed, reason, status)
@@ -413,7 +484,7 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
           } else {
             completeSuccess(d)
           }
-        } else if (!done.get()) {
+        } else if (!operation.finished.get()) {
           // Disconnect before success ⇒ failed connect (status 133, etc.). Must reject promise.
           completeConnectFailure(gattStatus, "GATT connect failed status=$gattStatus")
         } else {
@@ -422,13 +493,22 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
           // GATT is gone — settle monitors so JS Subscriptions don't hang; skip setNotify.
           tearDownMonitorsForDevice(deviceIdentifier, disableRadio = false, emitCancelled = true)
           clearDeviceCaches(deviceIdentifier)
-          mainHandler.post { onConnectionStateChangedCallback.onEvent(ConnectionState.DISCONNECTED) }
+          mainHandler.post {
+            if (lifecycle.owns(operation.ownership)) {
+              onConnectionStateChangedCallback.onEvent(ConnectionState.DISCONNECTED)
+            }
+          }
         }
       }
       radio.connect(deviceIdentifier, connectionOptions.autoConnect == true)
     } catch (t: Throwable) {
+      OwnedAndroidLog.e("connectToDevice for $deviceIdentifier", t)
       radio.unregisterConnectionListener(deviceIdentifier)
-      onErrorCallback.onError(BleError(BleErrorCode.DeviceConnectionFailed, t.message, null))
+      mainHandler.post {
+        if (settleConnectionOperation(operation)) {
+          onErrorCallback.onError(BleError(BleErrorCode.DeviceConnectionFailed, t.message, null))
+        }
+      }
     }
   }
 
@@ -474,7 +554,8 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
           if (finished.compareAndSet(false, true)) {
             try {
               context.unregisterReceiver(receiver)
-            } catch (_: Exception) {
+            } catch (throwable: Exception) {
+              OwnedAndroidLog.e("createBond timeout receiver cleanup", throwable)
             }
             // Final bond state after 60s — success if already bonded, else fail (3.x parity).
             try {
@@ -486,6 +567,7 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
                 )
               }
             } catch (t: Throwable) {
+              OwnedAndroidLog.e("createBond timeout final-state read", t)
               onErrorCallback.onError(
                 BleError(BleErrorCode.DeviceBondFailed, "bonding timed out: ${t.message}", null)
               )
@@ -509,7 +591,8 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
               mainHandler.removeCallbacks(timeoutRunnable)
               try {
                 context.unregisterReceiver(this)
-              } catch (_: Exception) {
+              } catch (throwable: Exception) {
+                OwnedAndroidLog.e("createBond success receiver cleanup", throwable)
               }
               onSuccessCallback.onSuccess(null)
             } else if (state == BluetoothDevice.BOND_NONE) {
@@ -519,7 +602,8 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
                 mainHandler.removeCallbacks(timeoutRunnable)
                 try {
                   context.unregisterReceiver(this)
-                } catch (_: Exception) {
+                } catch (throwable: Exception) {
+                  OwnedAndroidLog.e("createBond failure receiver cleanup", throwable)
                 }
                 onErrorCallback.onError(BleError(BleErrorCode.DeviceBondFailed, "bonding failed", null))
               }
@@ -541,12 +625,14 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
           mainHandler.removeCallbacks(timeoutRunnable)
           try {
             context.unregisterReceiver(receiver)
-          } catch (_: Exception) {
+          } catch (throwable: Exception) {
+            OwnedAndroidLog.e("createBond immediate failure receiver cleanup", throwable)
           }
           onErrorCallback.onError(BleError(BleErrorCode.DeviceBondFailed, "createBond returned false", null))
         }
       }
     } catch (t: Throwable) {
+      OwnedAndroidLog.e("createBond for $deviceIdentifier", t)
       onErrorCallback.onError(BleError(BleErrorCode.DeviceBondFailed, t.message, null))
     }
   }
@@ -571,7 +657,8 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
           if (finished.compareAndSet(false, true)) {
             try {
               context.unregisterReceiver(receiver)
-            } catch (_: Exception) {
+            } catch (throwable: Exception) {
+              OwnedAndroidLog.e("removeBond timeout receiver cleanup", throwable)
             }
             try {
               if (device.bondState == BluetoothDevice.BOND_NONE) {
@@ -582,6 +669,7 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
                 )
               }
             } catch (t: Throwable) {
+              OwnedAndroidLog.e("removeBond timeout final-state read", t)
               onErrorCallback.onError(
                 BleError(BleErrorCode.DeviceUnbondFailed, "unbond timed out: ${t.message}", null)
               )
@@ -605,7 +693,8 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
               mainHandler.removeCallbacks(timeoutRunnable)
               try {
                 context.unregisterReceiver(this)
-              } catch (_: Exception) {
+              } catch (throwable: Exception) {
+                OwnedAndroidLog.e("removeBond success receiver cleanup", throwable)
               }
               onSuccessCallback.onSuccess(null)
             }
@@ -627,7 +716,8 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
           mainHandler.removeCallbacks(timeoutRunnable)
           try {
             context.unregisterReceiver(receiver)
-          } catch (_: Exception) {
+          } catch (throwable: Exception) {
+            OwnedAndroidLog.e("removeBond immediate failure receiver cleanup", throwable)
           }
           onErrorCallback.onError(
             BleError(BleErrorCode.DeviceUnbondFailed, "removeBond returned false", null)
@@ -635,6 +725,7 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
         }
       }
     } catch (t: Throwable) {
+      OwnedAndroidLog.e("removeBond for $deviceIdentifier", t)
       onErrorCallback.onError(BleError(BleErrorCode.DeviceUnbondFailed, t.message, null))
     }
   }
@@ -654,6 +745,7 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
       }
       onSuccessCallback.onSuccess(s)
     } catch (t: Throwable) {
+      OwnedAndroidLog.e("getBondState for $deviceIdentifier", t)
       onErrorCallback.onError(BleError(BleErrorCode.DeviceNotFound, t.message, null))
     }
   }
@@ -662,22 +754,20 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     onSuccessCallback: OnSuccessCallback<Array<Device>>,
     onErrorCallback: OnErrorCallback
   ) {
-    try {
-      val adapter =
-        (context.getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager).adapter
-      if (adapter == null) {
-        onSuccessCallback.onSuccess(emptyArray())
-        return
-      }
-      val bonded = adapter.bondedDevices ?: emptySet()
-      val out =
-        bonded.map { d ->
-          Device(d.address, d.name)
+    OwnedBondedDevicesOperation.execute(
+      read = {
+        val adapter =
+          (context.getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager).adapter
+        (adapter?.bondedDevices ?: emptySet()).map { device ->
+          Device(device.address, device.name)
         }.toTypedArray()
-      onSuccessCallback.onSuccess(out)
-    } catch (t: Throwable) {
-      onErrorCallback.onError(BleError(BleErrorCode.BluetoothInternalException, t.message, null))
-    }
+      },
+      onSuccess = onSuccessCallback::onSuccess,
+      onFailure = { throwable ->
+        OwnedAndroidLog.e("bondedDevices failed while retrieving bonded devices", throwable)
+      },
+      onError = onErrorCallback::onError
+    )
   }
 
   override fun discoverAllServicesAndCharacteristicsForDevice(
@@ -686,17 +776,17 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     onSuccessCallback: OnSuccessCallback<Device>,
     onErrorCallback: OnErrorCallback
   ) {
-    val finished = trackPendingOp(transactionId, onErrorCallback)
+    val pending = trackPendingOp(transactionId, onErrorCallback) ?: return
     radio.discover(deviceIdentifier) { ok ->
-      if (!settlePendingOp(transactionId, finished)) return@discover
-      if (ok) {
-        // Clear then rebuild so rediscover drops services the peripheral no longer exposes (R2-F035).
-        clearDeviceCaches(deviceIdentifier)
-        cacheServices(deviceIdentifier)
-        val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
-        mainHandler.post { onSuccessCallback.onSuccess(d) }
-      } else {
-        mainHandler.post {
+      mainHandler.post {
+        if (!settlePendingOp(pending)) return@post
+        if (ok) {
+          // Clear then rebuild so rediscover drops services the peripheral no longer exposes (R2-F035).
+          clearDeviceCaches(deviceIdentifier)
+          cacheServices(deviceIdentifier)
+          val d = devices.getOrPut(deviceIdentifier.uppercase()) { Device(deviceIdentifier, null) }
+          onSuccessCallback.onSuccess(d)
+        } else {
           onErrorCallback.onError(BleError(BleErrorCode.ServicesDiscoveryFailed, "discover failed", null))
         }
       }
@@ -757,10 +847,10 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
       onErrorCallback.onError(BleError(BleErrorCode.InvalidIdentifiers, "bad uuid", null))
       return
     }
-    val finished = trackPendingOp(transactionId, onErrorCallback)
+    val pending = trackPendingOp(transactionId, onErrorCallback) ?: return
     radio.readCharacteristic(deviceIdentifier, s, c) { result ->
       mainHandler.post {
-        if (!settlePendingOp(transactionId, finished)) return@post
+        if (!settlePendingOp(pending)) return@post
         result.fold(
           onSuccess = { bytes ->
             val model = findCharacteristicModel(deviceIdentifier, s, c)
@@ -841,13 +931,14 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     val bytes = try {
       Base64Converter.decode(valueBase64)
     } catch (t: Throwable) {
+      OwnedAndroidLog.e("writeCharacteristicForDevice value decode", t)
       onErrorCallback.onError(BleError(BleErrorCode.CharacteristicInvalidDataFormat, t.message, null))
       return
     }
-    val finished = trackPendingOp(transactionId, onErrorCallback)
+    val pending = trackPendingOp(transactionId, onErrorCallback) ?: return
     radio.writeCharacteristic(deviceIdentifier, s, c, bytes, withResponse) { result ->
       mainHandler.post {
-        if (!settlePendingOp(transactionId, finished)) return@post
+        if (!settlePendingOp(pending)) return@post
         result.fold(
           onSuccess = {
             val model = findCharacteristicModel(deviceIdentifier, s, c)
@@ -952,28 +1043,35 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     if (transactionId.isNotEmpty()) {
       cancelTransaction(transactionId)
     }
-    notifyCallbacks[key] = NotifyEntry(onEventCallback, model)
+    notifyCallbacks.remove(key)?.let { staleEntry ->
+      claimAndReleaseMonitor(staleEntry)
+    }
+    val ownership = lifecycle.reserveMonitor(key)
+    if (ownership == null) {
+      onErrorCallback.onError(destroyedError())
+      return
+    }
+    val entry = NotifyEntry(onEventCallback, model, ownership)
+    notifyCallbacks[key] = entry
     if (transactionId.isNotEmpty()) {
       transactionsById[transactionId] =
-        Cancellable.Monitor(key, deviceIdentifier, s, c, onErrorCallback)
+        Cancellable.Monitor(key, deviceIdentifier, s, c, onErrorCallback, entry)
     }
     radio.setNotify(deviceIdentifier, s, c, true, subscriptionType) { result ->
       result.fold(
-        onSuccess = { /* armed */ },
-        onFailure = {
-          // Only drop our registration if we still own the key / transaction.
-          if (transactionId.isNotEmpty()) {
-            val owned = transactionsById[transactionId]
-            if (owned is Cancellable.Monitor && owned.notifyKey == key) {
-              transactionsById.remove(transactionId)
-            }
-          }
-          if (notifyCallbacks[key]?.callback === onEventCallback) {
-            notifyCallbacks.remove(key)
-          }
+        onSuccess = {
+          entry.model.setNotifying(true)
+        },
+        onFailure = { throwable ->
+          // Block packet delivery immediately, but claim the terminal result on main. If destroy
+          // or replacement wins first, its release invalidates this queued failure callback.
+          entry.notificationDeliveryBlocked.set(true)
           mainHandler.post {
+            if (!claimAndReleaseMonitor(entry)) return@post
+            removeMonitorTransaction(transactionId, entry)
+            notifyCallbacks.remove(key, entry)
             onErrorCallback.onError(
-              BleError(BleErrorCode.CharacteristicNotifyChangeFailed, it.message, null)
+              BleError(BleErrorCode.CharacteristicNotifyChangeFailed, throwable.message, null)
             )
           }
         }
@@ -1049,10 +1147,10 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
       errorCallback.onError(BleErrorUtils.descriptorNotFound(descriptorUUID))
       return
     }
-    val finished = trackPendingOp(transactionId, errorCallback)
+    val pending = trackPendingOp(transactionId, errorCallback) ?: return
     radio.readDescriptor(deviceId, s, c, d) { result ->
       mainHandler.post {
-        if (!settlePendingOp(transactionId, finished)) return@post
+        if (!settlePendingOp(pending)) return@post
         result.fold(
           onSuccess = { bytes ->
             model.setValue(bytes)
@@ -1160,6 +1258,7 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     val bytes = try {
       Base64Converter.decode(valueBase64)
     } catch (t: Throwable) {
+      OwnedAndroidLog.e("writeDescriptorForDevice value decode", t)
       errorCallback.onError(BleErrorUtils.invalidWriteDataForDescriptor(valueBase64, descriptorUUID))
       return
     }
@@ -1168,10 +1267,10 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
       errorCallback.onError(BleErrorUtils.descriptorNotFound(descriptorUUID))
       return
     }
-    val finished = trackPendingOp(transactionId, errorCallback)
+    val pending = trackPendingOp(transactionId, errorCallback) ?: return
     radio.writeDescriptor(deviceId, s, c, d, bytes) { result ->
       mainHandler.post {
-        if (!settlePendingOp(transactionId, finished)) return@post
+        if (!settlePendingOp(pending)) return@post
         result.fold(
           onSuccess = {
             model.setValue(bytes)
@@ -1277,6 +1376,7 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
     val cancellable = transactionsById.remove(transactionId) ?: return
     when (cancellable) {
       is Cancellable.Monitor -> {
+        if (!claimAndReleaseMonitor(cancellable.entry)) return
         // Reject monitor promise first so JS listener sees OperationCancelled.
         mainHandler.post {
           cancellable.onError.onError(BleErrorUtils.cancelled())
@@ -1287,18 +1387,26 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
             it is Cancellable.Monitor && it.notifyKey == cancellable.notifyKey
           }
         if (!stillSubscribed) {
-          notifyCallbacks.remove(cancellable.notifyKey)
+          notifyCallbacks.remove(cancellable.notifyKey, cancellable.entry)
           radio.setNotify(
             cancellable.deviceId,
             cancellable.serviceUuid,
             cancellable.charUuid,
             false,
             null
-          ) { /* best-effort teardown */ }
+          ) { result ->
+            result.onSuccess {
+              cancellable.entry.model.setNotifying(false)
+            }
+            result.onFailure { throwable ->
+              OwnedAndroidLog.e("cancelTransaction notification teardown", throwable)
+            }
+          }
         }
       }
       is Cancellable.PendingOp -> {
         if (cancellable.finished.compareAndSet(false, true)) {
+          pendingOperations.remove(cancellable)
           mainHandler.post {
             cancellable.onError.onError(BleErrorUtils.cancelled())
           }
@@ -1309,29 +1417,118 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
 
   /**
    * Register a non-monitor op under [transactionId] so [cancelTransaction] can reject it.
-   * Empty transaction ids are not tracked (fire-and-forget).
+   * Empty transaction ids still remain lifecycle-tracked so destroy has a terminal owner.
    */
-  private fun trackPendingOp(transactionId: String, onError: OnErrorCallback): AtomicBoolean? {
-    if (transactionId.isEmpty()) return null
+  private fun trackPendingOp(transactionId: String, onError: OnErrorCallback): Cancellable.PendingOp? {
+    val ownership = lifecycle.acquireOperation()
+    if (ownership == null) {
+      mainHandler.post { onError.onError(destroyedError()) }
+      return null
+    }
     // Replace any prior owner of this transaction id (3.x replaceSubscription).
-    cancelTransaction(transactionId)
-    val finished = AtomicBoolean(false)
-    transactionsById[transactionId] = Cancellable.PendingOp(finished, onError)
-    return finished
+    if (transactionId.isNotEmpty()) {
+      cancelTransaction(transactionId)
+    }
+    val pending = Cancellable.PendingOp(transactionId, AtomicBoolean(false), ownership, onError)
+    pendingOperations.add(pending)
+    if (transactionId.isNotEmpty()) {
+      transactionsById[transactionId] = pending
+    }
+    return pending
   }
 
   /**
    * @return true if this completion should deliver success/error to JS; false if already cancelled.
    */
-  private fun settlePendingOp(transactionId: String, finished: AtomicBoolean?): Boolean {
-    if (finished == null) return true
-    if (!finished.compareAndSet(false, true)) return false
-    val cur = transactionsById[transactionId]
-    if (cur is Cancellable.PendingOp && cur.finished === finished) {
-      transactionsById.remove(transactionId)
+  private fun settlePendingOp(pending: Cancellable.PendingOp): Boolean {
+    if (!lifecycle.owns(pending.ownership)) return false
+    if (!pending.finished.compareAndSet(false, true)) return false
+    pendingOperations.remove(pending)
+    if (pending.transactionId.isNotEmpty()) {
+      transactionsById.remove(pending.transactionId, pending)
     }
     return true
   }
+
+  private fun trackConnectionOperation(onError: OnErrorCallback): ConnectionOperation? {
+    val ownership = lifecycle.acquireOperation()
+    if (ownership == null) {
+      mainHandler.post { onError.onError(destroyedError()) }
+      return null
+    }
+    return ConnectionOperation(AtomicBoolean(false), ownership, onError).also { operation ->
+      connectionOperations.add(operation)
+    }
+  }
+
+  private fun settleConnectionOperation(operation: ConnectionOperation): Boolean {
+    if (!lifecycle.owns(operation.ownership)) return false
+    if (!operation.finished.compareAndSet(false, true)) return false
+    connectionOperations.remove(operation)
+    return true
+  }
+
+  /** Claims the terminal result before posting it so a stale radio callback cannot affect a replacement. */
+  private fun claimAndReleaseMonitor(entry: NotifyEntry): Boolean {
+    return lifecycle.releaseMonitor(entry.ownership)
+  }
+
+  private fun removeMonitorTransaction(transactionId: String, entry: NotifyEntry) {
+    if (transactionId.isEmpty()) return
+    val current = transactionsById[transactionId]
+    if (current is Cancellable.Monitor && current.entry === entry) {
+      transactionsById.remove(transactionId, current)
+    }
+  }
+
+  private fun settleDestroyedOperations() {
+    pendingOperations.toList().forEach { pending ->
+      if (pending.finished.compareAndSet(false, true)) {
+        pendingOperations.remove(pending)
+        if (pending.transactionId.isNotEmpty()) {
+          transactionsById.remove(pending.transactionId, pending)
+        }
+        mainHandler.post { pending.onError.onError(destroyedError()) }
+      }
+    }
+    connectionOperations.toList().forEach { operation ->
+      if (operation.finished.compareAndSet(false, true)) {
+        connectionOperations.remove(operation)
+        mainHandler.post { operation.onError.onError(destroyedError()) }
+      }
+    }
+  }
+
+  private fun settleDestroyedMonitors() {
+    val monitors =
+      transactionsById.entries.mapNotNull { (transactionId, cancellable) ->
+        if (cancellable is Cancellable.Monitor) {
+          transactionId to cancellable
+        } else {
+          null
+        }
+      }
+    for ((transactionId, monitor) in monitors) {
+      transactionsById.remove(transactionId, monitor)
+      if (claimAndReleaseMonitor(monitor.entry)) {
+        monitor.entry.model.setNotifying(false)
+        notifyCallbacks.remove(monitor.notifyKey, monitor.entry)
+        mainHandler.post { monitor.onError.onError(destroyedError()) }
+      }
+    }
+    notifyCallbacks.entries.forEach { (key, entry) ->
+      claimAndReleaseMonitor(entry)
+      entry.model.setNotifying(false)
+      notifyCallbacks.remove(key, entry)
+    }
+  }
+
+  private fun destroyedError(): BleError =
+    BleError(
+      BleErrorCode.BluetoothManagerDestroyed,
+      "BleManager cannot complete the operation because BleManager has been destroyed",
+      null
+    )
 
   /**
    * Drop all monitors whose notify key is under [deviceId].
@@ -1352,20 +1549,40 @@ class OwnedBleAdapter(private val context: Context) : BleAdapter {
           null
         }
       }
+    val entriesByKey = mutableMapOf<String, NotifyEntry>()
     for ((txId, mon) in monitors) {
-      transactionsById.remove(txId)
-      if (emitCancelled) {
+      entriesByKey.putIfAbsent(mon.notifyKey, mon.entry)
+      transactionsById.remove(txId, mon)
+      if (claimAndReleaseMonitor(mon.entry) && emitCancelled) {
         mainHandler.post { mon.onError.onError(BleErrorUtils.cancelled()) }
       }
     }
-    notifyCallbacks.keys.filter { it.startsWith(prefix) }.forEach { notifyCallbacks.remove(it) }
-    if (disableRadio) {
-      val seen = HashSet<String>()
-      for ((_, mon) in monitors) {
-        if (seen.add(mon.notifyKey)) {
-          radio.setNotify(mon.deviceId, mon.serviceUuid, mon.charUuid, false, null) {
-            /* best-effort */
-          }
+    notifyCallbacks.entries
+      .filter { (key, _) -> key.startsWith(prefix) }
+      .forEach { (key, entry) ->
+        entriesByKey[key] = entry
+        claimAndReleaseMonitor(entry)
+        notifyCallbacks.remove(key, entry)
+      }
+    if (!disableRadio) {
+      // Disconnect and Services Changed invalidate the entire GATT connection, so the CCCD
+      // state is no longer active even though there is no descriptor-write completion to await.
+      entriesByKey.values.forEach { entry -> entry.model.setNotifying(false) }
+      return
+    }
+    entriesByKey.values.forEach { entry ->
+      radio.setNotify(
+        entry.model.deviceId,
+        entry.model.serviceUUID,
+        entry.model.uuid,
+        false,
+        null
+      ) { result ->
+        result.onSuccess {
+          entry.model.setNotifying(false)
+        }
+        result.onFailure { throwable ->
+          OwnedAndroidLog.e("tearDownMonitorsForDevice notification teardown", throwable)
         }
       }
     }

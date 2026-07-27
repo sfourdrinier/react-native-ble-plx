@@ -101,6 +101,7 @@ describe('Electron native backends', () => {
     expect(honestBackendForPort(new FakeBlePort({ id: `${WINRT_RADIO_ID}-fallback` }), 'winrt')).toBe('mock')
     expect(honestBackendForPort(new FakeBlePort({ id: `${BLUEZ_RADIO_ID}-mock` }), 'bluez')).toBe('mock')
     expect(honestBackendForPort(new FakeBlePort({ id: 'fake' }), 'corebluetooth')).toBe('mock')
+    expect(honestBackendForPort(new FakeBlePort({ id: BLUEZ_RADIO_ID }), 'bluez')).toBe('mock')
     expect(honestBackendForPort({ id: COREBLUETOOTH_RADIO_ID }, 'corebluetooth')).toBe('corebluetooth')
     expect(honestBackendForPort({ id: WINRT_RADIO_ID }, 'winrt')).toBe('winrt')
     expect(honestBackendForPort({ id: BLUEZ_RADIO_ID }, 'bluez')).toBe('bluez')

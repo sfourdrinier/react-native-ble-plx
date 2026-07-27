@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ub4-perf-baseline/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "generatedAt", "capture", "sourceWindow", "environment", "proofBoundary", "methodology", "buildProvenance", "measurements", "budgetDimensions", "limitations"],
+  "properties": {
+    "schemaVersion": {"const": "ub4-perf-baseline/v1"},
+    "generatedAt": {"type": "string", "format": "date-time"},
+    "capture": {"$ref": "#/$defs/capture"},
+    "sourceWindow": {"$ref": "#/$defs/sourceWindow"},
+    "environment": {"$ref": "#/$defs/environment"},
+    "proofBoundary": {"$ref": "#/$defs/proofBoundary"},
+    "methodology": {"$ref": "#/$defs/methodology"},
+    "buildProvenance": {"$ref": "#/$defs/buildProvenance"},
+    "measurements": {"type": "array", "minItems": 7, "items": {"$ref": "#/$defs/measurement"}},
+    "budgetDimensions": {"type": "array", "minItems": 11, "items": {"$ref": "#/$defs/budgetDimension"}},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonNegativeInteger": {"type": "integer", "minimum": 0},
+    "positiveInteger": {"type": "integer", "minimum": 1},
+    "sourceState": {
+      "type": "object", "additionalProperties": false,
+      "required": ["commit", "dirty"],
+      "properties": {
+        "commit": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+        "dirty": {"type": "object", "additionalProperties": false, "required": ["isDirty", "changedPathCount", "statusNulSha256"], "properties": {"isDirty": {"type": "boolean"}, "changedPathCount": {"$ref": "#/$defs/nonNegativeInteger"}, "statusNulSha256": {"$ref": "#/$defs/sha256"}}}
+      }
+    },
+    "sourceWindow": {
+      "type": "object", "additionalProperties": false, "required": ["before", "after", "stable"],
+      "properties": {"before": {"$ref": "#/$defs/sourceState"}, "after": {"$ref": "#/$defs/sourceState"}, "stable": {"type": "boolean"}}
+    },
+    "capture": {
+      "type": "object", "additionalProperties": false, "required": ["command", "warmupBatches", "sampleCount", "samplingSeed", "isolatedChildSamples", "excludedArtifactPaths"],
+      "properties": {"command": {"type": "string", "minLength": 1}, "warmupBatches": {"$ref": "#/$defs/positiveInteger"}, "sampleCount": {"type": "integer", "minimum": 31}, "samplingSeed": {"$ref": "#/$defs/nonNegativeInteger"}, "isolatedChildSamples": {"type": "integer", "minimum": 7}, "excludedArtifactPaths": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "string", "pattern": "^benchmarks/results/[^/]+\\.json$"}}}
+    },
+    "environment": {
+      "type": "object", "additionalProperties": false, "required": ["platform", "architecture", "node", "v8", "osRelease", "cpuModel", "logicalCpuCount", "timezone", "xcode", "macos"],
+      "properties": {"platform": {"type": "string", "minLength": 1}, "architecture": {"type": "string", "minLength": 1}, "node": {"type": "string", "minLength": 1}, "v8": {"type": "string", "minLength": 1}, "osRelease": {"type": "string", "minLength": 1}, "cpuModel": {"type": "string", "minLength": 1}, "logicalCpuCount": {"$ref": "#/$defs/positiveInteger"}, "timezone": {"type": "string", "minLength": 1}, "xcode": {"type": "string", "minLength": 1}, "macos": {"type": "string", "minLength": 1}}
+    },
+    "proofBoundary": {
+      "type": "object", "additionalProperties": false, "required": ["level", "physicalRadio", "electronAbi", "electronRendererIpc"],
+      "properties": {"level": {"const": "L1-deterministic-and-L3-node-napi-only"}, "physicalRadio": {"type": "object", "additionalProperties": false, "required": ["status", "blocker"], "properties": {"status": {"const": "blocked"}, "blocker": {"type": "string", "minLength": 1}}}, "electronAbi": {"type": "object", "additionalProperties": false, "required": ["status", "blocker"], "properties": {"status": {"const": "blocked"}, "blocker": {"type": "string", "minLength": 1}}}, "electronRendererIpc": {"type": "object", "additionalProperties": false, "required": ["status", "blocker"], "properties": {"status": {"const": "blocked"}, "blocker": {"type": "string", "minLength": 1}}}}
+    },
+    "methodology": {
+      "type": "object", "additionalProperties": false, "required": ["clock", "warmup", "sampling", "interleaving", "estimator", "confidence", "isolation", "scope"],
+      "properties": {"clock": {"type": "string", "minLength": 1}, "warmup": {"type": "string", "minLength": 1}, "sampling": {"type": "string", "minLength": 1}, "interleaving": {"type": "string", "minLength": 1}, "estimator": {"type": "string", "minLength": 1}, "confidence": {"type": "string", "minLength": 1}, "isolation": {"type": "string", "minLength": 1}, "scope": {"type": "string", "minLength": 1}}
+    },
+    "fingerprint": {"type": "object", "additionalProperties": false, "required": ["bytes", "sha256"], "properties": {"bytes": {"$ref": "#/$defs/nonNegativeInteger"}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "buildModule": {"type": "object", "additionalProperties": false, "required": ["path", "before", "after"], "properties": {"path": {"type": "string", "pattern": "^(lib|native)/"}, "before": {"$ref": "#/$defs/fingerprint"}, "after": {"$ref": "#/$defs/fingerprint"}}},
+    "buildProvenance": {
+      "type": "object", "additionalProperties": false, "required": ["status", "blocker", "modules"],
+      "properties": {"status": {"const": "blocked"}, "blocker": {"type": "string", "minLength": 1}, "modules": {"type": "array", "minItems": 6, "items": {"$ref": "#/$defs/buildModule"}}}
+    },
+    "statistics": {"type": "object", "additionalProperties": false, "required": ["count", "min", "max", "mean", "standardDeviation", "p50", "p95", "p99"], "properties": {"count": {"type": "integer", "minimum": 31}, "min": {"type": "number", "minimum": 0}, "max": {"type": "number", "minimum": 0}, "mean": {"type": "number", "minimum": 0}, "standardDeviation": {"type": "number", "minimum": 0}, "p50": {"type": "number", "minimum": 0}, "p95": {"type": "number", "minimum": 0}, "p99": {"type": "number", "minimum": 0}}},
+    "integrity": {"type": ["object", "null"], "oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["algorithm", "inputSha256", "outputSha256", "verified"], "properties": {"algorithm": {"const": "sha256"}, "inputSha256": {"$ref": "#/$defs/sha256"}, "outputSha256": {"$ref": "#/$defs/sha256"}, "verified": {"const": true}}}]},
+    "operation": {"type": "object", "additionalProperties": false, "required": ["id", "warmupBatches", "iterationsPerSample", "samplesNsPerOperation", "statistics", "integrity"], "properties": {"id": {"type": "string", "minLength": 1}, "warmupBatches": {"$ref": "#/$defs/nonNegativeInteger"}, "iterationsPerSample": {"$ref": "#/$defs/positiveInteger"}, "samplesNsPerOperation": {"type": "array", "minItems": 31, "items": {"type": "number", "minimum": 0}}, "statistics": {"$ref": "#/$defs/statistics"}, "integrity": {"$ref": "#/$defs/integrity"}}},
+    "codecPayload": {"type": "object", "additionalProperties": false, "required": ["id", "byteLength", "byteOffset", "encodedBytes", "encodedExpansionRatio", "operations"], "properties": {"id": {"type": "string", "minLength": 1}, "byteLength": {"$ref": "#/$defs/nonNegativeInteger"}, "byteOffset": {"$ref": "#/$defs/nonNegativeInteger"}, "encodedBytes": {"$ref": "#/$defs/nonNegativeInteger"}, "encodedExpansionRatio": {"type": ["number", "null"], "minimum": 0}, "operations": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"$ref": "#/$defs/operation"}}}},
+    "concurrency": {"type": "object", "additionalProperties": false, "required": ["sameDeviceObserved", "differentDeviceObserved", "postDrainActiveDeviceCount"], "properties": {"sameDeviceObserved": {"$ref": "#/$defs/nonNegativeInteger"}, "differentDeviceObserved": {"$ref": "#/$defs/nonNegativeInteger"}, "postDrainActiveDeviceCount": {"$ref": "#/$defs/nonNegativeInteger"}}},
+    "resourceSample": {"type": "object", "additionalProperties": false, "required": ["beforeHeapUsed", "afterHeapUsed", "heapDeltaBytes", "retainedHeapBytes", "postDrainActiveDeviceCount", "postUnsubscribeNotifications", "safeUnboundedQueue"], "properties": {"beforeHeapUsed": {"$ref": "#/$defs/nonNegativeInteger"}, "afterHeapUsed": {"$ref": "#/$defs/nonNegativeInteger"}, "heapDeltaBytes": {"type": "integer"}, "retainedHeapBytes": {"$ref": "#/$defs/nonNegativeInteger"}, "postDrainActiveDeviceCount": {"$ref": "#/$defs/nonNegativeInteger"}, "postUnsubscribeNotifications": {"$ref": "#/$defs/nonNegativeInteger"}, "safeUnboundedQueue": {"type": "object", "additionalProperties": false, "required": ["configuredCapacity", "submittedOperations", "completedOperations", "activeDeviceKeysWhileBlocked"], "properties": {"configuredCapacity": {"type": "null"}, "submittedOperations": {"$ref": "#/$defs/positiveInteger"}, "completedOperations": {"$ref": "#/$defs/nonNegativeInteger"}, "activeDeviceKeysWhileBlocked": {"$ref": "#/$defs/nonNegativeInteger"}}}}},
+    "artifact": {"type": "object", "additionalProperties": false, "required": ["id", "status", "fingerprint", "blocker"], "properties": {"id": {"type": "string", "minLength": 1}, "status": {"enum": ["passed", "blocked"]}, "fingerprint": {"type": ["object", "null"], "oneOf": [{"type": "null"}, {"$ref": "#/$defs/fingerprint"}]}, "blocker": {"type": ["string", "null"], "minLength": 1}}},
+    "measurement": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["id", "classification", "status", "method", "payloads"], "properties": {"id": {"const": "codec-base64-and-byte-copy"}, "classification": {"const": "deterministic-microbenchmark"}, "status": {"const": "passed"}, "method": {"type": "string", "minLength": 1}, "payloads": {"type": "array", "minItems": 7, "items": {"$ref": "#/$defs/codecPayload"}}}},
+      {"type": "object", "additionalProperties": false, "required": ["id", "classification", "status", "method", "operations", "postUnsubscribeNotifications"], "properties": {"id": {"const": "notification-dispatch-mock"}, "classification": {"const": "deterministic-microbenchmark"}, "status": {"const": "passed"}, "method": {"type": "string", "minLength": 1}, "operations": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/operation"}}, "postUnsubscribeNotifications": {"$ref": "#/$defs/nonNegativeInteger"}}},
+      {"type": "object", "additionalProperties": false, "required": ["id", "classification", "status", "method", "operations", "concurrency"], "properties": {"id": {"const": "port-queue-latency-and-concurrency"}, "classification": {"const": "deterministic-microbenchmark"}, "status": {"const": "passed"}, "method": {"type": "string", "minLength": 1}, "operations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/operation"}}, "concurrency": {"$ref": "#/$defs/concurrency"}}},
+      {"type": "object", "additionalProperties": false, "required": ["id", "classification", "status", "method", "resourceSamples"], "properties": {"id": {"const": "memory-and-resource-isolation"}, "classification": {"const": "deterministic-microbenchmark"}, "status": {"const": "passed"}, "method": {"type": "string", "minLength": 1}, "resourceSamples": {"type": "array", "minItems": 7, "items": {"$ref": "#/$defs/resourceSample"}}}},
+      {"type": "object", "additionalProperties": false, "required": ["id", "classification", "status", "method", "operations"], "properties": {"id": {"const": "ipc-equivalent-serialization"}, "classification": {"const": "mock-system-abi"}, "status": {"const": "passed"}, "method": {"type": "string", "minLength": 1}, "operations": {"type": "array", "minItems": 6, "items": {"$ref": "#/$defs/operation"}}}},
+      {"type": "object", "additionalProperties": false, "required": ["id", "classification", "status", "runtime", "method", "operations", "childSamples", "blocker"], "properties": {"id": {"const": "node-napi-corebluetooth-load-startup"}, "classification": {"const": "mock-system-abi"}, "status": {"enum": ["passed", "blocked"]}, "runtime": {"const": "node-napi"}, "method": {"type": "string", "minLength": 1}, "operations": {"type": "array", "items": {"$ref": "#/$defs/operation"}}, "childSamples": {"type": "array", "minItems": 7, "items": {"type": "object", "additionalProperties": false, "required": ["status", "loadNs", "createNs", "blocker"], "properties": {"status": {"enum": ["passed", "blocked"]}, "loadNs": {"type": ["number", "null"], "minimum": 0}, "createNs": {"type": ["number", "null"], "minimum": 0}, "blocker": {"type": ["string", "null"], "minLength": 1}}}}, "blocker": {"type": ["string", "null"], "minLength": 1}}},
+      {"type": "object", "additionalProperties": false, "required": ["id", "classification", "status", "method", "artifacts"], "properties": {"id": {"const": "artifact-and-build-size"}, "classification": {"const": "deterministic-microbenchmark"}, "status": {"const": "passed"}, "method": {"type": "string", "minLength": 1}, "artifacts": {"type": "array", "minItems": 7, "items": {"$ref": "#/$defs/artifact"}}}}
+    ]},
+    "threshold": {"type": "object", "additionalProperties": false, "required": ["metric", "comparator", "limit", "unit"], "properties": {"metric": {"type": "string", "minLength": 1}, "comparator": {"enum": ["less-than-or-equal", "equal"]}, "limit": {"type": "number", "minimum": 0}, "unit": {"type": "string", "minLength": 1}}},
+    "budgetDimension": {"type": "object", "additionalProperties": false, "required": ["id", "status", "evidenceMeasurementIds", "threshold", "blocker"], "properties": {"id": {"type": "string", "minLength": 1}, "status": {"enum": ["frozen", "blocked"]}, "evidenceMeasurementIds": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}, "threshold": {"type": ["object", "null"], "oneOf": [{"type": "null"}, {"$ref": "#/$defs/threshold"}]}, "blocker": {"type": ["string", "null"], "minLength": 1}}}
+  }
+}

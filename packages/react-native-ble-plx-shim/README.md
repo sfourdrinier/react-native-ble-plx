@@ -1,29 +1,9 @@
-# `@sfourdrinier/react-native-ble-plx` (shim)
+<!-- packages/react-native-ble-plx-shim/README.md -->
 
-This package is a **thin re-export** of [`unified-ble-manager`](https://www.npmjs.com/package/unified-ble-manager) for the 4.0 train.
+# Historical scoped-package shim record
 
-**Prefer Path A:**
+This workspace documents a transitional source artifact. `unified-ble-manager@4.0.0` has zero consumers and the clean-baseline decision does not permit a permanent scoped shim or compatibility re-export.
 
-```bash
-pnpm add unified-ble-manager
-```
+Do not publish, install, or document this workspace as a 4.0 migration path. It remains available only for Phase 0 characterization and deletion-audit work until the controlling implementation plan's deletion gates remove it.
 
-```ts
-import { BleManager } from 'unified-ble-manager'
-```
-
-This shim exists so existing installs of `@sfourdrinier/react-native-ble-plx` can keep working during the rename. It does **not** contain a second native implementation (no `android/` / `ios/` / podspec).
-
-### Subpaths (mirror of canonical)
-
-```ts
-import { BleManager } from '@sfourdrinier/react-native-ble-plx'
-import { BleManager as Web } from '@sfourdrinier/react-native-ble-plx/web'
-import { BleManager as Electron } from '@sfourdrinier/react-native-ble-plx/electron'
-import { BleManager as Node } from '@sfourdrinier/react-native-ble-plx/node'
-// Expo config plugin: "plugins": ["@sfourdrinier/react-native-ble-plx"]
-```
-
-### Native linking
-
-The published dependency is `unified-ble-manager@<exact version>` (not `file:`). Autolinking must discover **`unified-ble-manager`**. Bare Podfiles that still path to `node_modules/@sfourdrinier/react-native-ble-plx` will fail — point pods at `unified-ble-manager` or switch to Path A. See [MIGRATION_4.0.md](../../MIGRATION_4.0.md) Path B footguns.
+**Authority:** [`../../docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](../../docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)

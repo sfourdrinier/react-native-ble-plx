@@ -36,7 +36,7 @@ export function batteryScanServiceUUIDs(): string[] {
   return scanServiceUUIDs(SERVICE)
 }
 
-export function resolveBatteryScanUUIDs(batteryOnly: boolean = true): string[] | null {
+export function resolveBatteryScanUUIDs(batteryOnly = true): string[] | null {
   return resolveServiceScanUUIDs(SERVICE, batteryOnly)
 }
 
