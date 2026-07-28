@@ -1,634 +1,180 @@
-import React, { useState, type Dispatch } from 'react'
+// example-expo/src/screens/MainStack/DevicenRFTestScreen/DevicenRFTestScreen.tsx
+
+import React, { useState } from 'react'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
-import { Device, type Base64 } from 'unified-ble-manager'
-import { Platform, ScrollView } from 'react-native'
-import base64 from 'react-native-base64'
-import type { TestStateType } from '../../../types'
-import { BLEService } from '../../../services'
-import type { MainStackParamList } from '../../../navigation/navigators'
-import { AppButton, AppTextInput, ScreenDefaultContainer, TestStateDisplay } from '../../../components/atoms'
+import { Platform } from 'react-native'
+import { AppButton, AppText, AppTextInput, ScreenDefaultContainer, TestStateDisplay } from '../../../components/atoms'
 import {
   currentTimeCharacteristic,
-  currentTimeCharacteristicTimeTriggerDescriptor,
-  currentTimeCharacteristicTimeTriggerDescriptorValue,
   deviceTimeCharacteristic,
   deviceTimeService,
   monitorExpectedMessage,
-  writeWithResponseBase64Time,
-  writeWithoutResponseBase64Time
+  writeWithResponseTimeBytes,
+  writeWithoutResponseTimeBytes
 } from '../../../consts/nRFDeviceConsts'
+import { useBleScreenWork } from '../../../hooks/useBleScreenWork'
+import type { MainStackParamList } from '../../../navigation/navigators'
+import { BLEService, usePersistentDeviceName, type ExamplePeer } from '../../../services'
+import type { TestStateType } from '../../../types'
 
 type DevicenRFTestScreenProps = NativeStackScreenProps<MainStackParamList, 'DEVICE_NRF_TEST_SCREEN'>
 
+/** Exercises canonical byte GATT operations, RSSI, MTU capability truth, and notifications against a named nRF peer. */
 export function DevicenRFTestScreen(_props: DevicenRFTestScreenProps) {
-  const [expectedDeviceName, setExpectedDeviceName] = useState('')
-  const [testScanDevicesState, setTestScanDevicesState] = useState<TestStateType>('WAITING')
-  const [testDeviceConnectedState, setTestDeviceConnectedState] = useState<TestStateType>('WAITING')
-  const [testDiscoverServicesAndCharacteristicsFoundState, setTestDiscoverServicesAndCharacteristicsFoundState] =
-    useState<TestStateType>('WAITING')
+  const work = useBleScreenWork()
+  const { deviceName, setDeviceName } = usePersistentDeviceName()
+  const [state, setState] = useState<TestStateType>('WAITING')
+  const [output, setOutput] = useState<string | null>(null)
+  const [notification, setNotification] = useState<string | null>(null)
 
-  const [testDeviceTimeCharacteristicWriteWithResponseState, setTestDeviceTimeCharacteristicWriteWithResponseState] =
-    useState<TestStateType>('WAITING')
-  const [
-    testDeviceTimeReadCharacteristicForDeviceAfterWriteWithResponseState,
-    setTestDeviceTimeReadCharacteristicForDeviceAfterWriteWithResponseState
-  ] = useState<TestStateType>('WAITING')
-  const [
-    testDeviceTimeReadCharacteristicForDeviceAfterWriteWithResponseStateValue,
-    setTestDeviceTimeReadCharacteristicForDeviceAfterWriteWithResponseStateValue
-  ] = useState('')
-
-  const [
-    testWriteDeviceTimeCharacteristicWithoutResponseForDeviceState,
-    setTestWriteDeviceTimeCharacteristicWithoutResponseForDeviceState
-  ] = useState<TestStateType>('WAITING')
-  const [
-    testReadDeviceTimeCharacteristicForDeviceAfterWriteWithoutResponseState,
-    setTestReadDeviceTimeCharacteristicForDeviceAfterWriteWithoutResponseState
-  ] = useState<TestStateType>('WAITING')
-  const [
-    testReadDeviceTimeCharacteristicForDeviceAfterWriteWithoutResponseStateValue,
-    setTestReadDeviceTimeCharacteristicForDeviceAfterWriteWithoutResponseStateValue
-  ] = useState('')
-
-  const [testReadTimeTriggerDescriptorForDeviceState, setTestReadTimeTriggerDescriptorForDeviceState] =
-    useState<TestStateType>('WAITING')
-  const [testWriteTimeTriggerDescriptorForDeviceState, setTestWriteTimeTriggerDescriptorForDeviceState] =
-    useState<TestStateType>('WAITING')
-
-  const [testServicesForDeviceState, setTestServicesForDeviceState] = useState<TestStateType>('WAITING')
-  const [testServicesForDeviceStateValue, setTestServicesForDeviceStateValue] = useState('')
-
-  const [testCharacteristicsForDeviceState, setTestCharacteristicsForDeviceState] = useState<TestStateType>('WAITING')
-  const [testCharacteristicsForDeviceStateValue, setTestCharacteristicsForDeviceStateValue] = useState('')
-
-  const [testDescriptorsForDeviceState, setTestDescriptorsForDeviceState] = useState<TestStateType>('WAITING')
-  const [testDescriptorsForDeviceStateValue, setTestDescriptorsForDeviceStateValue] = useState('')
-
-  const [testIsDeviceConnectedStateState, setTestIsDeviceConnectedStateState] = useState<TestStateType>('WAITING')
-  const [testOnDeviceDisconnectState, setTestOnDeviceDisconnectState] = useState<TestStateType>('WAITING')
-  const [testConnectedDevicesState, setTestConnectedDevicesState] = useState<TestStateType>('WAITING')
-  const [testRequestMTUForDeviceState, setTestRequestMTUForDeviceState] = useState<TestStateType>('WAITING')
-  const [testCancelTransactionState, setTestCancelTransactionState] = useState<TestStateType>('WAITING')
-  const [testReadRSSIForDeviceState, setTestReadRSSIForDeviceState] = useState<TestStateType>('WAITING')
-  const [testGetDevicesState, setTestGetDevicesState] = useState<TestStateType>('WAITING')
-  const [testBTStateState, setTestBTStateState] = useState<TestStateType>('WAITING')
-  const [testRequestConnectionPriorityForDeviceState, setTestRequestConnectionPriorityForDeviceState] =
-    useState<TestStateType>('WAITING')
-  const [testStartCancelDeviceConnectionState, setTestStartCancelDeviceConnectionState] =
-    useState<TestStateType>('WAITING')
-
-  const [testMonitorCurrentTimeCharacteristicForDevice, setTestMonitorCurrentTimeCharacteristicForDevice] =
-    useState<TestStateType>('WAITING')
-  const [testDeviceDisconnectState, setTestDeviceDisconnectState] = useState<TestStateType>('WAITING')
-
-  const onStartHandler = async () => {
-    setTestDeviceConnectedState('WAITING')
-    setTestDiscoverServicesAndCharacteristicsFoundState('WAITING')
-    setTestDeviceTimeCharacteristicWriteWithResponseState('WAITING')
-    setTestDeviceTimeReadCharacteristicForDeviceAfterWriteWithResponseState('WAITING')
-    setTestWriteDeviceTimeCharacteristicWithoutResponseForDeviceState('WAITING')
-    setTestReadDeviceTimeCharacteristicForDeviceAfterWriteWithoutResponseState('WAITING')
-    setTestReadTimeTriggerDescriptorForDeviceState('WAITING')
-    setTestWriteTimeTriggerDescriptorForDeviceState('WAITING')
-    setTestServicesForDeviceState('WAITING')
-    setTestCharacteristicsForDeviceState('WAITING')
-    setTestDescriptorsForDeviceState('WAITING')
-    setTestIsDeviceConnectedStateState('WAITING')
-    setTestOnDeviceDisconnectState('WAITING')
-    setTestConnectedDevicesState('WAITING')
-    setTestRequestMTUForDeviceState('WAITING')
-    setTestCancelTransactionState('WAITING')
-    setTestReadRSSIForDeviceState('WAITING')
-    setTestGetDevicesState('WAITING')
-    setTestMonitorCurrentTimeCharacteristicForDevice('WAITING')
-    setTestDeviceDisconnectState('WAITING')
-    setTestScanDevicesState('WAITING')
-    setTestStartCancelDeviceConnectionState('WAITING')
-    BLEService.initializeBLE().then(scanDevices)
-  }
-
-  const onDeviceFound = (device: Device) => {
-    if (device.name?.toLocaleLowerCase() === expectedDeviceName.toLocaleLowerCase()) {
-      setTestScanDevicesState('DONE')
-      startConnectToDevice(device)
-        .then(onDeviceDisconnected)
-        .then(startTestDiscoverServicesAndCharacteristicsFoundState)
-        .then(startWriteCharacteristicWithResponseForDevice)
-        .then(() =>
-          startReadCharacteristicForDevice(
-            writeWithResponseBase64Time,
-            setTestDeviceTimeReadCharacteristicForDeviceAfterWriteWithResponseState,
-            setTestDeviceTimeReadCharacteristicForDeviceAfterWriteWithResponseStateValue
-          )
-        )
-        .then(startTestWriteDeviceTimeCharacteristicWithoutResponseForDeviceState)
-        .then(() =>
-          startReadCharacteristicForDevice(
-            writeWithoutResponseBase64Time,
-            setTestReadDeviceTimeCharacteristicForDeviceAfterWriteWithoutResponseState,
-            setTestReadDeviceTimeCharacteristicForDeviceAfterWriteWithoutResponseStateValue
-          )
-        )
-        .then(startWriteTimeTriggerDescriptorForDevice)
-        .then(startReadTimeTriggerDescriptorForDevice)
-        .then(startTestGetServicesForDeviceState)
-        .then(startTestGetCharacteristicsForDeviceState)
-        .then(startTestGetDescriptorsForDeviceState)
-        .then(startIsDeviceConnectedState)
-        .then(startGetConnectedDevices)
-        .then(startRequestMTUForDevice)
-        .then(startTestCancelTransaction)
-        .then(startReadRSSIForDevice)
-        .then(startGetDevices)
-        .then(startGetState)
-        .then(startRequestConnectionPriorityForDevice)
-        .then(startTestMonitorCurrentTimeCharacteristicForDevice)
-        .then(disconnectDevice)
-        .then(startCancelDeviceConnection)
-        .catch(error => console.error(error.message))
-    }
-  }
-
-  const startTestInfo = (testName: string) => console.info('starting: ', testName)
-
-  const runTest = (functionToRun: () => Promise<unknown>, stateSetter: Dispatch<TestStateType>, testName: string) => {
-    startTestInfo(testName)
-    stateSetter('IN_PROGRESS')
-    return functionToRun()
-      .then(() => {
-        console.info('success')
-        stateSetter('DONE')
-      })
-      .catch(error => {
-        console.error(error)
-        stateSetter('ERROR')
-      })
-  }
-
-  const scanDevices = () => {
-    startTestInfo('scanDevices')
-    setTestScanDevicesState('IN_PROGRESS')
-    BLEService.scanDevices(onDeviceFound, [deviceTimeService])
-  }
-
-  const startConnectToDevice = (device: Device) =>
-    runTest(() => BLEService.connectToDevice(device.id), setTestDeviceConnectedState, 'ConnectToDevice')
-
-  const startTestDiscoverServicesAndCharacteristicsFoundState = () =>
-    runTest(
-      BLEService.discoverAllServicesAndCharacteristicsForDevice,
-      setTestDiscoverServicesAndCharacteristicsFoundState,
-      'startTestDiscoverServicesAndCharacteristicsFoundState'
-    )
-
-  const startWriteCharacteristicWithResponseForDevice = () =>
-    runTest(
-      () =>
-        BLEService.writeCharacteristicWithResponseForDevice(
-          deviceTimeService,
-          deviceTimeCharacteristic,
-          writeWithResponseBase64Time
-        ),
-      setTestDeviceTimeCharacteristicWriteWithResponseState,
-      'startWriteCharacteristicWithResponseForDevice'
-    )
-
-  const startReadCharacteristicForDevice = (
-    expectedValue: Base64,
-    stateSetFunction: Dispatch<TestStateType>,
-    valueSetter: Dispatch<string>
-  ) => {
-    startTestInfo('startReadCharacteristicForDevice')
-    stateSetFunction('IN_PROGRESS')
-    return BLEService.readCharacteristicForDevice(deviceTimeService, deviceTimeCharacteristic)
-      .then(characteristic => {
-        if (characteristic.value === expectedValue) {
-          stateSetFunction('DONE')
-          console.info('success')
-          valueSetter(characteristic.value)
-        } else {
-          throw new Error('Read error')
-        }
-      })
-      .catch(error => {
-        console.error(error)
-        stateSetFunction('ERROR')
-      })
-  }
-
-  const startTestWriteDeviceTimeCharacteristicWithoutResponseForDeviceState = () =>
-    runTest(
-      () =>
-        BLEService.writeCharacteristicWithoutResponseForDevice(
-          deviceTimeService,
-          deviceTimeCharacteristic,
-          writeWithoutResponseBase64Time
-        ),
-      setTestWriteDeviceTimeCharacteristicWithoutResponseForDeviceState,
-      'startTestWriteDeviceTimeCharacteristicWithoutResponseForDeviceState'
-    )
-
-  const startTestMonitorCurrentTimeCharacteristicForDevice = () =>
-    new Promise<void>((resolve, reject) => {
-      startTestInfo('startTestMonitorCurrentTimeCharacteristicForDevice')
-      setTestMonitorCurrentTimeCharacteristicForDevice('IN_PROGRESS')
-      BLEService.setupMonitor(
-        deviceTimeService,
-        currentTimeCharacteristic,
-        async characteristic => {
-          if (characteristic.value && base64.decode(characteristic.value) === monitorExpectedMessage) {
-            setTestMonitorCurrentTimeCharacteristicForDevice('DONE')
-            await BLEService.finishMonitor()
-            console.info('success')
-            resolve()
-          }
-        },
-        async error => {
-          console.error(error)
-          setTestMonitorCurrentTimeCharacteristicForDevice('ERROR')
-          await BLEService.finishMonitor()
-          reject()
-        }
-      )
-    })
-
-  const startWriteTimeTriggerDescriptorForDevice = () =>
-    runTest(
-      () =>
-        BLEService.writeDescriptorForDevice(
-          deviceTimeService,
-          currentTimeCharacteristic,
-          currentTimeCharacteristicTimeTriggerDescriptor,
-          currentTimeCharacteristicTimeTriggerDescriptorValue
-        ),
-      setTestWriteTimeTriggerDescriptorForDeviceState,
-      'startWriteTimeTriggerDescriptorForDevice'
-    )
-
-  const startReadTimeTriggerDescriptorForDevice = () => {
-    setTestReadTimeTriggerDescriptorForDeviceState('IN_PROGRESS')
-    startTestInfo('startReadTimeTriggerDescriptorForDevice')
-    return BLEService.readDescriptorForDevice(
-      deviceTimeService,
-      currentTimeCharacteristic,
-      currentTimeCharacteristicTimeTriggerDescriptor
-    )
-      .then(descriptor => {
-        if (descriptor?.value === currentTimeCharacteristicTimeTriggerDescriptorValue) {
-          setTestReadTimeTriggerDescriptorForDeviceState('DONE')
-          console.info('success')
-        } else {
-          throw new Error('Read error')
-        }
-      })
-      .catch(error => {
-        console.error(error)
-        setTestReadTimeTriggerDescriptorForDeviceState('ERROR')
-      })
-  }
-
-  const startTestGetServicesForDeviceState = () =>
-    runTest(
-      () =>
-        BLEService.getServicesForDevice().then(services => {
-          if (!services) {
-            throw new Error('services error')
-          }
-          setTestServicesForDeviceStateValue(
-            JSON.stringify(
-              services.map(({ isPrimary, deviceID, id, uuid }) => ({ isPrimary, deviceID, id, uuid })),
-              null,
-              4
-            )
-          )
-        }),
-      setTestServicesForDeviceState,
-      'startTestGetServicesForDeviceState'
-    )
-
-  const startTestGetCharacteristicsForDeviceState = () =>
-    runTest(
-      () =>
-        BLEService.getDescriptorsForDevice(deviceTimeService, currentTimeCharacteristic).then(descriptors => {
-          if (!descriptors) {
-            throw new Error('descriptors error')
-          }
-          setTestDescriptorsForDeviceStateValue(
-            JSON.stringify(
-              descriptors.map(
-                ({ deviceID, id, serviceID, serviceUUID, uuid, value, characteristicID, characteristicUUID }) => ({
-                  deviceID,
-                  id,
-                  serviceID,
-                  serviceUUID,
-                  uuid,
-                  value,
-                  characteristicID,
-                  characteristicUUID
-                })
-              ),
-              null,
-              4
-            )
-          )
-        }),
-      setTestCharacteristicsForDeviceState,
-      'startTestGetCharacteristicsForDeviceState'
-    )
-
-  const startTestGetDescriptorsForDeviceState = () =>
-    runTest(
-      () =>
-        BLEService.getCharacteristicsForDevice(deviceTimeService).then(characteristics => {
-          if (!characteristics) {
-            throw new Error('characteristics error')
-          }
-          setTestCharacteristicsForDeviceStateValue(
-            JSON.stringify(
-              characteristics.map(
-                ({
-                  descriptors,
-                  deviceID,
-                  id,
-                  isIndicatable,
-                  isNotifiable,
-                  isNotifying,
-                  isReadable,
-                  isWritableWithResponse,
-                  isWritableWithoutResponse,
-                  serviceID,
-                  serviceUUID,
-                  uuid,
-                  value
-                }) => ({
-                  descriptors,
-                  deviceID,
-                  id,
-                  isIndicatable,
-                  isNotifiable,
-                  isNotifying,
-                  isReadable,
-                  isWritableWithResponse,
-                  isWritableWithoutResponse,
-                  serviceID,
-                  serviceUUID,
-                  uuid,
-                  value
-                })
-              ),
-              null,
-              4
-            )
-          )
-        }),
-      setTestDescriptorsForDeviceState,
-      'startTestGetDescriptorsForDeviceState'
-    )
-
-  const startIsDeviceConnectedState = () =>
-    runTest(
-      () =>
-        BLEService.isDeviceConnected().then(connectionStatus => {
-          if (!connectionStatus) {
-            throw new Error('isDeviceConnected error')
-          }
-        }),
-      setTestIsDeviceConnectedStateState,
-      'startIsDeviceConnectedState'
-    )
-
-  const getConnectedDevices = () =>
-    BLEService.getConnectedDevices([deviceTimeService]).then(connectedDevices => {
-      if (!connectedDevices) {
-        throw new Error('getConnectedDevices error')
-      }
-      const accurateDevice = connectedDevices.find(device => device.name === expectedDeviceName)
-      if (!accurateDevice) {
-        throw new Error('getConnectedDevices device not found')
-      }
-      return accurateDevice
-    })
-
-  const startGetConnectedDevices = () =>
-    runTest(getConnectedDevices, setTestConnectedDevicesState, 'startGetConnectedDevices')
-
-  const startRequestMTUForDevice = () => {
-    const expectedMTU = 40
-    return runTest(
-      () =>
-        BLEService.requestMTUForDevice(expectedMTU).then(device => {
-          if (Platform.OS === 'ios') {
-            return
-          }
-          if (!device) {
-            throw new Error('requestMTUForDevice error')
-          }
-          if (device.mtu !== expectedMTU) {
-            throw new Error('the requested MTU has not been set')
-          }
-        }),
-      setTestRequestMTUForDeviceState,
-      'startRequestMTUForDevice'
-    )
-  }
-
-  const testCancelTransaction = async () =>
-    new Promise<void>((resolve, reject) => {
-      const transactionId = 'mtuRequestTransactionTestId'
-      BLEService.setupMonitor(
-        deviceTimeService,
-        currentTimeCharacteristic,
-        () => {},
-        error => {
-          if (error.message === 'Operation was cancelled') {
-            resolve()
-          } else {
-            console.error(error)
-          }
-        },
-        transactionId,
-        true
-      )
-      BLEService.cancelTransaction(transactionId)
-
-      setTimeout(() => reject(new Error('Cancel transaction timeout')), 5000)
-    })
-
-  const startTestCancelTransaction = () =>
-    runTest(testCancelTransaction, setTestCancelTransactionState, 'startTestCancelTransaction')
-
-  const disconnectDevice = () => runTest(BLEService.disconnectDevice, setTestDeviceDisconnectState, 'disconnectDevice')
-
-  const startReadRSSIForDevice = () =>
-    runTest(
-      () =>
-        BLEService.readRSSIForDevice().then(device => {
-          if (!device) {
-            throw new Error('readRSSIForDevice error')
-          }
-          if (!device.rssi) {
-            throw new Error('readRSSIForDevice error')
-          }
-        }),
-      setTestReadRSSIForDeviceState,
-      'startReadRSSIForDevice'
-    )
-
-  const startGetDevices = () =>
-    runTest(
-      () =>
-        BLEService.getDevices().then(devices => {
-          if (!devices) {
-            throw new Error('getDevices error')
-          }
-          const device = devices.filter(({ name }) => name === expectedDeviceName)
-          if (!device) {
-            throw new Error('getDevices error')
-          }
-        }),
-      setTestGetDevicesState,
-      'startGetDevices'
-    )
-
-  const startRequestConnectionPriorityForDevice = () =>
-    runTest(
-      () =>
-        BLEService.requestConnectionPriorityForDevice(1).then(device => {
-          if (!device) {
-            throw new Error('getDevices error')
-          }
-        }),
-      setTestRequestConnectionPriorityForDeviceState,
-      'startRequestConnectionPriorityForDevice'
-    )
-
-  const getState = () =>
-    BLEService.getState().then(bluetoothState => {
-      if (!bluetoothState) {
-        throw new Error('getDevices error')
-      }
-      return bluetoothState
-    })
-
-  const startGetState = () => runTest(getState, setTestBTStateState, 'startGetState')
-
-  const onDeviceDisconnected = () => {
-    if (testOnDeviceDisconnectState === 'DONE') {
+  const start = async () => {
+    if (!work.isActive()) {
       return
     }
-    setTestOnDeviceDisconnectState('IN_PROGRESS')
-    const onDeviceDisconnectedSubscription = BLEService.onDeviceDisconnected((error, device) => {
-      if (error) {
-        setTestOnDeviceDisconnectState('ERROR')
+    setState('IN_PROGRESS')
+    setOutput(null)
+    let selected = false
+    try {
+      await BLEService.scanForPeers([deviceTimeService], peer => {
+        if (work.isActive() && !selected && peer.label === deviceName) {
+          selected = true
+          void runNrfFlow(peer, work, setState, setOutput)
+        }
+      })
+      await work.claimScan()
+    } catch (scanError) {
+      console.error('[DevicenRFTestScreen.start] Scan setup failed:', scanError)
+      if (work.isActive()) {
+        setState('ERROR')
+        setOutput(messageFor(scanError))
       }
-      if (device) {
-        setTestOnDeviceDisconnectState(prev => {
-          onDeviceDisconnectedSubscription.remove()
-          return prev === 'IN_PROGRESS' ? 'DONE' : 'ERROR'
-        })
-      }
-    })
+    }
   }
 
-  const cancelDeviceConnection = () =>
-    new Promise<void>((resolve, reject) => {
-      BLEService.scanDevices(
-        (device: Device) => {
-          if (device.name?.toLocaleLowerCase() === expectedDeviceName.toLocaleLowerCase()) {
-            BLEService.connectToDevice(device.id)
-              .then(() => BLEService.cancelDeviceConnection())
-              .then(() => resolve())
-              .catch(error => {
-                if (error?.message === `Device ${device.id} was disconnected`) {
-                  resolve()
-                }
-                reject(error)
-              })
-          }
-        },
-        [deviceTimeService]
-      ).catch(reject)
-    })
-
-  const startCancelDeviceConnection = () =>
-    runTest(cancelDeviceConnection, setTestStartCancelDeviceConnectionState, 'startCancelDeviceConnection')
+  const startMonitor = async () => {
+    if (!work.isActive()) {
+      return
+    }
+    try {
+      await BLEService.subscribeCharacteristic(deviceTimeService, currentTimeCharacteristic, value => {
+        if (work.isActive()) {
+          setNotification(new TextDecoder().decode(value))
+        }
+      })
+      await work.claimNotification()
+    } catch (monitorError) {
+      console.error('[DevicenRFTestScreen.startMonitor] Notification setup failed:', monitorError)
+      if (work.isActive()) {
+        setOutput(messageFor(monitorError))
+      }
+    }
+  }
 
   return (
     <ScreenDefaultContainer>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        <AppTextInput
-          placeholder="Device name to connect"
-          value={expectedDeviceName}
-          onChangeText={setExpectedDeviceName}
-        />
-        <AppButton label="Start" onPress={onStartHandler} />
-        <TestStateDisplay label="Looking for device" state={testScanDevicesState} />
-        <TestStateDisplay label="Device connected" state={testDeviceConnectedState} />
-        <TestStateDisplay
-          label="Discover services and characteristics found"
-          state={testDiscoverServicesAndCharacteristicsFoundState}
-        />
-        <TestStateDisplay
-          label="Device time characteristic write with response"
-          state={testDeviceTimeCharacteristicWriteWithResponseState}
-        />
-        <TestStateDisplay
-          label="Read device time characteristic for device after write with response"
-          state={testDeviceTimeReadCharacteristicForDeviceAfterWriteWithResponseState}
-          value={testDeviceTimeReadCharacteristicForDeviceAfterWriteWithResponseStateValue}
-        />
-        <TestStateDisplay
-          label="Write device time characteristic without response for device"
-          state={testWriteDeviceTimeCharacteristicWithoutResponseForDeviceState}
-        />
-        <TestStateDisplay
-          label="Read device time characteristic for device after write without response"
-          state={testReadDeviceTimeCharacteristicForDeviceAfterWriteWithoutResponseState}
-          value={testReadDeviceTimeCharacteristicForDeviceAfterWriteWithoutResponseStateValue}
-        />
-        <TestStateDisplay
-          label="Write time trigger descriptor for device"
-          state={testWriteTimeTriggerDescriptorForDeviceState}
-        />
-        <TestStateDisplay
-          label="Read time trigger descriptor for device"
-          state={testReadTimeTriggerDescriptorForDeviceState}
-        />
-        <TestStateDisplay
-          label="Services for device"
-          state={testServicesForDeviceState}
-          value={testServicesForDeviceStateValue}
-        />
-        <TestStateDisplay
-          label="Characteristics for device"
-          state={testCharacteristicsForDeviceState}
-          value={testCharacteristicsForDeviceStateValue}
-        />
-        <TestStateDisplay
-          label="Descriptors for device"
-          state={testDescriptorsForDeviceState}
-          value={testDescriptorsForDeviceStateValue}
-        />
-        <TestStateDisplay label="Is device connected" state={testIsDeviceConnectedStateState} />
-        <TestStateDisplay label="Connected devices" state={testConnectedDevicesState} />
-        <TestStateDisplay label="Request MTU for device" state={testRequestMTUForDeviceState} />
-        <TestStateDisplay label="Test cancel transaction" state={testCancelTransactionState} />
-        <TestStateDisplay label="Read RSSI for device" state={testReadRSSIForDeviceState} />
-        <TestStateDisplay label="Get devices" state={testGetDevicesState} />
-        <TestStateDisplay label="BT state" state={testBTStateState} />
-        <TestStateDisplay
-          label="Request connection priority for device"
-          state={testRequestConnectionPriorityForDeviceState}
-        />
-        <TestStateDisplay
-          label="Monitor current time characteristic for device"
-          state={testMonitorCurrentTimeCharacteristicForDevice}
-        />
-        <TestStateDisplay label="Device disconnect" state={testDeviceDisconnectState} />
-        <TestStateDisplay label="On device disconnect state" state={testOnDeviceDisconnectState} />
-        <TestStateDisplay label="Cancel device connection" state={testStartCancelDeviceConnectionState} />
-      </ScrollView>
+      <AppTextInput placeholder="Exact nRF local name" value={deviceName} onChangeText={setDeviceName} />
+      <AppButton label="Run canonical nRF byte and control flow" onPress={() => void start()} />
+      <AppButton label="Subscribe to Current Time" onPress={() => void startMonitor()} />
+      <AppButton label="Stop Current Time subscription" onPress={() => void stopMonitor(work, setOutput)} />
+      <AppButton label="Disconnect" onPress={() => void disconnect(work, setOutput)} />
+      <AppText>Expected notification text: {monitorExpectedMessage}</AppText>
+      <AppText>
+        {Platform.OS === 'android'
+          ? 'The canonical flow requests ATT MTU 300 on Android.'
+          : 'OS-managed ATT MTU on Apple CoreBluetooth; no application request is sent.'}
+      </AppText>
+      {notification === null ? null : <AppText>Notification: {notification}</AppText>}
+      <TestStateDisplay label="nRF canonical flow" state={state} value={output ?? undefined} />
     </ScreenDefaultContainer>
   )
+}
+
+async function runNrfFlow(
+  peer: ExamplePeer,
+  work: ReturnType<typeof useBleScreenWork>,
+  setState: (state: TestStateType) => void,
+  setOutput: (output: string | null) => void
+): Promise<void> {
+  try {
+    await BLEService.stopScan()
+    work.releaseScan()
+    await BLEService.connect(peer)
+    if (!(await work.claimConnection())) {
+      return
+    }
+    const withResponse = writeWithResponseTimeBytes()
+    await BLEService.writeCharacteristic(deviceTimeService, deviceTimeCharacteristic, withResponse, 'with-response')
+    const firstRead = await BLEService.readCharacteristic(deviceTimeService, deviceTimeCharacteristic)
+    if (!sameBytes(firstRead, withResponse)) {
+      throw new Error('The with-response write did not round-trip as identical raw bytes.')
+    }
+    const withoutResponse = writeWithoutResponseTimeBytes()
+    await BLEService.writeCharacteristic(
+      deviceTimeService,
+      deviceTimeCharacteristic,
+      withoutResponse,
+      'without-response'
+    )
+    const secondRead = await BLEService.readCharacteristic(deviceTimeService, deviceTimeCharacteristic)
+    if (!sameBytes(secondRead, withoutResponse)) {
+      throw new Error('The without-response write did not round-trip as identical raw bytes.')
+    }
+    const snapshot = await BLEService.snapshot()
+    const rssi = await BLEService.readRssi()
+    const mtu =
+      Platform.OS === 'android'
+        ? (await BLEService.requestMtu(300)).toString()
+        : 'OS-managed ATT MTU on Apple CoreBluetooth'
+    if (work.isActive()) {
+      setState('DONE')
+      setOutput(
+        `Raw bytes verified; ${snapshot.services.length.toString()} services; RSSI ${rssi.toString()}; ATT MTU ${mtu}.`
+      )
+    }
+  } catch (flowError) {
+    console.error('[DevicenRFTestScreen.runNrfFlow] nRF flow failed:', flowError)
+    if (work.isActive()) {
+      setState('ERROR')
+      setOutput(messageFor(flowError))
+    }
+  }
+}
+
+async function stopMonitor(
+  work: ReturnType<typeof useBleScreenWork>,
+  setOutput: (output: string | null) => void
+): Promise<void> {
+  try {
+    await BLEService.stopNotification()
+    work.releaseNotification()
+  } catch (stopError) {
+    console.error('[DevicenRFTestScreen.stopMonitor] Notification cleanup failed:', stopError)
+    if (work.isActive()) {
+      setOutput(messageFor(stopError))
+    }
+  }
+}
+
+async function disconnect(
+  work: ReturnType<typeof useBleScreenWork>,
+  setOutput: (output: string | null) => void
+): Promise<void> {
+  try {
+    await BLEService.disconnect()
+    work.releaseConnection()
+    work.releaseNotification()
+  } catch (disconnectError) {
+    console.error('[DevicenRFTestScreen.disconnect] Disconnect failed:', disconnectError)
+    if (work.isActive()) {
+      setOutput(messageFor(disconnectError))
+    }
+  }
+}
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function messageFor<Value>(error: Value): string {
+  return error instanceof Error ? error.message : 'The BLE operation failed with a non-Error value.'
 }

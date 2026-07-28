@@ -1,13 +1,25 @@
-import { fullUUID } from 'unified-ble-manager'
-import base64 from 'react-native-base64'
-import { getDateAsBase64 } from '../utils/getDateAsBase64'
+// example-expo/src/consts/nRFDeviceConsts.ts
 
-export const deviceTimeService = fullUUID('1847')
-export const currentTimeCharacteristic = fullUUID('2A2B')
-export const deviceTimeCharacteristic = fullUUID('2B90')
-export const currentTimeCharacteristicTimeTriggerDescriptor = fullUUID('290E')
-
-export const writeWithResponseBase64Time = getDateAsBase64(new Date('2022-08-11T08:17:19Z'))
-export const writeWithoutResponseBase64Time = getDateAsBase64(new Date('2023-09-12T10:12:16Z'))
+export const deviceTimeService = '00001847-0000-1000-8000-00805f9b34fb'
+export const currentTimeCharacteristic = '00002a2b-0000-1000-8000-00805f9b34fb'
+export const deviceTimeCharacteristic = '00002b90-0000-1000-8000-00805f9b34fb'
 export const monitorExpectedMessage = 'Hi, it works!'
-export const currentTimeCharacteristicTimeTriggerDescriptorValue = base64.encode('BLE-PLX')
+
+export function writeWithResponseTimeBytes(): Uint8Array {
+  return getDateUint8Array(2022, 8, 11, 8, 17, 19)
+}
+
+export function writeWithoutResponseTimeBytes(): Uint8Array {
+  return getDateUint8Array(2023, 9, 12, 10, 12, 16)
+}
+
+export function getDateUint8Array(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number
+): Uint8Array {
+  return new Uint8Array([(year >>> 8) & 0xff, year & 0xff, month, day, hour, minute, second])
+}

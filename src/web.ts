@@ -14,6 +14,7 @@ export {
 } from './web/web-bluetooth-backend'
 export { NavigatorWebBluetoothBoundary } from './web/navigator-web-bluetooth-boundary'
 export type { NavigatorWebBluetoothEnvironment } from './web/navigator-web-bluetooth-boundary'
+export type { ChooserRequest, ChooserSelection, WebChooser, WebHost } from './backend-contract/host/web'
 export type {
   WebBluetoothBoundary,
   WebBluetoothCharacteristicBoundary,

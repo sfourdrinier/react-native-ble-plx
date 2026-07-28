@@ -43,7 +43,7 @@ export class WinRtGattOperations {
     connection: BackendConnection<string, string>,
     options: PublicOperationOptions
   ): Promise<GattDatabase<string, string, string>> {
-    this.backend.assertUsable('winrt.gatt.discover')
+    this.backend.assertGattUsable('winrt.gatt.discover')
     const record = this.backend.requireConnection(connection, 'winrt.gatt.discover')
     const dispatch = this.backend.dispatcher.dispatch(options, 'winrt.gatt.discover', () =>
       this.backend.boundary.discover(record.nativePeerId)
@@ -59,12 +59,13 @@ export class WinRtGattOperations {
     path: CharacteristicPath<string, string, string, string, string, 'current'>,
     request: ReadRequest<string, string>
   ) {
+    this.backend.assertGattUsable('winrt.gatt.read')
     const address = this.backend.databaseForPath(path, 'winrt.gatt.read').addressFor(path, 'winrt.gatt.read')
     return this.backend.dispatcher.dispatch(request.operation, 'winrt.gatt.read', () => {
       const native = this.backend.boundary.read(address)
       return {
-        completion: native.completion.then(
-          value => Object.freeze({ value: ownBytes(value, maximumValueBytes), terminal: successfulTerminal(request.operation) })
+        completion: native.completion.then(value =>
+          Object.freeze({ value: ownBytes(value, maximumValueBytes), terminal: successfulTerminal(request.operation) })
         ),
         cancel: () => native.cancel()
       }
@@ -75,6 +76,7 @@ export class WinRtGattOperations {
     path: CharacteristicPath<string, string, string, string, string, 'current'>,
     request: WriteRequest<string, string>
   ) {
+    this.backend.assertGattUsable('winrt.gatt.write')
     const address = this.backend.databaseForPath(path, 'winrt.gatt.write').addressFor(path, 'winrt.gatt.write')
     const copied = ownBytes(request.bytes, maximumValueBytes)
     const result: WriteResult<string, string> = Object.freeze({
@@ -91,10 +93,10 @@ export class WinRtGattOperations {
     path: DescriptorPath<string, string, string, string, string, string, 'current'>,
     request: ReadRequest<string, string>
   ) {
-    const address = this.backend.descriptorDatabaseForPath(path, 'winrt.gatt.read-descriptor').descriptorAddressFor(
-      path,
-      'winrt.gatt.read-descriptor'
-    )
+    this.backend.assertGattUsable('winrt.gatt.read-descriptor')
+    const address = this.backend
+      .descriptorDatabaseForPath(path, 'winrt.gatt.read-descriptor')
+      .descriptorAddressFor(path, 'winrt.gatt.read-descriptor')
     return this.backend.dispatcher.dispatch(request.operation, 'winrt.gatt.read-descriptor', () => {
       const native = this.backend.boundary.readDescriptor(address)
       const result: ReadResult<string, string> = Object.freeze({
@@ -102,7 +104,9 @@ export class WinRtGattOperations {
         terminal: successfulTerminal(request.operation)
       })
       return {
-        completion: native.completion.then(value => Object.freeze({ ...result, value: ownBytes(value, maximumValueBytes) })),
+        completion: native.completion.then(value =>
+          Object.freeze({ ...result, value: ownBytes(value, maximumValueBytes) })
+        ),
         cancel: () => native.cancel()
       }
     })
@@ -112,10 +116,10 @@ export class WinRtGattOperations {
     path: DescriptorPath<string, string, string, string, string, string, 'current'>,
     request: WriteRequest<string, string>
   ) {
-    const address = this.backend.descriptorDatabaseForPath(path, 'winrt.gatt.write-descriptor').descriptorAddressFor(
-      path,
-      'winrt.gatt.write-descriptor'
-    )
+    this.backend.assertGattUsable('winrt.gatt.write-descriptor')
+    const address = this.backend
+      .descriptorDatabaseForPath(path, 'winrt.gatt.write-descriptor')
+      .descriptorAddressFor(path, 'winrt.gatt.write-descriptor')
     const copied = ownBytes(request.bytes, maximumValueBytes)
     const result: WriteResult<string, string> = Object.freeze({
       terminal: successfulTerminal(request.operation),
@@ -131,20 +135,26 @@ export class WinRtGattOperations {
     path: CharacteristicPath<string, string, string, string, string, 'current'>,
     request: SubscribeRequest<string, string>
   ) {
+    this.backend.assertGattUsable('winrt.gatt.subscribe')
     const address = this.backend.databaseForPath(path, 'winrt.gatt.subscribe').addressFor(path, 'winrt.gatt.subscribe')
     return this.backend.dispatcher.dispatch(
       request.operation,
       'winrt.gatt.subscribe',
       () => ({ completion: this.enableSubscription(address, path, request), cancel: async () => 'not-cancellable' }),
-      subscription => subscription.remove().then(cleanup => {
-        if (cleanup.state === 'release-failed') {
-          throw contractError('platform.failure', 'cleanup', 'winrt.gatt.subscribe.late-cleanup')
-        }
-      })
+      subscription =>
+        subscription.remove().then(cleanup => {
+          if (cleanup.state === 'release-failed') {
+            throw contractError('platform.failure', 'cleanup', 'winrt.gatt.subscribe.late-cleanup')
+          }
+        })
     )
   }
 
-  unsubscribe(subscription: BackendSubscription<string, string, string, string, string>, operation: OperationOptions<string, string>) {
+  unsubscribe(
+    subscription: BackendSubscription<string, string, string, string, string>,
+    operation: OperationOptions<string, string>
+  ) {
+    this.backend.assertGattUsable('winrt.gatt.unsubscribe')
     if (!(subscription instanceof WinRtBackendSubscription)) {
       throw contractError('ownership.denied', 'gatt', 'winrt.gatt.unsubscribe.subscription')
     }
@@ -164,7 +174,10 @@ export class WinRtGattOperations {
   }
 
   async readFromDatabase(address: WinRtCharacteristicAddress, options: PublicOperationOptions): Promise<OwnedBytes> {
-    const dispatch = this.backend.dispatcher.dispatch(options, 'winrt.gatt.database-read', () => this.backend.boundary.read(address))
+    this.backend.assertGattUsable('winrt.gatt.database-read')
+    const dispatch = this.backend.dispatcher.dispatch(options, 'winrt.gatt.database-read', () =>
+      this.backend.boundary.read(address)
+    )
     return ownBytes(await dispatch.completion, maximumValueBytes)
   }
 
@@ -173,6 +186,7 @@ export class WinRtGattOperations {
     value: Uint8Array,
     options: import('../../backend-contract/operations').WritePolicy
   ): Promise<WriteReceipt<string, string>> {
+    this.backend.assertGattUsable('winrt.gatt.database-write')
     const copied = ownBytes(value, maximumValueBytes)
     const dispatch = this.backend.dispatcher.dispatch(options, 'winrt.gatt.database-write', () =>
       this.backend.boundary.write(address, new Uint8Array(copied), options.mode)
@@ -181,7 +195,11 @@ export class WinRtGattOperations {
     return this.databaseWriteReceipt('winrt-database-write')
   }
 
-  async readDescriptorFromDatabase(address: WinRtDescriptorAddress, options: PublicOperationOptions): Promise<OwnedBytes> {
+  async readDescriptorFromDatabase(
+    address: WinRtDescriptorAddress,
+    options: PublicOperationOptions
+  ): Promise<OwnedBytes> {
+    this.backend.assertGattUsable('winrt.gatt.database-read-descriptor')
     const dispatch = this.backend.dispatcher.dispatch(options, 'winrt.gatt.database-read-descriptor', () =>
       this.backend.boundary.readDescriptor(address)
     )
@@ -193,6 +211,7 @@ export class WinRtGattOperations {
     value: Uint8Array,
     options: import('../../backend-contract/operations').WritePolicy
   ): Promise<WriteReceipt<string, string>> {
+    this.backend.assertGattUsable('winrt.gatt.database-write-descriptor')
     const copied = ownBytes(value, maximumValueBytes)
     const dispatch = this.backend.dispatcher.dispatch(options, 'winrt.gatt.database-write-descriptor', () =>
       this.backend.boundary.writeDescriptor(address, new Uint8Array(copied), options.mode)
@@ -205,6 +224,7 @@ export class WinRtGattOperations {
     path: CharacteristicPath<string, string, string, string, string, 'current'>,
     options: import('../../backend-contract/operations').SubscriptionOptions
   ): Promise<WinRtBackendSubscription> {
+    this.backend.assertGattUsable('winrt.gatt.database-subscribe')
     const correlation = this.backend.identifiers().operationCorrelation('winrt-database-subscribe')
     return this.subscribe(path, { operation: { ...options, correlation }, options }).completion
   }
@@ -228,7 +248,8 @@ export class WinRtGattOperations {
       physical = createWinRtPhysicalSubscription(this.backend, address, mode)
       const enabling = physical
       try {
-        await this.backend.boundary.startNotify(address, mode, value => emitWinRtNotification(enabling, value)).completion
+        await this.backend.boundary.startNotify(address, mode, value => emitWinRtNotification(enabling, value))
+          .completion
       } catch (error) {
         if (this.backend.subscriptions.get(key) === enabling) {
           this.backend.subscriptions.delete(key)

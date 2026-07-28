@@ -168,11 +168,14 @@ async function backendFixture(testFixture) {
 }
 
 async function selectedPeer(backend) {
-  return backend.choose({
-    filters: [{ serviceUuids: [SERVICE], localNamePrefix: null }],
-    acceptAllDevices: false,
-    optionalServices: [SERVICE]
-  })
+  return backend.choose(
+    {
+      filters: [{ serviceUuids: [SERVICE], localNamePrefix: null }],
+      acceptAllDevices: false,
+      optionalServices: [SERVICE]
+    },
+    noDeadline()
+  )
 }
 
 async function connectedDatabase(backend) {

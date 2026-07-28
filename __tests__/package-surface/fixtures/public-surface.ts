@@ -36,6 +36,7 @@ import {
   DeterministicVirtualClock
 } from 'unified-ble-manager/testing'
 import type { DeterministicBackendFixture } from 'unified-ble-manager/testing'
+import type { ChooserRequest, WebChooser } from 'unified-ble-manager/web'
 import { createDbusNextBluezBackendProvider } from 'unified-ble-manager/node/bluez'
 import type { BluezBusKind } from 'unified-ble-manager/node/bluez'
 import { createNativeWinRtBackendProvider } from 'unified-ble-manager/node/winrt'
@@ -66,6 +67,8 @@ declare const nativeWinRtOptions: NativeWinRtProviderOptions
 declare const nativeAndroidOptions: ReactNativeAndroidBackendProviderOptions
 declare const nativeAppleOptions: ReactNativeAppleBackendProviderOptions
 declare const nativeManagerOptions: ReactNativeBleManagerOptions
+declare const webChooser: WebChooser<string>
+declare const webChooserRequest: ChooserRequest
 declare function observe<Value>(value: Value): void
 
 observe(BleManager)
@@ -110,3 +113,4 @@ observe(createReactNativeAppleBackendProvider(nativeAppleOptions))
 observe(createReactNativeBleManager(nativeManagerOptions))
 observe(getNativeUnifiedBleProtocolControl)
 observe(nativeWinRtOptions)
+observe(webChooser.choose(webChooserRequest, operation))

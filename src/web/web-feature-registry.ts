@@ -19,11 +19,19 @@ const restorationLimitation: Limitation = {
   affectedGuarantee: 'state restoration'
 }
 
+const continuousScanLimitation: Limitation = {
+  code: 'web-chooser-is-not-continuous-scan',
+  explanation:
+    'Web Bluetooth exposes a user-activated chooser and cannot provide a continuous scan session or scan sharing.',
+  affectedGuarantee: 'continuous discovery and scan-session ownership'
+}
+
 function unsupportedRegistration(
-  id: 'web:background-operation' | 'web:state-restoration',
+  id: 'web:background-operation' | 'web:continuous-scan' | 'web:state-restoration',
   scenarioId: string,
   limitation: Limitation,
-  implementationVersion: string
+  implementationVersion: string,
+  limits: Record<string, number>
 ): FeatureRegistry['registrations'][number] {
   return {
     id,
@@ -48,7 +56,7 @@ function unsupportedRegistration(
       limitations: [limitation]
     },
     limitations: [limitation],
-    limits: { maximumBackgroundSeconds: 0 }
+    limits
   }
 }
 
@@ -58,13 +66,22 @@ export function createWebBluetoothFeatureRegistry(implementationVersion: string)
       'web:background-operation',
       'web.background-operation-unavailable',
       backgroundLimitation,
-      implementationVersion
+      implementationVersion,
+      { maximumBackgroundSeconds: 0 }
+    ),
+    unsupportedRegistration(
+      'web:continuous-scan',
+      'web.continuous-scan-and-join-unsupported',
+      continuousScanLimitation,
+      implementationVersion,
+      { maximumConcurrentScanSessions: 0 }
     ),
     unsupportedRegistration(
       'web:state-restoration',
       'web.state-restoration-unavailable',
       restorationLimitation,
-      implementationVersion
+      implementationVersion,
+      { maximumRestorationRecords: 0 }
     )
   ])
 }

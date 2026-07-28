@@ -296,42 +296,52 @@ function createWebScenarioFactory() {
     backendId: 'unified-ble:web-bluetooth',
     platformId: 'web:scenario-browser',
     create: async () => {
-      const webBoundary = createWebScenarioBoundary()
-      const provider = createWebBluetoothProvider(webBoundary.boundary)
-      const adapters = await provider.listAdapters()
-      const selected = adapters[0]
-      if (selected === undefined) {
-        throw new Error('Web scenario boundary did not expose its selected adapter')
-      }
-      const backend = await provider.create({ selectedAdapterId: selected.adapterId })
-      const manager = await scenarioManagerOwner(backend, 'web')
+      const environment = await createWebScenarioEnvironment()
       return createManagerScenarioFixture({
-        backendId: backend.identity.registeredBackendId,
-        platformId: backend.identity.registeredPlatformId,
+        backendId: environment.backend.identity.registeredBackendId,
+        platformId: environment.backend.identity.registeredPlatformId,
         evidence: scenarioEvidence,
-        owner: manager.owner,
-        createBorrower: manager.createBorrower,
-        controller: scenarioController(['advertisement', 'notification'], {
-          scanOptions: (itemCapacity, byteCapacity) => ({
-            filter: { serviceUuids: [serviceUuid], localNamePrefix: null },
-            duplicatePolicy: 'all',
-            timestampPolicy: 'receipt-monotonic',
-            delivery: {
-              itemCapacity: capacity(itemCapacity),
-              byteCapacity: capacity(byteCapacity),
-              reservedControlCapacity: capacity(1),
-              overflowPolicy: 'drop-oldest'
-            },
-            deadline: null,
-            signal: null,
-            sharing: { mode: 'owner', allowSharing: false }
-          }),
-          emitAdvertisement: () => webBoundary.assertChooserSelection(),
-          emitNotification: (_path, value) => webBoundary.emitNotification(value)
-        }),
-        resourceCounters: () => backend.resourceCounters(),
-        dispose: () => manager.owner.destroy()
+        owner: environment.manager.owner,
+        createBorrower: environment.manager.createBorrower,
+        // Web Bluetooth deliberately offers a chooser, not a continuous scan session.
+        controller: scenarioController([], {}),
+        resourceCounters: () => environment.backend.resourceCounters(),
+        dispose: () => environment.manager.owner.destroy()
       })
+    }
+  }
+}
+
+async function createWebScenarioEnvironment() {
+  const webBoundary = createWebScenarioBoundary()
+  const provider = createWebBluetoothProvider(webBoundary.boundary)
+  const adapters = await provider.listAdapters()
+  const selected = adapters[0]
+  if (selected === undefined) {
+    throw new Error('Web scenario boundary did not expose its selected adapter')
+  }
+  const backend = await provider.create({ selectedAdapterId: selected.adapterId })
+  const manager = await scenarioManagerOwner(backend, 'web')
+  return { backend, manager, webBoundary }
+}
+
+function webChooserRequest() {
+  return {
+    filters: [{ serviceUuids: [serviceUuid], localNamePrefix: null }],
+    acceptAllDevices: false,
+    optionalServices: [serviceUuid]
+  }
+}
+
+function webSubscriptionOptions() {
+  return {
+    signal: null,
+    deadline: null,
+    delivery: {
+      itemCapacity: capacity(4),
+      byteCapacity: capacity(128),
+      reservedControlCapacity: capacity(1),
+      overflowPolicy: 'drop-oldest'
     }
   }
 }
@@ -470,9 +480,41 @@ describe('canonical manager scenarios on completed deterministic boundary bridge
 
   test('runs the Web chooser/user-activation vertical journey without claiming continuous radio scanning', async () => {
     const report = await runManagerScenarios(createWebScenarioFactory())
-    expect(passedScenarioIds(report)).toEqual(['manager.scan-connect-discover-read-notify-destroy'])
-    expect(unsupportedScenarioIds(report)).toHaveLength(managerScenarioDefinitions.length - 1)
+    expect(passedScenarioIds(report)).toEqual([])
+    expect(unsupportedScenarioIds(report)).toHaveLength(managerScenarioDefinitions.length)
     expectTypedControllerUnsupportedReceipts(report)
     expectDeterministicBoundaryEvidence(report)
+
+    const environment = await createWebScenarioEnvironment()
+    let cleanup
+    try {
+      const selection = await environment.backend.choose(webChooserRequest(), { signal: null, deadline: null })
+      environment.webBoundary.assertChooserSelection()
+      const connection = await environment.manager.owner.connect(selection.peerId, { signal: null, deadline: null })
+      const database = await connection.discover({ signal: null, deadline: null })
+      const snapshot = await database.snapshot()
+      const characteristic = snapshot.characteristics[0]
+      if (characteristic === undefined) {
+        throw new Error('Web chooser scenario did not discover a characteristic')
+      }
+      await expect(database.read(characteristic.path, { signal: null, deadline: null })).resolves.toEqual(
+        new Uint8Array([12, 13])
+      )
+      const subscription = await database.subscribe(characteristic.path, webSubscriptionOptions())
+      const nextNotification = subscription.values[Symbol.asyncIterator]().next()
+      environment.webBoundary.emitNotification(new Uint8Array([21]))
+      await expect(nextNotification).resolves.toMatchObject({
+        done: false,
+        value: { kind: 'value', value: { value: new Uint8Array([21]), indication: false } }
+      })
+      await expect(subscription.remove()).resolves.toMatchObject({ state: 'released', failures: [] })
+      await expect(connection.release()).resolves.toMatchObject({ state: 'released', failures: [] })
+    } finally {
+      cleanup = await environment.manager.owner.destroy()
+    }
+    expect(cleanup).toEqual({ state: 'released', failures: [] })
+    expect(Object.values(environment.backend.resourceCounters()).map(value => Number(value))).toEqual(
+      new Array(13).fill(0)
+    )
   })
 })

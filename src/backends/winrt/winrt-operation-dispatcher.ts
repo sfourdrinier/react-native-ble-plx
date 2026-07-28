@@ -41,14 +41,11 @@ export class WinRtOperationDispatcher {
     operationOptions: PublicOperationOptions,
     operationName: string,
     start: () => WinRtAsyncOperation<Result>,
-    onLateSuccess?: (value: Result) => Promise<void>
+    onLateSuccess?: (value: Result) => Promise<void>,
+    onLateFailure?: (error: Error) => void
   ): BackendOperationDispatch<string, Result> {
     this.assertAdmission(operationOptions, operationName)
-    const handle = opaqueId(
-      `winrt-operation-${this.nextOperation}`,
-      'backend-operation',
-      'winrt:dispatcher'
-    )
+    const handle = opaqueId(`winrt-operation-${this.nextOperation}`, 'backend-operation', 'winrt:dispatcher')
     this.nextOperation += 1
     const native = start()
     let resolvePublic: (value: Result) => void = () => undefined
@@ -85,7 +82,7 @@ export class WinRtOperationDispatcher {
       active.publicSettled = true
       clearAdmission()
       rejectPublic(error)
-      void this.requestCancellation(active).catch(errorValue => {
+      this.requestCancellation(active).catch(errorValue => {
         const normalized = this.asError(errorValue, operationName)
         this.options.onCancellationFailure(operationName, normalized)
       })
@@ -122,6 +119,7 @@ export class WinRtOperationDispatcher {
         this.active.delete(String(handle))
         const normalized = this.asError(error, operationName)
         if (active.publicSettled) {
+          onLateFailure?.(normalized)
           this.options.onLateFailure(operationName, normalized)
           return
         }

@@ -94,7 +94,7 @@ export class CoreBluetoothConnection implements BackendConnection<string, string
   }
 
   get state(): BackendConnection<string, string>['state'] {
-    return this.record.state
+    return this.record.state === 'cleanup-failed' ? 'connected' : this.record.state
   }
 
   disconnect(): Promise<CleanupRecord> {
@@ -185,11 +185,11 @@ export class CoreBluetoothGattDatabase implements GattDatabase<string, string, s
 
   async read<ServiceOccurrence extends string, CharacteristicOccurrence extends string>(
     path: CharacteristicPath<string, string, string, ServiceOccurrence, CharacteristicOccurrence, 'current'>,
-    _options: PublicOperationOptions
+    options: PublicOperationOptions
   ): Promise<OwnedBytes> {
     this.assertCurrent('corebluetooth.gatt.database-read')
     const address = this.addressFor(path, 'corebluetooth.gatt.database-read')
-    return this.backend.gattOperations.readFromDatabase(address)
+    return this.backend.gattOperations.readFromDatabase(address, options, String(this.path.connectionId))
   }
 
   async write<ServiceOccurrence extends string, CharacteristicOccurrence extends string>(
@@ -199,7 +199,13 @@ export class CoreBluetoothGattDatabase implements GattDatabase<string, string, s
   ): Promise<import('../../backend-contract/operations').WriteReceipt<string, string>> {
     this.assertCurrent('corebluetooth.gatt.database-write')
     const address = this.addressFor(path, 'corebluetooth.gatt.database-write')
-    await this.backend.gattOperations.writeFromDatabase(address, value, options.mode === 'with-response')
+    await this.backend.gattOperations.writeFromDatabase(
+      address,
+      value,
+      options.mode === 'with-response',
+      options,
+      String(this.path.connectionId)
+    )
     return Object.freeze({
       terminal: Object.freeze({
         correlation: opaqueId('corebluetooth-database-write', 'core-operation', 'corebluetooth:database'),
@@ -304,6 +310,10 @@ export class CoreBluetoothBackendSubscription implements BackendSubscription<str
 
   remove(): Promise<CleanupRecord> {
     return this.backend.gattOperations.removeSubscription(this)
+  }
+
+  isOwnedBy(backend: CoreBluetoothBackend): boolean {
+    return this.backend === backend
   }
 }
 

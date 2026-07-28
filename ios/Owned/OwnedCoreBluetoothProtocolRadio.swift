@@ -41,6 +41,8 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
   private var peripheralByIdentifier = [String: CBPeripheral]()
   private var servicesByPeer = [String: [CBService]]()
   private var pendingConnect = [String: PendingVoid]()
+  /// A disconnect resolves only from CoreBluetooth's terminal delegate callback.
+  private var pendingDisconnect = [String: PendingVoid]()
   private var pendingDiscovery = [String: PendingDiscovery]()
   private var pendingRead = [CharacteristicAddress: PendingData]()
   private var pendingRssi = [String: PendingRssi]()
@@ -91,7 +93,7 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
   @objc public init(restoreIdentifierKey: String?) {
     queue = BlePlxRadioQueue.shared
     super.init()
-    let transfer = Self.takeRestorationTransfer()
+    let transfer = OwnedCoreBluetoothProtocolRadioSupport.takeRestorationTransfer()
     if let transfer {
       central = transfer.central
       central.delegate = self
@@ -115,7 +117,7 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
 
   @objc public func adapterSnapshot() -> NSDictionary {
     queue.sync {
-      adapterSnapshotDictionary()
+      OwnedCoreBluetoothProtocolRadioSupport.adapterSnapshotDictionary(central: central)
     }
   }
 
@@ -136,7 +138,7 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
         completion(self.error(code: 1001, message: "A Native Protocol v1 scan is already active"))
         return
       }
-      guard let serviceFilter = self.parseUUIDs(serviceUUIDs) else {
+      guard let serviceFilter = OwnedCoreBluetoothProtocolRadioSupport.parseUUIDs(serviceUUIDs) else {
         completion(self.error(code: 1002, message: "A scan service UUID is invalid"))
         return
       }
@@ -205,11 +207,20 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
         completion(self.error(code: 1007, message: "The requested CoreBluetooth peripheral is unknown"))
         return
       }
-      if peripheral.state == .connected || peripheral.state == .connecting {
-        self.central.cancelPeripheralConnection(peripheral)
+      guard self.pendingDisconnect[peerIdentifier] == nil else {
+        completion(self.error(code: 1024, message: "A disconnect is already pending for this peripheral"))
+        return
       }
-      self.servicesByPeer.removeValue(forKey: peerIdentifier)
-      completion(nil)
+      guard peripheral.state != .disconnected else {
+        self.servicesByPeer.removeValue(forKey: peerIdentifier)
+        completion(nil)
+        return
+      }
+      self.pendingDisconnect[peerIdentifier] = PendingVoid(
+        operationIdentifier: operationIdentifier,
+        completion: completion
+      )
+      self.central.cancelPeripheralConnection(peripheral)
     }
   }
 
@@ -252,9 +263,9 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
       guard self.requireUsable({ error in completion(nil, error) }) else { return }
       let address = CharacteristicAddress(
         peerIdentifier: peerIdentifier,
-        serviceUUID: self.normalizedUUID(serviceUUID),
+        serviceUUID: OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID(serviceUUID),
         serviceOccurrence: serviceOccurrence,
-        characteristicUUID: self.normalizedUUID(characteristicUUID),
+        characteristicUUID: OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID(characteristicUUID),
         characteristicOccurrence: characteristicOccurrence
       )
       guard let resolved = self.resolve(address) else {
@@ -310,9 +321,9 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
       }
       let address = CharacteristicAddress(
         peerIdentifier: peerIdentifier,
-        serviceUUID: self.normalizedUUID(serviceUUID),
+        serviceUUID: OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID(serviceUUID),
         serviceOccurrence: serviceOccurrence,
-        characteristicUUID: self.normalizedUUID(characteristicUUID),
+        characteristicUUID: OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID(characteristicUUID),
         characteristicOccurrence: characteristicOccurrence
       )
       guard let resolved = self.resolve(address) else {
@@ -410,7 +421,9 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
   }
 
   public func centralManagerDidUpdateState(_ central: CBCentralManager) {
-    delegate?.protocolRadioDidUpdateAdapterState(adapterSnapshotDictionary())
+    delegate?.protocolRadioDidUpdateAdapterState(
+      OwnedCoreBluetoothProtocolRadioSupport.adapterSnapshotDictionary(central: central)
+    )
   }
 
   #if os(iOS)
@@ -437,7 +450,7 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
     let identifier = peripheral.identifier.uuidString
     peripheralByIdentifier[identifier] = peripheral
     peripheral.delegate = self
-    delegate?.protocolRadioDidReceiveAdvertisement(advertisementDictionary(
+    delegate?.protocolRadioDidReceiveAdvertisement(OwnedCoreBluetoothProtocolRadioSupport.advertisementDictionary(
       peripheral: peripheral,
       advertisementData: advertisementData,
       rssi: RSSI
@@ -451,23 +464,38 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
     if let pending = pendingConnect.removeValue(forKey: identifier) {
       pending.completion(nil)
     }
+    if pendingDisconnect[identifier] != nil {
+      central.cancelPeripheralConnection(peripheral)
+    }
   }
 
   public func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
     let identifier = peripheral.identifier.uuidString
+    let failure = error as NSError? ?? self.error(code: 1015, message: "CoreBluetooth failed to connect")
     if let pending = pendingConnect.removeValue(forKey: identifier) {
-      pending.completion(error as NSError? ?? self.error(code: 1015, message: "CoreBluetooth failed to connect"))
+      pending.completion(failure)
+    }
+    if let pending = pendingDisconnect.removeValue(forKey: identifier) {
+      pending.completion(nil)
     }
   }
 
   public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
     let identifier = peripheral.identifier.uuidString
+    let explicitDisconnect = pendingDisconnect.removeValue(forKey: identifier)
     servicesByPeer.removeValue(forKey: identifier)
+    if let pending = pendingConnect.removeValue(forKey: identifier) {
+      pending.completion(error as NSError? ?? self.error(code: 1015, message: "CoreBluetooth disconnected while connecting"))
+    }
     pendingDiscovery.removeValue(forKey: identifier)?.completion(
       nil,
       error as NSError? ?? self.error(code: 1016, message: "CoreBluetooth disconnected during discovery")
     )
     failPendingGATT(for: identifier, error: error as NSError?)
+    if let explicitDisconnect {
+      explicitDisconnect.completion(nil)
+      return
+    }
     delegate?.protocolRadioDidDisconnectPeer(identifier, error: error as NSError?)
   }
 
@@ -580,9 +608,9 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
       guard self.requireUsable(completion) else { return }
       let address = CharacteristicAddress(
         peerIdentifier: peerIdentifier,
-        serviceUUID: self.normalizedUUID(serviceUUID),
+        serviceUUID: OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID(serviceUUID),
         serviceOccurrence: serviceOccurrence,
-        characteristicUUID: self.normalizedUUID(characteristicUUID),
+        characteristicUUID: OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID(characteristicUUID),
         characteristicOccurrence: characteristicOccurrence
       )
       guard let resolved = self.resolve(address) else {
@@ -619,13 +647,13 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
     var services = [NSDictionary]()
     var serviceOccurrences = [String: Int]()
     for service in servicesByPeer[peerIdentifier] ?? [] {
-      let serviceUUID = normalizedUUID(service.uuid.uuidString)
+      let serviceUUID = OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID(service.uuid.uuidString)
       let serviceOccurrence = serviceOccurrences[serviceUUID, default: 0]
       serviceOccurrences[serviceUUID] = serviceOccurrence + 1
       var characteristics = [NSDictionary]()
       var characteristicOccurrences = [String: Int]()
       for characteristic in service.characteristics ?? [] {
-        let characteristicUUID = normalizedUUID(characteristic.uuid.uuidString)
+        let characteristicUUID = OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID(characteristic.uuid.uuidString)
         let characteristicOccurrence = characteristicOccurrences[characteristicUUID, default: 0]
         characteristicOccurrences[characteristicUUID] = characteristicOccurrence + 1
         characteristics.append([
@@ -649,11 +677,13 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
   private func resolve(_ address: CharacteristicAddress) -> (peripheral: CBPeripheral, characteristic: CBCharacteristic)? {
     guard let peripheral = peripheralByIdentifier[address.peerIdentifier], peripheral.state == .connected,
           let services = servicesByPeer[address.peerIdentifier] else { return nil }
-    let matchingServices = services.filter { normalizedUUID($0.uuid.uuidString) == address.serviceUUID }
+    let matchingServices = services.filter {
+      OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID($0.uuid.uuidString) == address.serviceUUID
+    }
     guard address.serviceOccurrence >= 0, address.serviceOccurrence < matchingServices.count else { return nil }
     let service = matchingServices[address.serviceOccurrence]
     let matchingCharacteristics = (service.characteristics ?? []).filter {
-      normalizedUUID($0.uuid.uuidString) == address.characteristicUUID
+      OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID($0.uuid.uuidString) == address.characteristicUUID
     }
     guard address.characteristicOccurrence >= 0, address.characteristicOccurrence < matchingCharacteristics.count else { return nil }
     return (peripheral, matchingCharacteristics[address.characteristicOccurrence])
@@ -662,17 +692,21 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
   private func address(for characteristic: CBCharacteristic, peerIdentifier: String) -> CharacteristicAddress? {
     guard let service = characteristic.service,
           let services = servicesByPeer[peerIdentifier] else { return nil }
-    let matchingServices = services.filter { normalizedUUID($0.uuid.uuidString) == normalizedUUID(service.uuid.uuidString) }
+    let normalizedServiceUUID = OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID(service.uuid.uuidString)
+    let matchingServices = services.filter {
+      OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID($0.uuid.uuidString) == normalizedServiceUUID
+    }
     guard let serviceOccurrence = matchingServices.firstIndex(where: { $0 === service }) else { return nil }
     let matchingCharacteristics = (service.characteristics ?? []).filter {
-      normalizedUUID($0.uuid.uuidString) == normalizedUUID(characteristic.uuid.uuidString)
+      OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID($0.uuid.uuidString) ==
+        OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID(characteristic.uuid.uuidString)
     }
     guard let characteristicOccurrence = matchingCharacteristics.firstIndex(where: { $0 === characteristic }) else { return nil }
     return CharacteristicAddress(
       peerIdentifier: peerIdentifier,
-      serviceUUID: normalizedUUID(service.uuid.uuidString),
+      serviceUUID: normalizedServiceUUID,
       serviceOccurrence: serviceOccurrence,
-      characteristicUUID: normalizedUUID(characteristic.uuid.uuidString),
+      characteristicUUID: OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID(characteristic.uuid.uuidString),
       characteristicOccurrence: characteristicOccurrence
     )
   }
@@ -687,6 +721,12 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
       if let peripheral = peripheralByIdentifier[peerIdentifier] {
         central.cancelPeripheralConnection(peripheral)
       }
+    }
+    let cancelledDisconnects = pendingDisconnect.compactMap { peerIdentifier, pending in
+      pending.operationIdentifier == operationIdentifier ? peerIdentifier : nil
+    }
+    for peerIdentifier in cancelledDisconnects {
+      pendingDisconnect.removeValue(forKey: peerIdentifier)
     }
     pendingDiscovery = pendingDiscovery.filter { $0.value.operationIdentifier != operationIdentifier }
     pendingRead = pendingRead.filter { $0.value.operationIdentifier != operationIdentifier }
@@ -723,6 +763,7 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
   private func failAllPendingOperationsOnDestroy() {
     let failure = error(code: 1021, message: "The CoreBluetooth protocol radio was destroyed")
     let connects = pendingConnect
+    let disconnects = pendingDisconnect
     let discoveries = pendingDiscovery
     let reads = pendingRead
     let rssiReads = pendingRssi
@@ -730,6 +771,7 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
     let notifications = pendingNotify
 
     pendingConnect.removeAll()
+    pendingDisconnect.removeAll()
     pendingDiscovery.removeAll()
     pendingRead.removeAll()
     pendingRssi.removeAll()
@@ -737,6 +779,9 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
     pendingNotify.removeAll()
 
     for pending in connects.values {
+      pending.completion(failure)
+    }
+    for pending in disconnects.values {
       pending.completion(failure)
     }
     for pending in discoveries.values {
@@ -756,95 +801,6 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
     }
   }
 
-  private func advertisementDictionary(
-    peripheral: CBPeripheral,
-    advertisementData: [String: Any],
-    rssi: NSNumber
-  ) -> NSDictionary {
-    let serviceUUIDs = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID])?.map {
-      normalizedUUID($0.uuidString)
-    }
-    let solicitedServiceUUIDs = (advertisementData[CBAdvertisementDataSolicitedServiceUUIDsKey] as? [CBUUID])?.map {
-      normalizedUUID($0.uuidString)
-    }
-    let overflowServiceUUIDs = (advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID])?.map {
-      normalizedUUID($0.uuidString)
-    }
-    let serviceData = (advertisementData[CBAdvertisementDataServiceDataKey] as? [CBUUID: Data])?.reduce(into: [String: NSData]()) {
-      $0[normalizedUUID($1.key.uuidString)] = $1.value as NSData
-    }
-    let manufacturerData = advertisementData[CBAdvertisementDataManufacturerDataKey] as? NSData
-    var result: [String: Any] = [
-      "peerIdentifier": peripheral.identifier.uuidString,
-      "observedAt": DispatchTime.now().uptimeNanoseconds / 1_000_000,
-      "localName": advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? peripheral.name as Any,
-      "rssi": rssi.intValue,
-      "serviceUUIDs": serviceUUIDs as Any,
-      "solicitedServiceUUIDs": solicitedServiceUUIDs as Any,
-      "overflowServiceUUIDs": overflowServiceUUIDs as Any,
-      "serviceData": serviceData as Any,
-      "connectable": advertisementData[CBAdvertisementDataIsConnectable] as? Bool as Any,
-      "txPower": advertisementData[CBAdvertisementDataTxPowerLevelKey] as? NSNumber as Any,
-      "manufacturerData": manufacturerData as Any
-    ]
-    result["fieldProvenance"] = ["corebluetooth-advertisement"]
-    return result as NSDictionary
-  }
-
-  private func adapterSnapshotDictionary() -> NSDictionary {
-    let authorization: String
-    if #available(iOS 13.1, tvOS 13.1, *) {
-      switch CBManager.authorization {
-      case .allowedAlways: authorization = "granted"
-      case .denied: authorization = "denied"
-      case .restricted: authorization = "restricted"
-      case .notDetermined: authorization = "notDetermined"
-      @unknown default: authorization = "unavailable"
-      }
-    } else {
-      authorization = "unavailable"
-    }
-    let power: String
-    switch central.state {
-    case .poweredOn: power = "on"
-    case .poweredOff: power = "off"
-    case .resetting: power = "resetting"
-    case .unsupported: power = "unsupported"
-    case .unauthorized: power = "unknown"
-    case .unknown: power = "unknown"
-    @unknown default: power = "unknown"
-    }
-    return [
-      "availability": central.state == .unsupported ? "unsupported" : "available",
-      "authorization": authorization,
-      "power": power,
-      "safeReason": central.state == .poweredOn ? NSNull() : "CoreBluetooth has not reported a powered-on adapter"
-    ] as NSDictionary
-  }
-
-  private func parseUUIDs(_ values: [String]) -> [CBUUID]? {
-    var result = [CBUUID]()
-    for value in values {
-      let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard !trimmed.isEmpty, trimmed.range(of: "^[0-9A-Fa-f]{4}([0-9A-Fa-f]{4})?(-[0-9A-Fa-f]{4}){0,3}$", options: .regularExpression) != nil else {
-        return nil
-      }
-      result.append(CBUUID(string: trimmed))
-    }
-    return result
-  }
-
-  private func normalizedUUID(_ value: String) -> String {
-    let uppercased = value.uppercased()
-    if uppercased.count == 4 {
-      return "0000\(uppercased)-0000-1000-8000-00805F9B34FB"
-    }
-    if uppercased.count == 8 {
-      return "\(uppercased)-0000-1000-8000-00805F9B34FB"
-    }
-    return uppercased
-  }
-
   private func requireUsable(_ completion: (NSError?) -> Void) -> Bool {
     guard !destroyed else {
       completion(error(code: 1021, message: "The Native Protocol v1 CoreBluetooth radio was destroyed"))
@@ -861,15 +817,4 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
     )
   }
 
-  private static func takeRestorationTransfer() -> OwnedCoreBluetoothProtocolCentralTransfer? {
-    guard let stateClass = NSClassFromString("BlePlxRestorationState") as? NSObject.Type else { return nil }
-    let selector = NSSelectorFromString("takeRestoredManager")
-    guard stateClass.responds(to: selector),
-          let restoredManager = stateClass.perform(selector)?.takeUnretainedValue() as? NSObject,
-          restoredManager.responds(to: NSSelectorFromString("takeUnifiedProtocolCentralTransfer")) else {
-      return nil
-    }
-    return restoredManager.perform(NSSelectorFromString("takeUnifiedProtocolCentralTransfer"))?.takeUnretainedValue()
-      as? OwnedCoreBluetoothProtocolCentralTransfer
-  }
 }

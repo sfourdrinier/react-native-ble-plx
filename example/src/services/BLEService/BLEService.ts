@@ -4,13 +4,43 @@ import { Platform } from 'react-native'
 import {
   canonicalUuid,
   capacity,
+  type AdvertisementObservation,
   type Connection,
   type DiscoveredGattDatabase,
   type PeerId,
   type ScanSession,
-  type Subscription
+  type Subscription,
+  type Uuid
 } from 'unified-ble-manager'
 import { createReactNativeBleManager, getNativeUnifiedBleProtocolControl } from 'unified-ble-manager/react-native'
+import {
+  BATTERY_LEVEL_CHARACTERISTIC,
+  BATTERY_SERVICE,
+  parseBatteryLevel
+} from 'unified-ble-manager/profiles/battery-service'
+import {
+  BLOOD_PRESSURE_MEASUREMENT_CHARACTERISTIC,
+  BLOOD_PRESSURE_SERVICE,
+  parseBloodPressureMeasurement,
+  type BloodPressureMeasurement
+} from 'unified-ble-manager/profiles/blood-pressure'
+import {
+  decodeDeviceInformationString,
+  DEVICE_INFORMATION_SERVICE,
+  FIRMWARE_REVISION_CHARACTERISTIC,
+  HARDWARE_REVISION_CHARACTERISTIC,
+  MANUFACTURER_NAME_CHARACTERISTIC,
+  MODEL_NUMBER_CHARACTERISTIC,
+  SERIAL_NUMBER_CHARACTERISTIC,
+  SOFTWARE_REVISION_CHARACTERISTIC,
+  type DeviceInformationStringField
+} from 'unified-ble-manager/profiles/device-information'
+import {
+  HEALTH_THERMOMETER_SERVICE,
+  parseTemperatureMeasurement,
+  TEMPERATURE_MEASUREMENT_CHARACTERISTIC,
+  type TemperatureMeasurement
+} from 'unified-ble-manager/profiles/health-thermometer'
 
 type CanonicalManager = Awaited<ReturnType<typeof createReactNativeBleManager>>
 type CanonicalConnection = Connection<string, CanonicalManager['identity']>
@@ -23,7 +53,32 @@ export interface ExamplePeer {
   readonly rssi: number | null
   readonly isConnectable: boolean | null
   readonly seenAt: number
+  /** Full canonical diagnostic record retained for scan troubleshooting. */
+  readonly advertisement: AdvertisementObservation<string>
 }
+
+export type ProfileRead<Value> = Value | { readonly skipped: true; readonly reason: string } | null
+
+export interface ExampleCommonProfiles {
+  readonly battery: ProfileRead<number>
+  readonly deviceInformation: Readonly<Partial<Record<DeviceInformationStringField, ProfileRead<string>>>>
+  readonly temperature: ProfileRead<TemperatureMeasurement>
+  readonly bloodPressure: ProfileRead<BloodPressureMeasurement>
+}
+
+interface DeviceInformationCharacteristic {
+  readonly field: DeviceInformationStringField
+  readonly characteristicUuid: Uuid
+}
+
+const DEVICE_INFORMATION_CHARACTERISTICS: readonly DeviceInformationCharacteristic[] = [
+  { field: 'manufacturer-name', characteristicUuid: MANUFACTURER_NAME_CHARACTERISTIC },
+  { field: 'model-number', characteristicUuid: MODEL_NUMBER_CHARACTERISTIC },
+  { field: 'serial-number', characteristicUuid: SERIAL_NUMBER_CHARACTERISTIC },
+  { field: 'hardware-revision', characteristicUuid: HARDWARE_REVISION_CHARACTERISTIC },
+  { field: 'firmware-revision', characteristicUuid: FIRMWARE_REVISION_CHARACTERISTIC },
+  { field: 'software-revision', characteristicUuid: SOFTWARE_REVISION_CHARACTERISTIC }
+]
 
 let nextExampleManagerId = 1
 
@@ -66,8 +121,10 @@ class CanonicalBleExampleService {
     if (scan === null) {
       return
     }
-    this.scan = null
     assertReleased(await scan.stop(), 'scan stop')
+    if (this.scan === scan) {
+      this.scan = null
+    }
   }
 
   async connect(peer: ExamplePeer): Promise<void> {
@@ -81,8 +138,10 @@ class CanonicalBleExampleService {
       this.connection = connection
       this.database = database
     } catch (error) {
+      this.connection = connection
+      this.database = null
       try {
-        assertReleased(await connection.disconnect(), 'connection cleanup after discovery failure')
+        await this.disconnect()
       } catch (cleanupError) {
         console.error('[CanonicalBleExampleService.connect] Discovery cleanup failed:', cleanupError)
       }
@@ -103,6 +162,29 @@ class CanonicalBleExampleService {
 
   async snapshot() {
     return this.requireDatabase().snapshot()
+  }
+
+  /**
+   * Reads profile values through occurrence-safe canonical paths. Missing or
+   * unreadable optional profile values are surfaced as explicit results.
+   */
+  async readCommonProfiles(): Promise<ExampleCommonProfiles> {
+    return {
+      battery: await this.readProfileValue(BATTERY_SERVICE, BATTERY_LEVEL_CHARACTERISTIC, 'Battery Level', parseBatteryLevel),
+      deviceInformation: await this.readDeviceInformation(),
+      temperature: await this.readProfileValue(
+        HEALTH_THERMOMETER_SERVICE,
+        TEMPERATURE_MEASUREMENT_CHARACTERISTIC,
+        'Temperature Measurement',
+        parseTemperatureMeasurement
+      ),
+      bloodPressure: await this.readProfileValue(
+        BLOOD_PRESSURE_SERVICE,
+        BLOOD_PRESSURE_MEASUREMENT_CHARACTERISTIC,
+        'Blood Pressure Measurement',
+        parseBloodPressureMeasurement
+      )
+    }
   }
 
   async readCharacteristic(serviceUuid: string, characteristicUuid: string): Promise<Uint8Array> {
@@ -161,7 +243,9 @@ class CanonicalBleExampleService {
       return
     }
     assertReleased(await subscription.remove(), 'notification removal')
-    this.notification = null
+    if (this.notification === subscription) {
+      this.notification = null
+    }
   }
 
   async destroy(): Promise<void> {
@@ -218,16 +302,68 @@ class CanonicalBleExampleService {
   }
 
   private async characteristicPath(serviceUuid: string, characteristicUuid: string) {
+    const found = await this.findCharacteristicPath(serviceUuid, characteristicUuid)
+    if (found !== null) {
+      return found
+    }
+    throw new Error(`Characteristic ${characteristicUuid} was not found in service ${serviceUuid}.`)
+  }
+
+  private async findCharacteristicPath(serviceUuid: string, characteristicUuid: string) {
     const service = canonicalUuid(serviceUuid)
     const characteristic = canonicalUuid(characteristicUuid)
     const snapshot = await this.requireDatabase().snapshot()
-    const found = snapshot.characteristics.find(
+    return (
+      snapshot.characteristics.find(
       candidate => candidate.path.serviceUuid === service && candidate.path.characteristicUuid === characteristic
+      )?.path ?? null
     )
-    if (found === undefined) {
-      throw new Error(`Characteristic ${characteristicUuid} was not found in service ${serviceUuid}.`)
+  }
+
+  private async readProfileValue<Value>(
+    serviceUuid: Uuid,
+    characteristicUuid: Uuid,
+    label: string,
+    decode: (bytes: Readonly<Uint8Array>) => Value
+  ): Promise<ProfileRead<Value>> {
+    const path = await this.findCharacteristicPath(serviceUuid, characteristicUuid)
+    if (path === null) {
+      return null
     }
-    return found.path
+    try {
+      return decode(await this.requireDatabase().read(path, operation()))
+    } catch (error) {
+      const reason = errorMessage(error)
+      console.error(`[CanonicalBleExampleService.readProfileValue] ${label} read failed:`, error)
+      return { skipped: true, reason }
+    }
+  }
+
+  private async readDeviceInformation(): Promise<Readonly<Partial<Record<DeviceInformationStringField, ProfileRead<string>>>>> {
+    const database = this.requireDatabase()
+    const snapshot = await database.snapshot()
+    const values: Partial<Record<DeviceInformationStringField, ProfileRead<string>>> = {}
+    for (const characteristic of DEVICE_INFORMATION_CHARACTERISTICS) {
+      const path = snapshot.characteristics.find(
+        candidate =>
+          candidate.path.serviceUuid === DEVICE_INFORMATION_SERVICE &&
+          candidate.path.characteristicUuid === characteristic.characteristicUuid
+      )?.path
+      if (path === undefined) {
+        continue
+      }
+      try {
+        values[characteristic.field] = decodeDeviceInformationString(await database.read(path, operation()))
+      } catch (error) {
+        const reason = errorMessage(error)
+        console.error(
+          `[CanonicalBleExampleService.readDeviceInformation] ${characteristic.field} read failed:`,
+          error
+        )
+        values[characteristic.field] = { skipped: true, reason }
+      }
+    }
+    return values
   }
 
   private async consumeScan(scan: ScanSession<string>, onPeer: (peer: ExamplePeer) => void): Promise<void> {
@@ -246,11 +382,11 @@ class CanonicalBleExampleService {
     } finally {
       try {
         assertReleased(await scan.stop(), 'scan observer cleanup')
+        if (this.scan === scan) {
+          this.scan = null
+        }
       } catch (cleanupError) {
         console.error('[CanonicalBleExampleService.consumeScan] Scan observer cleanup failed:', cleanupError)
-      }
-      if (this.scan === scan) {
-        this.scan = null
       }
     }
   }
@@ -274,11 +410,11 @@ class CanonicalBleExampleService {
     } finally {
       try {
         assertReleased(await subscription.remove(), 'notification observer cleanup')
+        if (this.notification === subscription) {
+          this.notification = null
+        }
       } catch (cleanupError) {
         console.error('[CanonicalBleExampleService.consumeNotification] Notification cleanup failed:', cleanupError)
-      }
-      if (this.notification === subscription) {
-        this.notification = null
       }
     }
   }
@@ -305,13 +441,14 @@ function monotonicNow(): number {
   return globalThis.performance.now()
 }
 
-function peerFromObservation(observation: import('unified-ble-manager').AdvertisementObservation<string>): ExamplePeer {
+function peerFromObservation(observation: AdvertisementObservation<string>): ExamplePeer {
   return Object.freeze({
     peerId: observation.peerId,
     label: observation.localName.state === 'present' ? observation.localName.value : null,
     rssi: observation.rssi.state === 'present' ? observation.rssi.value : null,
     isConnectable: observation.connectable.state === 'present' ? observation.connectable.value : null,
-    seenAt: observation.observedAt
+    seenAt: observation.observedAt,
+    advertisement: observation
   })
 }
 
@@ -319,6 +456,10 @@ function assertReleased(cleanup: { readonly state: 'released' | 'release-failed'
   if (cleanup.state !== 'released') {
     throw new Error(`${operationName} reported cleanup failures; retry the operation before continuing.`)
   }
+}
+
+function errorMessage<Value>(error: Value): string {
+  return error instanceof Error ? error.message : 'The BLE operation failed with a non-Error value.'
 }
 
 export const BLEService = new CanonicalBleExampleService()

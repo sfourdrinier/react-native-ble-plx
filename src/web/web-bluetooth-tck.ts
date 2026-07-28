@@ -61,7 +61,7 @@ export const webBluetoothTckScenarios: readonly WebBluetoothTckScenarioDefinitio
   ]),
   applicable('web.manager-chooser-connect-discover-read', [
     'host-neutral-manager',
-    'chooser-observation',
+    'chooser-selection-bridges-to-manager',
     'owned-connection',
     'complete-discovery',
     'owned-read-bytes'
@@ -93,6 +93,7 @@ export const webBluetoothTckScenarios: readonly WebBluetoothTckScenarioDefinitio
   ]),
   unsupported('web.continuous-scan-and-join-unsupported', 'capability.unsupported', [
     'chooser-is-not-continuous-scan',
+    'scan-start-is-unsupported',
     'scan-join-is-unsupported'
   ]),
   unsupported('web.background-operation-unsupported', 'capability.unsupported', [

@@ -1,640 +1,465 @@
-import {
-  BleError,
-  BleErrorCode,
-  BleManager,
-  Device,
-  State as BluetoothState,
-  LogLevel,
-  resolveHeartRateScanUUIDs,
-  resolveBatteryScanUUIDs,
-  resolveHealthThermometerScanUUIDs,
-  resolveBloodPressureScanUUIDs,
-  parseBatteryLevel,
-  assembleDeviceInformation,
-  parseTemperatureMeasurement,
-  parseBloodPressureMeasurement,
-  isBatteryService,
-  isBatteryLevel,
-  isDeviceInformationService,
-  isHealthThermometerService,
-  isTemperatureMeasurement,
-  isBloodPressureService,
-  isBloodPressureMeasurement,
-  type DeviceId,
-  type TransactionId,
-  type UUID,
-  type Characteristic,
-  type Base64,
-  type Subscription,
-  type DeviceInformationStrings,
-  type TemperatureMeasurement,
-  type BloodPressureMeasurement
-} from 'unified-ble-manager'
+// example-expo/src/services/BLEService/BLEService.ts
+
 import { Platform } from 'react-native'
-import Toast from 'react-native-toast-message'
+import {
+  canonicalUuid,
+  capacity,
+  type AdvertisementObservation,
+  type Connection,
+  type DiscoveredGattDatabase,
+  type PeerId,
+  type ScanSession,
+  type Subscription,
+  type Uuid
+} from 'unified-ble-manager'
+import { createReactNativeBleManager, getNativeUnifiedBleProtocolControl } from 'unified-ble-manager/react-native'
+import {
+  BATTERY_LEVEL_CHARACTERISTIC,
+  BATTERY_SERVICE,
+  parseBatteryLevel
+} from 'unified-ble-manager/profiles/battery-service'
+import {
+  BLOOD_PRESSURE_MEASUREMENT_CHARACTERISTIC,
+  BLOOD_PRESSURE_SERVICE,
+  parseBloodPressureMeasurement,
+  type BloodPressureMeasurement
+} from 'unified-ble-manager/profiles/blood-pressure'
+import {
+  decodeDeviceInformationString,
+  DEVICE_INFORMATION_SERVICE,
+  FIRMWARE_REVISION_CHARACTERISTIC,
+  HARDWARE_REVISION_CHARACTERISTIC,
+  MANUFACTURER_NAME_CHARACTERISTIC,
+  MODEL_NUMBER_CHARACTERISTIC,
+  SERIAL_NUMBER_CHARACTERISTIC,
+  SOFTWARE_REVISION_CHARACTERISTIC,
+  type DeviceInformationStringField
+} from 'unified-ble-manager/profiles/device-information'
+import {
+  HEALTH_THERMOMETER_SERVICE,
+  parseTemperatureMeasurement,
+  TEMPERATURE_MEASUREMENT_CHARACTERISTIC,
+  type TemperatureMeasurement
+} from 'unified-ble-manager/profiles/health-thermometer'
 
-const deviceNotConnectedErrorText = 'Device is not connected'
+type CanonicalManager = Awaited<ReturnType<typeof createReactNativeBleManager>>
+type CanonicalConnection = Connection<string, CanonicalManager['identity']>
+type CanonicalDatabase = DiscoveredGattDatabase<string, CanonicalManager['identity']>
+type CanonicalSubscription = Subscription<string, CanonicalManager['identity']>
 
-/** iOS restore identifier — keep in sync with bare example + Expo plugin config when enabled. */
-const IOS_RESTORE_ID = 'com.intent.BlePlxExample.restore'
+export interface ExamplePeer {
+  readonly peerId: PeerId<string>
+  readonly label: string | null
+  readonly rssi: number | null
+  readonly isConnectable: boolean | null
+  readonly seenAt: number
+  /** Full canonical diagnostic record retained for scan troubleshooting. */
+  readonly advertisement: AdvertisementObservation<string>
+}
 
-class BLEServiceInstance {
-  manager: BleManager
+export type ProfileRead<Value> = Value | { readonly skipped: true; readonly reason: string } | null
 
-  device: Device | null
+export interface ExampleCommonProfiles {
+  readonly battery: ProfileRead<number>
+  readonly deviceInformation: Readonly<Partial<Record<DeviceInformationStringField, ProfileRead<string>>>>
+  readonly temperature: ProfileRead<TemperatureMeasurement>
+  readonly bloodPressure: ProfileRead<BloodPressureMeasurement>
+}
 
-  characteristicMonitor: Subscription | null
+interface DeviceInformationCharacteristic {
+  readonly field: DeviceInformationStringField
+  readonly characteristicUuid: Uuid
+}
 
-  isCharacteristicMonitorDisconnectExpected = false
+const DEVICE_INFORMATION_CHARACTERISTICS: readonly DeviceInformationCharacteristic[] = [
+  { field: 'manufacturer-name', characteristicUuid: MANUFACTURER_NAME_CHARACTERISTIC },
+  { field: 'model-number', characteristicUuid: MODEL_NUMBER_CHARACTERISTIC },
+  { field: 'serial-number', characteristicUuid: SERIAL_NUMBER_CHARACTERISTIC },
+  { field: 'hardware-revision', characteristicUuid: HARDWARE_REVISION_CHARACTERISTIC },
+  { field: 'firmware-revision', characteristicUuid: FIRMWARE_REVISION_CHARACTERISTIC },
+  { field: 'software-revision', characteristicUuid: SOFTWARE_REVISION_CHARACTERISTIC }
+]
 
-  constructor() {
-    this.device = null
-    this.characteristicMonitor = null
-    // First construct wins (singleton). On iOS, enable restore handoff for getRestoredState demo.
-    this.manager = new BleManager(
-      Platform.OS === 'ios'
-        ? {
-            restoreStateIdentifier: IOS_RESTORE_ID,
-            restoreStateFunction: restoredState => {
-              console.log(
-                '[BLE restore callback]',
-                restoredState?.connectedPeripherals?.map(d => d.id) ?? null
-              )
-            }
-          }
-        : {}
-    )
-    this.manager.setLogLevel(LogLevel.Verbose)
-    if (Platform.OS === 'ios') {
-      void this.manager.getRestoredState().then(restoredState => {
-        console.log(
-          '[BLE getRestoredState]',
-          restoredState?.connectedPeripherals?.map(d => d.id) ?? null
-        )
-      })
-    }
+let nextExampleManagerId = 1
+
+/** The Expo app owns exactly one canonical 4.0 manager and no legacy compatibility facade. */
+class CanonicalBleExampleService {
+  private manager: CanonicalManager | null = null
+  private managerCreation: Promise<CanonicalManager> | null = null
+  private scan: ScanSession<string> | null = null
+  private connection: CanonicalConnection | null = null
+  private database: CanonicalDatabase | null = null
+  private notification: CanonicalSubscription | null = null
+
+  async adapterState() {
+    return (await this.ensureManager()).adapterState()
   }
 
-  createNewManager = () => {
-    void this.manager.destroy().finally(() => {
-      this.manager = new BleManager(
-        Platform.OS === 'ios' ? { restoreStateIdentifier: IOS_RESTORE_ID } : {}
-      )
-      this.manager.setLogLevel(LogLevel.Verbose)
-    })
-  }
-
-  getDevice = () => this.device
-
-  initializeBLE = () =>
-    new Promise<void>(resolve => {
-      const subscription = this.manager.onStateChange(state => {
-        switch (state) {
-          case BluetoothState.Unsupported:
-            this.showErrorToast('')
-            break
-          case BluetoothState.PoweredOff:
-            this.onBluetoothPowerOff()
-            break
-          case BluetoothState.Unauthorized:
-            this.requestBluetoothPermission()
-            break
-          case BluetoothState.PoweredOn:
-            resolve()
-            subscription.remove()
-            break
-          default:
-            console.error('Unsupported state: ', state)
-          // resolve()
-          // subscription.remove()
-        }
-      }, true)
-    })
-
-  disconnectDevice = () => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
-    }
-    return this.manager
-      .cancelDeviceConnection(this.device.id)
-      .then(() => this.showSuccessToast('Device disconnected'))
-      .catch(error => {
-        // R3-F033: BleError exposes errorCode (not code)
-        if (error?.errorCode !== BleErrorCode.DeviceDisconnected) {
-          this.onError(error)
-        }
-      })
-  }
-
-  disconnectDeviceById = (id: DeviceId) =>
-    this.manager
-      .cancelDeviceConnection(id)
-      .then(() => this.showSuccessToast('Device disconnected'))
-      .catch(error => {
-        // R3-F033: BleError exposes errorCode (not code)
-        if (error?.errorCode !== BleErrorCode.DeviceDisconnected) {
-          this.onError(error)
-        }
-      })
-
-  onBluetoothPowerOff = () => {
-    this.showErrorToast('Bluetooth is turned off')
-  }
-
-  scanDevices = async (onDeviceFound: (device: Device) => void, UUIDs: UUID[] | null = null, legacyScan?: boolean) => {
-    this.manager
-      .startDeviceScan(UUIDs, { legacyScan }, (error, device) => {
-        if (error) {
-          this.onError(error)
-          console.error(error.message)
-          this.manager.stopDeviceScan()
-          return
-        }
-        if (device) {
-          onDeviceFound(device)
-        }
-      })
-      .then(() => {})
-      .catch(console.error)
-  }
-
-  stopDeviceScan = () => {
-    this.manager.stopDeviceScan()
-  }
-
-  /**
-   * Thin wrappers over package `resolve*ScanUUIDs` helpers (same filters as shared centralDemo).
-   */
-  scanForHeartRateDevices = async (
-    onDeviceFound: (device: Device) => void,
-    heartRateOnly: boolean = true,
-    legacyScan?: boolean
-  ) => this.scanDevices(onDeviceFound, resolveHeartRateScanUUIDs(heartRateOnly), legacyScan)
-
-  scanForBatteryDevices = async (
-    onDeviceFound: (device: Device) => void,
-    batteryOnly: boolean = true,
-    legacyScan?: boolean
-  ) => this.scanDevices(onDeviceFound, resolveBatteryScanUUIDs(batteryOnly), legacyScan)
-
-  scanForHealthThermometerDevices = async (
-    onDeviceFound: (device: Device) => void,
-    only: boolean = true,
-    legacyScan?: boolean
-  ) => this.scanDevices(onDeviceFound, resolveHealthThermometerScanUUIDs(only), legacyScan)
-
-  scanForBloodPressureDevices = async (
-    onDeviceFound: (device: Device) => void,
-    only: boolean = true,
-    legacyScan?: boolean
-  ) => this.scanDevices(onDeviceFound, resolveBloodPressureScanUUIDs(only), legacyScan)
-
-  /**
-   * Read common SIG profile payloads (Battery, DIS, HT, BP) using package parse helpers.
-   * HT/BP are often indicate-only — skip when `isReadable === false` before attempting a read
-   * (parity with example-shared/readCommonProfiles + bare example, R2-F062/R2-F067).
-   */
-  readCommonProfiles = async (): Promise<{
-    battery: { level: number; unknown: boolean } | { skipped: true; reason: string } | null
-    deviceInformation: DeviceInformationStrings | null
-    temperature: TemperatureMeasurement | { skipped: true; reason: string } | null
-    bloodPressure: BloodPressureMeasurement | { skipped: true; reason: string } | null
-  }> => {
-    if (!this.device) {
-      throw new Error(deviceNotConnectedErrorText)
-    }
-    const deviceId = this.device.id
-    const services = await this.manager.servicesForDevice(deviceId)
-    const out: {
-      battery: { level: number; unknown: boolean } | { skipped: true; reason: string } | null
-      deviceInformation: DeviceInformationStrings | null
-      temperature: TemperatureMeasurement | { skipped: true; reason: string } | null
-      bloodPressure: BloodPressureMeasurement | { skipped: true; reason: string } | null
-    } = {
-      battery: null,
-      deviceInformation: null,
-      temperature: null,
-      bloodPressure: null
-    }
-
-    const tryRead = async (
-      serviceUUID: UUID,
-      charUUID: UUID,
-      label: string,
-      meta?: { isReadable?: boolean }
-    ) => {
-      // Shared gate with example-shared/readCommonProfiles (indicate-only)
-      if (meta && meta.isReadable === false) {
-        return {
-          ok: false as const,
-          reason: `${label}: not readable (indicate/notify-only; subscribe for live data)`
-        }
-      }
-      try {
-        const snap = await this.manager.readCharacteristicForDeviceAsBytes(deviceId, serviceUUID, charUUID)
-        if (snap?.value && (snap.value.byteLength > 0 || (snap.value as Uint8Array).length > 0)) {
-          return { ok: true as const, value: snap.value }
-        }
-        return { ok: false as const, reason: `${label}: empty (often indicate-only)` }
-      } catch (e) {
-        return {
-          ok: false as const,
-          reason: `${label}: ${e instanceof Error ? e.message : String(e)} (often indicate-only)`
-        }
-      }
-    }
-
-    const batSvc = services.find(s => isBatteryService(s.uuid))
-    if (batSvc) {
-      try {
-        const chars = await this.manager.characteristicsForDevice(deviceId, batSvc.uuid)
-        const level = chars.find(c => isBatteryLevel(c.uuid))
-        if (level) {
-          const r = await tryRead(batSvc.uuid, level.uuid, 'Battery Level', level)
-          out.battery = r.ok ? parseBatteryLevel(r.value) : { skipped: true, reason: r.reason }
-        }
-      } catch (e) {
-        console.warn('battery read', e)
-      }
-    }
-
-    const disSvc = services.find(s => isDeviceInformationService(s.uuid))
-    if (disSvc) {
-      try {
-        const chars = await this.manager.characteristicsForDevice(deviceId, disSvc.uuid)
-        const snaps: { uuid: string; value: Uint8Array }[] = []
-        for (const c of chars) {
-          const r = await tryRead(disSvc.uuid, c.uuid, 'DIS', c)
-          if (r.ok) snaps.push({ uuid: c.uuid, value: r.value })
-        }
-        out.deviceInformation = assembleDeviceInformation(snaps)
-      } catch (e) {
-        console.warn('DIS read', e)
-      }
-    }
-
-    const htSvc = services.find(s => isHealthThermometerService(s.uuid))
-    if (htSvc) {
-      try {
-        const chars = await this.manager.characteristicsForDevice(deviceId, htSvc.uuid)
-        const meas = chars.find(c => isTemperatureMeasurement(c.uuid))
-        if (meas) {
-          const r = await tryRead(htSvc.uuid, meas.uuid, 'Temperature Measurement', meas)
-          out.temperature = r.ok
-            ? parseTemperatureMeasurement(r.value)
-            : { skipped: true, reason: r.reason }
-        }
-      } catch (e) {
-        console.warn('HT read', e)
-      }
-    }
-
-    const bpSvc = services.find(s => isBloodPressureService(s.uuid))
-    if (bpSvc) {
-      try {
-        const chars = await this.manager.characteristicsForDevice(deviceId, bpSvc.uuid)
-        const meas = chars.find(c => isBloodPressureMeasurement(c.uuid))
-        if (meas) {
-          const r = await tryRead(bpSvc.uuid, meas.uuid, 'Blood Pressure Measurement', meas)
-          out.bloodPressure = r.ok
-            ? parseBloodPressureMeasurement(r.value)
-            : { skipped: true, reason: r.reason }
-        }
-      } catch (e) {
-        console.warn('BP read', e)
-      }
-    }
-
-    return out
-  }
-
-  /** Parity with bare example: optional timeout + ignoreError (R2-F067). */
-  connectToDevice = (deviceId: DeviceId, timeout?: number, ignoreError = false) =>
-    new Promise<Device>((resolve, reject) => {
-      this.manager.stopDeviceScan()
-      this.manager
-        .connectToDevice(deviceId, { timeout })
-        .then(device => {
-          this.device = device
-          resolve(device)
-        })
-        .catch(error => {
-          if (error.errorCode === BleErrorCode.DeviceAlreadyConnected && this.device) {
-            resolve(this.device)
-          } else {
-            if (!ignoreError) {
-              this.onError(error)
-            }
-            reject(error)
-          }
-        })
-    })
-
-  discoverAllServicesAndCharacteristicsForDevice = async () =>
-    new Promise<Device>((resolve, reject) => {
-      if (!this.device) {
-        this.showErrorToast(deviceNotConnectedErrorText)
-        reject(new Error(deviceNotConnectedErrorText))
-        return
-      }
-      this.manager
-        .discoverAllServicesAndCharacteristicsForDevice(this.device.id)
-        .then(device => {
-          resolve(device)
-          this.device = device
-        })
-        .catch(error => {
-          this.onError(error)
-          reject(error)
-        })
-    })
-
-  readCharacteristicForDevice = async (serviceUUID: UUID, characteristicUUID: UUID) =>
-    new Promise<Characteristic>((resolve, reject) => {
-      if (!this.device) {
-        this.showErrorToast(deviceNotConnectedErrorText)
-        reject(new Error(deviceNotConnectedErrorText))
-        return
-      }
-      this.manager
-        .readCharacteristicForDevice(this.device.id, serviceUUID, characteristicUUID)
-        .then(characteristic => {
-          resolve(characteristic)
-        })
-        .catch(error => {
-          // R2-F064: must reject so awaiters do not hang forever
-          this.onError(error)
-          reject(error)
-        })
-    })
-
-  writeCharacteristicWithResponseForDevice = async (serviceUUID: UUID, characteristicUUID: UUID, time: Base64) => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
-    }
-    return this.manager
-      .writeCharacteristicWithResponseForDevice(this.device.id, serviceUUID, characteristicUUID, time)
-      .catch(error => {
-        this.onError(error)
-        throw error
-      })
-  }
-
-  writeCharacteristicWithoutResponseForDevice = async (serviceUUID: UUID, characteristicUUID: UUID, time: Base64) => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
-    }
-    return this.manager
-      .writeCharacteristicWithoutResponseForDevice(this.device.id, serviceUUID, characteristicUUID, time)
-      .catch(error => {
-        this.onError(error)
-        throw error
-      })
-  }
-
-  setupMonitor = (
-    serviceUUID: UUID,
-    characteristicUUID: UUID,
-    onCharacteristicReceived: (characteristic: Characteristic) => void,
-    onError: (error: Error) => void,
-    transactionId?: TransactionId,
-    hideErrorDisplay?: boolean
-  ) => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
-    }
-    this.characteristicMonitor = this.manager.monitorCharacteristicForDevice(
-      this.device?.id,
-      serviceUUID,
-      characteristicUUID,
-      (error, characteristic) => {
-        if (error) {
-          if (
-            error.errorCode === BleErrorCode.OperationCancelled &&
-            this.isCharacteristicMonitorDisconnectExpected
-          ) {
-            this.isCharacteristicMonitorDisconnectExpected = false
-            return
-          }
-          onError(error)
-          if (!hideErrorDisplay) {
-            this.onError(error)
-            this.characteristicMonitor?.remove()
-          }
-          return
-        }
-        if (characteristic) {
-          onCharacteristicReceived(characteristic)
-        }
+  async scanForPeers(serviceUuids: readonly string[], onPeer: (peer: ExamplePeer) => void): Promise<void> {
+    await this.stopScan()
+    const manager = await this.ensureManager()
+    const scan = await manager.scan({
+      filter: { serviceUuids: serviceUuids.map(canonicalUuid), localNamePrefix: null },
+      duplicatePolicy: 'merged',
+      timestampPolicy: 'receipt-monotonic',
+      delivery: {
+        itemCapacity: capacity(32),
+        byteCapacity: capacity(64 * 1024),
+        reservedControlCapacity: capacity(2),
+        overflowPolicy: 'drop-oldest'
       },
-      transactionId
+      deadline: null,
+      signal: null,
+      sharing: { mode: 'owner', allowSharing: false }
+    })
+    this.scan = scan
+    void this.consumeScan(scan, onPeer)
+  }
+
+  async stopScan(): Promise<void> {
+    const scan = this.scan
+    if (scan === null) {
+      return
+    }
+    assertReleased(await scan.stop(), 'scan stop')
+    if (this.scan === scan) {
+      this.scan = null
+    }
+  }
+
+  async connect(peer: ExamplePeer): Promise<void> {
+    await this.stopScan()
+    if (this.connection !== null) {
+      await this.disconnect()
+    }
+    const connection = await (await this.ensureManager()).connect(peer.peerId, operation())
+    try {
+      const database = await connection.discover(operation())
+      this.connection = connection
+      this.database = database
+    } catch (error) {
+      this.connection = connection
+      this.database = null
+      try {
+        await this.disconnect()
+      } catch (cleanupError) {
+        console.error('[CanonicalBleExampleService.connect] Discovery cleanup failed:', cleanupError)
+      }
+      throw error
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    await this.stopNotification()
+    const connection = this.connection
+    if (connection === null) {
+      return
+    }
+    assertReleased(await connection.disconnect(), 'connection disconnect')
+    this.connection = null
+    this.database = null
+  }
+
+  async snapshot() {
+    return this.requireDatabase().snapshot()
+  }
+
+  /**
+   * Reads profile values through occurrence-safe canonical paths. Missing or
+   * unreadable optional profile values are surfaced as explicit results.
+   */
+  async readCommonProfiles(): Promise<ExampleCommonProfiles> {
+    return {
+      battery: await this.readProfileValue(BATTERY_SERVICE, BATTERY_LEVEL_CHARACTERISTIC, 'Battery Level', parseBatteryLevel),
+      deviceInformation: await this.readDeviceInformation(),
+      temperature: await this.readProfileValue(
+        HEALTH_THERMOMETER_SERVICE,
+        TEMPERATURE_MEASUREMENT_CHARACTERISTIC,
+        'Temperature Measurement',
+        parseTemperatureMeasurement
+      ),
+      bloodPressure: await this.readProfileValue(
+        BLOOD_PRESSURE_SERVICE,
+        BLOOD_PRESSURE_MEASUREMENT_CHARACTERISTIC,
+        'Blood Pressure Measurement',
+        parseBloodPressureMeasurement
+      )
+    }
+  }
+
+  async readCharacteristic(serviceUuid: string, characteristicUuid: string): Promise<Uint8Array> {
+    const database = this.requireDatabase()
+    return database.read(await this.characteristicPath(serviceUuid, characteristicUuid), operation())
+  }
+
+  async writeCharacteristic(
+    serviceUuid: string,
+    characteristicUuid: string,
+    bytes: Uint8Array,
+    mode: 'with-response' | 'without-response'
+  ): Promise<void> {
+    const database = this.requireDatabase()
+    await database.write(await this.characteristicPath(serviceUuid, characteristicUuid), bytes, {
+      ...operation(),
+      mode
+    })
+  }
+
+  async readRssi(): Promise<number> {
+    return this.requireConnection()
+      .readRssi(operation())
+      .then(measurement => measurement.rssi)
+  }
+
+  async requestMtu(requestedMtu: number): Promise<number> {
+    return this.requireConnection()
+      .requestMtu(requestedMtu, operation())
+      .then(result => result.negotiatedMtu)
+  }
+
+  async subscribeCharacteristic(
+    serviceUuid: string,
+    characteristicUuid: string,
+    onValue: (value: Uint8Array) => void
+  ): Promise<void> {
+    await this.stopNotification()
+    const database = this.requireDatabase()
+    const subscription = await database.subscribe(await this.characteristicPath(serviceUuid, characteristicUuid), {
+      ...operation(),
+      delivery: {
+        itemCapacity: capacity(16),
+        byteCapacity: capacity(32 * 1024),
+        reservedControlCapacity: capacity(2),
+        overflowPolicy: 'drop-oldest'
+      }
+    })
+    this.notification = subscription
+    void this.consumeNotification(subscription, onValue)
+  }
+
+  async stopNotification(): Promise<void> {
+    const subscription = this.notification
+    if (subscription === null) {
+      return
+    }
+    assertReleased(await subscription.remove(), 'notification removal')
+    if (this.notification === subscription) {
+      this.notification = null
+    }
+  }
+
+  async destroy(): Promise<void> {
+    await this.stopScan()
+    await this.disconnect()
+    const manager = this.manager
+    if (manager === null) {
+      return
+    }
+    assertReleased(await manager.destroy(), 'manager destruction')
+    this.manager = null
+  }
+
+  private async ensureManager(): Promise<CanonicalManager> {
+    if (this.manager !== null) {
+      return this.manager
+    }
+    if (this.managerCreation !== null) {
+      return this.managerCreation
+    }
+    const managerId = nextExampleManagerId
+    nextExampleManagerId += 1
+    const creation = createReactNativeBleManager({
+      platform: nativePlatform(),
+      control: getNativeUnifiedBleProtocolControl(),
+      now: monotonicNow,
+      clientId: `expo-example-client-${managerId.toString()}`,
+      managerId: `expo-example-manager-${managerId.toString()}`
+    })
+    this.managerCreation = creation
+    try {
+      const manager = await creation
+      this.manager = manager
+      return manager
+    } finally {
+      if (this.managerCreation === creation) {
+        this.managerCreation = null
+      }
+    }
+  }
+
+  private requireConnection(): CanonicalConnection {
+    if (this.connection === null) {
+      throw new Error('Connect to a peer before requesting connection controls.')
+    }
+    return this.connection
+  }
+
+  private requireDatabase(): CanonicalDatabase {
+    if (this.database === null) {
+      throw new Error('Discover the connected peer before accessing GATT.')
+    }
+    return this.database
+  }
+
+  private async characteristicPath(serviceUuid: string, characteristicUuid: string) {
+    const found = await this.findCharacteristicPath(serviceUuid, characteristicUuid)
+    if (found !== null) {
+      return found
+    }
+    throw new Error(`Characteristic ${characteristicUuid} was not found in service ${serviceUuid}.`)
+  }
+
+  private async findCharacteristicPath(serviceUuid: string, characteristicUuid: string) {
+    const service = canonicalUuid(serviceUuid)
+    const characteristic = canonicalUuid(characteristicUuid)
+    const snapshot = await this.requireDatabase().snapshot()
+    return (
+      snapshot.characteristics.find(
+      candidate => candidate.path.serviceUuid === service && candidate.path.characteristicUuid === characteristic
+      )?.path ?? null
     )
   }
 
-  setupCustomMonitor: BleManager['monitorCharacteristicForDevice'] = (...args) =>
-    this.manager.monitorCharacteristicForDevice(...args)
-
-  finishMonitor = () => {
-    this.isCharacteristicMonitorDisconnectExpected = true
-    this.characteristicMonitor?.remove()
-  }
-
-  writeDescriptorForDevice = async (
-    serviceUUID: UUID,
-    characteristicUUID: UUID,
-    descriptorUUID: UUID,
-    data: Base64
-  ) => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
+  private async readProfileValue<Value>(
+    serviceUuid: Uuid,
+    characteristicUuid: Uuid,
+    label: string,
+    decode: (bytes: Readonly<Uint8Array>) => Value
+  ): Promise<ProfileRead<Value>> {
+    const path = await this.findCharacteristicPath(serviceUuid, characteristicUuid)
+    if (path === null) {
+      return null
     }
-    return this.manager
-      .writeDescriptorForDevice(this.device.id, serviceUUID, characteristicUUID, descriptorUUID, data)
-      .catch(error => {
-        this.onError(error)
-        throw error
-      })
-  }
-
-  readDescriptorForDevice = async (serviceUUID: UUID, characteristicUUID: UUID, descriptorUUID: UUID) => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
-    }
-    return this.manager
-      .readDescriptorForDevice(this.device.id, serviceUUID, characteristicUUID, descriptorUUID)
-      .catch(error => {
-        this.onError(error)
-        throw error
-      })
-  }
-
-  getServicesForDevice = () => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
-    }
-    // R3-F034: rethrow after onError so callers are not left with silent undefined
-    return this.manager.servicesForDevice(this.device.id).catch(error => {
-      this.onError(error)
-      throw error
-    })
-  }
-
-  getCharacteristicsForDevice = (serviceUUID: UUID) => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
-    }
-    return this.manager.characteristicsForDevice(this.device.id, serviceUUID).catch(error => {
-      this.onError(error)
-      throw error
-    })
-  }
-
-  getDescriptorsForDevice = (serviceUUID: UUID, characteristicUUID: UUID) => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
-    }
-    return this.manager.descriptorsForDevice(this.device.id, serviceUUID, characteristicUUID).catch(error => {
-      this.onError(error)
-      throw error
-    })
-  }
-
-  isDeviceConnected = () => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
-    }
-    return this.manager.isDeviceConnected(this.device.id)
-  }
-
-  isDeviceWithIdConnected = (id: DeviceId) => this.manager.isDeviceConnected(id).catch(console.error)
-
-  getConnectedDevices = (expectedServices: UUID[]) => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
-    }
-    return this.manager.connectedDevices(expectedServices).catch(error => {
-      this.onError(error)
-      throw error
-    })
-  }
-
-  requestMTUForDevice = (mtu: number) => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
-    }
-    return this.manager.requestMTUForDevice(this.device.id, mtu).catch(error => {
-      this.onError(error)
-      throw error
-    })
-  }
-
-  onDeviceDisconnected = (listener: (error: BleError | null, device: Device | null) => void) => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
-    }
-    return this.manager.onDeviceDisconnected(this.device.id, listener)
-  }
-
-  onDeviceDisconnectedCustom: BleManager['onDeviceDisconnected'] = (...args) =>
-    this.manager.onDeviceDisconnected(...args)
-
-  readRSSIForDevice = () => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
-    }
-    return this.manager.readRSSIForDevice(this.device.id).catch(error => {
-      this.onError(error)
-      throw error
-    })
-  }
-
-  getDevices = () => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
-    }
-    return this.manager.devices([this.device.id]).catch(error => {
-      this.onError(error)
-      throw error
-    })
-  }
-
-  cancelTransaction = (transactionId: TransactionId) => this.manager.cancelTransaction(transactionId)
-
-  getState = () =>
-    this.manager.state().catch(error => {
-      this.onError(error)
-      throw error
-    })
-
-  onError = (error: BleError) => {
-    switch (error.errorCode) {
-      case BleErrorCode.BluetoothUnauthorized:
-        this.requestBluetoothPermission()
-        break
-      case BleErrorCode.LocationServicesDisabled:
-        this.showErrorToast('Location services are disabled')
-        break
-      default:
-        this.showErrorToast(JSON.stringify(error, null, 4))
+    try {
+      return decode(await this.requireDatabase().read(path, operation()))
+    } catch (error) {
+      const reason = errorMessage(error)
+      console.error(`[CanonicalBleExampleService.readProfileValue] ${label} read failed:`, error)
+      return { skipped: true, reason }
     }
   }
 
-  requestConnectionPriorityForDevice = (priority: 0 | 1 | 2) => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
+  private async readDeviceInformation(): Promise<Readonly<Partial<Record<DeviceInformationStringField, ProfileRead<string>>>>> {
+    const database = this.requireDatabase()
+    const snapshot = await database.snapshot()
+    const values: Partial<Record<DeviceInformationStringField, ProfileRead<string>>> = {}
+    for (const characteristic of DEVICE_INFORMATION_CHARACTERISTICS) {
+      const path = snapshot.characteristics.find(
+        candidate =>
+          candidate.path.serviceUuid === DEVICE_INFORMATION_SERVICE &&
+          candidate.path.characteristicUuid === characteristic.characteristicUuid
+      )?.path
+      if (path === undefined) {
+        continue
+      }
+      try {
+        values[characteristic.field] = decodeDeviceInformationString(await database.read(path, operation()))
+      } catch (error) {
+        const reason = errorMessage(error)
+        console.error(
+          `[CanonicalBleExampleService.readDeviceInformation] ${characteristic.field} read failed:`,
+          error
+        )
+        values[characteristic.field] = { skipped: true, reason }
+      }
     }
-    return this.manager.requestConnectionPriorityForDevice(this.device?.id, priority)
+    return values
   }
 
-  cancelDeviceConnection = () => {
-    if (!this.device) {
-      this.showErrorToast(deviceNotConnectedErrorText)
-      throw new Error(deviceNotConnectedErrorText)
+  private async consumeScan(scan: ScanSession<string>, onPeer: (peer: ExamplePeer) => void): Promise<void> {
+    try {
+      for await (const item of scan.observations) {
+        if (item.kind === 'terminal') {
+          console.error('[CanonicalBleExampleService.consumeScan] Scan terminal:', item.reason)
+          return
+        }
+        if (item.kind === 'value') {
+          onPeer(peerFromObservation(item.value))
+        }
+      }
+    } catch (error) {
+      console.error('[CanonicalBleExampleService.consumeScan] Scan observation failed:', error)
+    } finally {
+      try {
+        assertReleased(await scan.stop(), 'scan observer cleanup')
+        if (this.scan === scan) {
+          this.scan = null
+        }
+      } catch (cleanupError) {
+        console.error('[CanonicalBleExampleService.consumeScan] Scan observer cleanup failed:', cleanupError)
+      }
     }
-    return this.manager.cancelDeviceConnection(this.device?.id)
   }
 
-  /** Thin UX wrapper over package `requestBluetoothPermissions` (Android 12+ / legacy). */
-  requestBluetoothPermission = async () => {
-    const result = await this.manager.requestBluetoothPermissions()
-    if (!result.granted) {
-      this.showErrorToast(result.detail || 'Bluetooth permissions have not been granted')
+  private async consumeNotification(
+    subscription: CanonicalSubscription,
+    onValue: (value: Uint8Array) => void
+  ): Promise<void> {
+    try {
+      for await (const item of subscription.values) {
+        if (item.kind === 'terminal') {
+          console.error('[CanonicalBleExampleService.consumeNotification] Notification terminal:', item.reason)
+          return
+        }
+        if (item.kind === 'value') {
+          onValue(item.value.value)
+        }
+      }
+    } catch (error) {
+      console.error('[CanonicalBleExampleService.consumeNotification] Notification stream failed:', error)
+    } finally {
+      try {
+        assertReleased(await subscription.remove(), 'notification observer cleanup')
+        if (this.notification === subscription) {
+          this.notification = null
+        }
+      } catch (cleanupError) {
+        console.error('[CanonicalBleExampleService.consumeNotification] Notification cleanup failed:', cleanupError)
+      }
     }
-    return result.granted
-  }
-
-  showErrorToast = (error: string) => {
-    Toast.show({
-      type: 'error',
-      text1: 'Error',
-      text2: error
-    })
-    console.error(error)
-  }
-
-  showSuccessToast = (info: string) => {
-    Toast.show({
-      type: 'success',
-      text1: 'Success',
-      text2: info
-    })
   }
 }
 
-export const BLEService = new BLEServiceInstance()
+function operation() {
+  return { signal: null, deadline: null }
+}
+
+function nativePlatform(): 'android' | 'apple' {
+  if (Platform.OS === 'android') {
+    return 'android'
+  }
+  if (Platform.OS === 'ios') {
+    return 'apple'
+  }
+  throw new Error(`The bare example does not support the ${Platform.OS} React Native platform.`)
+}
+
+function monotonicNow(): number {
+  if (globalThis.performance === undefined) {
+    throw new Error('React Native did not provide a monotonic performance clock.')
+  }
+  return globalThis.performance.now()
+}
+
+function peerFromObservation(observation: AdvertisementObservation<string>): ExamplePeer {
+  return Object.freeze({
+    peerId: observation.peerId,
+    label: observation.localName.state === 'present' ? observation.localName.value : null,
+    rssi: observation.rssi.state === 'present' ? observation.rssi.value : null,
+    isConnectable: observation.connectable.state === 'present' ? observation.connectable.value : null,
+    seenAt: observation.observedAt,
+    advertisement: observation
+  })
+}
+
+function assertReleased(cleanup: { readonly state: 'released' | 'release-failed' }, operationName: string): void {
+  if (cleanup.state !== 'released') {
+    throw new Error(`${operationName} reported cleanup failures; retry the operation before continuing.`)
+  }
+}
+
+function errorMessage<Value>(error: Value): string {
+  return error instanceof Error ? error.message : 'The BLE operation failed with a non-Error value.'
+}
+
+export const BLEService = new CanonicalBleExampleService()

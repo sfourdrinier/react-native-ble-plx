@@ -3,10 +3,7 @@
 import { contractError } from './backend-contract/errors'
 import type { BackendProvider, HostNeutralBackendIdentity } from './backend-contract/identity'
 import type { WinRtBoundary } from './backends/winrt/winrt-boundary'
-import {
-  createWinRtBackendProvider,
-  type WinRtBackendProviderOptions
-} from './backends/winrt/winrt-provider'
+import { createWinRtBackendProvider, type WinRtBackendProviderOptions } from './backends/winrt/winrt-provider'
 
 interface WinRtNativeModule {
   readonly nativeProtocolVersion: number

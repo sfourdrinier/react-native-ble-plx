@@ -108,7 +108,8 @@ describe('package modernization targets', () => {
       },
       ios: {
         modulesProvider: {
-          BlePlx: 'BlePlx'
+          BlePlx: 'BlePlx',
+          UnifiedBleProtocolControl: 'UnifiedBleProtocolControl'
         }
       }
     })
@@ -252,21 +253,27 @@ describe('package modernization targets', () => {
     expect(releaseDoc).toContain('packed artifact')
   })
 
-  // R3-F062 / R3-F073: bare + expo BLEService stay parity; no magic errorCode 2
-  test('bare and expo BLEService parity + OperationCancelled (R3-F062/F073)', () => {
+  // R3-F062 / R3-F073: bare + Expo use the canonical 4.0 service, not legacy error-code wrappers.
+  test('bare and Expo BLEService parity uses canonical manager operations (R3-F062/F073)', () => {
     const bare = readText(path.join(__dirname, '..', 'example/src/services/BLEService/BLEService.ts'))
     const expo = readText(path.join(__dirname, '..', 'example-expo/src/services/BLEService/BLEService.ts'))
-    expect(bare).toContain('BleErrorCode.OperationCancelled')
-    expect(expo).toContain('BleErrorCode.OperationCancelled')
+    expect(bare).toContain('class CanonicalBleExampleService')
+    expect(expo).toContain('class CanonicalBleExampleService')
+    expect(bare).toContain('createReactNativeBleManager')
+    expect(expo).toContain('createReactNativeBleManager')
+    expect(bare).not.toContain('new BleManager(')
+    expect(expo).not.toContain('new BleManager(')
+    expect(bare).not.toContain('BleErrorCode.OperationCancelled')
+    expect(expo).not.toContain('BleErrorCode.OperationCancelled')
     expect(bare).not.toMatch(/error\.errorCode === 2/)
     expect(expo).not.toMatch(/error\.errorCode === 2/)
-    // Structural parity: same setupMonitor cancellation gate (hash of that region)
-    const extract = src => {
-      const m = src.match(/setupMonitor[\s\S]{0,800}OperationCancelled[\s\S]{0,200}/)
-      return m ? m[0].replace(/\s+/g, ' ') : ''
+    const normalize = source => {
+      return source
+        .replace('// example-expo/', '// example/')
+        .replace('The Expo app owns', 'The bare app owns')
+        .replaceAll('expo-example-', 'bare-example-')
     }
-    expect(extract(bare).length).toBeGreaterThan(20)
-    expect(extract(bare)).toBe(extract(expo))
+    expect(normalize(expo)).toBe(bare)
   })
 
   test('CI labels Fake electron smoke L1 and gates electron native L2 + web vite', () => {
@@ -277,9 +284,10 @@ describe('package modernization targets', () => {
     expect(ciWorkflow).toContain('Electron CoreBluetooth native L2')
     expect(ciWorkflow).toContain('pnpm run build:electron:macos')
     expect(ciWorkflow).toContain('requireNative: true')
-    // WinRT fail-closed honesty (GAP-E-WIN-NAPI)
-    expect(ciWorkflow).toContain('GAP-E-WIN-NAPI')
-    expect(ciWorkflow).toContain('createWinRtBlePort')
+    // WinRT is a compiled Node-API boundary check, not an unbuilt runtime fallback claim.
+    expect(ciWorkflow).toContain('WinRT native boundary compile and ABI load')
+    expect(ciWorkflow).toContain('createContractBoundary')
+    expect(ciWorkflow).toContain('nativeProtocolVersion')
     // Web packaging L2 after prepack (shared host-export checker — R2-F097)
     expect(ciWorkflow).toMatch(/vite build --config example-web\/vite\.config\.js/)
     expect(ciWorkflow).toContain('scripts/ci/check-host-exports.js')

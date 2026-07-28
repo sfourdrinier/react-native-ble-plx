@@ -29,14 +29,20 @@ export class CoreBluetoothConnectionControls {
     if (readRssi === undefined) {
       return this.unsupported(request.operation, 'corebluetooth.connection.read-rssi')
     }
+    this.backend.assertOperational('corebluetooth.connection.read-rssi')
     const record = this.backend.requireConnection(connection, 'corebluetooth.connection.read-rssi')
-    return this.backend.dispatcher.dispatch(request.operation, 'corebluetooth.connection.read-rssi', async () => {
-      const rssi = await readRssi(record.nativePeerId)
-      if (!Number.isSafeInteger(rssi)) {
-        throw contractError('protocol.malformed', 'connection', 'corebluetooth.connection.read-rssi.result')
-      }
-      return Object.freeze({ rssi, terminal: successfulTerminal(request.operation) })
-    })
+    return this.backend.dispatcher.dispatch(
+      request.operation,
+      'corebluetooth.connection.read-rssi',
+      async () => {
+        const rssi = await readRssi(record.nativePeerId)
+        if (!Number.isSafeInteger(rssi)) {
+          throw contractError('protocol.malformed', 'connection', 'corebluetooth.connection.read-rssi.result')
+        }
+        return Object.freeze({ rssi, terminal: successfulTerminal(request.operation) })
+      },
+      String(connection.connectionId)
+    )
   }
 
   requestMtu<Operation extends string>(
@@ -50,22 +56,28 @@ export class CoreBluetoothConnectionControls {
     if (requestMtu === undefined) {
       return this.unsupported(request.operation, 'corebluetooth.connection.request-mtu')
     }
+    this.backend.assertOperational('corebluetooth.connection.request-mtu')
     const record = this.backend.requireConnection(connection, 'corebluetooth.connection.request-mtu')
-    return this.backend.dispatcher.dispatch(request.operation, 'corebluetooth.connection.request-mtu', async () => {
-      const negotiatedMtu = await requestMtu(record.nativePeerId, request.requestedMtu)
-      if (
-        !Number.isSafeInteger(negotiatedMtu) ||
-        negotiatedMtu < MINIMUM_ATT_MTU ||
-        negotiatedMtu > MAXIMUM_REQUESTED_ATT_MTU
-      ) {
-        throw contractError('protocol.malformed', 'connection', 'corebluetooth.connection.request-mtu.result')
-      }
-      return Object.freeze({
-        requestedMtu: request.requestedMtu,
-        negotiatedMtu,
-        terminal: successfulTerminal(request.operation)
-      })
-    })
+    return this.backend.dispatcher.dispatch(
+      request.operation,
+      'corebluetooth.connection.request-mtu',
+      async () => {
+        const negotiatedMtu = await requestMtu(record.nativePeerId, request.requestedMtu)
+        if (
+          !Number.isSafeInteger(negotiatedMtu) ||
+          negotiatedMtu < MINIMUM_ATT_MTU ||
+          negotiatedMtu > MAXIMUM_REQUESTED_ATT_MTU
+        ) {
+          throw contractError('protocol.malformed', 'connection', 'corebluetooth.connection.request-mtu.result')
+        }
+        return Object.freeze({
+          requestedMtu: request.requestedMtu,
+          negotiatedMtu,
+          terminal: successfulTerminal(request.operation)
+        })
+      },
+      String(connection.connectionId)
+    )
   }
 
   private unsupported<Operation extends string, Result>(

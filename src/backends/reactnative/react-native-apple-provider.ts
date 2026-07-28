@@ -173,6 +173,7 @@ async function createOpenedBackend(
   boundary.bindAttachment(nativeAttachmentIdentity(directBackend.attachment()))
   try {
     await boundary.open()
+    directBackend.refreshAttachmentState()
     return new ReactNativeAppleBackend(directBackend)
   } catch (error) {
     try {

@@ -2,6 +2,7 @@
 
 import type { ScanFilter } from '../advertisement'
 import type { BackendProvider, HostNeutralBackendIdentity } from '../identity'
+import type { PublicOperationOptions } from '../operations'
 import type { PeerId, Uuid } from '../primitives'
 
 export interface ChooserRequest {
@@ -14,7 +15,7 @@ export interface ChooserSelection<Attachment extends string> {
   readonly grantedServices: readonly Uuid[]
 }
 export interface WebChooser<Attachment extends string> {
-  choose(request: ChooserRequest): Promise<ChooserSelection<Attachment>>
+  choose(request: ChooserRequest, options: PublicOperationOptions): Promise<ChooserSelection<Attachment>>
 }
 export interface WebHost<Attachment extends string> {
   readonly provider: BackendProvider<Attachment, HostNeutralBackendIdentity<Attachment>>

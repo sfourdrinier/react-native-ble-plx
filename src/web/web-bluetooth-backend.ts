@@ -1,6 +1,5 @@
 // src/web/web-bluetooth-backend.ts
 
-import type { AdvertisementField, AdvertisementObservation, OwnerScanOptions } from '../backend-contract/advertisement'
 import type {
   BackendAttachment,
   BackendConnection,
@@ -8,8 +7,7 @@ import type {
   BleCentralBackend,
   ConnectionLease,
   GattBackend,
-  ResourceCounters,
-  ScanLease
+  ResourceCounters
 } from '../backend-contract/backend'
 import { BackendContractError, contractError } from '../backend-contract/errors'
 import type { BleErrorCode, CleanupFailure, CleanupRecord } from '../backend-contract/errors'
@@ -22,6 +20,7 @@ import type {
   HostNeutralBackendIdentity,
   ProviderDescriptor
 } from '../backend-contract/identity'
+import { attachmentRecordsEqual } from '../backend-contract/identity'
 import type { CharacteristicPath, DescriptorPath } from '../backend-contract/gatt'
 import type {
   PublicOperationOptions,
@@ -44,7 +43,6 @@ import type {
   AdapterId,
   AttachmentBinding,
   BackendCompatibilityOffer,
-  ClientId,
   Deadline,
   GenerationId,
   HostNeutralVersionAxes,
@@ -63,7 +61,7 @@ import type {
 import { normalizeWebBluetoothError, validateWebChooserRequest, webCleanupFailure } from './web-bluetooth-errors'
 import { createWebBluetoothFeatureRegistry } from './web-feature-registry'
 import { WebBluetoothGattRuntime } from './web-bluetooth-gatt'
-import { WebBackendConnection, WebConnectionLease, WebGattDatabase, WebScanLease } from './web-bluetooth-handles'
+import { WebBackendConnection, WebConnectionLease, WebGattDatabase } from './web-bluetooth-handles'
 import type { WebConnectionRecord, WebPendingConnection, WebSelectedDevice } from './web-bluetooth-handles'
 
 const WEB_ATTACHMENT = 'web-bluetooth'
@@ -87,7 +85,6 @@ interface AbortableOperation {
   readonly signal: AbortSignal | null
   readonly deadline: Deadline | null
 }
-
 interface WebProviderOptions {
   readonly boundary: WebBluetoothBoundary
 }
@@ -112,14 +109,17 @@ export class WebBluetoothProvider implements BackendProvider<string, HostNeutral
     if (selection.selectedAdapterId !== WEB_ADAPTER_ID) {
       throw contractError('adapter.selection-required', 'adapter', 'web-provider.create')
     }
-    return new WebBluetoothBackend(this.options.boundary)
+    const available = await this.options.boundary.bluetoothAvailable()
+    if (!available) {
+      throw contractError('adapter.unavailable', 'adapter', 'web-provider.create')
+    }
+    return new WebBluetoothBackend(this.options.boundary, available)
   }
 }
 
 export function createWebBluetoothProvider(boundary: WebBluetoothBoundary): WebBluetoothProvider {
   return new WebBluetoothProvider({ boundary })
 }
-
 /** Contract-v1 Web Bluetooth backend with chooser-limited discovery semantics. */
 export class WebBluetoothBackend
   implements BleCentralBackend<string, HostNeutralBackendIdentity<string>>, WebChooser<string>
@@ -131,20 +131,20 @@ export class WebBluetoothBackend
   readonly gatt: GattBackend<string>
 
   private readonly backendInstance: number
-  private readonly attachmentRecord: AttachmentRecord<string>
+  private attachmentRecord: AttachmentRecord<string>
+  private attachmentGeneration = 1
   private negotiatedVersions: HostNeutralVersionAxes
   private attached = false
   private destroyed = false
   private chooserBusy = false
   private nextPeer = 1
-  private nextScan = 1
   private nextConnection = 1
   private ingressOrdinal = 1
-  private activeScan: WebScanLease | null = null
   private destroyResult: Promise<CleanupRecord> | null = null
   private readonly selectedDevices = new Map<string, WebSelectedDevice>()
   private readonly peerByBrowserDeviceId = new Map<string, PeerId<string>>()
   private readonly connectionsByPeer = new Map<string, WebConnectionRecord>()
+  private readonly retainedConnections = new Set<WebConnectionRecord>()
   private readonly pendingConnectionsByPeer = new Map<string, WebPendingConnection>()
   private readonly eventStreams = new Set<CoreBoundedStream<BackendEvent<string>>>()
   private readonly adapterStreams = new Set<CoreBoundedStream<AdapterStateSnapshot<string>>>()
@@ -152,16 +152,13 @@ export class WebBluetoothBackend
   private readonly gattRuntime: WebBluetoothGattRuntime
   private removePageLifecycleListener: (() => void) | null
 
-  constructor(private readonly boundary: WebBluetoothBoundary) {
+  constructor(
+    private readonly boundary: WebBluetoothBoundary,
+    initialAvailability = false
+  ) {
     this.backendInstance = nextBackendInstance
     nextBackendInstance += 1
-    const generation = opaqueId(`web-backend-generation-${this.backendInstance}`, 'backend-generation', WEB_ATTACHMENT)
-    this.attachmentRecord = {
-      attachmentId: opaqueId(`web-attachment-${this.backendInstance}`, 'attachment', WEB_ATTACHMENT),
-      backendInstanceId: opaqueId(`web-backend-${this.backendInstance}`, 'backend-instance', WEB_ATTACHMENT),
-      backendGeneration: generation,
-      adapter: webAdapterDescriptor(boundary, true, generation)
-    }
+    this.attachmentRecord = this.createAttachmentRecord(initialAvailability)
     this.negotiatedVersions = negotiateCoreVersions(LOCAL_COMPATIBILITY, LOCAL_COMPATIBILITY)
     this.features = createWebBluetoothFeatureRegistry(boundary.implementationVersion)
     this.adapter = {
@@ -169,9 +166,13 @@ export class WebBluetoothBackend
       watchState: async () => this.watchAdapterState()
     }
     this.scanner = {
-      start: async (options, clientId) => this.startChooserScan(options, clientId),
+      start: async () => {
+        this.assertAttached('web-scanner.start')
+        throw contractError('capability.unsupported', 'scan', 'web-scanner.start')
+      },
       join: async () => {
-        throw contractError('capability.unsupported', 'chooser', 'web-scanner.join')
+        this.assertAttached('web-scanner.join')
+        throw contractError('capability.unsupported', 'scan', 'web-scanner.join')
       }
     }
     this.connections = {
@@ -220,13 +221,30 @@ export class WebBluetoothBackend
     if (this.attached) {
       throw contractError('lifecycle.invalid-state', 'core', 'web-backend.attach')
     }
+    const available = await this.boundary.bluetoothAvailable()
+    this.assertUsable('web-backend.attach')
+    if (this.attached) {
+      throw contractError('lifecycle.invalid-state', 'core', 'web-backend.attach')
+    }
+    this.refreshAttachmentAvailability(available)
+    if (!available) {
+      throw contractError('adapter.unavailable', 'adapter', 'web-backend.attach')
+    }
+    const retainedCleanup = await this.releaseRetainedSessionResources()
+    if (retainedCleanup.state === 'release-failed') {
+      throw contractError('lifecycle.invalid-state', 'core', 'web-backend.attach')
+    }
+    this.assertUsable('web-backend.attach')
+    if (this.attached) {
+      throw contractError('lifecycle.invalid-state', 'core', 'web-backend.attach')
+    }
     this.negotiatedVersions = negotiateCoreVersions(LOCAL_COMPATIBILITY, request.coreCompatibility)
     this.attached = true
     return { attachment: this.attachmentRecord, identity: this.identity }
   }
 
-  async choose(request: ChooserRequest): Promise<ChooserSelection<string>> {
-    const selection = await this.chooseDevice(request, { signal: null, deadline: null })
+  async choose(request: ChooserRequest, options: PublicOperationOptions): Promise<ChooserSelection<string>> {
+    const selection = await this.chooseDevice(request, options)
     return { peerId: selection.peerId, grantedServices: [...selection.grantedServices].map(canonicalUuid) }
   }
 
@@ -239,12 +257,13 @@ export class WebBluetoothBackend
 
   resourceCounters(): ResourceCounters {
     return {
-      activeScanControllers: resourceCount(this.activeScan === null ? 0 : 1),
-      scanConsumers: resourceCount(this.activeScan === null ? 0 : 1),
+      activeScanControllers: resourceCount(0),
+      scanConsumers: resourceCount(0),
       chooserSessions: resourceCount(this.chooserBusy ? 1 : 0),
       connectionLeases: resourceCount(this.connectionsByPeer.size),
       physicalLinks: resourceCount(
         this.connectionsByPeer.size +
+          [...this.retainedConnections].filter(record => record.device.gatt.connected).length +
           [...this.pendingConnectionsByPeer.values()].filter(pending => pending.device.gatt.connected).length
       ),
       databaseSnapshots: resourceCount(
@@ -317,6 +336,7 @@ export class WebBluetoothBackend
     path: CharacteristicPath<string, string, string, string, string, 'current'>,
     options: PublicOperationOptions
   ): Promise<OwnedBytes> {
+    this.assertAttached('web-gatt.database-read')
     return this.gattRuntime.readDirect(database, path, options)
   }
 
@@ -326,6 +346,7 @@ export class WebBluetoothBackend
     value: Readonly<Uint8Array>,
     options: WritePolicy
   ): Promise<WriteReceipt<string, string>> {
+    this.assertAttached('web-gatt.database-write')
     return this.gattRuntime.writeDirect(database, path, value, options)
   }
 
@@ -334,6 +355,7 @@ export class WebBluetoothBackend
     path: DescriptorPath<string, string, string, string, string, string, 'current'>,
     options: PublicOperationOptions
   ): Promise<OwnedBytes> {
+    this.assertAttached('web-gatt.database-read-descriptor')
     return this.gattRuntime.readDescriptorDirect(database, path, options)
   }
 
@@ -343,6 +365,7 @@ export class WebBluetoothBackend
     value: Readonly<Uint8Array>,
     options: WritePolicy
   ): Promise<WriteReceipt<string, string>> {
+    this.assertAttached('web-gatt.database-write-descriptor')
     return this.gattRuntime.writeDescriptorDirect(database, path, value, options)
   }
 
@@ -351,12 +374,117 @@ export class WebBluetoothBackend
     path: CharacteristicPath<string, string, string, string, string, 'current'>,
     options: SubscriptionOptions
   ): Promise<import('../backend-contract/gatt').Subscription<string, string, string, string, string, string>> {
+    this.assertAttached('web-gatt.database-subscribe')
     return this.gattRuntime.subscribeDirect(database, path, options)
   }
 
   private async currentAdapterState(): Promise<AdapterStateSnapshot<string>> {
     const available = await this.boundary.bluetoothAvailable()
-    return webAdapterDescriptor(this.boundary, available, this.attachmentRecord.backendGeneration).state
+    this.refreshAttachmentAvailability(available)
+    return this.attachmentRecord.adapter.state
+  }
+
+  private async assertBluetoothAvailable(operation: string): Promise<void> {
+    const available = await this.boundary.bluetoothAvailable()
+    this.refreshAttachmentAvailability(available)
+    if (!available) {
+      throw contractError('adapter.unavailable', 'adapter', operation)
+    }
+  }
+
+  private refreshAttachmentAvailability(available: boolean): void {
+    if (this.attachmentRecord.adapter.state.availability === (available ? 'available' : 'unavailable')) {
+      return
+    }
+    this.attachmentGeneration += 1
+    this.attachmentRecord = this.createAttachmentRecord(available)
+    for (const stream of this.adapterStreams) {
+      stream.emit(this.attachmentRecord.adapter.state, 96, String(this.attachmentRecord.backendGeneration))
+    }
+    if (!available) {
+      this.attached = false
+      this.invalidateUnavailableSession()
+    }
+  }
+
+  private invalidateUnavailableSession(): void {
+    for (const pending of [...this.pendingConnectionsByPeer.values()]) {
+      try {
+        if (pending.device.gatt.connected) {
+          pending.device.gatt.disconnect()
+        }
+      } catch (error) {
+        console.error('[WebBluetoothBackend.invalidateUnavailableSession] Browser pending disconnect failed:', error)
+        pending.state = 'cleanup-failed'
+        pending.cleanupFailureReported = false
+        continue
+      }
+      this.deletePendingConnectionIfOwned(pending)
+    }
+    for (const record of [...this.connectionsByPeer.values()]) {
+      this.invalidateConnection(record, 'connection-lost')
+      try {
+        if (record.device.gatt.connected) {
+          record.device.gatt.disconnect()
+        }
+      } catch (error) {
+        console.error('[WebBluetoothBackend.invalidateUnavailableSession] Browser disconnect failed:', error)
+        this.retainedConnections.add(record)
+        continue
+      }
+    }
+    this.selectedDevices.clear()
+    this.peerByBrowserDeviceId.clear()
+  }
+
+  private async releaseRetainedSessionResources(): Promise<CleanupRecord> {
+    const failures: CleanupFailure[] = []
+    for (const pending of [...this.pendingConnectionsByPeer.values()]) {
+      await this.compensatePendingConnection(pending)
+      if (this.pendingConnectionsByPeer.get(String(pending.peerId)) === pending) {
+        failures.push(...webCleanupFailure('connection', 'web-connection.retained-compensation-failure').failures)
+      }
+    }
+    for (const record of [...this.connectionsByPeer.values()]) {
+      const cleanup = await this.disconnectRecord(record)
+      failures.push(...cleanup.failures)
+    }
+    for (const record of [...this.retainedConnections]) {
+      const cleanup = await this.releaseRetainedConnection(record)
+      failures.push(...cleanup.failures)
+    }
+    return failures.length === 0 ? RELEASED : { state: 'release-failed', failures }
+  }
+
+  private async releaseRetainedConnection(record: WebConnectionRecord): Promise<CleanupRecord> {
+    try {
+      if (record.device.gatt.connected) {
+        record.device.gatt.disconnect()
+      }
+      this.retainedConnections.delete(record)
+      return RELEASED
+    } catch (error) {
+      console.error('[WebBluetoothBackend.releaseRetainedConnection] Browser disconnect retry failed:', error)
+      return webCleanupFailure('connection', 'web-connection.retained-disconnect')
+    }
+  }
+
+  private createAttachmentRecord(available: boolean): AttachmentRecord<string> {
+    const generation = opaqueId(
+      `web-backend-generation-${this.backendInstance}-${this.attachmentGeneration}`,
+      'backend-generation',
+      WEB_ATTACHMENT
+    )
+    return {
+      attachmentId: opaqueId(
+        `web-attachment-${this.backendInstance}-${this.attachmentGeneration}`,
+        'attachment',
+        WEB_ATTACHMENT
+      ),
+      backendInstanceId: opaqueId(`web-backend-${this.backendInstance}`, 'backend-instance', WEB_ATTACHMENT),
+      backendGeneration: generation,
+      adapter: webAdapterDescriptor(this.boundary, available, generation)
+    }
   }
 
   private async watchAdapterState(): Promise<AdapterStateWatch<string>> {
@@ -366,54 +494,9 @@ export class WebBluetoothBackend
     return { initial, transitions }
   }
 
-  private async startChooserScan(
-    options: OwnerScanOptions<string, string>,
-    _clientId: ClientId<string, string>
-  ): Promise<ScanLease<string, string>> {
-    this.assertAttached('web-scanner.start')
-    if (this.activeScan !== null) {
-      throw contractError('scan.already-active', 'scan', 'web-scanner.start')
-    }
-    const optionalServices = options.filter.serviceUuids
-    const selection = await this.chooseDevice(
-      {
-        filters: [options.filter],
-        acceptAllDevices: options.filter.serviceUuids.length === 0 && options.filter.localNamePrefix === null,
-        optionalServices
-      },
-      options
-    )
-    const stream = new CoreBoundedStream<AdvertisementObservation<string>>(
-      options.delivery,
-      options.delivery.overflowPolicy
-    )
-    const scanNumber = this.nextScan
-    this.nextScan += 1
-    const identifiers = this.identifiers()
-    let stopped = false
-    const lease = new WebScanLease(
-      identifiers.scanSessionId(`web-chooser-${scanNumber}`),
-      identifiers.leaseId(`web-chooser-${scanNumber}`),
-      stream,
-      async () => {
-        if (stopped) {
-          return RELEASED
-        }
-        stopped = true
-        if (this.activeScan === lease) {
-          this.activeScan = null
-        }
-        await stream.close()
-        return RELEASED
-      }
-    )
-    this.activeScan = lease
-    stream.emit(this.chooserObservation(selection), 1)
-    return lease
-  }
-
   private async chooseDevice(request: ChooserRequest, operation: AbortableOperation): Promise<WebSelectedDevice> {
     this.assertAttached('web-chooser.choose')
+    this.assertAbortableAdmission(operation, 'chooser', 'web-chooser.choose')
     if (!this.boundary.isSecureContext()) {
       throw contractError('chooser.insecure-context', 'chooser', 'web-chooser.choose')
     }
@@ -433,7 +516,10 @@ export class WebBluetoothBackend
       acceptAllDevices: request.acceptAllDevices,
       optionalServices: [...request.optionalServices]
     }
-    const browserSelection = Promise.resolve().then(() => this.boundary.requestDevice(browserRequest))
+    const browserSelection = Promise.resolve().then(async () => {
+      await this.assertBluetoothAvailable('web-chooser.choose')
+      return this.boundary.requestDevice(browserRequest)
+    })
     browserSelection.then(
       () => {
         this.chooserBusy = false
@@ -470,43 +556,12 @@ export class WebBluetoothBackend
     return selected
   }
 
-  private chooserObservation(selection: WebSelectedDevice): AdvertisementObservation<string> {
-    const unavailable = (reason: string): AdvertisementField<never> => ({
-      state: 'unavailable',
-      reason,
-      provenance: 'not-provided'
-    })
-    const localName: AdvertisementObservation<string>['localName'] =
-      selection.device.name === null
-        ? unavailable('chooser did not expose a device name')
-        : { state: 'present', value: selection.device.name, provenance: 'observed' }
-    const observation: AdvertisementObservation<string> = {
-      peerId: selection.peerId,
-      observedAt: monotonicTimestamp(this.boundary.now()),
-      source: 'platform-derived',
-      ingressOrdinal: this.ingressOrdinal,
-      localName,
-      rssi: unavailable('Web Bluetooth chooser does not expose RSSI'),
-      txPower: unavailable('Web Bluetooth chooser does not expose transmit power'),
-      connectable: unavailable('Web Bluetooth chooser does not expose connectability'),
-      appearance: unavailable('Web Bluetooth chooser does not expose appearance'),
-      serviceUuids: unavailable('granted services are authorization, not advertisement data'),
-      solicitedServiceUuids: unavailable('Web Bluetooth chooser does not expose solicited services'),
-      overflowServiceUuids: unavailable('Web Bluetooth chooser does not expose overflow services'),
-      serviceData: unavailable('Web Bluetooth chooser does not expose service data'),
-      manufacturerData: unavailable('Web Bluetooth chooser does not expose manufacturer data'),
-      rawRecord: unavailable('Web Bluetooth chooser does not expose raw advertising bytes'),
-      scanResponseRecord: unavailable('Web Bluetooth chooser does not expose scan-response bytes')
-    }
-    this.ingressOrdinal += 1
-    return observation
-  }
-
   private async connect(
     peerId: PeerId<string>,
     options: PublicOperationOptions
   ): Promise<ConnectionLease<string, string, string>> {
     this.assertAttached('web-connection.connect')
+    this.assertAbortableAdmission(options, 'connection', 'web-connection.connect')
     const peerKey = String(peerId)
     if (this.connectionsByPeer.has(peerKey) || this.pendingConnectionsByPeer.has(peerKey)) {
       throw contractError('connection.already-owned', 'connection', 'web-connection.connect')
@@ -525,7 +580,10 @@ export class WebBluetoothBackend
       cleanupFailureReported: false
     }
     this.pendingConnectionsByPeer.set(peerKey, pending)
-    pending.nativeConnect = Promise.resolve().then(() => selected.device.gatt.connect())
+    pending.nativeConnect = Promise.resolve().then(async () => {
+      await this.assertBluetoothAvailable('web-connection.connect')
+      await selected.device.gatt.connect()
+    })
     pending.nativeConnect.then(
       () => undefined,
       error => {
@@ -652,6 +710,7 @@ export class WebBluetoothBackend
   }
 
   requireConnection(connection: BackendConnection<string, string>, operation: string): WebConnectionRecord {
+    this.assertAttached(operation)
     const record = this.connectionsByPeer.get(String(connection.peerId))
     if (record === undefined || record.connection !== connection || !record.valid) {
       throw contractError('connection.stale', 'connection', operation)
@@ -665,6 +724,7 @@ export class WebBluetoothBackend
       | DescriptorPath<string, string, string, string, string, string>,
     operation: string
   ): WebGattDatabase {
+    this.assertAttached(operation)
     const record = this.connectionsByPeer.get(String(path.peerId))
     const database = record?.database
     if (
@@ -672,6 +732,18 @@ export class WebBluetoothBackend
       database === null ||
       database === undefined ||
       !record.valid ||
+      path.validity !== 'current' ||
+      !attachmentRecordsEqual(path.attachment, this.attachmentRecord) ||
+      path.attachmentId !== this.attachmentRecord.attachmentId ||
+      record.peerId !== path.peerId ||
+      record.connection.connectionId !== path.connectionId ||
+      record.leaseId !== path.ownerLeaseId ||
+      record.connection.connectionGeneration !== path.connectionGeneration ||
+      !attachmentRecordsEqual(database.path.attachment, path.attachment) ||
+      database.path.attachmentId !== path.attachmentId ||
+      database.path.peerId !== path.peerId ||
+      database.path.connectionId !== path.connectionId ||
+      database.path.ownerLeaseId !== path.ownerLeaseId ||
       database.path.databaseId !== path.databaseId ||
       database.path.databaseGeneration !== path.databaseGeneration ||
       database.path.connectionGeneration !== path.connectionGeneration
@@ -691,13 +763,7 @@ export class WebBluetoothBackend
     operationName: string,
     onLateSuccess: ((result: Result) => Promise<void> | void) | null = null
   ): Promise<Result> {
-    this.assertUsable(operationName)
-    if (operation.signal?.aborted === true) {
-      throw contractError('operation.aborted', domain, operationName)
-    }
-    if (operation.deadline !== null && this.boundary.now() >= operation.deadline) {
-      throw contractError('operation.timed-out', domain, operationName)
-    }
+    this.assertAbortableAdmission(operation, domain, operationName)
     return new Promise<Result>((resolve, reject) => {
       let settled = false
       let timer: WebBluetoothTimerHandle | null = null
@@ -772,6 +838,26 @@ export class WebBluetoothBackend
     })
   }
 
+  private assertAbortableAdmission(
+    operation: AbortableOperation,
+    domain: 'chooser' | 'connection' | 'gatt',
+    operationName: string
+  ): void {
+    this.assertUsable(operationName)
+    if (operation.signal?.aborted === true) {
+      throw contractError('operation.aborted', domain, operationName)
+    }
+    if (operation.deadline !== null && this.boundary.now() >= operation.deadline) {
+      throw contractError('operation.timed-out', domain, operationName)
+    }
+  }
+
+  private cancelInFlightOperations(): void {
+    for (const waiter of [...this.destroyWaiters]) {
+      waiter()
+    }
+  }
+
   private emitBackendEvent(event: BackendEvent<string>): void {
     for (const stream of this.eventStreams) {
       stream.emit(event, 1)
@@ -804,10 +890,7 @@ export class WebBluetoothBackend
 
   private async destroyAllResources(): Promise<CleanupRecord> {
     const failures: CleanupFailure[] = []
-    for (const waiter of [...this.destroyWaiters]) {
-      waiter()
-    }
-    this.destroyWaiters.clear()
+    this.cancelInFlightOperations()
     for (const pending of [...this.pendingConnectionsByPeer.values()]) {
       if (pending.state === 'cleanup-failed') {
         if (!pending.cleanupFailureReported) {
@@ -825,13 +908,13 @@ export class WebBluetoothBackend
       this.removePageLifecycleListener()
       this.removePageLifecycleListener = null
     }
-    if (this.activeScan !== null) {
-      const scanCleanup = await this.activeScan.stop()
-      failures.push(...scanCleanup.failures)
-    }
     failures.push(...(await this.gattRuntime.destroySubscriptions()))
     for (const record of [...this.connectionsByPeer.values()]) {
       const cleanup = await this.disconnectRecord(record)
+      failures.push(...cleanup.failures)
+    }
+    for (const record of [...this.retainedConnections]) {
+      const cleanup = await this.releaseRetainedConnection(record)
       failures.push(...cleanup.failures)
     }
     for (const stream of this.eventStreams) {

@@ -14,7 +14,7 @@ import type {
   NotificationValue,
   Service
 } from '../backend-contract/gatt'
-import type { AttachmentRecord } from '../backend-contract/identity'
+import { attachmentRecordsEqual, type AttachmentRecord } from '../backend-contract/identity'
 import type {
   OperationTerminalRecord,
   PublicOperationOptions,
@@ -249,6 +249,30 @@ export class WebGattDatabase implements GattDatabase<string, string, string> {
     }
   }
 
+  assertPath(
+    path:
+      | CharacteristicPath<string, string, string, string, string>
+      | DescriptorPath<string, string, string, string, string, string>,
+    operation: string
+  ): void {
+    this.assertCurrent(operation)
+    if (
+      path.validity !== 'current' ||
+      !attachmentRecordsEqual(path.attachment, this.backend.identity.attachment) ||
+      path.attachmentId !== this.backend.identity.attachment.attachmentId ||
+      !attachmentRecordsEqual(path.attachment, this.path.attachment) ||
+      path.attachmentId !== this.path.attachmentId ||
+      path.peerId !== this.path.peerId ||
+      path.connectionId !== this.path.connectionId ||
+      path.ownerLeaseId !== this.path.ownerLeaseId ||
+      path.connectionGeneration !== this.path.connectionGeneration ||
+      path.databaseId !== this.path.databaseId ||
+      path.databaseGeneration !== this.path.databaseGeneration
+    ) {
+      throw this.backend.staleGattError(operation)
+    }
+  }
+
   invalidate(): void {
     this.valid = false
   }
@@ -286,6 +310,10 @@ export class WebBackendSubscription implements BackendSubscription<string, strin
 
   get notifications(): BoundedAsyncStream<NotificationValue> {
     return this.managed.stream
+  }
+
+  isManagedBy(managed: WebManagedSubscription): boolean {
+    return this.managed === managed
   }
 }
 

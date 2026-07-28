@@ -1,3 +1,5 @@
+// __tests__/ElectronNativeBackends.test.js
+
 /**
  * Electron multi-OS native backend factories (shipped modules).
  */
@@ -272,11 +274,26 @@ describe('Electron native backends', () => {
     ).toBe(true)
   })
 
-  test('native packaging: WinRT createPort throws; CoreBluetooth createPort is full BlePort on Mac', () => {
-    const winrt = require('../native/electron/winrt')
+  test('native packaging: WinRT loader validates its compiled boundary; CoreBluetooth createPort is full BlePort on Mac', () => {
+    const winrtLoaderPath = path.join(__dirname, '../native/electron/winrt/index.js')
+    const winrtLoader = fs.readFileSync(winrtLoaderPath, 'utf8')
+    const winrtArtifactPath = path.join(
+      __dirname,
+      '../native/electron/winrt/build/Release/unified_ble_winrt.node'
+    )
+    expect(winrtLoader).toContain('unified_ble_winrt.node')
+    expect(winrtLoader).toContain('nativeProtocolVersion')
+    expect(winrtLoader).toContain('createContractBoundary')
+    expect(fs.existsSync(path.join(__dirname, '../native/electron/winrt/binding.gyp'))).toBe(true)
+    if (process.platform === 'win32' && fs.existsSync(winrtArtifactPath)) {
+      const winrt = require('../native/electron/winrt')
+      expect(winrt.nativeProtocolVersion).toBe(1)
+      expect(typeof winrt.createContractBoundary).toBe('function')
+      const boundary = winrt.createContractBoundary()
+      expect(typeof boundary.destroy).toBe('function')
+    }
+
     const cbt = require('../native/electron/corebluetooth')
-    expect(() => winrt.createPort()).toThrow()
-    expect(winrt.radioId).toBe(WINRT_RADIO_ID)
     expect(cbt.radioId).toBe(COREBLUETOOTH_RADIO_ID)
     try {
       const port = cbt.createPort()

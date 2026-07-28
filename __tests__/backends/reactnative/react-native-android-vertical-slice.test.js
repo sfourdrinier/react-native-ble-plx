@@ -8,6 +8,8 @@ const {
   createReactNativeBleManager
 } = require('../../../src/react-native')
 const { decodeNativeProtocolRecord, encodeNativeProtocolRecord } = require('../../../src/native-protocol/v1-codec')
+const { ReactNativeAndroidProtocolBoundary } = require('../../../src/native-protocol/rn-android-boundary')
+const { ReactNativeAppleProtocolBoundary } = require('../../../src/native-protocol/rn-apple-boundary')
 
 const serviceUuid = '0000180d-0000-1000-8000-00805f9b34fb'
 const characteristicUuid = '00002a37-0000-1000-8000-00805f9b34fb'
@@ -204,6 +206,54 @@ describe('React Native Android canonical protocol vertical slice', () => {
     expect(control.closedAttachments).toHaveLength(1)
   })
 
+  test.each([
+    {
+      name: 'Android',
+      createProvider: createReactNativeAndroidBackendProvider,
+      displayName: 'Android default BLE adapter',
+      ownerId: 'deterministic-react-native-android-attachment-refresh'
+    },
+    {
+      name: 'Apple',
+      createProvider: createReactNativeAppleBackendProvider,
+      displayName: 'Apple CoreBluetooth central adapter',
+      ownerId: 'deterministic-react-native-apple-attachment-refresh'
+    }
+  ])('$name provider refreshes the opened adapter state without changing the bound attachment identity', async fixture => {
+    const control = new DeterministicAndroidControl()
+    const runtime = new DeterministicAndroidProtocolRuntime(control)
+    global.__unifiedBleNativeProtocolV1 = runtime
+    const provider = fixture.createProvider({
+      control,
+      now: () => 20,
+      createOwnerId: () => fixture.ownerId
+    })
+
+    const [adapter] = await provider.listAdapters()
+    const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
+    const handshake = control.handshakes[1]
+    if (handshake === undefined) {
+      throw new Error(`${fixture.name} provider did not open a backend attachment`)
+    }
+
+    expect(adapter).toMatchObject({
+      displayName: fixture.displayName,
+      state: { availability: 'available', authorization: 'granted', power: 'on', safeReason: null }
+    })
+    expect(backend.identity.attachment).toMatchObject({
+      attachmentId: handshake.attachmentId,
+      backendInstanceId: handshake.backendInstanceId,
+      backendGeneration: handshake.backendGeneration,
+      adapter: {
+        adapterId: handshake.adapterId,
+        adapterGeneration: handshake.adapterGeneration,
+        state: { availability: 'available', authorization: 'granted', power: 'on', safeReason: null }
+      }
+    })
+
+    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+  })
+
   test('releases raw scan bytes, terminalizes a failed scan, and permits reconnect after Android link loss', async () => {
     const control = new DeterministicAndroidControl()
     const runtime = new DeterministicAndroidProtocolRuntime(control)
@@ -305,6 +355,52 @@ describe('React Native Android canonical protocol vertical slice', () => {
     expect(sinkControl.closedAttachments).toHaveLength(1)
   })
 
+  test.each([
+    ['Android', ReactNativeAndroidProtocolBoundary],
+    ['Apple', ReactNativeAppleProtocolBoundary]
+  ])('%s boundary retries native destroy and attachment close until both succeed', async (_name, Boundary) => {
+    const control = new DeterministicAndroidControl(null, 1)
+    const runtime = new DeterministicAndroidProtocolRuntime(control)
+    runtime.destroyFailuresRemaining = 1
+    global.__unifiedBleNativeProtocolV1 = runtime
+    const boundary = new Boundary(control, 'deterministic-destroy-retry-owner')
+    boundary.bindAttachment(deterministicAttachment())
+    await boundary.open()
+
+    await expect(boundary.destroy()).rejects.toMatchObject({ normalized: { code: 'platform.failure' } })
+    expect(runtime.commandKinds.filter(kind => kind === 'destroy')).toHaveLength(1)
+    expect(control.closeAttachmentAttempts).toHaveLength(0)
+
+    await expect(boundary.destroy()).rejects.toThrow('Native attachment close failed')
+    expect(runtime.commandKinds.filter(kind => kind === 'destroy')).toHaveLength(2)
+    expect(control.closeAttachmentAttempts).toHaveLength(1)
+    expect(control.closedAttachments).toHaveLength(0)
+
+    await expect(boundary.destroy()).resolves.toBeUndefined()
+    expect(runtime.commandKinds.filter(kind => kind === 'destroy')).toHaveLength(2)
+    expect(control.closeAttachmentAttempts).toHaveLength(2)
+    expect(control.closedAttachments).toHaveLength(1)
+  })
+
+  test.each([
+    ['Android', ReactNativeAndroidProtocolBoundary],
+    ['Apple', ReactNativeAppleProtocolBoundary]
+  ])('%s boundary retains a failed setup-close attachment for destroy retry', async (_name, Boundary) => {
+    const control = new DeterministicAndroidControl(new Error('runtime installation failed'), 1)
+    const runtime = new DeterministicAndroidProtocolRuntime(control)
+    global.__unifiedBleNativeProtocolV1 = runtime
+    const boundary = new Boundary(control, 'deterministic-setup-close-retry-owner')
+    boundary.bindAttachment(deterministicAttachment())
+
+    await expect(boundary.open()).rejects.toThrow('runtime installation failed')
+    expect(control.closeAttachmentAttempts).toHaveLength(1)
+    expect(control.closedAttachments).toHaveLength(0)
+
+    await expect(boundary.destroy()).resolves.toBeUndefined()
+    expect(control.closeAttachmentAttempts).toHaveLength(2)
+    expect(control.closedAttachments).toHaveLength(1)
+  })
+
   test('routes the public Apple provider through the same canonical manager-to-JSI boundary', async () => {
     const control = new DeterministicAndroidControl()
     const runtime = new DeterministicAndroidProtocolRuntime(control)
@@ -386,10 +482,12 @@ describe('React Native Android canonical protocol vertical slice', () => {
 })
 
 class DeterministicAndroidControl {
-  constructor(installFailure = null) {
+  constructor(installFailure = null, closeAttachmentFailuresRemaining = 0) {
     this.handshakes = []
     this.closedAttachments = []
+    this.closeAttachmentAttempts = []
     this.installFailure = installFailure
+    this.closeAttachmentFailuresRemaining = closeAttachmentFailuresRemaining
   }
 
   handshake(request) {
@@ -422,6 +520,11 @@ class DeterministicAndroidControl {
   }
 
   closeAttachment(attachment) {
+    this.closeAttachmentAttempts.push(attachment)
+    if (this.closeAttachmentFailuresRemaining > 0) {
+      this.closeAttachmentFailuresRemaining -= 1
+      return Promise.reject(new Error('Native attachment close failed'))
+    }
     this.closedAttachments.push(attachment)
     return Promise.resolve()
   }
@@ -453,6 +556,7 @@ class DeterministicAndroidProtocolRuntime {
     this.writes = []
     this.connection = null
     this.sinkFailure = sinkFailure
+    this.destroyFailuresRemaining = 0
   }
 
   retain(operationCorrelation, value) {
@@ -554,6 +658,11 @@ class DeterministicAndroidProtocolRuntime {
       return
     }
     if (kind === 'destroy') {
+      if (this.destroyFailuresRemaining > 0) {
+        this.destroyFailuresRemaining -= 1
+        this.emitFailure(command, 'Native destroy failed')
+        return
+      }
       this.emitResult(command, 'destroyed')
       return
     }
@@ -619,6 +728,26 @@ class DeterministicAndroidProtocolRuntime {
         field(2, kind),
         field(3, record('terminal', [field(1, requiredRecord(command, 2)), field(2, 'succeeded')])),
         ...additions
+      ])
+    )
+  }
+
+  emitFailure(command, safeMessage) {
+    this.emit(
+      record('result', [
+        field(1, 1),
+        field(2, 'destroyed'),
+        field(3, record('terminal', [field(1, requiredRecord(command, 2)), field(2, 'failed')])),
+        field(
+          10,
+          record('error', [
+            field(1, 'destroyFailed'),
+            field(2, 'native-protocol'),
+            field(3, 'destroy'),
+            field(4, 'notRetryable'),
+            field(7, safeMessage)
+          ])
+        )
       ])
     )
   }
@@ -692,6 +821,16 @@ function record(kind, fields) {
 
 function field(id, value) {
   return { id, value }
+}
+
+function deterministicAttachment() {
+  return {
+    attachmentId: 'rn-boundary-test-attachment',
+    backendInstanceId: 'rn-boundary-test-backend',
+    backendGeneration: '1',
+    adapterId: 'rn-boundary-test-adapter',
+    adapterGeneration: '1'
+  }
 }
 
 function requiredRecord(value, id) {

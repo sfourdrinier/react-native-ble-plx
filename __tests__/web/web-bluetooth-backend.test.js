@@ -2,7 +2,12 @@
 
 const { createWebBluetoothProvider } = require('../../src/web/web-bluetooth-backend')
 const { NavigatorWebBluetoothBoundary } = require('../../src/web/navigator-web-bluetooth-boundary')
-const { createBleManagerFromProvider, DEFAULT_BLE_MANAGER_OPTIONS } = require('../../src/manager/ble-manager')
+const {
+  attachBleBackend,
+  createBleManager,
+  createManagerOwnershipAuthority,
+  DEFAULT_BLE_MANAGER_OPTIONS
+} = require('../../src/manager/ble-manager')
 const { opaqueId } = require('../../src/backend-contract/primitives')
 const { runWebBluetoothTck } = require('../../src/web/web-bluetooth-tck')
 
@@ -102,7 +107,7 @@ function createBoundary(options = {}) {
       browserEngine: 'mock-engine',
       isSecureContext: () => options.secureContext !== false,
       hasTransientUserActivation: () => options.userActivation !== false,
-      bluetoothAvailable: async () => true,
+      bluetoothAvailable: async () => options.bluetoothAvailable ?? true,
       requestDevice,
       permittedDevices: async () => [],
       now: () => 10,
@@ -123,6 +128,41 @@ function createBoundary(options = {}) {
 }
 
 describe('WebBluetoothBackend', () => {
+  test('keeps continuous scanning unavailable and exposes device selection only through the chooser', async () => {
+    const mock = createBoundary()
+    const provider = createWebBluetoothProvider(mock.boundary)
+    const [adapter] = await provider.listAdapters()
+    const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
+    await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
+
+    await expect(backend.scanner.start(scanOptions(null), 'web-scanner-client')).rejects.toMatchObject({
+      normalized: { code: 'capability.unsupported' }
+    })
+    expect(mock.requestDevice).not.toHaveBeenCalled()
+    expect(backend.resourceCounters()).toMatchObject({ activeScanControllers: 0, scanConsumers: 0 })
+    expect(backend.features.registrations).toContainEqual(
+      expect.objectContaining({
+        id: 'web:continuous-scan',
+        state: 'unsupported',
+        evidence: expect.objectContaining({ evidenceLevel: 'blocked' }),
+        tck: expect.objectContaining({ requiredScenarioIds: ['web.continuous-scan-and-join-unsupported'] })
+      })
+    )
+
+    await expect(
+      backend.choose(
+        {
+          filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
+          acceptAllDevices: false,
+          optionalServices: [HEART_RATE_SERVICE]
+        },
+        noDeadline()
+      )
+    ).resolves.toMatchObject({ grantedServices: [HEART_RATE_SERVICE] })
+
+    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+  })
+
   test('chooses, connects, discovers duplicate-safe paths, and owns read bytes', async () => {
     const mock = createBoundary()
     const provider = createWebBluetoothProvider(mock.boundary)
@@ -130,11 +170,14 @@ describe('WebBluetoothBackend', () => {
     const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
     await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
 
-    const chooserSelection = await backend.choose({
-      filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
-      acceptAllDevices: false,
-      optionalServices: [HEART_RATE_SERVICE]
-    })
+    const chooserSelection = await backend.choose(
+      {
+        filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
+        acceptAllDevices: false,
+        optionalServices: [HEART_RATE_SERVICE]
+      },
+      noDeadline()
+    )
     expect(String(chooserSelection.peerId)).not.toContain('browser-owned-device-identifier')
     expect(mock.requestDevice).toHaveBeenCalledWith({
       filters: [{ services: [HEART_RATE_SERVICE], namePrefix: null }],
@@ -167,11 +210,14 @@ describe('WebBluetoothBackend', () => {
     const [adapter] = await provider.listAdapters()
     const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
     await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
-    const selected = await backend.choose({
-      filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
-      acceptAllDevices: false,
-      optionalServices: [HEART_RATE_SERVICE]
-    })
+    const selected = await backend.choose(
+      {
+        filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
+        acceptAllDevices: false,
+        optionalServices: [HEART_RATE_SERVICE]
+      },
+      noDeadline()
+    )
     const lease = await backend.connections.connect(selected.peerId, 'notification-client', {
       signal: null,
       deadline: null
@@ -207,11 +253,14 @@ describe('WebBluetoothBackend', () => {
     const [adapter] = await provider.listAdapters()
     const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
     await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
-    const selected = await backend.choose({
-      filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
-      acceptAllDevices: false,
-      optionalServices: [HEART_RATE_SERVICE]
-    })
+    const selected = await backend.choose(
+      {
+        filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
+        acceptAllDevices: false,
+        optionalServices: [HEART_RATE_SERVICE]
+      },
+      noDeadline()
+    )
     const lease = await backend.connections.connect(selected.peerId, 'rediscovery-client', {
       signal: null,
       deadline: null
@@ -227,6 +276,85 @@ describe('WebBluetoothBackend', () => {
     await backend.destroy()
   })
 
+  test('rejects forged attachment, session, owner, peer, and connection path fields for direct and dispatched GATT reads', async () => {
+    const mock = createBoundary()
+    const provider = createWebBluetoothProvider(mock.boundary)
+    const [adapter] = await provider.listAdapters()
+    const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
+    await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
+    const selected = await backend.choose(chooserRequest(), noDeadline())
+    const lease = await backend.connections.connect(selected.peerId, 'path-validation-client', noDeadline())
+    const database = await backend.gatt.discover(lease.connection, noDeadline())
+    const path = (await database.snapshot()).characteristics[0].path
+    const forgedPaths = [
+      {
+        ...path,
+        attachment: { ...path.attachment, backendGeneration: 'forged-attachment-generation' }
+      },
+      { ...path, attachmentId: 'forged-attachment-id' },
+      { ...path, peerId: 'forged-peer-id' },
+      { ...path, connectionId: 'forged-connection-id' },
+      { ...path, ownerLeaseId: 'forged-owner-lease-id' },
+      { ...path, connectionGeneration: 'forged-connection-generation' },
+      { ...path, databaseId: 'forged-database-id' },
+      { ...path, databaseGeneration: 'forged-database-generation' },
+      { ...path, validity: 'stale' }
+    ]
+
+    for (let index = 0; index < forgedPaths.length; index += 1) {
+      const forgedPath = forgedPaths[index]
+      const dispatch = backend.gatt.read(forgedPath, {
+        operation: {
+          ...noDeadline(),
+          correlation: opaqueId(`forged-path-${index}`, 'operation', 'web:path-validation')
+        }
+      })
+      await expect(dispatch.completion).rejects.toMatchObject({ normalized: { code: 'gatt.stale-handle' } })
+      await expect(database.read(forgedPath, noDeadline())).rejects.toMatchObject({
+        normalized: { code: 'gatt.stale-handle' }
+      })
+    }
+    await backend.destroy()
+  })
+
+  test('rejects a forged Web subscription before it can remove the owner notification', async () => {
+    const mock = createBoundary()
+    const provider = createWebBluetoothProvider(mock.boundary)
+    const [adapter] = await provider.listAdapters()
+    const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
+    await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
+    const selected = await backend.choose(chooserRequest(), noDeadline())
+    const lease = await backend.connections.connect(selected.peerId, 'subscription-ownership-client', noDeadline())
+    const database = await backend.gatt.discover(lease.connection, noDeadline())
+    const path = (await database.snapshot()).characteristics[0].path
+    const subscriptionDispatch = backend.gatt.subscribe(path, {
+      operation: {
+        ...noDeadline(),
+        correlation: opaqueId('real-subscription', 'operation', 'web:subscription-ownership')
+      },
+      options: {
+        ...noDeadline(),
+        delivery: { itemCapacity: 4, byteCapacity: 64, reservedControlCapacity: 1, overflowPolicy: 'drop-oldest' }
+      }
+    })
+    const subscription = await subscriptionDispatch.completion
+    const forged = { subscriptionId: subscription.subscriptionId, path: subscription.path }
+    const forgedRemoval = backend.gatt.unsubscribe(forged, {
+      ...noDeadline(),
+      correlation: opaqueId('forged-subscription', 'operation', 'web:subscription-ownership')
+    })
+
+    await expect(forgedRemoval.completion).rejects.toMatchObject({ normalized: { code: 'ownership.denied' } })
+    expect(backend.resourceCounters()).toMatchObject({ physicalCccdEnablements: 1, subscriptionConsumers: 1 })
+
+    const validRemoval = backend.gatt.unsubscribe(subscription, {
+      ...noDeadline(),
+      correlation: opaqueId('real-removal', 'operation', 'web:subscription-ownership')
+    })
+    await expect(validRemoval.completion).resolves.toMatchObject({ outcome: 'succeeded' })
+    await backend.destroy()
+  })
+
   test.each([
     [{ secureContext: false }, 'chooser.insecure-context'],
     [{ userActivation: false }, 'chooser.user-activation-required']
@@ -238,11 +366,14 @@ describe('WebBluetoothBackend', () => {
     await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
 
     await expect(
-      backend.choose({
-        filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
-        acceptAllDevices: false,
-        optionalServices: [HEART_RATE_SERVICE]
-      })
+      backend.choose(
+        {
+          filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
+          acceptAllDevices: false,
+          optionalServices: [HEART_RATE_SERVICE]
+        },
+        noDeadline()
+      )
     ).rejects.toMatchObject({ normalized: { code } })
     expect(mock.requestDevice).not.toHaveBeenCalled()
     await backend.destroy()
@@ -263,10 +394,10 @@ describe('WebBluetoothBackend', () => {
       acceptAllDevices: false,
       optionalServices: [HEART_RATE_SERVICE]
     }
-    const first = backend.choose(request)
+    const first = backend.choose(request, noDeadline())
 
     await Promise.resolve()
-    await expect(backend.choose(request)).rejects.toMatchObject({ normalized: { code: 'chooser.busy' } })
+    await expect(backend.choose(request, noDeadline())).rejects.toMatchObject({ normalized: { code: 'chooser.busy' } })
     resolveBrowserChooser({
       device: {
         id: 'deferred-browser-device',
@@ -291,45 +422,21 @@ describe('WebBluetoothBackend', () => {
     const mock = createBoundary()
     const provider = createWebBluetoothProvider(mock.boundary)
     const [adapter] = await provider.listAdapters()
-    const manager = await createBleManagerFromProvider(
+    const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
+    const attachedBackend = await attachBleBackend(backend, provider.descriptor.compatibility)
+    const manager = await createBleManager(
       {
-        provider,
-        selection: { selectedAdapterId: adapter.adapterId },
-        coreCompatibility: provider.descriptor.compatibility,
-        manager: {
-          clientId: opaqueId('web-test-client', 'client', 'web-test'),
-          managerId: opaqueId('web-test-manager', 'manager', 'web-test'),
-          ownerMode: 'owning'
-        }
+        attachedBackend,
+        clientId: opaqueId('web-test-client', 'client', 'web-test'),
+        managerId: opaqueId('web-test-manager', 'manager', 'web-test'),
+        ownerMode: 'owning'
       },
+      createManagerOwnershipAuthority(attachedBackend),
       DEFAULT_BLE_MANAGER_OPTIONS
     )
-    const scan = await manager.scan({
-      filter: { serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null },
-      duplicatePolicy: 'first',
-      timestampPolicy: 'receipt-monotonic',
-      delivery: {
-        itemCapacity: 2,
-        byteCapacity: 1024,
-        reservedControlCapacity: 1,
-        overflowPolicy: 'error'
-      },
-      deadline: null,
-      signal: null,
-      sharing: { mode: 'owner', allowSharing: false }
-    })
-    const iterator = scan.observations[Symbol.asyncIterator]()
-    const observation = await iterator.next()
-    expect(observation).toMatchObject({
-      done: false,
-      value: { kind: 'value', value: { localName: { state: 'present', value: 'Heart Sensor' } } }
-    })
-    await scan.stop()
-    const connection = await manager.connect(observation.value.value.peerId, {
-      signal: null,
-      deadline: null
-    })
-    expect(connection.peerId).toBe(observation.value.value.peerId)
+    const selection = await backend.choose(chooserRequest(), noDeadline())
+    const connection = await manager.connect(selection.peerId, noDeadline())
+    expect(connection.peerId).toBe(selection.peerId)
     await connection.release()
     await expect(manager.destroy()).resolves.toEqual({ state: 'released', failures: [] })
   })
@@ -475,10 +582,10 @@ async function executeWebTckScenario(definition, backend, provider, adapter, moc
         })
     )
     const controller = new AbortController()
-    const scan = backend.scanner.start(scanOptions(controller.signal), 'web-tck-client')
+    const chooser = backend.choose(chooserRequest(), { signal: controller.signal, deadline: null })
     await Promise.resolve()
     controller.abort()
-    await expect(scan).rejects.toMatchObject({ normalized: { code: 'operation.aborted' } })
+    await expect(chooser).rejects.toMatchObject({ normalized: { code: 'operation.aborted' } })
     resolveChooser({ device: mock.device, grantedServices: [HEART_RATE_SERVICE] })
     await flushWebTckMicrotasks()
     mock.requestDevice.mockImplementation(
@@ -487,12 +594,12 @@ async function executeWebTckScenario(definition, backend, provider, adapter, moc
           resolveChooser = resolve
         })
     )
-    const deadlineScan = backend.scanner.start({ ...scanOptions(null), deadline: 20 }, 'web-tck-deadline-client')
+    const deadlineChooser = backend.choose(chooserRequest(), { signal: null, deadline: 20 })
     await Promise.resolve()
     for (const timer of mock.timers) {
       timer.callback()
     }
-    await expect(deadlineScan).rejects.toMatchObject({ normalized: { code: 'operation.timed-out' } })
+    await expect(deadlineChooser).rejects.toMatchObject({ normalized: { code: 'operation.timed-out' } })
     resolveChooser({ device: mock.device, grantedServices: [HEART_RATE_SERVICE] })
     await flushWebTckMicrotasks()
     mock.requestDevice.mockImplementation(
@@ -501,7 +608,7 @@ async function executeWebTckScenario(definition, backend, provider, adapter, moc
           resolveChooser = resolve
         })
     )
-    const pendingAtDestroy = backend.scanner.start(scanOptions(null), 'web-tck-destroy-client')
+    const pendingAtDestroy = backend.choose(chooserRequest(), noDeadline())
     const pendingRejection = expect(pendingAtDestroy).rejects.toMatchObject({
       normalized: { code: 'operation.cancelled-by-destroy' }
     })
@@ -530,10 +637,20 @@ async function executeWebTckScenario(definition, backend, provider, adapter, moc
     return passedWebReceipt(definition)
   }
   if (definition.id === 'web.continuous-scan-and-join-unsupported') {
+    await expect(backend.scanner.start(scanOptions(null), 'web-tck-scan-client')).rejects.toMatchObject({
+      normalized: { code: 'capability.unsupported' }
+    })
     await expect(backend.scanner.join('joined-lease', 'join-token', 'join-client')).rejects.toMatchObject({
       normalized: { code: 'capability.unsupported' }
     })
     expect(backend.identity.runtime.diagnostics.continuousScan).toBe(false)
+    expect(backend.features.registrations).toContainEqual(
+      expect.objectContaining({
+        id: 'web:continuous-scan',
+        state: 'unsupported',
+        evidence: expect.objectContaining({ evidenceLevel: 'blocked' })
+      })
+    )
     return unsupportedWebReceipt(definition)
   }
   const featureId =
@@ -551,23 +668,20 @@ async function proveManagerVerticalSlice() {
   const mock = createBoundary()
   const provider = createWebBluetoothProvider(mock.boundary)
   const [adapter] = await provider.listAdapters()
-  const manager = await createBleManagerFromProvider(
+  const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
+  const attachedBackend = await attachBleBackend(backend, provider.descriptor.compatibility)
+  const manager = await createBleManager(
     {
-      provider,
-      selection: { selectedAdapterId: adapter.adapterId },
-      coreCompatibility: provider.descriptor.compatibility,
-      manager: {
-        clientId: opaqueId('web-tck-client', 'client', 'web-tck'),
-        managerId: opaqueId('web-tck-manager', 'manager', 'web-tck'),
-        ownerMode: 'owning'
-      }
+      attachedBackend,
+      clientId: opaqueId('web-tck-client', 'client', 'web-tck'),
+      managerId: opaqueId('web-tck-manager', 'manager', 'web-tck'),
+      ownerMode: 'owning'
     },
+    createManagerOwnershipAuthority(attachedBackend),
     DEFAULT_BLE_MANAGER_OPTIONS
   )
-  const scan = await manager.scan(scanOptions(null))
-  const observation = await scan.observations[Symbol.asyncIterator]().next()
-  await scan.stop()
-  const connection = await manager.connect(observation.value.value.peerId, noDeadline())
+  const selection = await backend.choose(chooserRequest(), noDeadline())
+  const connection = await manager.connect(selection.peerId, noDeadline())
   const database = await connection.discover(noDeadline())
   const snapshot = await database.snapshot()
   const value = await database.read(snapshot.characteristics[0].path, noDeadline())
@@ -604,11 +718,15 @@ async function proveOptionalServiceAuthorization() {
 }
 
 async function chooseHeartRateDevice(backend) {
-  return backend.choose({
+  return backend.choose(chooserRequest(), noDeadline())
+}
+
+function chooserRequest() {
+  return {
     filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
     acceptAllDevices: false,
     optionalServices: [HEART_RATE_SERVICE]
-  })
+  }
 }
 
 async function connectedDatabase(backend) {

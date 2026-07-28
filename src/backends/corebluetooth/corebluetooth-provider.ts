@@ -11,10 +11,11 @@ import {
 } from '../../backend-contract/primitives'
 import { CoreBluetoothBackend } from './corebluetooth-backend'
 import type { CoreBluetoothBoundary } from './corebluetooth-boundary'
-
-export const COREBLUETOOTH_BACKEND_ID = 'unified-ble:corebluetooth'
-export const COREBLUETOOTH_PLATFORM_ID = 'unified-ble:macos-corebluetooth'
-export const COREBLUETOOTH_IMPLEMENTATION_VERSION = '4.0.0-alpha.0'
+export {
+  COREBLUETOOTH_BACKEND_ID,
+  COREBLUETOOTH_IMPLEMENTATION_VERSION,
+  COREBLUETOOTH_PLATFORM_ID
+} from './corebluetooth-identity'
 
 export const coreBluetoothCompatibility: BackendCompatibilityOffer = Object.freeze({
   backendContract: versionRange(version('backend-contract', 1), version('backend-contract', 1)),

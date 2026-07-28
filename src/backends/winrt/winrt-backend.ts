@@ -16,7 +16,12 @@ import type {
 } from '../../backend-contract/backend'
 import type { AdvertisementObservation, OwnerScanOptions } from '../../backend-contract/advertisement'
 import { createFeatureRegistry } from '../../backend-contract/capabilities'
-import { contractError, type CleanupFailure, type CleanupRecord } from '../../backend-contract/errors'
+import {
+  BackendContractError,
+  contractError,
+  type CleanupFailure,
+  type CleanupRecord
+} from '../../backend-contract/errors'
 import type { CharacteristicPath, DescriptorPath } from '../../backend-contract/gatt'
 import { attachmentRecordsEqual } from '../../backend-contract/identity'
 import type {
@@ -53,7 +58,7 @@ import {
   advertisementByteLength,
   cleanupFailure,
   matchesScan,
-  releasedCleanup,
+  releasedCleanup
 } from './winrt-handles'
 import { WinRtGattOperations } from './winrt-gatt-operations'
 import {
@@ -166,6 +171,8 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
   private admissionClosed = false
   private destroyed = false
   private destroyResult: Promise<CleanupRecord> | null = null
+  private adapterLossCleanup: Promise<void> | null = null
+  private adapterLossPending = false
   private scanGroup: WinRtScanGroup | null = null
   private backendGeneration = 1
   private adapterGeneration = 1
@@ -189,7 +196,8 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     this.dispatcher = new WinRtOperationDispatcher({
       now,
       onLateSuccess: operation => console.info(`[WinRtBackend] Late WinRT completion quarantined: ${operation}`),
-      onLateFailure: (operation, error) => console.error(`[WinRtBackend] Late WinRT completion failed: ${operation}`, error),
+      onLateFailure: (operation, error) =>
+        console.error(`[WinRtBackend] Late WinRT completion failed: ${operation}`, error),
       onCancellationFailure: (operation, error) =>
         console.error(`[WinRtBackend] WinRT cancellation acknowledgement failed: ${operation}`, error)
     })
@@ -244,7 +252,9 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     })
   }
 
-  async attach(request: BackendAttachmentRequest): Promise<BackendAttachment<string, HostNeutralBackendIdentity<string>>> {
+  async attach(
+    request: BackendAttachmentRequest
+  ): Promise<BackendAttachment<string, HostNeutralBackendIdentity<string>>> {
     this.assertUsable('winrt.attach')
     if (this.attached) {
       throw contractError('lifecycle.invalid-state', 'core', 'winrt.attach')
@@ -286,10 +296,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
   }
 
   attachment(): AttachmentRecord<string> {
-    const descriptor = adapterDescriptor(
-      { ...this.selectedAdapter, state: this.adapterStateSnapshot },
-      this.now
-    )
+    const descriptor = adapterDescriptor({ ...this.selectedAdapter, state: this.adapterStateSnapshot }, this.now)
     const backendGeneration = opaqueId(String(this.backendGeneration), 'backend-generation', 'winrt')
     return Object.freeze({
       attachmentId: opaqueId(
@@ -322,6 +329,15 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     if (this.admissionClosed || this.destroyed) {
       throw contractError('lifecycle.destroyed', 'core', operation)
     }
+    if (this.adapterLossPending) {
+      throw contractError('lifecycle.invalid-state', 'core', operation)
+    }
+  }
+
+  /** Applies the common lifecycle and radio-readiness gate to every GATT admission path. */
+  assertGattUsable(operation: string): void {
+    this.assertUsable(operation)
+    assertWinRtAdapterReady(this.selectedAdapter, this.adapterStateSnapshot, operation)
   }
 
   requireConnection(connection: BackendConnection<string, string>, operation: string): WinRtConnectionRecord {
@@ -341,7 +357,10 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     return record
   }
 
-  databaseForPath(path: CharacteristicPath<string, string, string, string, string, 'current'>, operation: string): WinRtGattDatabase {
+  databaseForPath(
+    path: CharacteristicPath<string, string, string, string, string, 'current'>,
+    operation: string
+  ): WinRtGattDatabase {
     const nativePeerId = this.nativeIdsByPeerId.get(String(path.peerId))
     const record = nativePeerId === undefined ? undefined : this.connectionsByNativeId.get(nativePeerId)
     const database = record?.database
@@ -352,21 +371,33 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     return database
   }
 
-  descriptorDatabaseForPath(path: DescriptorPath<string, string, string, string, string, string, 'current'>, operation: string): WinRtGattDatabase {
+  descriptorDatabaseForPath(
+    path: DescriptorPath<string, string, string, string, string, string, 'current'>,
+    operation: string
+  ): WinRtGattDatabase {
     return this.databaseForPath(path, operation)
   }
 
   async disconnect(record: WinRtConnectionRecord, operation: string): Promise<CleanupRecord> {
-    if (record.state === 'disconnected' || record.state === 'lost') {
+    if (record.state === 'lost') {
       return releasedCleanup
     }
-    record.state = 'disconnecting'
+    const nativeDisconnectRequired = record.state !== 'disconnected'
+    if (nativeDisconnectRequired) {
+      record.state = 'disconnecting'
+    }
     const invalidation = await this.invalidateConnectionChildren(record, 'owner-released')
-    const native = this.boundary.disconnect(record.nativePeerId)
-    try {
-      await native.completion
-    } catch (error) {
-      return combineWinRtCleanup(invalidation, cleanupFailure('connection', operation, error))
+    if (nativeDisconnectRequired) {
+      const native = this.boundary.disconnect(record.nativePeerId)
+      try {
+        await native.completion
+      } catch (error) {
+        return combineWinRtCleanup(invalidation, cleanupFailure('connection', operation, error))
+      }
+      record.state = 'disconnected'
+    }
+    if (invalidation.state === 'release-failed') {
+      return invalidation
     }
     record.state = 'disconnected'
     record.lease?.markReleased()
@@ -387,9 +418,9 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     }
     if (!consumer.released) {
       consumer.released = true
-      this.releaseScanAdmission(consumer)
       consumer.stream.closeWithReason('owner-released')
     }
+    this.releaseScanAdmission(consumer)
     const remaining = [...group.consumers.values()].some(candidate => !candidate.released)
     if (remaining) {
       group.consumers.delete(String(consumer.leaseId))
@@ -457,7 +488,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     }
     this.scanGroup = group
     const closeForAbort = (): void => {
-      void this.stopScanConsumer(consumer).then(
+      this.stopScanConsumer(consumer).then(
         result => {
           if (result.state === 'release-failed') {
             console.error('[WinRtBackend.scan] Abort cleanup requires retry:', result.failures)
@@ -471,8 +502,11 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     if (options.deadline !== null) {
       consumer.deadlineTimer = setTimeout(closeForAbort, Math.max(0, options.deadline - this.now()))
     }
-    const dispatch = this.dispatcher.dispatch(options, 'winrt.scan.start', () =>
-      this.boundary.startScan(options.filter.serviceUuids, advertisement => this.handleAdvertisement(advertisement)),
+    const dispatch = this.dispatcher.dispatch(
+      options,
+      'winrt.scan.start',
+      () =>
+        this.boundary.startScan(options.filter.serviceUuids, advertisement => this.handleAdvertisement(advertisement)),
       async () => {
         await this.boundary.stopScan().completion
       }
@@ -541,8 +575,12 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     if (nativePeerId === undefined) {
       throw contractError('connection.not-found', 'connection', 'winrt.connect.peer')
     }
-    if (this.connectionsByNativeId.has(nativePeerId)) {
-      throw contractError('connection.already-owned', 'connection', 'winrt.connect.owner')
+    const existing = this.connectionsByNativeId.get(nativePeerId)
+    if (existing !== undefined) {
+      if (existing.state !== 'disconnecting' || existing.lease !== null) {
+        throw contractError('connection.already-owned', 'connection', 'winrt.connect.owner')
+      }
+      await this.retryLateConnectCleanup(existing)
     }
     const ids = this.identifiers()
     const record: WinRtConnectionRecord = {
@@ -564,18 +602,21 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
       'winrt.connect',
       () => this.boundary.connect(nativePeerId),
       async () => {
-        record.state = 'disconnecting'
-        await this.boundary.disconnect(nativePeerId).completion
-        record.state = 'disconnected'
-        this.connectionsByNativeId.delete(nativePeerId)
+        const cleanup = await this.disconnect(record, 'winrt.connect.late-success-cleanup')
+        if (cleanup.state === 'release-failed') {
+          console.error('[WinRtBackend.connect] Late native connect cleanup requires retry:', cleanup.failures)
+          throw contractError('platform.failure', 'cleanup', 'winrt.connect.late-success-cleanup')
+        }
+      },
+      () => {
+        this.removeConnectingRecord(record)
       }
     )
     try {
       await dispatch.completion
     } catch (error) {
-      if (this.dispatcher.activeCount() === 0 && record.state === 'connecting') {
-        this.connectionsByNativeId.delete(nativePeerId)
-        record.state = 'disconnected'
+      if (!this.isPublicOperationCancellation(error)) {
+        this.removeConnectingRecord(record)
       }
       throw winRtPlatformError('connection.failed', 'connection', 'winrt.connect', error)
     }
@@ -589,13 +630,39 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     return lease
   }
 
+  private removeConnectingRecord(record: WinRtConnectionRecord): void {
+    if (this.connectionsByNativeId.get(record.nativePeerId) !== record || record.state !== 'connecting') {
+      return
+    }
+    record.state = 'disconnected'
+    this.connectionsByNativeId.delete(record.nativePeerId)
+  }
+
+  /** Retries a failed compensating disconnect before another owner can claim the late-connected peer. */
+  private async retryLateConnectCleanup(record: WinRtConnectionRecord): Promise<void> {
+    const cleanup = await this.disconnect(record, 'winrt.connect.retry-late-cleanup')
+    if (cleanup.state === 'released') {
+      return
+    }
+    console.error('[WinRtBackend.connect] Late native connect cleanup retry failed:', cleanup.failures)
+    throw contractError('platform.failure', 'cleanup', 'winrt.connect.retry-late-cleanup')
+  }
+
+  private isPublicOperationCancellation(error: unknown): boolean {
+    return (
+      error instanceof BackendContractError &&
+      (error.normalized.code === 'operation.aborted' || error.normalized.code === 'operation.timed-out')
+    )
+  }
+
   private handleAdvertisement(advertisement: import('./winrt-boundary').WinRtAdvertisement): void {
     const group = this.scanGroup
     if (group === null || group.state !== 'active') {
       return
     }
     const peerId = this.peerIdForNativeId(advertisement.nativePeerId)
-    const absent = (reason: string) => Object.freeze({ state: 'absent' as const, reason, provenance: 'not-provided' as const })
+    const absent = (reason: string) =>
+      Object.freeze({ state: 'absent' as const, reason, provenance: 'not-provided' as const })
     const observation: AdvertisementObservation<string> = Object.freeze({
       peerId,
       observedAt: monotonicTimestamp(this.now()),
@@ -618,7 +685,11 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
       serviceUuids:
         advertisement.serviceUuids === null
           ? absent('winrt-not-provided')
-          : Object.freeze({ state: 'present', value: Object.freeze(advertisement.serviceUuids.map(canonicalUuid)), provenance: 'observed' }),
+          : Object.freeze({
+              state: 'present',
+              value: Object.freeze(advertisement.serviceUuids.map(canonicalUuid)),
+              provenance: 'observed'
+            }),
       solicitedServiceUuids: absent('winrt-not-provided'),
       overflowServiceUuids: absent('winrt-not-provided'),
       serviceData: absent('winrt-not-provided'),
@@ -660,7 +731,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
       connectionGeneration: record.connectionGeneration
     })
     record.state = 'lost'
-    void this.invalidateConnectionChildren(record, 'connection-lost').then(
+    this.invalidateConnectionChildren(record, 'connection-lost').then(
       result => {
         if (result.state === 'release-failed') {
           console.error('[WinRtBackend.connection-loss] Resource cleanup requires retry:', result.failures)
@@ -693,7 +764,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     }
     database.invalidate()
     record.database = null
-    void this.invalidateConnectionChildren(record, 'connection-lost').then(
+    this.invalidateConnectionChildren(record, 'connection-lost').then(
       cleanup => {
         if (cleanup.state === 'release-failed') {
           console.error('[WinRtBackend.database-changed] Subscription cleanup requires retry:', cleanup.failures)
@@ -718,9 +789,10 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     if (wasReady && !winRtAdapterIsReady(state)) {
       this.backendGeneration += 1
       this.adapterGeneration += 1
-      void this.invalidateForAdapterLoss().catch(error => {
-        console.error('[WinRtBackend.adapter-state] Adapter loss cleanup rejected:', error)
-      })
+      this.adapterLossPending = true
+    }
+    if (this.adapterLossPending) {
+      this.startAdapterLossCleanup()
     }
     const snapshot = winRtAdapterState(this.adapterStateSnapshot, this.backendGeneration, this.now)
     for (const stream of this.stateStreams) {
@@ -736,32 +808,73 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     this.nextIngressOrdinal += 1
   }
 
-  private async invalidateForAdapterLoss(): Promise<void> {
+  private startAdapterLossCleanup(): void {
+    if (this.adapterLossCleanup !== null) {
+      return
+    }
+    this.adapterLossCleanup = this.releaseAdapterLossResources().then(
+      cleanup => {
+        this.adapterLossCleanup = null
+        if (cleanup.state === 'release-failed') {
+          console.error('[WinRtBackend.adapter-state] Adapter loss cleanup requires retry:', cleanup.failures)
+          return
+        }
+        this.adapterLossPending = false
+        this.peerIdsByNativeId.clear()
+        this.nativeIdsByPeerId.clear()
+      },
+      error => {
+        this.adapterLossCleanup = null
+        console.error('[WinRtBackend.adapter-state] Adapter loss cleanup rejected:', error)
+      }
+    )
+  }
+
+  /** Releases every stale physical resource and preserves a failed resource for a later adapter-state retry. */
+  private async releaseAdapterLossResources(): Promise<CleanupRecord> {
     const failures: CleanupFailure[] = []
     const group = this.scanGroup
     if (group !== null) {
       for (const consumer of group.consumers.values()) {
+        this.releaseScanAdmission(consumer)
         consumer.stream.closeWithReason('connection-lost')
         consumer.released = true
       }
-      const cleanup = await this.stopScanConsumer([...group.consumers.values()][0] ?? this.unreachableScanConsumer())
+      const owner = group.consumers.get(String(group.ownerLeaseId))
+      if (owner === undefined) {
+        try {
+          await this.boundary.stopScan().completion
+          if (this.scanGroup === group) {
+            this.scanGroup = null
+          }
+        } catch (error) {
+          failures.push(...cleanupFailure('scan', 'winrt.adapter-loss.stop-scan', error).failures)
+        }
+      } else {
+        const cleanup = await this.stopScanConsumer(owner)
+        failures.push(...cleanup.failures)
+      }
+    }
+    for (const physical of [...this.subscriptions.values()]) {
+      for (const consumer of physical.consumers) {
+        consumer.stream.closeWithReason('connection-lost')
+        consumer.removed = true
+      }
+      physical.consumers.clear()
+      const cleanup = await stopWinRtPhysicalSubscription(this, physical)
       failures.push(...cleanup.failures)
     }
     for (const record of [...this.connectionsByNativeId.values()]) {
       record.state = 'lost'
-      const cleanup = await this.invalidateConnectionChildren(record, 'connection-lost')
-      failures.push(...cleanup.failures)
+      record.database?.invalidate()
+      record.database = null
       record.lease?.markReleased()
       record.lease = null
       this.connectionsByNativeId.delete(record.nativePeerId)
     }
-    if (failures.length > 0) {
-      throw contractError('platform.failure', 'cleanup', 'winrt.adapter-state.cleanup')
-    }
-  }
-
-  private unreachableScanConsumer(): WinRtScanConsumer {
-    throw contractError('lifecycle.invariant-violation', 'scan', 'winrt.adapter-loss.scan-group')
+    return failures.length === 0
+      ? releasedCleanup
+      : Object.freeze({ state: 'release-failed', failures: Object.freeze(failures) })
   }
 
   private async invalidateConnectionChildren(
@@ -808,6 +921,10 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     } catch (error) {
       failures.push(...cleanupFailure('operation', 'winrt.destroy.cancel-operations', error).failures)
     }
+    const adapterLossCleanup = this.adapterLossCleanup
+    if (adapterLossCleanup !== null) {
+      await adapterLossCleanup
+    }
     const group = this.scanGroup
     if (group !== null) {
       for (const consumer of group.consumers.values()) {
@@ -816,7 +933,9 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
       }
       const firstConsumer = [...group.consumers.values()][0]
       if (firstConsumer === undefined) {
-        failures.push(...cleanupFailure('scan', 'winrt.destroy.scan-consumer', new Error('WinRT scan group was empty')).failures)
+        failures.push(
+          ...cleanupFailure('scan', 'winrt.destroy.scan-consumer', new Error('WinRT scan group was empty')).failures
+        )
       } else {
         failures.push(...(await this.stopScanConsumer(firstConsumer)).failures)
       }
@@ -850,7 +969,11 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     if (failures.length > 0 || this.dispatcher.activeCount() > 0) {
       if (this.dispatcher.activeCount() > 0) {
         failures.push(
-          ...cleanupFailure('operation', 'winrt.destroy.pending-native-operation', new Error('WinRT operation is still awaiting native settlement')).failures
+          ...cleanupFailure(
+            'operation',
+            'winrt.destroy.pending-native-operation',
+            new Error('WinRT operation is still awaiting native settlement')
+          ).failures
         )
       }
       return Object.freeze({ state: 'release-failed', failures: Object.freeze(failures) })
@@ -869,5 +992,4 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     this.destroyed = true
     return releasedCleanup
   }
-
 }

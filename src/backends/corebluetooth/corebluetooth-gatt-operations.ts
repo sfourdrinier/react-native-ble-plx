@@ -36,7 +36,7 @@ export class CoreBluetoothGattOperations {
     connection: BackendConnection<string, string>,
     options: PublicOperationOptions
   ): Promise<GattDatabase<string, string, string>> {
-    this.backend.assertUsable('corebluetooth.gatt.discover')
+    this.backend.assertOperational('corebluetooth.gatt.discover')
     this.backend.operationLifecycle.assertAdmission(options, 'corebluetooth.gatt.discover')
     const record = this.backend.requireConnection(connection, 'corebluetooth.gatt.discover')
     let snapshot: CoreBluetoothGattSnapshot
@@ -84,25 +84,37 @@ export class CoreBluetoothGattOperations {
     path: CharacteristicPath<string, string, string, string, string, 'current'>,
     request: ReadRequest<string, string>
   ): BackendOperationDispatch<string, ReadResult<string, string>> {
+    this.backend.assertOperational('corebluetooth.gatt.read')
     const database = this.backend.databaseForPath(path, 'corebluetooth.gatt.read')
     const address = database.addressFor(path, 'corebluetooth.gatt.read')
-    return this.backend.dispatcher.dispatch(request.operation, 'corebluetooth.gatt.read', async () => ({
-      value: ownBytes(await this.backend.boundary.read(address), maximumValueBytes),
-      terminal: successfulTerminal(request.operation)
-    }))
+    return this.backend.dispatcher.dispatch(
+      request.operation,
+      'corebluetooth.gatt.read',
+      async () => ({
+        value: ownBytes(await this.backend.boundary.read(address), maximumValueBytes),
+        terminal: successfulTerminal(request.operation)
+      }),
+      String(path.connectionId)
+    )
   }
 
   write(
     path: CharacteristicPath<string, string, string, string, string, 'current'>,
     request: WriteRequest<string, string>
   ): BackendOperationDispatch<string, WriteResult<string, string>> {
+    this.backend.assertOperational('corebluetooth.gatt.write')
     const database = this.backend.databaseForPath(path, 'corebluetooth.gatt.write')
     const address = database.addressFor(path, 'corebluetooth.gatt.write')
     const copied = new Uint8Array(request.bytes)
-    return this.backend.dispatcher.dispatch(request.operation, 'corebluetooth.gatt.write', async () => {
-      await this.backend.boundary.write(address, copied, request.mode === 'with-response')
-      return Object.freeze({ terminal: successfulTerminal(request.operation), commitState: 'confirmed' })
-    })
+    return this.backend.dispatcher.dispatch(
+      request.operation,
+      'corebluetooth.gatt.write',
+      async () => {
+        await this.backend.boundary.write(address, copied, request.mode === 'with-response')
+        return Object.freeze({ terminal: successfulTerminal(request.operation), commitState: 'confirmed' })
+      },
+      String(path.connectionId)
+    )
   }
 
   readDescriptor(
@@ -123,91 +135,132 @@ export class CoreBluetoothGattOperations {
     path: CharacteristicPath<string, string, string, string, string, 'current'>,
     request: SubscribeRequest<string, string>
   ): BackendOperationDispatch<string, BackendSubscription<string, string, string, string, string>> {
+    this.backend.assertOperational('corebluetooth.gatt.subscribe')
     const database = this.backend.databaseForPath(path, 'corebluetooth.gatt.subscribe')
     const address = database.addressFor(path, 'corebluetooth.gatt.subscribe')
-    return this.backend.dispatcher.dispatch(request.operation, 'corebluetooth.gatt.subscribe', async () => {
-      const key = addressKey(address)
-      let physical = this.backend.subscriptions.get(key)
-      if (physical?.state === 'removing') {
-        if (physical.removal === null) {
-          throw contractError('lifecycle.invariant-violation', 'gatt', 'corebluetooth.gatt.subscribe.removal')
+    return this.backend.dispatcher.dispatch(
+      request.operation,
+      'corebluetooth.gatt.subscribe',
+      async execution => {
+        const key = addressKey(address)
+        let physical = this.backend.subscriptions.get(key)
+        if (physical?.state === 'removing') {
+          if (physical.removal === null) {
+            throw contractError('lifecycle.invariant-violation', 'gatt', 'corebluetooth.gatt.subscribe.removal')
+          }
+          const cleanup = await physical.removal
+          if (cleanup.state === 'release-failed') {
+            throw new Error('CoreBluetooth notification cleanup must be retried before a new subscription')
+          }
+          physical = this.backend.subscriptions.get(key)
         }
-        const cleanup = await physical.removal
-        if (cleanup.state === 'release-failed') {
-          throw new Error('CoreBluetooth notification cleanup must be retried before a new subscription')
+        if (physical !== undefined && physical.consumers.size === 0) {
+          const cleanup = await this.stopPhysicalSubscription(physical)
+          if (cleanup.state === 'release-failed') {
+            throw new Error('CoreBluetooth notification cleanup must be retried before a new subscription')
+          }
+          physical = this.backend.subscriptions.get(key)
         }
-        physical = this.backend.subscriptions.get(key)
-      }
-      const identifiers = this.backend.identifiers()
-      const subscriptionId = identifiers.subscriptionId(`corebluetooth-subscription-${this.backend.nextSubscription}`)
-      this.backend.nextSubscription += 1
-      if (physical === undefined) {
-        physical = { key, address, consumers: new Set(), state: 'enabling', removal: null }
-        this.backend.subscriptions.set(key, physical)
-        const enabling = physical
+        const identifiers = this.backend.identifiers()
+        const subscriptionId = identifiers.subscriptionId(`corebluetooth-subscription-${this.backend.nextSubscription}`)
+        this.backend.nextSubscription += 1
+        if (physical === undefined) {
+          physical = { key, address, consumers: new Set(), state: 'enabling', removal: null }
+          this.backend.subscriptions.set(key, physical)
+          const enabling = physical
+          const subscription = new CoreBluetoothBackendSubscription(
+            this.backend,
+            enabling,
+            path,
+            subscriptionId,
+            successfulTerminal(request.operation),
+            new CoreBoundedStream(request.options.delivery, request.options.delivery.overflowPolicy)
+          )
+          enabling.consumers.add(subscription)
+          try {
+            await this.backend.boundary.startNotify(address, bytes => this.emitNotification(enabling, bytes))
+          } catch (error) {
+            enabling.consumers.delete(subscription)
+            subscription.stream.closeWithReason('source-failed')
+            if (this.backend.subscriptions.get(key) === enabling) {
+              this.backend.subscriptions.delete(key)
+            }
+            throw error
+          }
+          if (this.backend.subscriptions.get(key) !== enabling) {
+            try {
+              await this.backend.boundary.stopNotify(address)
+            } catch (error) {
+              console.error('[CoreBluetoothGattOperations.subscribe] Native notification rollback failed:', error)
+            }
+            throw contractError('operation.cancelled-by-destroy', 'gatt', 'corebluetooth.gatt.subscribe.destroyed')
+          }
+          if (execution.isPublicSettled()) {
+            const cleanup = await this.removeSubscription(subscription)
+            if (cleanup.state === 'release-failed') {
+              console.error(
+                '[CoreBluetoothGattOperations.subscribe] Cancelled notification cleanup failed:',
+                cleanup.failures
+              )
+            }
+            throw contractError('operation.cancelled-by-destroy', 'gatt', 'corebluetooth.gatt.subscribe.cancelled')
+          }
+          enabling.state = 'ready'
+          return subscription
+        }
         const subscription = new CoreBluetoothBackendSubscription(
           this.backend,
-          enabling,
+          physical,
           path,
           subscriptionId,
           successfulTerminal(request.operation),
           new CoreBoundedStream(request.options.delivery, request.options.delivery.overflowPolicy)
         )
-        enabling.consumers.add(subscription)
-        try {
-          await this.backend.boundary.startNotify(address, bytes => this.emitNotification(enabling, bytes))
-        } catch (error) {
-          enabling.consumers.delete(subscription)
-          subscription.stream.closeWithReason('source-failed')
-          if (this.backend.subscriptions.get(key) === enabling) {
-            this.backend.subscriptions.delete(key)
+        physical.consumers.add(subscription)
+        if (execution.isPublicSettled()) {
+          const cleanup = await this.removeSubscription(subscription)
+          if (cleanup.state === 'release-failed') {
+            console.error(
+              '[CoreBluetoothGattOperations.subscribe] Cancelled notification cleanup failed:',
+              cleanup.failures
+            )
           }
-          throw error
+          throw contractError('operation.cancelled-by-destroy', 'gatt', 'corebluetooth.gatt.subscribe.cancelled')
         }
-        if (this.backend.subscriptions.get(key) !== enabling) {
-          try {
-            await this.backend.boundary.stopNotify(address)
-          } catch (error) {
-            console.error('[CoreBluetoothGattOperations.subscribe] Native notification rollback failed:', error)
-          }
-          throw contractError('operation.cancelled-by-destroy', 'gatt', 'corebluetooth.gatt.subscribe.destroyed')
-        }
-        enabling.state = 'ready'
         return subscription
-      }
-      const subscription = new CoreBluetoothBackendSubscription(
-        this.backend,
-        physical,
-        path,
-        subscriptionId,
-        successfulTerminal(request.operation),
-        new CoreBoundedStream(request.options.delivery, request.options.delivery.overflowPolicy)
-      )
-      physical.consumers.add(subscription)
-      return subscription
-    })
+      },
+      String(path.connectionId)
+    )
   }
 
   unsubscribe(
     subscription: BackendSubscription<string, string, string, string, string>,
     operation: OperationOptions<string, string>
   ): BackendOperationDispatch<string, OperationTerminalRecord<string, string>> {
-    if (!(subscription instanceof CoreBluetoothBackendSubscription)) {
+    if (!(subscription instanceof CoreBluetoothBackendSubscription) || !subscription.isOwnedBy(this.backend)) {
       throw contractError('ownership.denied', 'gatt', 'corebluetooth.gatt.unsubscribe.subscription')
     }
-    return this.backend.dispatcher.dispatch(operation, 'corebluetooth.gatt.unsubscribe', async () => {
-      const cleanup = await this.removeSubscription(subscription)
-      if (cleanup.state === 'release-failed') {
-        throw new Error('CoreBluetooth notification cleanup requires retry')
-      }
-      return successfulTerminal(operation)
-    })
+    return this.backend.dispatcher.dispatch(
+      operation,
+      'corebluetooth.gatt.unsubscribe',
+      async () => {
+        const cleanup = await this.removeSubscription(subscription)
+        if (cleanup.state === 'release-failed') {
+          throw new Error('CoreBluetooth notification cleanup requires retry')
+        }
+        return successfulTerminal(operation)
+      },
+      String(subscription.path.connectionId)
+    )
   }
 
   async removeSubscription(subscription: CoreBluetoothBackendSubscription): Promise<CleanupRecord> {
     const physical = subscription.physical
-    if (subscription.removed) {
+    if (subscription.removed && physical.consumers.size > 0) {
       return releasedCleanup
+    }
+    if (subscription.removed) {
+      return this.stopPhysicalSubscription(physical)
     }
     subscription.stream.closeWithReason('owner-released')
     physical.consumers.delete(subscription)
@@ -231,7 +284,7 @@ export class CoreBluetoothGattOperations {
         return releasedCleanup
       },
       error => {
-        physical.state = 'ready'
+        physical.state = 'cleanup-failed'
         physical.removal = null
         return cleanupFailure('subscription', 'corebluetooth.gatt.stop-notify', error)
       }
@@ -264,20 +317,41 @@ export class CoreBluetoothGattOperations {
     return subscription
   }
 
-  async readFromDatabase(address: CoreBluetoothCharacteristicAddress): Promise<OwnedBytes> {
-    return ownBytes(await this.backend.boundary.read(address), maximumValueBytes)
+  async readFromDatabase(
+    address: CoreBluetoothCharacteristicAddress,
+    options: PublicOperationOptions,
+    connectionSerializationKey: string
+  ): Promise<OwnedBytes> {
+    this.backend.assertOperational('corebluetooth.gatt.database-read')
+    const dispatch = this.backend.dispatcher.dispatch(
+      options,
+      'corebluetooth.gatt.database-read',
+      async () => ownBytes(await this.backend.boundary.read(address), maximumValueBytes),
+      connectionSerializationKey
+    )
+    return dispatch.completion
   }
 
   async writeFromDatabase(
     address: CoreBluetoothCharacteristicAddress,
     value: Uint8Array,
-    withResponse: boolean
+    withResponse: boolean,
+    options: PublicOperationOptions,
+    connectionSerializationKey: string
   ): Promise<void> {
-    await this.backend.boundary.write(address, new Uint8Array(value), withResponse)
+    this.backend.assertOperational('corebluetooth.gatt.database-write')
+    const copied = new Uint8Array(value)
+    const dispatch = this.backend.dispatcher.dispatch(
+      options,
+      'corebluetooth.gatt.database-write',
+      async () => this.backend.boundary.write(address, copied, withResponse),
+      connectionSerializationKey
+    )
+    await dispatch.completion
   }
 
   emitNotification(physical: PhysicalSubscription, source: Uint8Array): void {
-    if (physical.state === 'removing') {
+    if (physical.state === 'removing' || physical.state === 'cleanup-failed') {
       return
     }
     const copied = ownBytes(source, maximumValueBytes)

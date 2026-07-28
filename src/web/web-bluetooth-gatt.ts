@@ -479,6 +479,12 @@ export class WebBluetoothGattRuntime {
         if (managed.state === 'stopping') {
           console.error('[WebBluetoothGattRuntime.enableSubscription] Late notification start rejected:', error)
           this.finishStoppedSubscription(managed)
+          return
+        }
+        if (managed.state === 'enabling') {
+          console.error('[WebBluetoothGattRuntime.enableSubscription] Notification start rejected:', error)
+          this.beginLogicalSubscriptionStop(managed, 'owner-released')
+          this.finishStoppedSubscription(managed)
         }
       }
     )
@@ -637,8 +643,15 @@ export class WebBluetoothGattRuntime {
     subscription: BackendSubscription<string, string, string, string, string>,
     operation: OperationOptions<string, string>
   ): Promise<OperationTerminalRecord<string, string>> {
+    if (!(subscription instanceof WebBackendSubscription)) {
+      throw contractError('ownership.denied', 'gatt', 'web-gatt.unsubscribe.subscription')
+    }
     const managed = this.subscriptions.get(String(subscription.subscriptionId))
-    if (managed === undefined || characteristicKey(managed.path) !== characteristicKey(subscription.path)) {
+    if (
+      managed === undefined ||
+      !subscription.isManagedBy(managed) ||
+      characteristicKey(managed.path) !== characteristicKey(subscription.path)
+    ) {
       throw contractError('gatt.stale-handle', 'gatt', 'web-gatt.unsubscribe')
     }
     const cleanup = await this.removeManagedSubscription(managed)
@@ -653,7 +666,7 @@ export class WebBluetoothGattRuntime {
     path: CharacteristicPath<string, string, string, string, string>,
     operation: string
   ): WebBluetoothCharacteristicBoundary {
-    database.assertCurrent(operation)
+    database.assertPath(path, operation)
     if (!database.record.grantedServices.has(String(path.serviceUuid))) {
       throw contractError('chooser.optional-service-not-granted', 'chooser', operation)
     }

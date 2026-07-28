@@ -98,6 +98,10 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
   private nextSubscription = 1
   private opened = false
   private closing = false
+  private nativeAttachmentOpened = false
+  private nativeDestroyCompleted = false
+  private destroyRequested = false
+  private destroyResult: Promise<void> | null = null
 
   constructor(
     private readonly control: NativeProtocolControl,
@@ -131,11 +135,10 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
   }
 
   async open(): Promise<void> {
-    if (this.opened) {
+    if (this.opened || this.nativeAttachmentOpened || this.destroyRequested) {
       throw contractError('lifecycle.invalid-state', 'boundary', 'rn-android-boundary.open')
     }
     const attachment = this.requireAttachmentRecord('open')
-    let handshakeOpened = false
     try {
       const handshake = await this.control.handshake({
         nativeProtocol: { minimum: protocolVersion, maximum: protocolVersion },
@@ -147,7 +150,8 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
         ...attachmentIdentityFromRecord(attachment),
         ownerId: this.ownerId
       })
-      handshakeOpened = true
+      this.nativeAttachmentOpened = true
+      this.nativeDestroyCompleted = false
       assertHandshakeSelection(handshake)
       this.maximumInputPayloadBytes = Math.min(maximumNativePayloadBytes, handshake.maximumBinaryPayloadBytes)
       await this.control.installExecutionRuntime()
@@ -155,13 +159,14 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
       this.opened = true
     } catch (error) {
       this.maximumInputPayloadBytes = 0
-      if (handshakeOpened) {
+      if (this.nativeAttachmentOpened) {
         try {
-          await this.control.closeAttachment(attachmentIdentityFromRecord(attachment))
+          await this.closeNativeAttachment(attachment)
         } catch (closeError) {
           console.error('[ReactNativeAndroidProtocolBoundary.open] Handshake-open cleanup failed:', closeError)
         }
       }
+      this.destroyRequested = true
       throw error
     }
   }
@@ -351,37 +356,55 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
   }
 
   async destroy(): Promise<void> {
-    if (!this.opened || this.closing) {
+    if (this.destroyResult !== null) {
+      return this.destroyResult
+    }
+    if (!this.opened && !this.nativeAttachmentOpened) {
       return
     }
+    const destruction = this.destroyInternal()
+    this.destroyResult = destruction.catch(error => {
+      this.destroyResult = null
+      throw error
+    })
+    return this.destroyResult
+  }
+
+  private async destroyInternal(): Promise<void> {
     this.closing = true
     const attachment = this.requireAttachmentRecord('destroy')
-    let destroyFailure: Error | null = null
+    this.destroyRequested = true
     try {
-      await this.dispatch('destroy', [])
+      if (this.opened && !this.nativeDestroyCompleted) {
+        await this.dispatch('destroy', [])
+        this.nativeDestroyCompleted = true
+      }
     } catch (error) {
-      destroyFailure = error instanceof Error ? error : new Error('Native protocol destroy failed')
+      console.error('[ReactNativeAndroidProtocolBoundary.destroy] Native protocol destroy failed:', error)
+      throw error instanceof Error ? error : new Error('Native protocol destroy failed')
     }
     try {
-      await this.control.closeAttachment(attachmentIdentityFromRecord(attachment))
+      await this.closeNativeAttachment(attachment)
     } catch (closeError) {
       console.error('[ReactNativeAndroidProtocolBoundary.destroy] Native attachment close failed:', closeError)
-      if (destroyFailure === null) {
-        destroyFailure = closeError instanceof Error ? closeError : new Error('Native attachment close failed')
-      }
-    } finally {
-      this.opened = false
-      this.closing = false
-      this.scanListeners.clear()
-      this.scanFailureListeners.clear()
-      this.connections.clear()
-      this.databases.clear()
-      this.subscriptionsByAddress.clear()
-      this.rejectPending('Native protocol attachment was destroyed')
+      throw closeError instanceof Error ? closeError : new Error('Native attachment close failed')
     }
-    if (destroyFailure !== null) {
-      throw destroyFailure
+    this.opened = false
+    this.closing = false
+    this.scanListeners.clear()
+    this.scanFailureListeners.clear()
+    this.connections.clear()
+    this.databases.clear()
+    this.subscriptionsByAddress.clear()
+    this.rejectPending('Native protocol attachment was destroyed')
+  }
+
+  private async closeNativeAttachment(attachment: NativeProtocolRecord): Promise<void> {
+    if (!this.nativeAttachmentOpened) {
+      return
     }
+    await this.control.closeAttachment(attachmentIdentityFromRecord(attachment))
+    this.nativeAttachmentOpened = false
   }
 
   private async dispatch(kind: string, fields: readonly NativeProtocolField[]): Promise<NativeProtocolRecord> {
@@ -438,9 +461,7 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
       pending.resolve(result)
       return
     }
-    const error = optionalRecord(result, 10)
-    const safeMessage = error === null ? null : optionalString(error, 7)
-    pending.reject(new Error(safeMessage ?? `Native ${pending.kind} operation failed`))
+    pending.reject(nativeOperationFailure(optionalRecord(result, 10), pending.kind))
   }
 
   private receiveEvent(event: NativeProtocolRecord): void {
@@ -625,7 +646,7 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
   }
 
   private requireOpen(operation: string): void {
-    if (!this.opened || this.closing) {
+    if (!this.opened || this.closing || this.destroyRequested) {
       throw contractError('lifecycle.destroyed', 'boundary', `rn-android-boundary.${operation}`)
     }
   }
@@ -662,6 +683,30 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
       }
     }
   }
+}
+
+/** Preserves native platform details instead of flattening CoreBluetooth failures to plain Error. */
+function nativeOperationFailure(error: NativeProtocolRecord | null, operation: string): Error {
+  const safeMessage = error === null ? null : optionalString(error, 7)
+  if (error === null) {
+    return new Error(`Native ${operation} operation failed`)
+  }
+  const nativeDomain = optionalString(error, 9) ?? optionalString(error, 2) ?? 'native-protocol'
+  const nativeCode = nativeErrorCode(error)
+  return contractError('platform.failure', 'platform', `rn-android-boundary.${operation}`, {
+    domain: nativeDomain,
+    code: nativeCode,
+    safeMessage: safeMessage ?? `Native ${operation} operation failed`,
+    metadata: Object.freeze({})
+  })
+}
+
+function nativeErrorCode(error: NativeProtocolRecord): string {
+  const coreBluetoothCode = error.fields.find(candidate => candidate.id === 10)?.value
+  if (typeof coreBluetoothCode === 'number' && Number.isSafeInteger(coreBluetoothCode)) {
+    return String(coreBluetoothCode)
+  }
+  return optionalString(error, 1) ?? 'native-error'
 }
 
 function assertHandshakeSelection(handshake: NativeProtocolHandshakeResult): void {

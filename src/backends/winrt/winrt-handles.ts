@@ -15,7 +15,14 @@ import type {
   Service
 } from '../../backend-contract/gatt'
 import { attachmentRecordsEqual, type AttachmentRecord } from '../../backend-contract/identity'
-import type { OperationOptions, OperationTerminalRecord, PublicOperationOptions, SubscriptionOptions, WritePolicy, WriteReceipt } from '../../backend-contract/operations'
+import type {
+  OperationOptions,
+  OperationTerminalRecord,
+  PublicOperationOptions,
+  SubscriptionOptions,
+  WritePolicy,
+  WriteReceipt
+} from '../../backend-contract/operations'
 import {
   canonicalUuid,
   opaqueId,
@@ -139,6 +146,7 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
   ) {}
 
   async snapshot(): Promise<GattDatabaseSnapshot<string, string, string>> {
+    this.backend.assertGattUsable('winrt.gatt.snapshot')
     this.assertCurrent('winrt.gatt.snapshot')
     const services: Service<string, string, string, string>[] = []
     const characteristics: Characteristic<string, string, string, string, string>[] = []
@@ -151,27 +159,30 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
       })
       services.push(Object.freeze({ path: servicePath }))
       for (const characteristic of service.characteristics) {
-        const characteristicPath: CharacteristicPath<string, string, string, string, string, 'current'> = Object.freeze({
-          ...servicePath,
-          characteristicUuid: canonicalUuid(characteristic.uuid),
-          characteristicOccurrence: opaqueId(
-            String(characteristic.occurrence),
-            'characteristic-occurrence',
-            String(servicePath.serviceOccurrence)
-          ),
-          validity: 'current'
-        })
+        const characteristicPath: CharacteristicPath<string, string, string, string, string, 'current'> = Object.freeze(
+          {
+            ...servicePath,
+            characteristicUuid: canonicalUuid(characteristic.uuid),
+            characteristicOccurrence: opaqueId(
+              String(characteristic.occurrence),
+              'characteristic-occurrence',
+              String(servicePath.serviceOccurrence)
+            ),
+            validity: 'current'
+          }
+        )
         characteristics.push(Object.freeze({ path: characteristicPath }))
         for (const descriptor of characteristic.descriptors) {
-          const descriptorPath: DescriptorPath<string, string, string, string, string, string, 'current'> = Object.freeze({
-            ...characteristicPath,
-            descriptorUuid: canonicalUuid(descriptor.uuid),
-            descriptorOccurrence: opaqueId(
-              String(descriptor.occurrence),
-              'descriptor-occurrence',
-              String(characteristicPath.characteristicOccurrence)
-            )
-          })
+          const descriptorPath: DescriptorPath<string, string, string, string, string, string, 'current'> =
+            Object.freeze({
+              ...characteristicPath,
+              descriptorUuid: canonicalUuid(descriptor.uuid),
+              descriptorOccurrence: opaqueId(
+                String(descriptor.occurrence),
+                'descriptor-occurrence',
+                String(characteristicPath.characteristicOccurrence)
+              )
+            })
           descriptors.push(Object.freeze({ path: descriptorPath }))
         }
       }
@@ -188,6 +199,7 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
     path: CharacteristicPath<string, string, string, ServiceOccurrence, CharacteristicOccurrence, 'current'>,
     options: PublicOperationOptions
   ): Promise<OwnedBytes> {
+    this.backend.assertGattUsable('winrt.gatt.database-read')
     this.assertCurrent('winrt.gatt.database-read')
     return this.backend.gattOperations.readFromDatabase(this.addressFor(path, 'winrt.gatt.database-read'), options)
   }
@@ -197,14 +209,32 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
     value: Uint8Array,
     options: WritePolicy
   ): Promise<WriteReceipt<string, string>> {
+    this.backend.assertGattUsable('winrt.gatt.database-write')
     this.assertCurrent('winrt.gatt.database-write')
-    return this.backend.gattOperations.writeFromDatabase(this.addressFor(path, 'winrt.gatt.database-write'), value, options)
+    return this.backend.gattOperations.writeFromDatabase(
+      this.addressFor(path, 'winrt.gatt.database-write'),
+      value,
+      options
+    )
   }
 
-  async readDescriptor<ServiceOccurrence extends string, CharacteristicOccurrence extends string, DescriptorOccurrence extends string>(
-    path: DescriptorPath<string, string, string, ServiceOccurrence, CharacteristicOccurrence, DescriptorOccurrence, 'current'>,
+  async readDescriptor<
+    ServiceOccurrence extends string,
+    CharacteristicOccurrence extends string,
+    DescriptorOccurrence extends string
+  >(
+    path: DescriptorPath<
+      string,
+      string,
+      string,
+      ServiceOccurrence,
+      CharacteristicOccurrence,
+      DescriptorOccurrence,
+      'current'
+    >,
     options: PublicOperationOptions
   ): Promise<OwnedBytes> {
+    this.backend.assertGattUsable('winrt.gatt.database-read-descriptor')
     this.assertCurrent('winrt.gatt.database-read-descriptor')
     return this.backend.gattOperations.readDescriptorFromDatabase(
       this.descriptorAddressFor(path, 'winrt.gatt.database-read-descriptor'),
@@ -212,11 +242,24 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
     )
   }
 
-  async writeDescriptor<ServiceOccurrence extends string, CharacteristicOccurrence extends string, DescriptorOccurrence extends string>(
-    path: DescriptorPath<string, string, string, ServiceOccurrence, CharacteristicOccurrence, DescriptorOccurrence, 'current'>,
+  async writeDescriptor<
+    ServiceOccurrence extends string,
+    CharacteristicOccurrence extends string,
+    DescriptorOccurrence extends string
+  >(
+    path: DescriptorPath<
+      string,
+      string,
+      string,
+      ServiceOccurrence,
+      CharacteristicOccurrence,
+      DescriptorOccurrence,
+      'current'
+    >,
     value: Uint8Array,
     options: WritePolicy
   ): Promise<WriteReceipt<string, string>> {
+    this.backend.assertGattUsable('winrt.gatt.database-write-descriptor')
     this.assertCurrent('winrt.gatt.database-write-descriptor')
     return this.backend.gattOperations.writeDescriptorFromDatabase(
       this.descriptorAddressFor(path, 'winrt.gatt.database-write-descriptor'),
@@ -229,6 +272,7 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
     path: CharacteristicPath<string, string, string, ServiceOccurrence, CharacteristicOccurrence, 'current'>,
     options: SubscriptionOptions
   ): Promise<WinRtBackendSubscription> {
+    this.backend.assertGattUsable('winrt.gatt.database-subscribe')
     this.assertCurrent('winrt.gatt.database-subscribe')
     return this.backend.gattOperations.subscribeFromDatabase(path, options)
   }
@@ -269,7 +313,8 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
       candidate => candidate.uuid === path.serviceUuid && candidate.occurrence === Number(path.serviceOccurrence)
     )
     const characteristic = service?.characteristics.find(
-      candidate => candidate.uuid === path.characteristicUuid && candidate.occurrence === Number(path.characteristicOccurrence)
+      candidate =>
+        candidate.uuid === path.characteristicUuid && candidate.occurrence === Number(path.characteristicOccurrence)
     )
     if (service === undefined || characteristic === undefined) {
       throw contractError('gatt.not-found', 'gatt', operation)
@@ -292,7 +337,8 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
       candidate => candidate.uuid === path.serviceUuid && candidate.occurrence === Number(path.serviceOccurrence)
     )
     const characteristicRecord = service?.characteristics.find(
-      candidate => candidate.uuid === path.characteristicUuid && candidate.occurrence === Number(path.characteristicOccurrence)
+      candidate =>
+        candidate.uuid === path.characteristicUuid && candidate.occurrence === Number(path.characteristicOccurrence)
     )
     const descriptor = characteristicRecord?.descriptors.find(
       candidate => candidate.uuid === path.descriptorUuid && candidate.occurrence === Number(path.descriptorOccurrence)
@@ -356,7 +402,9 @@ export class WinRtBackendSubscription implements BackendSubscription<string, str
   }
 }
 
-export function successfulTerminal(operation: OperationOptions<string, string>): OperationTerminalRecord<string, string> {
+export function successfulTerminal(
+  operation: OperationOptions<string, string>
+): OperationTerminalRecord<string, string> {
   return Object.freeze({ correlation: operation.correlation, outcome: 'succeeded', cause: null })
 }
 
@@ -376,7 +424,8 @@ export function matchesScan(
 ): boolean {
   if (
     options.filter.localNamePrefix !== null &&
-    (observation.localName.state !== 'present' || !observation.localName.value.startsWith(options.filter.localNamePrefix))
+    (observation.localName.state !== 'present' ||
+      !observation.localName.value.startsWith(options.filter.localNamePrefix))
   ) {
     return false
   }

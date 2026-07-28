@@ -2,7 +2,13 @@
 
 import { BackendContractError, contractError } from '../backend-contract/errors'
 import { assertAttachedBackend, attachBackend } from '../backend-contract/backend'
-import type { AdapterStateSnapshot, BackendIdentity, BackendProvider, ManagerConstruction, OwnerMode } from '../backend-contract'
+import type {
+  AdapterStateSnapshot,
+  BackendIdentity,
+  BackendProvider,
+  ManagerConstruction,
+  OwnerMode
+} from '../backend-contract'
 import type { AdvertisementObservation, ScanOptions } from '../backend-contract/advertisement'
 import type { CleanupRecord } from '../backend-contract/errors'
 import type { CharacteristicPath, DescriptorPath, GattDatabase, NotificationValue } from '../backend-contract/gatt'

@@ -1,5 +1,7 @@
 // __tests__/CiRelease.dualIdentity.test.js
 
+// __tests__/CiRelease.dualIdentity.test.js
+
 /**
  * Focused guards for ROADMAP 4.0 ci-release dual-identity publish + multi-host gates.
  */
@@ -22,12 +24,21 @@ describe('ci-release dual identity (4.0)', () => {
       './app.plugin.js',
       './backend-sdk',
       './cli',
+      './codecs',
       './electron/main',
       './electron/renderer',
       './node/bluez',
       './node/corebluetooth',
       './node/winrt',
       './package.json',
+      './profiles/battery-service',
+      './profiles/blood-pressure',
+      './profiles/commands',
+      './profiles/device-information',
+      './profiles/health-thermometer',
+      './profiles/heart-rate',
+      './profiles/ieee-11073',
+      './profiles/standard-commands',
       './react-native',
       './testing',
       './web'
@@ -153,7 +164,8 @@ describe('ci-release dual identity (4.0)', () => {
     expect(ci).toContain('Electron Fake multi-device demo smoke (L1)')
     expect(ci).toContain('Electron CoreBluetooth native L2')
     expect(ci).toContain('build:electron:macos')
-    expect(ci).toContain('GAP-E-WIN-NAPI')
+    expect(ci).toContain('WinRT native boundary compile and ABI load')
+    expect(ci).toContain('createContractBoundary')
     expect(ci).toMatch(/vite build --config example-web\/vite\.config\.js/)
     expect(ci).toContain('unified-ble-manager.podspec')
     expect(ci).not.toContain('react-native-ble-plx.podspec')
@@ -169,7 +181,7 @@ describe('ci-release dual identity (4.0)', () => {
     expect(ci).toMatch(/Build package artifacts \(macOS\/Windows L2 hosts\)/)
     const prepackL2 = ci.indexOf('Build package artifacts (macOS/Windows L2 hosts)')
     const cbL2 = ci.indexOf('Electron CoreBluetooth native L2')
-    const winL2 = ci.indexOf('Electron WinRT L2 status')
+    const winL2 = ci.indexOf('WinRT native boundary compile and ABI load')
     expect(prepackL2).toBeGreaterThan(-1)
     expect(cbL2).toBeGreaterThan(prepackL2)
     expect(winL2).toBeGreaterThan(prepackL2)

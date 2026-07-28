@@ -12,6 +12,16 @@ const {
 const serviceUuid = '0000180d-0000-1000-8000-00805f9b34fb'
 const characteristicUuid = '00002a37-0000-1000-8000-00805f9b34fb'
 
+function deferred() {
+  let resolve = null
+  let reject = null
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
 function compatibility() {
   return {
     backendContract: versionRange(version('backend-contract', 1), version('backend-contract', 1)),
@@ -34,13 +44,13 @@ function operation(signal = null) {
   return { signal, deadline: null }
 }
 
-function scanOptions(signal = null) {
+function scanOptions(signal = null, deadline = null) {
   return {
     filter: { serviceUuids: [serviceUuid], localNamePrefix: 'Polar' },
     duplicatePolicy: 'all',
     timestampPolicy: 'receipt-monotonic',
     delivery: delivery(),
-    deadline: null,
+    deadline,
     signal,
     sharing: { mode: 'owner', allowSharing: true }
   }
@@ -173,7 +183,34 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
     expect(boundary.destroyed).toBe(true)
   })
 
-  test('acknowledges a not-cancellable physical read without contaminating the next operation', async () => {
+  test('admits a manager when each identity read receives a new monotonic timestamp', async () => {
+    let now = 0
+    const provider = createCoreBluetoothBackendProvider({
+      boundaryFactory: () => new InMemoryCoreBluetoothBoundary({ serviceUuid, characteristicUuid }),
+      now: () => {
+        now += 1
+        return now
+      },
+      hostKind: 'electron-main'
+    })
+    const manager = await createBleManagerFromProvider(
+      {
+        provider,
+        selection: { selectedAdapterId: selectedAdapterId() },
+        coreCompatibility: compatibility(),
+        manager: {
+          clientId: opaqueId('monotonic-client', 'client', 'corebluetooth:monotonic'),
+          managerId: opaqueId('monotonic-manager', 'manager', 'corebluetooth:monotonic'),
+          ownerMode: 'owning'
+        }
+      },
+      DEFAULT_BLE_MANAGER_OPTIONS
+    )
+
+    await expect(manager.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+  })
+
+  test('rejects an aborted public read while quarantining its physical completion from the next operation', async () => {
     const { backend, boundary } = await backendFixture()
     const peerId = await observedPeerId(backend)
     const lease = await backend.connections.connect(
@@ -195,9 +232,10 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
       }
     })
     abortController.abort()
+    await expect(dispatch.completion).rejects.toMatchObject({ normalized: { code: 'operation.aborted' } })
     await expect(dispatch.requestCancellation()).resolves.toMatchObject({ state: 'not-cancellable' })
     releaseRead(new Uint8Array([7, 7]))
-    await expect(dispatch.completion).resolves.toMatchObject({ value: new Uint8Array([7, 7]) })
+    await flushAdapterLossCleanup()
     boundary.readGate = null
     const next = backend.gatt.read(characteristic, {
       operation: { ...operation(), correlation: opaqueId('next-read', 'operation', 'corebluetooth:cancel') }
@@ -205,4 +243,474 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
     await expect(next.completion).resolves.toMatchObject({ value: new Uint8Array([0, 0]) })
     await backend.destroy()
   })
+
+  test.each(['abort', 'deadline'])(
+    'compensates a late native scan start after %s and retains failed physical cleanup for retry',
+    async termination => {
+      if (termination === 'deadline') {
+        jest.useFakeTimers()
+      }
+      try {
+        const { backend, boundary } = await backendFixture()
+        const startGate = deferred()
+        const nativeStartScan = boundary.startScan.bind(boundary)
+        const nativeStopScan = boundary.stopScan.bind(boundary)
+        let firstStart = true
+        let stopAttempts = 0
+        let stopFailuresRemaining = 2
+        boundary.startScan = async handler => {
+          if (firstStart) {
+            firstStart = false
+            await startGate.promise
+          }
+          await nativeStartScan(handler)
+        }
+        boundary.stopScan = async () => {
+          stopAttempts += 1
+          if (stopFailuresRemaining > 0) {
+            stopFailuresRemaining -= 1
+            throw new Error('The deterministic late scan stop failed')
+          }
+          await nativeStopScan()
+        }
+        const controller = new AbortController()
+        const start = backend.scanner.start(
+          scanOptions(termination === 'abort' ? controller.signal : null, termination === 'deadline' ? 21 : null),
+          opaqueId(`late-start-${termination}`, 'client', 'corebluetooth:scan-late-start')
+        )
+
+        await Promise.resolve()
+        if (termination === 'abort') {
+          controller.abort()
+        } else {
+          jest.advanceTimersByTime(1)
+        }
+        startGate.resolve()
+
+        await expect(start).rejects.toMatchObject({
+          normalized: { code: termination === 'abort' ? 'operation.aborted' : 'operation.timed-out' }
+        })
+        expect(stopAttempts).toBe(2)
+        expect(backend.resourceCounters()).toMatchObject({ activeScanControllers: 1, scanConsumers: 0 })
+
+        const retry = await backend.scanner.start(
+          scanOptions(),
+          opaqueId(`late-start-retry-${termination}`, 'client', 'corebluetooth:scan-late-start')
+        )
+        await expect(retry.stop()).resolves.toEqual({ state: 'released', failures: [] })
+        expect(backend.resourceCounters()).toMatchObject({ activeScanControllers: 0, scanConsumers: 0 })
+        await backend.destroy()
+      } finally {
+        if (termination === 'deadline') {
+          jest.useRealTimers()
+        }
+      }
+    }
+  )
+
+  test('retries a failed final notification stop before permitting a replacement subscription', async () => {
+    const { backend, boundary } = await backendFixture()
+    const peerId = await observedPeerId(backend)
+    const lease = await backend.connections.connect(
+      peerId,
+      opaqueId('subscription-retry-client', 'client', 'corebluetooth:subscription-retry'),
+      operation()
+    )
+    const database = await backend.gatt.discover(lease.connection, operation())
+    const characteristic = (await database.snapshot()).characteristics[0].path
+    const subscription = await database.subscribe(characteristic, { ...operation(), delivery: delivery() })
+    const nativeStopNotify = boundary.stopNotify.bind(boundary)
+    let stopFailuresRemaining = 2
+    boundary.stopNotify = async address => {
+      if (stopFailuresRemaining > 0) {
+        stopFailuresRemaining -= 1
+        throw new Error('The deterministic final notification stop failed')
+      }
+      await nativeStopNotify(address)
+    }
+
+    const firstUnsubscribe = backend.gatt.unsubscribe(subscription, {
+      ...operation(),
+      correlation: opaqueId('subscription-retry-first', 'operation', 'corebluetooth:subscription-retry')
+    })
+    await expect(firstUnsubscribe.completion).rejects.toThrow('CoreBluetooth notification cleanup requires retry')
+    expect(backend.resourceCounters()).toMatchObject({ physicalCccdEnablements: 1, subscriptionConsumers: 0 })
+    await expect(database.subscribe(characteristic, { ...operation(), delivery: delivery() })).rejects.toThrow(
+      'CoreBluetooth notification cleanup must be retried before a new subscription'
+    )
+    expect(boundary.startNotifyCalls).toBe(1)
+    const retryUnsubscribe = backend.gatt.unsubscribe(subscription, {
+      ...operation(),
+      correlation: opaqueId('subscription-retry-second', 'operation', 'corebluetooth:subscription-retry')
+    })
+    await expect(retryUnsubscribe.completion).resolves.toMatchObject({ outcome: 'succeeded' })
+    expect(backend.resourceCounters()).toMatchObject({ physicalCccdEnablements: 0, subscriptionConsumers: 0 })
+    await backend.destroy()
+  })
+
+  test('keeps adapter-loss cleanup pending until a quarantined native read settles, then emits the new generation', async () => {
+    const { backend, boundary } = await backendFixture()
+    const stateWatch = await backend.adapter.watchState()
+    const attachmentBeforeLoss = backend.attachment()
+    const peerId = await observedPeerId(backend)
+    const lease = await backend.connections.connect(
+      peerId,
+      opaqueId('pending-loss', 'client', 'corebluetooth:pending-loss'),
+      operation()
+    )
+    const database = await backend.gatt.discover(lease.connection, operation())
+    const characteristic = (await database.snapshot()).characteristics[0].path
+    let releaseRead
+    boundary.readGate = new Promise(resolve => {
+      releaseRead = resolve
+    })
+    const dispatch = backend.gatt.read(characteristic, {
+      operation: { ...operation(), correlation: opaqueId('pending-loss-read', 'operation', 'corebluetooth:pending-loss') }
+    })
+
+    emitAdapterState(boundary, {
+      availability: 'unavailable',
+      authorization: 'unavailable',
+      power: 'resetting',
+      safeReason: 'The test radio reset while a read was pending.'
+    })
+    await expect(dispatch.completion).rejects.toMatchObject({ normalized: { code: 'operation.aborted' } })
+    await flushAdapterLossCleanup()
+
+    expect(backend.attachment().attachmentId).toBe(attachmentBeforeLoss.attachmentId)
+    expect(backend.resourceCounters()).toMatchObject({ dispatchedOperations: 1 })
+    await expect(
+      backend.scanner.start(scanOptions(), opaqueId('pending-loss-scan', 'client', 'corebluetooth:pending-loss'))
+    ).rejects.toMatchObject({ normalized: { code: 'lifecycle.invalid-state' } })
+    const lossTransition = await stateWatch.transitions[Symbol.asyncIterator]().next()
+    expect(lossTransition).toMatchObject({ value: { kind: 'value', value: { backendGeneration: stateWatch.initial.backendGeneration } } })
+
+    releaseRead(new Uint8Array([8, 8]))
+    await flushAdapterLossCleanup()
+
+    const restartedTransition = await stateWatch.transitions[Symbol.asyncIterator]().next()
+    expect(restartedTransition).toMatchObject({ value: { kind: 'value' } })
+    if (restartedTransition.done || restartedTransition.value.kind !== 'value') {
+      throw new Error('CoreBluetooth adapter-state watcher did not receive the post-loss generation transition')
+    }
+    expect(restartedTransition.value.value.backendGeneration).not.toBe(stateWatch.initial.backendGeneration)
+    expect(backend.resourceCounters()).toMatchObject({ dispatchedOperations: 0 })
+    await backend.destroy()
+  })
+
+  test('does not report destroy completion while a quarantined native read still owns the boundary', async () => {
+    const { backend, boundary } = await backendFixture()
+    const peerId = await observedPeerId(backend)
+    const lease = await backend.connections.connect(
+      peerId,
+      opaqueId('pending-destroy', 'client', 'corebluetooth:pending-destroy'),
+      operation()
+    )
+    const database = await backend.gatt.discover(lease.connection, operation())
+    const characteristic = (await database.snapshot()).characteristics[0].path
+    let releaseRead
+    boundary.readGate = new Promise(resolve => {
+      releaseRead = resolve
+    })
+    const dispatch = backend.gatt.read(characteristic, {
+      operation: {
+        ...operation(),
+        correlation: opaqueId('pending-destroy-read', 'operation', 'corebluetooth:pending-destroy')
+      }
+    })
+    const destroy = backend.destroy()
+    let destroySettled = false
+    destroy.then(() => {
+      destroySettled = true
+    })
+
+    await expect(dispatch.completion).rejects.toMatchObject({ normalized: { code: 'operation.aborted' } })
+    await flushAdapterLossCleanup()
+
+    expect(destroySettled).toBe(false)
+    expect(backend.resourceCounters()).toMatchObject({ dispatchedOperations: 1 })
+    releaseRead(new Uint8Array([9, 9]))
+    await expect(destroy).resolves.toEqual({ state: 'released', failures: [] })
+    expect(backend.resourceCounters()).toMatchObject({ dispatchedOperations: 0 })
+  })
+
+  test.each([
+    [
+      'denied',
+      {
+        availability: 'unavailable',
+        authorization: 'denied',
+        power: 'unsupported',
+        safeReason: 'The operating system denied Bluetooth access.'
+      },
+      'permission.denied'
+    ],
+    [
+      'restricted',
+      {
+        availability: 'unavailable',
+        authorization: 'restricted',
+        power: 'unsupported',
+        safeReason: 'The operating system restricted Bluetooth access.'
+      },
+      'permission.restricted'
+    ],
+    [
+      'not-determined',
+      {
+        availability: 'available',
+        authorization: 'not-determined',
+        power: 'on',
+        safeReason: 'Bluetooth authorization has not been determined.'
+      },
+      'permission.not-determined'
+    ],
+    [
+      'unavailable',
+      {
+        availability: 'available',
+        authorization: 'unavailable',
+        power: 'on',
+        safeReason: 'The operating system cannot provide Bluetooth authorization.'
+      },
+      'adapter.unavailable'
+    ]
+  ])('rejects radio admission with a typed permission error when authorization is %s', async (_name, state, code) => {
+    const { backend, boundary } = await backendFixture()
+    const peerId = await observedPeerId(backend)
+
+    emitAdapterState(boundary, state)
+    await flushAdapterLossCleanup()
+
+    await expect(
+      backend.scanner.start(scanOptions(), opaqueId('permission-scan', 'client', 'corebluetooth:permission'))
+    ).rejects.toMatchObject({ normalized: { code } })
+    await expect(
+      backend.connections.connect(peerId, opaqueId('permission-connect', 'client', 'corebluetooth:permission'), operation())
+    ).rejects.toMatchObject({ normalized: { code } })
+    await backend.destroy()
+  })
+
+  test('releases scan and link ownership when Bluetooth authorization is revoked', async () => {
+    const { backend, boundary } = await backendFixture()
+    const attachmentBeforeLoss = backend.attachment()
+    const scan = await backend.scanner.start(
+      scanOptions(),
+      opaqueId('authorization-loss-scan', 'client', 'corebluetooth:authorization-loss')
+    )
+    boundary.emitAdvertisement()
+    const observation = await scan.observations[Symbol.asyncIterator]().next()
+    if (observation.done || observation.value.kind !== 'value') {
+      throw new Error('CoreBluetooth authorization-loss fixture did not emit a scan observation')
+    }
+    await backend.connections.connect(
+      observation.value.value.peerId,
+      opaqueId('authorization-loss-connection', 'client', 'corebluetooth:authorization-loss'),
+      operation()
+    )
+
+    emitAdapterState(boundary, {
+      availability: 'available',
+      authorization: 'denied',
+      power: 'on',
+      safeReason: 'The operating system revoked Bluetooth access.'
+    })
+    await flushAdapterLossCleanup()
+
+    expect(boundary.scanHandler).toBeNull()
+    expect(boundary.connected).toBe(false)
+    expect(backend.attachment().attachmentId).not.toBe(attachmentBeforeLoss.attachmentId)
+    expect(Object.values(backend.resourceCounters()).every(value => Number(value) === 0)).toBe(true)
+    await backend.destroy()
+  })
+
+  test('releases physical scan, notification, and connection ownership before advancing after adapter loss', async () => {
+    const { backend, boundary } = await backendFixture()
+    const attachmentBeforeLoss = backend.attachment()
+    const scan = await backend.scanner.start(scanOptions(), opaqueId('loss-scan', 'client', 'corebluetooth:loss'))
+    boundary.emitAdvertisement()
+    const observation = await scan.observations[Symbol.asyncIterator]().next()
+    if (observation.done || observation.value.kind !== 'value') {
+      throw new Error('CoreBluetooth adapter-loss fixture did not emit a scan observation')
+    }
+    const lease = await backend.connections.connect(
+      observation.value.value.peerId,
+      opaqueId('loss-connection', 'client', 'corebluetooth:loss'),
+      operation()
+    )
+    const database = await backend.gatt.discover(lease.connection, operation())
+    const snapshot = await database.snapshot()
+    await database.subscribe(snapshot.characteristics[0].path, { ...operation(), delivery: delivery() })
+
+    emitAdapterState(boundary, {
+      availability: 'unavailable',
+      authorization: 'unavailable',
+      power: 'resetting',
+      safeReason: 'The test radio reset.'
+    })
+    await flushAdapterLossCleanup()
+
+    expect(boundary.scanHandler).toBeNull()
+    expect(boundary.notificationHandlers.size).toBe(0)
+    expect(boundary.connected).toBe(false)
+    expect(backend.attachment().attachmentId).not.toBe(attachmentBeforeLoss.attachmentId)
+    expect(Object.values(backend.resourceCounters()).every(value => Number(value) === 0)).toBe(true)
+
+    await backend.destroy()
+  })
+
+  test('treats a powered-off adapter as loss and releases every active resource before generation advance', async () => {
+    const { backend, boundary } = await backendFixture()
+    const attachmentBeforeLoss = backend.attachment()
+    const scan = await backend.scanner.start(scanOptions(), opaqueId('powered-off-scan', 'client', 'corebluetooth:off'))
+    boundary.emitAdvertisement()
+    const observation = await scan.observations[Symbol.asyncIterator]().next()
+    if (observation.done || observation.value.kind !== 'value') {
+      throw new Error('CoreBluetooth powered-off fixture did not emit a scan observation')
+    }
+    const lease = await backend.connections.connect(
+      observation.value.value.peerId,
+      opaqueId('powered-off-connection', 'client', 'corebluetooth:off'),
+      operation()
+    )
+    const database = await backend.gatt.discover(lease.connection, operation())
+    const snapshot = await database.snapshot()
+    await database.subscribe(snapshot.characteristics[0].path, { ...operation(), delivery: delivery() })
+
+    emitAdapterState(boundary, {
+      availability: 'available',
+      authorization: 'granted',
+      power: 'off',
+      safeReason: 'The test radio was powered off.'
+    })
+    await flushAdapterLossCleanup()
+
+    expect(boundary.scanHandler).toBeNull()
+    expect(boundary.notificationHandlers.size).toBe(0)
+    expect(boundary.connected).toBe(false)
+    expect(backend.attachment().attachmentId).not.toBe(attachmentBeforeLoss.attachmentId)
+    expect(Object.values(backend.resourceCounters()).every(value => Number(value) === 0)).toBe(true)
+
+    await backend.destroy()
+  })
+
+  test.each([
+    [
+      'resetting',
+      {
+        availability: 'available',
+        authorization: 'granted',
+        power: 'resetting',
+        safeReason: 'The test radio is resetting.'
+      },
+      'adapter.resetting'
+    ],
+    [
+      'unavailable',
+      {
+        availability: 'unavailable',
+        authorization: 'unavailable',
+        power: 'unsupported',
+        safeReason: 'The test radio is unavailable.'
+      },
+      'adapter.unavailable'
+    ],
+    [
+      'powered-off',
+      {
+        availability: 'available',
+        authorization: 'granted',
+        power: 'off',
+        safeReason: 'The test radio is powered off.'
+      },
+      'adapter.powered-off'
+    ]
+  ])('rejects scan and connect while the adapter remains %s after cleanup', async (_stateName, state, code) => {
+    const { backend, boundary } = await backendFixture()
+    const peerId = await observedPeerId(backend)
+
+    emitAdapterState(boundary, state)
+    await flushAdapterLossCleanup()
+
+    await expect(
+      backend.scanner.start(scanOptions(), opaqueId('blocked-scan', 'client', 'corebluetooth:adapter-state'))
+    ).rejects.toMatchObject({ normalized: { code } })
+    await expect(
+      backend.connections.connect(peerId, opaqueId('blocked-connect', 'client', 'corebluetooth:adapter-state'), operation())
+    ).rejects.toMatchObject({ normalized: { code } })
+
+    emitAdapterState(boundary, {
+      availability: 'available',
+      authorization: 'granted',
+      power: 'on',
+      safeReason: null
+    })
+    const restarted = await backend.scanner.start(
+      scanOptions(),
+      opaqueId('restarted-scan', 'client', 'corebluetooth:adapter-state')
+    )
+    await expect(restarted.stop()).resolves.toEqual({ state: 'released', failures: [] })
+    await backend.destroy()
+  })
+
+  test('retains failed adapter-loss notification cleanup for an observable retry before generation advance', async () => {
+    const { backend, boundary } = await backendFixture()
+    const events = backend.events()[Symbol.asyncIterator]()
+    const attachmentBeforeLoss = backend.attachment()
+    const peerId = await observedPeerId(backend)
+    const lease = await backend.connections.connect(
+      peerId,
+      opaqueId('loss-retry', 'client', 'corebluetooth:loss-retry'),
+      operation()
+    )
+    const database = await backend.gatt.discover(lease.connection, operation())
+    const snapshot = await database.snapshot()
+    await database.subscribe(snapshot.characteristics[0].path, { ...operation(), delivery: delivery() })
+    const nativeStopNotify = boundary.stopNotify.bind(boundary)
+    let stopNotifyFailuresRemaining = 1
+    boundary.stopNotify = async address => {
+      if (stopNotifyFailuresRemaining > 0) {
+        stopNotifyFailuresRemaining -= 1
+        throw new Error('The test notification cleanup failed')
+      }
+      await nativeStopNotify(address)
+    }
+    const lossState = {
+      availability: 'unavailable',
+      authorization: 'unavailable',
+      power: 'resetting',
+      safeReason: 'The test radio reset.'
+    }
+
+    emitAdapterState(boundary, lossState)
+    await flushAdapterLossCleanup()
+
+    expect(boundary.stopNotifyCalls).toBe(0)
+    expect(backend.attachment().attachmentId).toBe(attachmentBeforeLoss.attachmentId)
+    expect(backend.resourceCounters()).toMatchObject({ physicalCccdEnablements: 1 })
+    await expect(events.next()).resolves.toMatchObject({ value: { kind: 'value', value: { kind: 'adapter-state' } } })
+    await expect(events.next()).resolves.toMatchObject({ value: { kind: 'value', value: { kind: 'diagnostic' } } })
+
+    emitAdapterState(boundary, lossState)
+    await flushAdapterLossCleanup()
+
+    expect(boundary.stopNotifyCalls).toBe(1)
+    expect(backend.attachment().attachmentId).not.toBe(attachmentBeforeLoss.attachmentId)
+    expect(Object.values(backend.resourceCounters()).every(value => Number(value) === 0)).toBe(true)
+
+    await backend.destroy()
+  })
 })
+
+function emitAdapterState(boundary, state) {
+  boundary.adapter = state
+  for (const listener of boundary.adapterStateListeners) {
+    listener(state)
+  }
+}
+
+async function flushAdapterLossCleanup() {
+  for (let index = 0; index < 12; index += 1) {
+    await Promise.resolve()
+  }
+}

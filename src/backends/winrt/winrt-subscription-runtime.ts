@@ -50,7 +50,9 @@ export function removeWinRtSubscription(
   subscription.removed = true
   subscription.stream.closeWithReason('owner-released')
   physical.consumers.delete(subscription)
-  return physical.consumers.size === 0 ? stopWinRtPhysicalSubscription(backend, physical) : Promise.resolve(releasedCleanup)
+  return physical.consumers.size === 0
+    ? stopWinRtPhysicalSubscription(backend, physical)
+    : Promise.resolve(releasedCleanup)
 }
 
 export function createWinRtSubscription(

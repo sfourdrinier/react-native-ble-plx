@@ -28,8 +28,8 @@ function delivery(itemCapacity = 4) {
   }
 }
 
-function operation(signal = null) {
-  return { signal, deadline: null }
+function operation(signal = null, deadline = null) {
+  return { signal, deadline }
 }
 
 function scanOptions(signal = null) {
@@ -63,6 +63,48 @@ function pending(completion) {
   return { completion: settled, cancel: async () => (terminal ? 'already-terminal' : 'not-cancellable') }
 }
 
+function deferred() {
+  let resolve = null
+  let reject = null
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+function trackedAbortSignal() {
+  const listeners = new Set()
+  return {
+    signal: {
+      aborted: false,
+      addEventListener: (_event, listener) => listeners.add(listener),
+      removeEventListener: (_event, listener) => listeners.delete(listener)
+    },
+    listenerCount: () => listeners.size
+  }
+}
+
+async function flushMicrotasks() {
+  for (let ordinal = 0; ordinal < 8; ordinal += 1) {
+    await Promise.resolve()
+  }
+}
+
+function expectContractError(call, code) {
+  try {
+    call()
+  } catch (error) {
+    expect(error).toMatchObject({ normalized: { code } })
+    return
+  }
+  throw new Error(`Expected the WinRT operation to reject with ${code}`)
+}
+
+function expectAdapterLossAdmissionBlocked(call) {
+  expectContractError(call, 'lifecycle.invalid-state')
+}
+
 function addressKey(address) {
   return [
     address.nativePeerId,
@@ -84,11 +126,16 @@ class DeterministicWinRtBoundary {
     this.databaseListeners = new Set()
     this.adapterListeners = new Set()
     this.readGate = null
+    this.connectGate = null
     this.writeValues = []
     this.descriptorWriteValues = []
     this.startNotifyCalls = 0
     this.stopNotifyCalls = 0
     this.failNextStopNotify = false
+    this.stopNotifyGate = null
+    this.failNextStopScan = false
+    this.failNextDisconnect = false
+    this.disconnectCalls = 0
     this.destroyed = false
   }
 
@@ -122,6 +169,10 @@ class DeterministicWinRtBoundary {
   }
 
   stopScan() {
+    if (this.failNextStopScan) {
+      this.failNextStopScan = false
+      return pending(Promise.reject(new Error('Deterministic WinRT scan stop failure')))
+    }
     this.scanHandler = null
     return completed(undefined)
   }
@@ -143,11 +194,27 @@ class DeterministicWinRtBoundary {
     if (nativePeerId !== 'C0FFEE000001') {
       return pending(Promise.reject(new Error('Unknown deterministic WinRT peer')))
     }
+    if (this.connectGate !== null) {
+      return pending(
+        this.connectGate.then(() => {
+          this.connected.add(nativePeerId)
+        })
+      )
+    }
     this.connected.add(nativePeerId)
     return completed(undefined)
   }
 
+  setConnectGate(gate) {
+    this.connectGate = gate
+  }
+
   disconnect(nativePeerId) {
+    this.disconnectCalls += 1
+    if (this.failNextDisconnect) {
+      this.failNextDisconnect = false
+      return pending(Promise.reject(new Error('Deterministic WinRT disconnect failure')))
+    }
     this.connected.delete(nativePeerId)
     return completed(undefined)
   }
@@ -234,12 +301,23 @@ class DeterministicWinRtBoundary {
 
   stopNotify(address) {
     this.stopNotifyCalls += 1
+    if (this.stopNotifyGate !== null) {
+      return pending(
+        this.stopNotifyGate.then(() => {
+          this.notificationHandlers.delete(addressKey(address))
+        })
+      )
+    }
     if (this.failNextStopNotify) {
       this.failNextStopNotify = false
       return pending(Promise.reject(new Error('Deterministic WinRT CCCD disable failure')))
     }
     this.notificationHandlers.delete(addressKey(address))
     return completed(undefined)
+  }
+
+  setStopNotifyGate(gate) {
+    this.stopNotifyGate = gate
   }
 
   emitNotification(address, value) {
@@ -276,6 +354,11 @@ class DeterministicWinRtBoundary {
 
   emitAdapterLoss() {
     this.state = { availability: 'unavailable', authorization: 'unavailable', power: 'off', safeReason: 'radio-off' }
+    for (const listener of this.adapterListeners) listener(this.state)
+  }
+
+  emitAdapterReady() {
+    this.state = { availability: 'available', authorization: 'granted', power: 'on', safeReason: null }
     for (const listener of this.adapterListeners) listener(this.state)
   }
 
@@ -443,5 +526,257 @@ describe('WinRT contract-v1 deterministic native-boundary vertical slice', () =>
     expect(boundary.stopNotifyCalls).toBe(2)
     await backend.destroy()
     expect(Object.values(backend.resourceCounters()).every(value => Number(value) === 0)).toBe(true)
+  })
+
+  test.each([
+    ['abort', controller => operation(controller.signal), controller => controller.abort()],
+    ['deadline', () => operation(null, 21), () => jest.advanceTimersByTime(1)]
+  ])('removes a %s-cancelled connecting record after its native connect later rejects', async (_name, createOptions, cancel) => {
+    jest.useFakeTimers()
+    try {
+      const { backend, boundary } = await backendFixture()
+      const peerId = await observedPeerId(backend, boundary)
+      const gate = deferred()
+      boundary.setConnectGate(gate.promise)
+      const controller = _name === 'abort' ? new AbortController() : null
+      const connectOptions = createOptions(controller)
+      const first = backend.connections.connect(peerId, opaqueId('first-client', 'client', 'winrt:late-failure'), connectOptions)
+
+      await Promise.resolve()
+      cancel(controller)
+      await expect(first).rejects.toMatchObject({
+        normalized: { code: _name === 'abort' ? 'operation.aborted' : 'operation.timed-out' }
+      })
+      await expect(
+        backend.connections.connect(peerId, opaqueId('blocked-client', 'client', 'winrt:late-failure'), operation())
+      ).rejects.toMatchObject({ normalized: { code: 'connection.already-owned' } })
+      gate.reject(new Error(`late native ${_name} rejection`))
+      await flushMicrotasks()
+      boundary.setConnectGate(null)
+
+      const retry = await backend.connections.connect(
+        peerId,
+        opaqueId('retry-client', 'client', 'winrt:late-failure'),
+        operation()
+      )
+      await expect(retry.release()).resolves.toEqual({ state: 'released', failures: [] })
+      await backend.destroy()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test.each([
+    ['abort', controller => operation(controller.signal), controller => controller.abort()],
+    ['deadline', () => operation(null, 21), () => jest.advanceTimersByTime(1)]
+  ])(
+    'retries late native %s-connect cleanup after the first compensating disconnect fails',
+    async (_name, createOptions, cancel) => {
+      jest.useFakeTimers()
+      try {
+        const { backend, boundary } = await backendFixture()
+        const peerId = await observedPeerId(backend, boundary)
+        const gate = deferred()
+        boundary.setConnectGate(gate.promise)
+        boundary.failNextDisconnect = true
+        const controller = _name === 'abort' ? new AbortController() : null
+        const first = backend.connections.connect(
+          peerId,
+          opaqueId('first-client', 'client', 'winrt:late-success-cleanup'),
+          createOptions(controller)
+        )
+
+        await Promise.resolve()
+        cancel(controller)
+        await expect(first).rejects.toMatchObject({
+          normalized: { code: _name === 'abort' ? 'operation.aborted' : 'operation.timed-out' }
+        })
+        gate.resolve()
+        await flushMicrotasks()
+        boundary.setConnectGate(null)
+
+        const retry = await backend.connections.connect(
+          peerId,
+          opaqueId('retry-client', 'client', 'winrt:late-success-cleanup'),
+          operation()
+        )
+        expect(boundary.disconnectCalls).toBe(2)
+        await expect(retry.release()).resolves.toEqual({ state: 'released', failures: [] })
+        await backend.destroy()
+      } finally {
+        jest.useRealTimers()
+      }
+    }
+  )
+
+  test('retains failed adapter-loss cleanup, blocks admissions, and retries every stale resource on a later transition', async () => {
+    const { backend, boundary } = await backendFixture()
+    const scan = await backend.scanner.start(scanOptions(), opaqueId('loss-scan', 'client', 'winrt:loss-retry'))
+    boundary.emitAdvertisement()
+    const observation = await scan.observations[Symbol.asyncIterator]().next()
+    if (observation.done || observation.value.kind !== 'value') {
+      throw new Error('WinRT deterministic boundary did not produce an adapter-loss observation')
+    }
+    const lease = await backend.connections.connect(
+      observation.value.value.peerId,
+      opaqueId('loss-connection', 'client', 'winrt:loss-retry'),
+      operation()
+    )
+    const database = await backend.gatt.discover(lease.connection, operation())
+    const characteristic = (await database.snapshot()).characteristics[0].path
+    await database.subscribe(characteristic, { ...operation(), delivery: delivery() })
+    boundary.failNextStopScan = true
+    boundary.failNextStopNotify = true
+
+    boundary.emitAdapterLoss()
+    await flushMicrotasks()
+    expect(backend.resourceCounters()).toMatchObject({ activeScanControllers: 1, physicalCccdEnablements: 1 })
+
+    boundary.emitAdapterReady()
+    await expect(
+      backend.scanner.start(scanOptions(), opaqueId('blocked-client', 'client', 'winrt:loss-retry'))
+    ).rejects.toMatchObject({ normalized: { code: 'lifecycle.invalid-state' } })
+    await expect(
+      backend.connections.connect(
+        observation.value.value.peerId,
+        opaqueId('blocked-connection-client', 'client', 'winrt:loss-retry'),
+        operation()
+      )
+    ).rejects.toMatchObject({ normalized: { code: 'lifecycle.invalid-state' } })
+    await flushMicrotasks()
+
+    expect(Object.values(backend.resourceCounters()).every(value => Number(value) === 0)).toBe(true)
+    const restarted = await backend.scanner.start(scanOptions(), opaqueId('restarted-client', 'client', 'winrt:loss-retry'))
+    await expect(restarted.stop()).resolves.toEqual({ state: 'released', failures: [] })
+    await expect(scan.stop()).resolves.toEqual({ state: 'released', failures: [] })
+    await backend.destroy()
+  })
+
+  test.each(['adapter loss', 'destroy'])(
+    'releases every active scan admission listener and deadline on %s',
+    async termination => {
+      jest.useFakeTimers()
+      try {
+        const { backend, boundary } = await backendFixture()
+        const tracked = trackedAbortSignal()
+        const scan = await backend.scanner.start(
+          {
+            ...scanOptions(tracked.signal),
+            deadline: 1000
+          },
+          opaqueId('admission-cleanup-client', 'client', 'winrt:admission-cleanup')
+        )
+        expect(tracked.listenerCount()).toBe(1)
+        expect(jest.getTimerCount()).toBe(1)
+
+        if (termination === 'adapter loss') {
+          boundary.emitAdapterLoss()
+          await flushMicrotasks()
+        } else {
+          await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+        }
+
+        expect(tracked.listenerCount()).toBe(0)
+        expect(jest.getTimerCount()).toBe(0)
+        await expect(scan.stop()).resolves.toEqual({ state: 'released', failures: [] })
+      } finally {
+        jest.useRealTimers()
+      }
+    }
+  )
+
+  test('blocks every public and database GATT admission while adapter-loss cleanup is pending', async () => {
+    const { backend, boundary } = await backendFixture()
+    const peerId = await observedPeerId(backend, boundary)
+    const lease = await backend.connections.connect(peerId, opaqueId('gatt-gate-client', 'client', 'winrt:gatt-gate'), operation())
+    const database = await backend.gatt.discover(lease.connection, operation())
+    const snapshot = await database.snapshot()
+    const characteristic = snapshot.characteristics[0].path
+    const descriptor = snapshot.descriptors[0].path
+    const subscription = await database.subscribe(characteristic, { ...operation(), delivery: delivery() })
+    const stopNotifyGate = deferred()
+    boundary.setStopNotifyGate(stopNotifyGate.promise)
+
+    boundary.emitAdapterLoss()
+    await flushMicrotasks()
+
+    const readRequest = {
+      operation: { ...operation(), correlation: opaqueId('blocked-read', 'core-operation', 'winrt:gatt-gate') }
+    }
+    const writeRequest = {
+      bytes: new Uint8Array([1]),
+      mode: 'with-response',
+      operation: { ...operation(), correlation: opaqueId('blocked-write', 'core-operation', 'winrt:gatt-gate') }
+    }
+    const subscribeRequest = {
+      operation: { ...operation(), correlation: opaqueId('blocked-subscribe', 'core-operation', 'winrt:gatt-gate') },
+      options: { ...operation(), delivery: delivery() }
+    }
+    const cleanupOperation = { ...operation(), correlation: opaqueId('blocked-unsubscribe', 'core-operation', 'winrt:gatt-gate') }
+    await expect(backend.gatt.discover(lease.connection, operation())).rejects.toMatchObject({
+      normalized: { code: 'lifecycle.invalid-state' }
+    })
+    await expect(database.snapshot()).rejects.toMatchObject({ normalized: { code: 'lifecycle.invalid-state' } })
+    expectAdapterLossAdmissionBlocked(() => backend.gatt.read(characteristic, readRequest))
+    expectAdapterLossAdmissionBlocked(() => backend.gatt.write(characteristic, writeRequest))
+    expectAdapterLossAdmissionBlocked(() => backend.gatt.readDescriptor(descriptor, readRequest))
+    expectAdapterLossAdmissionBlocked(() => backend.gatt.writeDescriptor(descriptor, writeRequest))
+    expectAdapterLossAdmissionBlocked(() => backend.gatt.subscribe(characteristic, subscribeRequest))
+    expectAdapterLossAdmissionBlocked(() => backend.gatt.unsubscribe(subscription, cleanupOperation))
+    await expect(database.read(characteristic, operation())).rejects.toMatchObject({
+      normalized: { code: 'lifecycle.invalid-state' }
+    })
+    await expect(database.write(characteristic, new Uint8Array([1]), { ...operation(), mode: 'with-response' })).rejects.toMatchObject({
+      normalized: { code: 'lifecycle.invalid-state' }
+    })
+    await expect(database.readDescriptor(descriptor, operation())).rejects.toMatchObject({
+      normalized: { code: 'lifecycle.invalid-state' }
+    })
+    await expect(
+      database.writeDescriptor(descriptor, new Uint8Array([1]), { ...operation(), mode: 'with-response' })
+    ).rejects.toMatchObject({ normalized: { code: 'lifecycle.invalid-state' } })
+    await expect(database.subscribe(characteristic, { ...operation(), delivery: delivery() })).rejects.toMatchObject({
+      normalized: { code: 'lifecycle.invalid-state' }
+    })
+
+    stopNotifyGate.resolve()
+    boundary.setStopNotifyGate(null)
+    await flushMicrotasks()
+    expectContractError(() => backend.gatt.read(characteristic, readRequest), 'adapter.unavailable')
+    await backend.destroy()
+  })
+
+  test('retains a failed CCCD invalidation for connection-lease retry before reconnecting the peer', async () => {
+    const { backend, boundary } = await backendFixture()
+    const peerId = await observedPeerId(backend, boundary)
+    const lease = await backend.connections.connect(peerId, opaqueId('cccd-retry-client', 'client', 'winrt:cccd-retry'), operation())
+    const database = await backend.gatt.discover(lease.connection, operation())
+    const characteristic = (await database.snapshot()).characteristics[0].path
+    await database.subscribe(characteristic, { ...operation(), delivery: delivery() })
+    boundary.failNextStopNotify = true
+
+    await expect(lease.release()).resolves.toMatchObject({ state: 'release-failed' })
+    expect(backend.resourceCounters()).toMatchObject({ physicalCccdEnablements: 1 })
+    await expect(
+      backend.connections.connect(peerId, opaqueId('blocked-reconnect-client', 'client', 'winrt:cccd-retry'), operation())
+    ).rejects.toMatchObject({ normalized: { code: 'connection.already-owned' } })
+
+    await expect(lease.release()).resolves.toEqual({ state: 'released', failures: [] })
+    expect(boundary.stopNotifyCalls).toBe(2)
+    expect(Object.values(backend.resourceCounters()).every(value => Number(value) === 0)).toBe(true)
+
+    const retryLease = await backend.connections.connect(
+      peerId,
+      opaqueId('retry-client', 'client', 'winrt:cccd-retry'),
+      operation()
+    )
+    const retryDatabase = await backend.gatt.discover(retryLease.connection, operation())
+    await retryDatabase.subscribe((await retryDatabase.snapshot()).characteristics[0].path, {
+      ...operation(),
+      delivery: delivery()
+    })
+    expect(boundary.startNotifyCalls).toBe(2)
+    await expect(retryLease.release()).resolves.toEqual({ state: 'released', failures: [] })
+    await backend.destroy()
   })
 })

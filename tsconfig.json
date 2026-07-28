@@ -16,6 +16,7 @@
       "unified-ble-manager/profiles/health-thermometer": ["./src/profiles/health-thermometer"],
       "unified-ble-manager/profiles/blood-pressure": ["./src/profiles/blood-pressure"],
       "unified-ble-manager/profiles/ieee-11073": ["./src/profiles/ieee-11073"],
+      "unified-ble-manager/web": ["./src/web"],
       "unified-ble-manager/react-native": ["./src/react-native"],
       "unified-ble-manager/node/bluez": ["./src/node-bluez"],
       "unified-ble-manager/node/corebluetooth": ["./src/node-corebluetooth"],
