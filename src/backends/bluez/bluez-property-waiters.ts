@@ -78,6 +78,26 @@ export function rejectBluezPathWaiters(
   }
 }
 
+/** Rejects every property confirmation owned by a device and its GATT descendants. */
+export function rejectBluezPathTreeWaiters(
+  runtime: BluezBackendRuntime,
+  rootPath: string,
+  code: 'operation.disconnected' | 'operation.reset'
+): void {
+  for (const waiter of [...runtime.waiters]) {
+    if (waiter.path === rootPath || waiter.path.startsWith(`${rootPath}/`)) {
+      waiter.reject(contractError(code, 'core', `bluez.wait.${waiter.property}`))
+    }
+  }
+}
+
+/** Releases every in-flight D-Bus confirmation while the backend is being destroyed. */
+export function rejectAllBluezWaiters(runtime: BluezBackendRuntime): void {
+  for (const waiter of [...runtime.waiters]) {
+    waiter.reject(contractError('operation.cancelled-by-destroy', 'core', `bluez.destroy.${waiter.property}`))
+  }
+}
+
 export function removeBluezWaiter(runtime: BluezBackendRuntime, waiter: BluezPropertyWaiter): void {
   if (!runtime.waiters.delete(waiter)) {
     return

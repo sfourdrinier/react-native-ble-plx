@@ -36,6 +36,7 @@ export function createPendingConnectionRecord(devicePath: string, peerId: PeerId
     nextDatabaseGeneration: 1,
     currentDatabase: null,
     transition: null,
+    disconnection: null,
     pendingConnectors: 0,
     orphanCleanupScheduled: false
   }

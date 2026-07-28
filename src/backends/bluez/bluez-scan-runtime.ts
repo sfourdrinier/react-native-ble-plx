@@ -9,6 +9,7 @@ import type { BluezScanConsumer, BluezScanGroup } from './bluez-runtime-types'
 import { BLUEZ_ADAPTER_INTERFACE, BLUEZ_DEVICE_INTERFACE } from './bluez-dbus-contract'
 import { BluezScanLease, releasedBluezCleanup } from './bluez-backend-handles'
 import { scanFilterVariant, scanSignature } from './bluez-runtime-models'
+import { waitForBluezBoolean } from './bluez-property-waiters'
 
 export async function startBluezScan(
   runtime: BluezBackendRuntime,
@@ -16,6 +17,7 @@ export async function startBluezScan(
   clientId: ClientId<string, string>
 ): Promise<BluezScanLease> {
   runtime.assertUsable('bluez.scan.start')
+  assertScanAdmission(runtime, options)
   if (runtime.scanGroup?.stopRequested === true) {
     const orphanedOwner = runtime.scanGroup.consumers.get(String(runtime.scanGroup.ownerLeaseId))
     if (orphanedOwner === undefined) {
@@ -25,12 +27,6 @@ export async function startBluezScan(
   }
   if (runtime.scanGroup !== null) {
     throw contractError('scan.already-active', 'scan', 'bluez.scan.start')
-  }
-  if (options.signal?.aborted === true) {
-    throw contractError('operation.aborted', 'scan', 'bluez.scan.start')
-  }
-  if (options.deadline !== null && options.deadline <= runtime.now()) {
-    throw contractError('operation.timed-out', 'scan', 'bluez.scan.start')
   }
   const ids = runtime.identifiers()
   const leaseId = ids.leaseId(`bluez-scan-${runtime.nextScan}`)
@@ -86,8 +82,18 @@ export async function startBluezScan(
   } catch (primaryError) {
     await failBluezScanStartup(runtime, group, consumer, primaryError)
   }
-  if (group.stopRequested || operationAborted(options)) {
-    await failBluezScanStartup(runtime, group, consumer, contractError('operation.aborted', 'scan', 'bluez.scan.start'))
+  const filterStartupFailure = scanStartupFailure(runtime, group)
+  if (filterStartupFailure !== null) {
+    await failBluezScanStartup(runtime, group, consumer, filterStartupFailure)
+  }
+  const filterAdmissionFailure = scanAdmissionFailure(runtime, options)
+  if (group.stopRequested || filterAdmissionFailure !== null) {
+    await failBluezScanStartup(
+      runtime,
+      group,
+      consumer,
+      filterAdmissionFailure ?? contractError('operation.aborted', 'scan', 'bluez.scan.start')
+    )
   }
   try {
     await runtime.boundary.methods.callVoid(
@@ -97,17 +103,29 @@ export async function startBluezScan(
       []
     )
     group.physicalStarted = true
+    const discoveryStartupFailure = scanStartupFailure(runtime, group)
+    if (discoveryStartupFailure !== null) {
+      await failBluezScanStartup(runtime, group, consumer, discoveryStartupFailure)
+    }
+    await waitForBluezBoolean(
+      runtime,
+      String(runtime.selectedAdapter.adapterId),
+      BLUEZ_ADAPTER_INTERFACE,
+      'Discovering',
+      true,
+      options
+    )
   } catch (primaryError) {
     await failBluezScanStartup(runtime, group, consumer, primaryError)
   }
-  if (group.stopRequested || operationAborted(options)) {
-    try {
-      await stopBluezScan(runtime, consumer)
-    } finally {
-      group.startupComplete = true
-      group.settleStartup()
-    }
-    throw contractError('operation.aborted', 'scan', 'bluez.scan.start')
+  const discoveryAdmissionFailure = scanAdmissionFailure(runtime, options)
+  if (group.stopRequested || discoveryAdmissionFailure !== null) {
+    await failBluezScanStartup(
+      runtime,
+      group,
+      consumer,
+      discoveryAdmissionFailure ?? contractError('operation.aborted', 'scan', 'bluez.scan.start')
+    )
   }
   group.state = 'active'
   if (options.deadline !== null) {
@@ -185,15 +203,11 @@ export async function stopBluezScan(runtime: BluezBackendRuntime, consumer: Blue
   group.state = 'stopping'
   if (group.physicalStarted) {
     try {
-      await runtime.boundary.methods.callVoid(
-        String(runtime.selectedAdapter.adapterId),
-        BLUEZ_ADAPTER_INTERFACE,
-        'StopDiscovery',
-        []
-      )
-      group.physicalStarted = false
+      await stopBluezPhysicalDiscovery(runtime, group)
     } catch (error) {
-      group.state = 'active'
+      if (runtime.scanGroup === group) {
+        group.state = 'active'
+      }
       console.error('[stopBluezScan] BlueZ StopDiscovery failed; scan ownership retained for retry:', error)
       throw error
     }
@@ -239,14 +253,28 @@ async function failBluezScanStartup(
   consumer: BluezScanConsumer,
   primaryError: unknown
 ): Promise<never> {
-  try {
-    await clearBluezDiscoveryFilter(runtime)
-  } catch (cleanupError) {
-    releaseFailedScanStartup(runtime, group, consumer)
-    console.error('[startBluezScan] Failed to clear the BlueZ discovery filter after start failure:', cleanupError)
-    throw new AggregateError([primaryError, cleanupError], 'BlueZ scan start and filter cleanup both failed')
+  const cleanupErrors: unknown[] = []
+  const ownsGroup = runtime.scanGroup === group
+  if (group.physicalStarted && ownsGroup) {
+    try {
+      await stopBluezPhysicalDiscovery(runtime, group)
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError)
+      console.error('[startBluezScan] Failed to stop BlueZ discovery after start failure:', cleanupError)
+    }
+  }
+  if (ownsGroup) {
+    try {
+      await clearBluezDiscoveryFilter(runtime)
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError)
+      console.error('[startBluezScan] Failed to clear the BlueZ discovery filter after start failure:', cleanupError)
+    }
   }
   releaseFailedScanStartup(runtime, group, consumer)
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError([primaryError, ...cleanupErrors], 'BlueZ scan start and cleanup both failed')
+  }
   throw primaryError
 }
 
@@ -258,7 +286,9 @@ function releaseFailedScanStartup(
   if (consumer.abort !== null) {
     consumer.options.signal?.removeEventListener('abort', consumer.abort)
   }
-  runtime.scanGroup = null
+  if (runtime.scanGroup === group) {
+    runtime.scanGroup = null
+  }
   consumer.stream.closeWithReason('owner-released')
   group.startupComplete = true
   group.settleStartup()
@@ -273,12 +303,53 @@ async function clearBluezDiscoveryFilter(runtime: BluezBackendRuntime): Promise<
   )
 }
 
+async function stopBluezPhysicalDiscovery(runtime: BluezBackendRuntime, group: BluezScanGroup): Promise<void> {
+  await runtime.boundary.methods.callVoid(
+    String(runtime.selectedAdapter.adapterId),
+    BLUEZ_ADAPTER_INTERFACE,
+    'StopDiscovery',
+    []
+  )
+  await waitForBluezBoolean(
+    runtime,
+    String(runtime.selectedAdapter.adapterId),
+    BLUEZ_ADAPTER_INTERFACE,
+    'Discovering',
+    false,
+    { signal: null, deadline: null }
+  )
+  group.physicalStarted = false
+}
+
 function observeScanCleanup(cleanup: Promise<CleanupRecord>): void {
   cleanup.catch(error => {
     console.error('[startBluezScan] Failed to stop an aborted BlueZ scan:', error)
   })
 }
 
-function operationAborted(options: OwnerScanOptions<string, string>): boolean {
-  return options.signal?.aborted === true
+function assertScanAdmission(runtime: BluezBackendRuntime, options: OwnerScanOptions<string, string>): void {
+  const failure = scanAdmissionFailure(runtime, options)
+  if (failure !== null) {
+    throw failure
+  }
+}
+
+function scanAdmissionFailure(runtime: BluezBackendRuntime, options: OwnerScanOptions<string, string>): Error | null {
+  if (options.signal?.aborted === true) {
+    return contractError('operation.aborted', 'scan', 'bluez.scan.start')
+  }
+  if (options.deadline !== null && options.deadline <= runtime.now()) {
+    return contractError('operation.timed-out', 'scan', 'bluez.scan.start')
+  }
+  return null
+}
+
+function scanStartupFailure(runtime: BluezBackendRuntime, group: BluezScanGroup): Error | null {
+  if (runtime.isDestroying()) {
+    return contractError('operation.cancelled-by-destroy', 'core', 'bluez.scan.start')
+  }
+  if (runtime.scanGroup !== group) {
+    return contractError('operation.reset', 'core', 'bluez.scan.start')
+  }
+  return null
 }

@@ -107,8 +107,12 @@ class InMemoryBluezBoundary {
         const call = { returnKind: 'void', path, interfaceName, method, argumentsValue }
         this.calls.push(call)
         const handler = this.handlers.get(this.handlerKey(path, interfaceName, method))
+        let suppressDefaultStateTransition = false
         if (handler !== undefined) {
-          await handler(call)
+          suppressDefaultStateTransition = (await handler(call)) === false
+        }
+        if (!suppressDefaultStateTransition) {
+          this.emitDefaultStateTransition(call)
         }
       },
       callBytes: async (path, interfaceName, method, options) => {
@@ -153,6 +157,38 @@ class InMemoryBluezBoundary {
 
   handlerKey(path, interfaceName, method) {
     return `${path}\u0000${interfaceName}\u0000${method}`
+  }
+
+  emitDefaultStateTransition(call) {
+    if (call.interfaceName === BLUEZ_ADAPTER_INTERFACE && call.method === 'StartDiscovery') {
+      this.objectManager.emitPropertiesChanged(call.path, BLUEZ_ADAPTER_INTERFACE, {
+        Discovering: { signature: 'b', value: true }
+      })
+      return
+    }
+    if (call.interfaceName === BLUEZ_ADAPTER_INTERFACE && call.method === 'StopDiscovery') {
+      this.objectManager.emitPropertiesChanged(call.path, BLUEZ_ADAPTER_INTERFACE, {
+        Discovering: { signature: 'b', value: false }
+      })
+      return
+    }
+    if (call.interfaceName === BLUEZ_DEVICE_INTERFACE && call.method === 'Disconnect') {
+      this.objectManager.emitPropertiesChanged(call.path, BLUEZ_DEVICE_INTERFACE, {
+        Connected: { signature: 'b', value: false }
+      })
+      return
+    }
+    if (call.interfaceName === BLUEZ_GATT_CHARACTERISTIC_INTERFACE && call.method === 'StartNotify') {
+      this.objectManager.emitPropertiesChanged(call.path, BLUEZ_GATT_CHARACTERISTIC_INTERFACE, {
+        Notifying: { signature: 'b', value: true }
+      })
+      return
+    }
+    if (call.interfaceName === BLUEZ_GATT_CHARACTERISTIC_INTERFACE && call.method === 'StopNotify') {
+      this.objectManager.emitPropertiesChanged(call.path, BLUEZ_GATT_CHARACTERISTIC_INTERFACE, {
+        Notifying: { signature: 'b', value: false }
+      })
+    }
   }
 }
 

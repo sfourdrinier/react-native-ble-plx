@@ -69,7 +69,8 @@ function managedObjects() {
           properties: {
             Address: { signature: 's', value: '00:11:22:33:44:55' },
             Alias: { signature: 's', value: 'primary' },
-            Powered: { signature: 'b', value: true }
+            Powered: { signature: 'b', value: true },
+            Discovering: { signature: 'b', value: false }
           }
         }
       ]
@@ -136,7 +137,8 @@ function characteristicObject(path, service) {
           Service: { signature: 'o', value: service },
           UUID: { signature: 's', value: characteristicUuid },
           Flags: { signature: 'as', value: ['read', 'write', 'notify'] },
-          Value: { signature: 'ay', value: new Uint8Array([1]) }
+          Value: { signature: 'ay', value: new Uint8Array([1]) },
+          Notifying: { signature: 'b', value: false }
         }
       }
     ]
@@ -426,6 +428,151 @@ describe('BlueZ contract-v1 vertical slice', () => {
     expect(boundary.objectManager.listenerCount()).toBe(0)
   })
 
+  test('confirms physical notification start and stop before exposing or releasing a subscription', async () => {
+    const { backend, boundary } = await backendFixture()
+    const { database } = await connectedDatabase(backend)
+    const characteristic = (await database.snapshot()).characteristics[0].path
+    boundary.onCall(
+      String(characteristic.characteristicOccurrence),
+      BLUEZ_GATT_CHARACTERISTIC_INTERFACE,
+      'StartNotify',
+      async () => false
+    )
+    let subscribeSettled = false
+    const subscribing = database
+      .subscribe(characteristic, { ...operation(), delivery: delivery() })
+      .then(subscription => {
+        subscribeSettled = true
+        return subscription
+      })
+    await Promise.resolve()
+    expect(subscribeSettled).toBe(false)
+    boundary.objectManager.emitPropertiesChanged(
+      String(characteristic.characteristicOccurrence),
+      BLUEZ_GATT_CHARACTERISTIC_INTERFACE,
+      { Notifying: { signature: 'b', value: true } }
+    )
+    const subscription = await subscribing
+
+    boundary.onCall(
+      String(characteristic.characteristicOccurrence),
+      BLUEZ_GATT_CHARACTERISTIC_INTERFACE,
+      'StopNotify',
+      async () => false
+    )
+    const iterator = subscription.values[Symbol.asyncIterator]()
+    let removalSettled = false
+    const removing = subscription.remove().then(cleanup => {
+      removalSettled = true
+      return cleanup
+    })
+    await Promise.resolve()
+    expect(removalSettled).toBe(false)
+    boundary.objectManager.emitPropertiesChanged(
+      String(characteristic.characteristicOccurrence),
+      BLUEZ_GATT_CHARACTERISTIC_INTERFACE,
+      { Value: { signature: 'ay', value: new Uint8Array([18]) } }
+    )
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'terminal', reason: 'owner-released' }
+    })
+    boundary.objectManager.emitPropertiesChanged(
+      String(characteristic.characteristicOccurrence),
+      BLUEZ_GATT_CHARACTERISTIC_INTERFACE,
+      { Notifying: { signature: 'b', value: false } }
+    )
+    await expect(removing).resolves.toEqual({ state: 'released', failures: [] })
+    expect(Number(backend.resourceCounters().physicalCccdEnablements)).toBe(0)
+    await backend.destroy()
+  })
+
+  test('destroys an unconfirmed physical notification by stopping it after StartNotify returned', async () => {
+    const { backend, boundary } = await backendFixture()
+    const { database } = await connectedDatabase(backend)
+    const characteristic = (await database.snapshot()).characteristics[0].path
+    boundary.onCall(
+      String(characteristic.characteristicOccurrence),
+      BLUEZ_GATT_CHARACTERISTIC_INTERFACE,
+      'StartNotify',
+      async () => false
+    )
+    const subscribing = database.subscribe(characteristic, { ...operation(), delivery: delivery() })
+    await new Promise(resolve => setImmediate(resolve))
+    const destroying = backend.destroy()
+    await expect(subscribing).rejects.toMatchObject({ normalized: { code: 'operation.cancelled-by-destroy' } })
+    await expect(destroying).resolves.toEqual({ state: 'released', failures: [] })
+    expect(boundary.calls.filter(call => call.method === 'StopNotify')).toHaveLength(1)
+  })
+
+  test('cleans a cancelled notification confirmation on device loss and permits a confirmed reconnect', async () => {
+    const { backend, boundary } = await backendFixture()
+    const peerId = await observedPeerId(backend)
+    const clientId = opaqueId('disconnect-reconnect-client', 'client', 'bluez:disconnect-reconnect')
+    const lease = await backend.connections.connect(peerId, clientId, operation())
+    const database = await backend.gatt.discover(lease.connection, operation())
+    const characteristic = (await database.snapshot()).characteristics[0].path
+    let releaseStartNotify
+    const startNotifyGate = new Promise(resolve => {
+      releaseStartNotify = resolve
+    })
+    boundary.onCall(
+      String(characteristic.characteristicOccurrence),
+      BLUEZ_GATT_CHARACTERISTIC_INTERFACE,
+      'StartNotify',
+      async () => {
+        await startNotifyGate
+        return false
+      }
+    )
+    const abortController = new AbortController()
+    const cancelledSubscription = database.subscribe(characteristic, {
+      ...operation(abortController.signal),
+      delivery: delivery()
+    })
+    await Promise.resolve()
+    abortController.abort()
+    await expect(cancelledSubscription).rejects.toMatchObject({ normalized: { code: 'operation.aborted' } })
+    expect(Number(backend.resourceCounters().physicalCccdEnablements)).toBe(1)
+    boundary.objectManager.emitPropertiesChanged(devicePath, BLUEZ_DEVICE_INTERFACE, {
+      Connected: { signature: 'b', value: false }
+    })
+    releaseStartNotify()
+    await new Promise(resolve => setImmediate(resolve))
+    expect(Number(backend.resourceCounters().physicalCccdEnablements)).toBe(0)
+
+    boundary.onCall(devicePath, BLUEZ_DEVICE_INTERFACE, 'Connect', async () => {
+      boundary.objectManager.emitPropertiesChanged(devicePath, BLUEZ_DEVICE_INTERFACE, {
+        Connected: { signature: 'b', value: true }
+      })
+    })
+    const reconnectableLease = await backend.connections.connect(peerId, clientId, operation())
+    const reconnectableDatabase = await backend.gatt.discover(reconnectableLease.connection, operation())
+    boundary.onCall(devicePath, BLUEZ_DEVICE_INTERFACE, 'Disconnect', async () => false)
+    let disconnectSettled = false
+    const disconnecting = reconnectableLease.connection.disconnect().then(cleanup => {
+      disconnectSettled = true
+      return cleanup
+    })
+    await Promise.resolve()
+    expect(disconnectSettled).toBe(false)
+    boundary.objectManager.emitPropertiesChanged(devicePath, BLUEZ_DEVICE_INTERFACE, {
+      Connected: { signature: 'b', value: false }
+    })
+    await expect(disconnecting).resolves.toEqual({ state: 'released', failures: [] })
+    await expect(reconnectableDatabase.snapshot()).rejects.toMatchObject({ normalized: { code: 'gatt.stale-handle' } })
+
+    const reconnectedLease = await backend.connections.connect(peerId, clientId, operation())
+    const reconnectedDatabase = await backend.gatt.discover(reconnectedLease.connection, operation())
+    const reconnectedSnapshot = await reconnectedDatabase.snapshot()
+    expect(reconnectedSnapshot.characteristics.some(item => item.path.characteristicUuid === characteristicUuid)).toBe(
+      true
+    )
+    boundary.onCall(devicePath, BLUEZ_DEVICE_INTERFACE, 'Disconnect', async () => undefined)
+    await expect(reconnectedLease.release()).resolves.toEqual({ state: 'released', failures: [] })
+    await backend.destroy()
+  })
+
   test('cancels a dispatched read and rejects its late D-Bus result without contaminating a later read', async () => {
     const { backend, boundary } = await backendFixture()
     const { database } = await connectedDatabase(backend)
@@ -460,6 +607,9 @@ describe('BlueZ contract-v1 vertical slice', () => {
     const { backend, boundary } = await backendFixture()
     const peerId = await observedPeerId(backend)
     const clientId = opaqueId('failure-client', 'client', 'bluez:failure')
+    boundary.objectManager.emitPropertiesChanged(devicePath, BLUEZ_DEVICE_INTERFACE, {
+      Connected: { signature: 'b', value: false }
+    })
     boundary.onCall(devicePath, BLUEZ_DEVICE_INTERFACE, 'Connect', async () => {
       throw new Error('connect failed')
     })
@@ -468,8 +618,11 @@ describe('BlueZ contract-v1 vertical slice', () => {
     })
     expect(Number(backend.resourceCounters().physicalLinks)).toBe(0)
     expect(Number(backend.resourceCounters().connectionLeases)).toBe(0)
-
-    boundary.onCall(devicePath, BLUEZ_DEVICE_INTERFACE, 'Connect', async () => undefined)
+    boundary.onCall(devicePath, BLUEZ_DEVICE_INTERFACE, 'Connect', async () => {
+      boundary.objectManager.emitPropertiesChanged(devicePath, BLUEZ_DEVICE_INTERFACE, {
+        Connected: { signature: 'b', value: true }
+      })
+    })
     const lease = await backend.connections.connect(peerId, clientId, operation())
     boundary.objectManager.emitPropertiesChanged(devicePath, BLUEZ_DEVICE_INTERFACE, {
       ServicesResolved: { signature: 'b', value: false }
@@ -501,7 +654,6 @@ describe('BlueZ contract-v1 vertical slice', () => {
     expect(boundary.calls.filter(call => call.method === 'Connect')).toHaveLength(1)
     expect(Number(backend.resourceCounters().connectionLeases)).toBe(0)
     expect(Number(backend.resourceCounters().physicalLinks)).toBe(0)
-
     boundary.objectManager.emitPropertiesChanged(devicePath, BLUEZ_DEVICE_INTERFACE, {
       Connected: { signature: 'b', value: true }
     })
@@ -576,7 +728,7 @@ describe('BlueZ contract-v1 vertical slice', () => {
     second.boundary.emitReset('BlueZ daemon disappeared')
     await expect(discovery).rejects.toMatchObject({ normalized: { code: 'operation.reset' } })
     await expect(resetSubscriptionIterator.next()).resolves.toMatchObject({
-      value: { kind: 'terminal', reason: 'source-failed' }
+      value: { kind: 'terminal', reason: 'connection-lost' }
     })
     expect(Number(second.backend.resourceCounters().physicalCccdEnablements)).toBe(0)
     expect(Number(second.backend.resourceCounters().databaseSnapshots)).toBe(0)
@@ -641,7 +793,7 @@ describe('BlueZ contract-v1 vertical slice', () => {
     await Promise.resolve()
     expect(destroySettled).toBe(false)
     releasePhysicalStart()
-    await expect(startDuringDestroy).rejects.toMatchObject({ normalized: { code: 'operation.aborted' } })
+    await expect(startDuringDestroy).rejects.toMatchObject({ normalized: { code: 'operation.cancelled-by-destroy' } })
     await expect(destroy).resolves.toEqual({ state: 'released', failures: [] })
   })
 
@@ -663,7 +815,8 @@ describe('BlueZ contract-v1 vertical slice', () => {
     const second = database.subscribe(characteristic, { ...operation(), delivery: delivery() })
     expect(boundary.calls.filter(call => call.method === 'StartNotify')).toHaveLength(1)
     releaseStart()
-    const [firstSubscription, secondSubscription] = await Promise.all([first, second])
+    const firstSubscription = await first
+    const secondSubscription = await second
     await firstSubscription.remove()
     expect(boundary.calls.filter(call => call.method === 'StopNotify')).toHaveLength(0)
 

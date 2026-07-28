@@ -65,6 +65,7 @@ export interface BluezConnectionRecord {
   nextDatabaseGeneration: number
   currentDatabase: BluezGattDatabase | null
   transition: Promise<void> | null
+  disconnection: Promise<CleanupRecord> | null
   pendingConnectors: number
   orphanCleanupScheduled: boolean
 }
@@ -96,6 +97,7 @@ export interface BluezPhysicalSubscription {
   readonly consumers: Set<BluezSubscriptionRecord>
   pendingConsumers: number
   state: 'enabling' | 'ready' | 'removing'
+  readonly startMethod: Promise<void>
   readonly enablement: Promise<void>
   removal: Promise<CleanupRecord> | null
 }

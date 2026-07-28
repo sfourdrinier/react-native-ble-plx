@@ -9,6 +9,14 @@ export const BLUEZ_GATT_SERVICE_INTERFACE = 'org.bluez.GattService1'
 export const BLUEZ_GATT_CHARACTERISTIC_INTERFACE = 'org.bluez.GattCharacteristic1'
 export const BLUEZ_GATT_DESCRIPTOR_INTERFACE = 'org.bluez.GattDescriptor1'
 
+export function isBluezGattTopologyInterface(interfaceName: string): boolean {
+  return (
+    interfaceName === BLUEZ_GATT_SERVICE_INTERFACE ||
+    interfaceName === BLUEZ_GATT_CHARACTERISTIC_INTERFACE ||
+    interfaceName === BLUEZ_GATT_DESCRIPTOR_INTERFACE
+  )
+}
+
 export type BluezBusKind = 'system' | 'session'
 
 export type BluezVariant =

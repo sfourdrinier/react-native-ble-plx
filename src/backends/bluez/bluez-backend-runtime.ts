@@ -9,7 +9,7 @@ import type {
   ScannerBackend
 } from '../../backend-contract/backend'
 import { contractError, type CleanupFailure, type CleanupRecord } from '../../backend-contract/errors'
-import type { CharacteristicPath, DescriptorPath } from '../../backend-contract/gatt'
+import type { CharacteristicPath, ConnectionPath, DescriptorPath } from '../../backend-contract/gatt'
 import type {
   AdapterDescriptor,
   AdapterStateSnapshot,
@@ -46,6 +46,7 @@ import {
   BLUEZ_DEVICE_INTERFACE,
   BLUEZ_GATT_CHARACTERISTIC_INTERFACE,
   BLUEZ_GATT_DESCRIPTOR_INTERFACE,
+  isBluezGattTopologyInterface,
   type BluezBusKind,
   type BluezDbusBoundary,
   type BluezInterfacesAdded,
@@ -55,6 +56,7 @@ import {
 import type { BluezObjectStoreObserver } from './bluez-object-store'
 import { BluezObjectStore } from './bluez-object-store'
 import { BluezOperationDispatcher } from './bluez-operation-dispatcher'
+import { connectBluezConnection, disconnectBluezConnection } from './bluez-connection-runtime'
 import {
   dispatchBluezCharacteristicRead,
   dispatchBluezCharacteristicWrite,
@@ -76,13 +78,12 @@ import {
   cleanupFailure,
   createGattSnapshot,
   createObservation,
-  createPendingConnectionRecord,
   matchesScan,
   requireOwnerLease,
   requireRecordConnection,
   successfulTerminal
 } from './bluez-runtime-models'
-import { removeBluezSubscription, stopBluezPhysicalSubscription, subscribeBluez } from './bluez-subscription-runtime'
+import { beginBluezPhysicalRemoval, removeBluezSubscription, subscribeBluez } from './bluez-subscription-runtime'
 import { destroyBluezScan, joinBluezScan, startBluezScan, stopBluezScan } from './bluez-scan-runtime'
 import type {
   BluezConnectionRecord,
@@ -94,11 +95,10 @@ import type {
 } from './bluez-runtime-types'
 import { bluezEventLimits, bluezStateLimits } from './bluez-runtime-types'
 import {
-  awaitSharedBluezTransition,
-  rejectBluezPathWaiters,
+  rejectAllBluezWaiters,
+  rejectBluezPathTreeWaiters,
   rejectRemovedBluezObjectWaiters,
   resolveBluezWaiters,
-  scheduleOrphanedBluezConnectionCleanup,
   waitForBluezBoolean
 } from './bluez-property-waiters'
 
@@ -139,8 +139,8 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
   private backendGeneration = 1
   private adapterGeneration = 1
   nextScan = 1
-  private nextConnection = 1
-  private nextLease = 1
+  nextConnection = 1
+  nextLease = 1
   nextSubscription = 1
   private nextDatabaseOperation = 1
   private nextPeer = 1
@@ -220,6 +220,10 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
     }
   }
 
+  isDestroying(): boolean {
+    return this.destroyed
+  }
+
   allocateDatabaseCorrelation(operation: string) {
     const correlation = opaqueId(`${operation}-${this.nextDatabaseOperation}`, 'core-operation', 'bluez:database')
     this.nextDatabaseOperation += 1
@@ -275,6 +279,9 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
     if (event.interfaces.some(entry => entry.name === BLUEZ_DEVICE_INTERFACE)) {
       this.emitAdvertisementForPath(event.path)
     }
+    if (event.interfaces.some(entry => isBluezGattTopologyInterface(entry.name))) {
+      this.invalidateGattDatabasePath(event.path)
+    }
     if (event.path === String(this.selectedAdapter.adapterId)) {
       this.adapterGeneration += 1
       this.broadcastAdapterState()
@@ -293,6 +300,9 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
     if (event.path === String(this.selectedAdapter.adapterId) && event.interfaces.includes(BLUEZ_ADAPTER_INTERFACE)) {
       this.advanceBackendGeneration('BlueZ adapter object was removed')
     }
+    if (event.interfaces.some(isBluezGattTopologyInterface)) {
+      this.invalidateGattDatabasePath(event.path)
+    }
     rejectRemovedBluezObjectWaiters(this, event.path)
   }
 
@@ -300,6 +310,9 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
     resolveBluezWaiters(this)
     if (event.interfaceName === BLUEZ_DEVICE_INTERFACE) {
       this.emitAdvertisementForPath(event.path)
+      if (event.changed.ServicesResolved?.signature === 'b' && event.changed.ServicesResolved.value === false) {
+        this.invalidateGattDatabasePath(event.path)
+      }
       if (event.changed.Connected?.signature === 'b' && event.changed.Connected.value === false) {
         this.invalidateConnectionPath(event.path, 'connection.lost')
       }
@@ -346,18 +359,7 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
   }
 
   async disconnect(record: BluezConnectionRecord): Promise<CleanupRecord> {
-    if (!record.active) {
-      return releasedBluezCleanup
-    }
-    record.state = 'disconnecting'
-    try {
-      await this.boundary.methods.callVoid(record.devicePath, BLUEZ_DEVICE_INTERFACE, 'Disconnect', [])
-    } catch (error) {
-      record.state = 'connected'
-      throw error
-    }
-    this.invalidateConnection(record, 'operation.disconnected')
-    return releasedBluezCleanup
+    return disconnectBluezConnection(this, record, () => this.invalidateConnection(record, 'operation.disconnected'))
   }
 
   async readCharacteristic(
@@ -492,79 +494,10 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
 
   private async connect(
     peerId: PeerId<string>,
-    _clientId: ClientId<string, string>,
+    clientId: ClientId<string, string>,
     options: PublicOperationOptions
   ): Promise<BluezConnectionLease> {
-    this.assertUsable('bluez.connect')
-    const devicePath = this.devicePathForPeer(peerId)
-    if (
-      !devicePath.startsWith(`${String(this.selectedAdapter.adapterId)}/`) ||
-      !this.store.hasInterface(devicePath, BLUEZ_DEVICE_INTERFACE)
-    ) {
-      throw contractError('connection.not-found', 'connection', 'bluez.connect')
-    }
-    let record = this.connectionRecords.get(devicePath)
-    if (record === undefined) {
-      const attachmentId = this.attachment().attachmentId
-      const ids = this.identifiers()
-      record = createPendingConnectionRecord(devicePath, peerId)
-      const sharedRecord = record
-      const connection = new BluezConnection(
-        this,
-        record,
-        peerId,
-        ids.connectionId(`bluez-connection-${this.nextConnection}`),
-        opaqueId(
-          String(this.nextConnection),
-          'connection-generation',
-          `${String(this.attachment().attachmentId)}:${devicePath}`
-        )
-      )
-      record.connection = connection
-      this.nextConnection += 1
-      this.connectionRecords.set(devicePath, record)
-      record.transition = this.dispatcher.dispatch({ signal: null, deadline: null }, 'bluez.connect', async () => {
-        await this.boundary.methods.callVoid(devicePath, BLUEZ_DEVICE_INTERFACE, 'Connect', [])
-        this.assertAttachmentCurrent(attachmentId, 'bluez.connect.after-method')
-        await waitForBluezBoolean(this, devicePath, BLUEZ_DEVICE_INTERFACE, 'Connected', true, {
-          signal: null,
-          deadline: null
-        })
-        this.assertAttachmentCurrent(attachmentId, 'bluez.connect.after-confirmation')
-        sharedRecord.state = 'connected'
-        sharedRecord.active = true
-      }).completion
-      record.transition.catch(error => {
-        sharedRecord.active = false
-        sharedRecord.state = 'disconnected'
-        if (this.connectionRecords.get(devicePath) === sharedRecord) {
-          this.connectionRecords.delete(devicePath)
-        }
-        console.error('[BluezBackendRuntime.connect] Shared BlueZ connect transition failed:', error)
-      })
-    }
-    record.pendingConnectors += 1
-    try {
-      await awaitSharedBluezTransition(record.transition, options, this.now, 'bluez.connect.join')
-    } catch (error) {
-      record.pendingConnectors -= 1
-      scheduleOrphanedBluezConnectionCleanup(this, record)
-      throw error
-    }
-    record.pendingConnectors -= 1
-    this.assertUsable('bluez.connect.confirmed')
-    if (!record.active || record.state !== 'connected' || this.connectionRecords.get(devicePath) !== record) {
-      throw contractError('connection.stale', 'connection', 'bluez.connect.confirmed')
-    }
-    const ids = this.identifiers()
-    const leaseId = ids.leaseId(`bluez-connection-lease-${this.nextLease}`)
-    this.nextLease += 1
-    const lease = new BluezConnectionLease(this, record, leaseId, requireRecordConnection(record))
-    record.leases.add(lease)
-    if (record.ownerLeaseId === null) {
-      record.ownerLeaseId = leaseId
-    }
-    return lease
+    return connectBluezConnection(this, peerId, clientId, options)
   }
 
   private async discover(
@@ -605,7 +538,7 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
     return database
   }
 
-  private assertAttachmentCurrent(
+  assertAttachmentCurrent(
     attachmentId: import('../../backend-contract/primitives').AttachmentId<string>,
     operation: string
   ): void {
@@ -706,22 +639,23 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
 
   private invalidateConnectionPath(path: string, cause: import('../../backend-contract/errors').BleErrorCode): void {
     const record = this.connectionRecords.get(path)
-    if (record !== undefined && record.active) {
+    if (record !== undefined) {
       this.invalidateConnection(record, cause)
     }
   }
 
   private invalidateConnection(
     record: BluezConnectionRecord,
-    _cause: import('../../backend-contract/errors').BleErrorCode
+    cause: import('../../backend-contract/errors').BleErrorCode
   ): void {
+    const connection = cause === 'connection.lost' ? this.connectionPathFor(record) : null
     record.active = false
-    record.state = 'disconnected'
+    record.state = cause === 'connection.lost' ? 'lost' : 'disconnected'
     for (const database of record.databases) {
       database.invalidate()
     }
     record.currentDatabase = null
-    rejectBluezPathWaiters(this, record.devicePath, 'operation.disconnected')
+    rejectBluezPathTreeWaiters(this, record.devicePath, 'operation.disconnected')
     for (const [objectPath, physical] of [...this.physicalSubscriptions]) {
       if (objectPath.startsWith(`${record.devicePath}/`)) {
         for (const consumer of physical.consumers) {
@@ -734,6 +668,75 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
     if (this.connectionRecords.get(record.devicePath) === record) {
       this.connectionRecords.delete(record.devicePath)
     }
+    if (connection !== null) {
+      this.broadcastEvent({
+        attachment: connection.attachment,
+        attachmentId: connection.attachmentId,
+        kind: 'connection-lost',
+        connection,
+        ingressOrdinal: this.ingressOrdinal
+      })
+      this.ingressOrdinal += 1
+    }
+  }
+
+  private invalidateGattDatabasePath(path: string): void {
+    for (const record of this.connectionRecords.values()) {
+      if (record.active && (path === record.devicePath || path.startsWith(`${record.devicePath}/`))) {
+        this.invalidateGattDatabase(record)
+      }
+    }
+  }
+
+  private invalidateGattDatabase(record: BluezConnectionRecord): void {
+    const database = record.currentDatabase
+    if (database === null) {
+      return
+    }
+    database.invalidate()
+    record.currentDatabase = null
+    rejectBluezPathTreeWaiters(this, record.devicePath, 'operation.disconnected')
+    for (const [objectPath, physical] of [...this.physicalSubscriptions]) {
+      if (!objectPath.startsWith(`${record.devicePath}/`)) {
+        continue
+      }
+      for (const consumer of physical.consumers) {
+        consumer.stream.closeWithReason('connection-lost')
+        consumer.removed = true
+      }
+      physical.consumers.clear()
+      if (physical.removal === null) {
+        observeBluezCleanup(
+          beginBluezPhysicalRemoval(this, physical),
+          '[BluezBackendRuntime.invalidateGattDatabase] BlueZ notification cleanup failed:'
+        )
+      }
+    }
+    this.broadcastEvent({
+      attachment: database.path.attachment,
+      attachmentId: database.path.attachmentId,
+      kind: 'database-changed',
+      database: database.path,
+      ingressOrdinal: this.ingressOrdinal
+    })
+    this.ingressOrdinal += 1
+  }
+
+  private connectionPathFor(record: BluezConnectionRecord): ConnectionPath<string, string> | null {
+    const connection = record.connection
+    const ownerLeaseId = record.ownerLeaseId
+    if (connection === null || ownerLeaseId === null) {
+      return null
+    }
+    const attachment = this.attachment()
+    return Object.freeze({
+      attachment,
+      attachmentId: attachment.attachmentId,
+      peerId: connection.peerId,
+      connectionId: connection.connectionId,
+      ownerLeaseId,
+      connectionGeneration: connection.connectionGeneration
+    })
   }
 
   private advanceBackendGeneration(_reason: string): void {
@@ -793,7 +796,7 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
     return peerId
   }
 
-  private devicePathForPeer(peerId: PeerId<string>): string {
+  devicePathForPeer(peerId: PeerId<string>): string {
     const path = this.peerPaths.get(String(peerId))
     if (path === undefined) {
       throw contractError('connection.not-found', 'connection', 'bluez.connect.peer-handle')
@@ -825,6 +828,7 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
   private async destroyInternal(): Promise<CleanupRecord> {
     this.destroyed = true
     this.dispatcher.cancelAll()
+    rejectAllBluezWaiters(this)
     await this.dispatcher.waitForIdle()
     const failures: CleanupFailure[] = []
     failures.push(...(await captureCleanup(destroyBluezScan(this), 'scan', 'bluez.destroy.scan')).failures)
@@ -837,7 +841,7 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
       failures.push(
         ...(
           await captureCleanup(
-            stopBluezPhysicalSubscription(this, physical),
+            physical.removal ?? beginBluezPhysicalRemoval(this, physical),
             'subscription',
             'bluez.destroy.subscription'
           )
