@@ -66,7 +66,7 @@ describe('iOS modernization defaults', () => {
       'state:(RCTPromiseResolveBlock)resolve',
       'startDeviceScan:(NSArray*)filteredUUIDs',
       'options:(JS::NativeBlePlx::ScanOptions &)options',
-      'NSDictionaryFromScanOptions(options)',
+      'NSDictionaryFromScanOptions(&options)',
       'stopDeviceScan:(RCTPromiseResolveBlock)resolve',
       'requestConnectionPriorityForDevice:(NSString*)deviceIdentifier',
       'connectionPriority:(double)connectionPriority',
@@ -76,7 +76,7 @@ describe('iOS modernization defaults', () => {
       'connectedDevices:(NSArray<NSString*>*)serviceUUIDs',
       'connectToDevice:(NSString*)deviceIdentifier',
       'options:(JS::NativeBlePlx::ConnectionOptions &)options',
-      'NSDictionaryFromConnectionOptions(options)',
+      'NSDictionaryFromConnectionOptions(&options)',
       'cancelDeviceConnection:(NSString*)deviceIdentifier',
       'isDeviceConnected:(NSString*)deviceIdentifier',
       'discoverAllServicesAndCharacteristicsForDevice:(NSString*)deviceIdentifier',
@@ -112,5 +112,24 @@ describe('iOS modernization defaults', () => {
     expect(iosImplementation).not.toContain('stopDeviceScan) {')
     expect(iosImplementation).toContain('#else\nRCT_EXPORT_METHOD(startDeviceScan:(NSArray*)filteredUUIDs\n                          options:(NSDictionary*)options')
     expect(iosImplementation).toContain('#else\nRCT_EXPORT_METHOD(connectToDevice:(NSString*)deviceIdentifier\n                          options:(NSDictionary*)options')
+  })
+
+  // #99: null options from JS must not crash New Arch (C++ reference wrappers).
+  test('null-guards optional New Arch options conversion helpers (#99)', () => {
+    expect(iosImplementation).toContain(
+      'static NSDictionary *NSDictionaryFromScanOptions(const JS::NativeBlePlx::ScanOptions *options)'
+    )
+    expect(iosImplementation).toContain(
+      'static NSDictionary *NSDictionaryFromConnectionOptions(const JS::NativeBlePlx::ConnectionOptions *options)'
+    )
+    expect(iosImplementation).toMatch(
+      /NSDictionaryFromScanOptions\(const JS::NativeBlePlx::ScanOptions \*options\)[\s\S]*?if \(options == nullptr\)/
+    )
+    expect(iosImplementation).toMatch(
+      /NSDictionaryFromConnectionOptions\(const JS::NativeBlePlx::ConnectionOptions \*options\)[\s\S]*?if \(options == nullptr\)/
+    )
+    // Call sites take address of the bridged reference so a null wrapper is detectable.
+    expect(iosImplementation).toContain('NSDictionaryFromScanOptions(&options)')
+    expect(iosImplementation).toContain('NSDictionaryFromConnectionOptions(&options)')
   })
 })

@@ -32,25 +32,33 @@ RCT_EXPORT_MODULE();
 static BOOL _hasAttemptedAdapterRegistration = NO;
 
 #ifdef RCT_NEW_ARCH_ENABLED
-static NSDictionary *NSDictionaryFromScanOptions(JS::NativeBlePlx::ScanOptions &options) {
+// JS may pass null for optional options objects (BleManager historically used
+// `options || null`). New Arch bridges those as C++ references that cannot be
+// null-safe — calling methods on a null wrapper segfaults (EXC_BAD_ACCESS).
+// Accept a pointer and treat nullptr as an empty options dictionary.
+// See: https://github.com/sfourdrinier/react-native-ble-plx/issues/99
+static NSDictionary *NSDictionaryFromScanOptions(const JS::NativeBlePlx::ScanOptions *options) {
     NSMutableDictionary *dictionary = [NSMutableDictionary dictionary];
+    if (options == nullptr) {
+        return dictionary;
+    }
 
-    auto allowDuplicates = options.allowDuplicates();
+    auto allowDuplicates = options->allowDuplicates();
     if (allowDuplicates.has_value()) {
         dictionary[@"allowDuplicates"] = @(*allowDuplicates);
     }
 
-    auto scanMode = options.scanMode();
+    auto scanMode = options->scanMode();
     if (scanMode.has_value()) {
         dictionary[@"scanMode"] = @(*scanMode);
     }
 
-    auto callbackType = options.callbackType();
+    auto callbackType = options->callbackType();
     if (callbackType.has_value()) {
         dictionary[@"callbackType"] = @(*callbackType);
     }
 
-    auto legacyScan = options.legacyScan();
+    auto legacyScan = options->legacyScan();
     if (legacyScan.has_value()) {
         dictionary[@"legacyScan"] = @(*legacyScan);
     }
@@ -58,25 +66,28 @@ static NSDictionary *NSDictionaryFromScanOptions(JS::NativeBlePlx::ScanOptions &
     return dictionary;
 }
 
-static NSDictionary *NSDictionaryFromConnectionOptions(JS::NativeBlePlx::ConnectionOptions &options) {
+static NSDictionary *NSDictionaryFromConnectionOptions(const JS::NativeBlePlx::ConnectionOptions *options) {
     NSMutableDictionary *dictionary = [NSMutableDictionary dictionary];
+    if (options == nullptr) {
+        return dictionary;
+    }
 
-    auto autoConnect = options.autoConnect();
+    auto autoConnect = options->autoConnect();
     if (autoConnect.has_value()) {
         dictionary[@"autoConnect"] = @(*autoConnect);
     }
 
-    auto requestMTU = options.requestMTU();
+    auto requestMTU = options->requestMTU();
     if (requestMTU.has_value()) {
         dictionary[@"requestMTU"] = @(*requestMTU);
     }
 
-    NSString *refreshGatt = options.refreshGatt();
+    NSString *refreshGatt = options->refreshGatt();
     if (refreshGatt != nil) {
         dictionary[@"refreshGatt"] = refreshGatt;
     }
 
-    auto timeout = options.timeout();
+    auto timeout = options->timeout();
     if (timeout.has_value()) {
         dictionary[@"timeout"] = @(*timeout);
     }
@@ -289,7 +300,7 @@ RCT_EXPORT_METHOD(startDeviceScan:(NSArray*)filteredUUIDs
   if (filteredUUIDs == nil || [filteredUUIDs isEqual:[NSNull null]]) {
     filteredUUIDs = @[];
   }
-  [_manager startDeviceScan:filteredUUIDs options:NSDictionaryFromScanOptions(options)];
+  [_manager startDeviceScan:filteredUUIDs options:NSDictionaryFromScanOptions(&options)];
   resolve(nil);
 }
 #else
@@ -374,7 +385,7 @@ RCT_EXPORT_METHOD(connectToDevice:(NSString*)deviceIdentifier
                          resolve:(RCTPromiseResolveBlock)resolve
                          reject:(RCTPromiseRejectBlock)reject) {
     [_manager connectToDevice:deviceIdentifier
-                      options:NSDictionaryFromConnectionOptions(options)
+                      options:NSDictionaryFromConnectionOptions(&options)
                       resolve:resolve
                        reject:reject];
 }
@@ -383,6 +394,9 @@ RCT_EXPORT_METHOD(connectToDevice:(NSString*)deviceIdentifier
                           options:(NSDictionary*)options
                          resolve:(RCTPromiseResolveBlock)resolve
                          reject:(RCTPromiseRejectBlock)reject) {
+    if (options == nil || [options isEqual:[NSNull null]]) {
+        options = @{};
+    }
     [_manager connectToDevice:deviceIdentifier
                       options:options
                       resolve:resolve
