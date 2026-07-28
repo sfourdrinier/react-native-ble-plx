@@ -13,13 +13,14 @@ import type {
   TckFeatureSuite,
   TckFact,
   TckRuntimeIdentity,
+  TckRunOptions,
   TckRunReport,
   TckScenarioDefinition,
   TckScenarioId,
   TckScenarioReceipt
 } from './contracts'
 import { TckAssertionError } from './contracts'
-import { executeRunnerControlledTckScenario } from './scenario-adapter'
+import { claimRunnerOwnedBackend, executeRunnerOwnedTckScenario } from './runner-observers'
 import { baseTckScenarios, findTckScenario } from './scenarios'
 
 /**
@@ -33,23 +34,32 @@ export async function runBackendTck<
   Backend extends BleCentralBackend<Attachment, Identity>
 >(
   factory: BackendTckFactory<Attachment, Identity, Backend>,
-  featureSuites: readonly TckFeatureSuite[]
+  featureSuites: readonly TckFeatureSuite[],
+  options: TckRunOptions = Object.freeze({ proofScope: 'deterministic' })
 ): Promise<TckRunReport> {
+  const proofScope = snapshotRunOptions(options)
   const identity = await verifyFactoryRuntimeIdentity(factory)
-  const receipts = await runBaseSuites(factory, identity)
-  const featureRun = await runRegisteredFeatureSuites(factory, identity, featureSuites, receipts)
-  return {
+  const receipts = await runBaseSuites(factory, identity, proofScope)
+  const featureRun = await runRegisteredFeatureSuites(factory, identity, featureSuites, receipts, proofScope)
+  return Object.freeze({
     backendId: identity.registeredBackendId,
     identity,
     verification: 'runner-controlled',
-    proofScope: factory.run.proofScope,
-    baseScenarioIds: baseTckScenarios
-      .filter(definition => definition.execution === 'base')
-      .map(definition => definition.id),
+    proofScope,
+    baseScenarioIds: Object.freeze(
+      baseTckScenarios.filter(definition => definition.execution === 'base').map(definition => definition.id)
+    ),
     featureSuiteIds: featureRun.suiteIds,
     featureBindings: featureRun.bindings,
-    receipts
+    receipts: Object.freeze(receipts)
+  })
+}
+
+function snapshotRunOptions(options: TckRunOptions): 'deterministic' {
+  if (options.proofScope !== 'deterministic') {
+    throw new TckAssertionError('identity.provider-loadability-and-adapter-availability', 'unsupported TCK proof scope')
   }
+  return 'deterministic'
 }
 
 interface FeatureRunSelection {
@@ -68,14 +78,36 @@ async function runBaseSuites<
   Backend extends BleCentralBackend<Attachment, Identity>
 >(
   factory: BackendTckFactory<Attachment, Identity, Backend>,
-  identity: TckRuntimeIdentity
+  identity: TckRuntimeIdentity,
+  proofScope: 'deterministic'
 ): Promise<TckScenarioReceipt[]> {
   const receipts: TckScenarioReceipt[] = []
+  const deferredCleanupErrors: TckFixtureCleanupError[] = []
   for (const definition of baseTckScenarios) {
     if (definition.execution !== 'base') {
       continue
     }
-    receipts.push(await executeDefinition(factory, identity, definition))
+    try {
+      receipts.push(await executeDefinition(factory, identity, definition, proofScope))
+    } catch (error) {
+      if (error instanceof TckFixtureCleanupError) {
+        deferredCleanupErrors.push(error)
+        continue
+      }
+      if (deferredCleanupErrors.length > 0) {
+        throw new AggregateError(
+          [...deferredCleanupErrors, error],
+          `${definition.id}: prior fixture cleanup and scenario execution failed`
+        )
+      }
+      throw error
+    }
+  }
+  if (deferredCleanupErrors.length === 1) {
+    throw deferredCleanupErrors[0]
+  }
+  if (deferredCleanupErrors.length > 1) {
+    throw new AggregateError(deferredCleanupErrors, 'multiple base TCK fixture cleanups failed')
   }
   return receipts
 }
@@ -88,7 +120,8 @@ async function runRegisteredFeatureSuites<
   factory: BackendTckFactory<Attachment, Identity, Backend>,
   identity: TckRuntimeIdentity,
   featureSuites: readonly TckFeatureSuite[],
-  receipts: TckScenarioReceipt[]
+  receipts: TckScenarioReceipt[],
+  proofScope: 'deterministic'
 ): Promise<FeatureRunSelection> {
   const suitesById = indexFeatureSuites(featureSuites)
   const bindings = await runtimeValidateFeatureRegistrations(factory, identity)
@@ -114,7 +147,9 @@ async function runRegisteredFeatureSuites<
   }
 
   for (const execution of executions) {
-    receipts.push(await executeFeatureDefinition(factory, identity, execution.binding, execution.definition))
+    receipts.push(
+      await executeFeatureDefinition(factory, identity, execution.binding, execution.definition, proofScope)
+    )
   }
   return {
     suiteIds: Object.freeze([...selectedSuiteIds]),
@@ -164,7 +199,7 @@ async function runtimeValidateFeatureRegistrations<
   factory: BackendTckFactory<Attachment, Identity, Backend>,
   identity: TckRuntimeIdentity
 ): Promise<readonly TckFeatureBinding[]> {
-  return withFixture(factory, identity, async fixture => {
+  return withFixture(factory, identity, 'capability.truth-limits-evidence-and-binding', async fixture => {
     const registrations = fixture.backend.features.registrations
     const bindings: TckFeatureBinding[] = []
     for (const registration of registrations) {
@@ -263,11 +298,12 @@ async function executeDefinition<
 >(
   factory: BackendTckFactory<Attachment, Identity, Backend>,
   identity: TckRuntimeIdentity,
-  definition: TckScenarioDefinition
+  definition: TckScenarioDefinition,
+  proofScope: 'deterministic'
 ): Promise<TckScenarioReceipt> {
-  return withFixture(factory, identity, async fixture => {
-    await prepareController(fixture, definition)
-    return executeRunnerControlledDefinition(factory, fixture, definition)
+  return withFixture(factory, identity, definition.id, async fixture => {
+    assertRequiredControllerActions(fixture, definition)
+    return executeRunnerControlledDefinition(factory, fixture, definition, proofScope)
   })
 }
 
@@ -279,15 +315,29 @@ async function executeFeatureDefinition<
   factory: BackendTckFactory<Attachment, Identity, Backend>,
   identity: TckRuntimeIdentity,
   binding: TckFeatureBinding,
-  definition: TckScenarioDefinition
+  definition: TckScenarioDefinition,
+  proofScope: 'deterministic'
 ): Promise<TckScenarioReceipt> {
-  return withFixture(factory, identity, async fixture => {
+  return withFixture(factory, identity, definition.id, async fixture => {
+    assertRequiredControllerActions(fixture, definition)
     assertFeatureAuthority(fixture.backend.features.registrations, binding, definition.id, 'before')
-    await prepareController(fixture, definition)
-    const receipt = await executeRunnerControlledDefinition(factory, fixture, definition)
+    const receipt = await executeRunnerControlledDefinition(factory, fixture, definition, proofScope)
     assertFeatureAuthority(fixture.backend.features.registrations, binding, definition.id, 'after')
     return receipt
   })
+}
+
+function assertRequiredControllerActions<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>,
+  Backend extends BleCentralBackend<Attachment, Identity>
+>(fixture: BackendTckFixture<Attachment, Identity, Backend>, definition: TckScenarioDefinition): void {
+  const declaredActions = new Set(fixture.controller.availableActions)
+  for (const action of definition.requiredControllerActions) {
+    if (!declaredActions.has(action)) {
+      throw new TckAssertionError(definition.id, `fixture controller lacks required action ${action}`)
+    }
+  }
 }
 
 function snapshotFeatureBinding(registration: RegisteredFeature): TckFeatureBinding {
@@ -448,19 +498,104 @@ async function withFixture<
 >(
   factory: BackendTckFactory<Attachment, Identity, Backend>,
   identity: TckRuntimeIdentity,
+  scenarioId: TckScenarioId,
   operation: (fixture: BackendTckFixture<Attachment, Identity, Backend>) => Promise<Value>
 ): Promise<Value> {
-  const fixture = await factory.create()
+  const fixture = await factory.create(Object.freeze({ scenarioId }))
+  const operationOutcome = await executeFixtureOperation(factory, fixture, identity, scenarioId, operation)
+  const cleanupOutcome = await disposeFixture(fixture, scenarioId)
+  if (operationOutcome.status === 'rejected' && cleanupOutcome.status === 'rejected') {
+    throw new AggregateError(
+      [operationOutcome.error, cleanupOutcome.error],
+      `${scenarioId}: scenario execution and fixture cleanup both failed`
+    )
+  }
+  if (operationOutcome.status === 'rejected') {
+    throw operationOutcome.error
+  }
+  if (cleanupOutcome.status === 'rejected') {
+    throw cleanupOutcome.error
+  }
+  return operationOutcome.value
+}
+
+interface TckOperationFulfilled<Value> {
+  readonly status: 'fulfilled'
+  readonly value: Value
+}
+
+interface TckOperationRejected {
+  readonly status: 'rejected'
+  readonly error: unknown
+}
+
+type TckOperationOutcome<Value> = TckOperationFulfilled<Value> | TckOperationRejected
+
+class TckFixtureCleanupError extends TckAssertionError {}
+
+async function executeFixtureOperation<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>,
+  Backend extends BleCentralBackend<Attachment, Identity>,
+  Value
+>(
+  factory: BackendTckFactory<Attachment, Identity, Backend>,
+  fixture: BackendTckFixture<Attachment, Identity, Backend>,
+  identity: TckRuntimeIdentity,
+  scenarioId: TckScenarioId,
+  operation: (fixture: BackendTckFixture<Attachment, Identity, Backend>) => Promise<Value>
+): Promise<TckOperationOutcome<Value>> {
   try {
+    claimRunnerOwnedBackend(fixture.backend, scenarioId)
     assertProviderDescriptorBinding(factory, identity)
     assertBackendIdentityBinding(fixture.backend, identity, 'fixture')
     const value = await operation(fixture)
     assertProviderDescriptorBinding(factory, identity)
     assertBackendIdentityBinding(fixture.backend, identity, 'fixture')
-    return value
-  } finally {
-    await fixture.dispose()
+    return fulfilled(value)
+  } catch (error) {
+    return rejected(error)
   }
+}
+
+async function disposeFixture<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>,
+  Backend extends BleCentralBackend<Attachment, Identity>
+>(
+  fixture: BackendTckFixture<Attachment, Identity, Backend>,
+  scenarioId: TckScenarioId
+): Promise<TckOperationOutcome<void>> {
+  let cleanupPromise: Promise<import('../backend-contract/errors').CleanupRecord>
+  try {
+    cleanupPromise = fixture.dispose()
+  } catch (error) {
+    return rejected(new TckFixtureCleanupError(scenarioId, 'fixture cleanup threw synchronously', { cause: error }))
+  }
+  return cleanupPromise.then(
+    cleanup => {
+      if (cleanup.state !== 'released' || cleanup.failures.length !== 0) {
+        return rejected(
+          new TckFixtureCleanupError(
+            scenarioId,
+            `fixture cleanup returned ${cleanup.state} with failures: ${
+              cleanup.failures.map(failure => failure.error.code).join(', ') || 'none'
+            }`
+          )
+        )
+      }
+      return fulfilled(undefined)
+    },
+    error => rejected(new TckFixtureCleanupError(scenarioId, 'fixture cleanup rejected', { cause: error }))
+  )
+}
+
+function fulfilled<Value>(value: Value): TckOperationFulfilled<Value> {
+  return { status: 'fulfilled', value }
+}
+
+function rejected(error: unknown): TckOperationRejected {
+  return { status: 'rejected', error }
 }
 
 async function verifyFactoryRuntimeIdentity<
@@ -479,6 +614,16 @@ async function verifyFactoryRuntimeIdentity<
   const selection = factory.selection
   if (selection === undefined || selection.selectedAdapterId === undefined) {
     throw identityAssertion(`provider ${descriptor.providerId} requires an explicit factory adapter selection`)
+  }
+  const staleSelection = factory.staleSelection
+  if (staleSelection === undefined || staleSelection.selectedAdapterId === undefined) {
+    throw identityAssertion(`provider ${descriptor.providerId} requires an explicit stale adapter selection`)
+  }
+  if (String(staleSelection.selectedAdapterId) === String(selection.selectedAdapterId)) {
+    throw identityAssertion(`provider ${descriptor.providerId} stale adapter selection matches its selected adapter`)
+  }
+  if (adapters.some(adapter => String(adapter.adapterId) === String(staleSelection.selectedAdapterId))) {
+    throw identityAssertion(`provider ${descriptor.providerId} stale adapter selection resolves to a listed adapter`)
   }
   const matchingAdapters = adapters.filter(adapter => String(adapter.adapterId) === String(selection.selectedAdapterId))
   if (matchingAdapters.length !== 1) {
@@ -639,22 +784,6 @@ function identityAssertion(message: string, cause?: unknown): TckAssertionError 
     : new TckAssertionError('identity.provider-loadability-and-adapter-availability', message, { cause })
 }
 
-async function prepareController<
-  Attachment extends string,
-  Identity extends BackendIdentity<Attachment>,
-  Backend extends BleCentralBackend<Attachment, Identity>
->(fixture: BackendTckFixture<Attachment, Identity, Backend>, definition: TckScenarioDefinition): Promise<void> {
-  for (const action of definition.requiredControllerActions) {
-    if (!fixture.controller.availableActions.includes(action)) {
-      throw new TckAssertionError(definition.id, `fixture lacks controller action ${action}`)
-    }
-    const result = await fixture.controller.perform(action, {})
-    if (result.action !== action || !result.applied) {
-      throw new TckAssertionError(definition.id, `controller did not apply ${action}`)
-    }
-  }
-}
-
 async function executeRunnerControlledDefinition<
   Attachment extends string,
   Identity extends BackendIdentity<Attachment>,
@@ -662,16 +791,17 @@ async function executeRunnerControlledDefinition<
 >(
   factory: BackendTckFactory<Attachment, Identity, Backend>,
   fixture: BackendTckFixture<Attachment, Identity, Backend>,
-  definition: TckScenarioDefinition
+  definition: TckScenarioDefinition,
+  proofScope: 'deterministic'
 ): Promise<TckScenarioReceipt> {
-  const facts = await executeRunnerControlledTckScenario(fixture.scenarioAdapter, definition)
+  const facts = await executeRunnerOwnedTckScenario(factory, fixture, definition)
   assertScenarioEvidence(definition, facts)
   return Object.freeze({
     scenarioId: definition.id,
     proof: Object.freeze({
-      scope: factory.run.proofScope,
-      claim: factory.run.proofScope === 'deterministic' ? 'deterministic-conformance' : 'live-observed',
-      receiptId: `runner-controlled:${factory.run.proofScope}:${definition.id}`
+      scope: proofScope,
+      claim: 'deterministic-conformance',
+      receiptId: `runner-controlled:${proofScope}:${definition.id}`
     }),
     facts: Object.freeze(facts.map(snapshotFact)),
     error: null

@@ -65,7 +65,12 @@ export type {
 } from './backend-contract/gatt'
 export type { ManagerState, OwnerMode, ResourceCounters } from './backend-contract/backend'
 export { MAXIMUM_REQUESTED_ATT_MTU, MINIMUM_ATT_MTU } from './backend-contract/connection-controls'
-export type { MtuNegotiation, RssiMeasurement } from './backend-contract/connection-controls'
+export type {
+  ConnectionControlCapabilities,
+  ConnectionControlSupport,
+  MtuNegotiation,
+  RssiMeasurement
+} from './backend-contract/connection-controls'
 export type { BackendIdentity } from './backend-contract/identity'
 export type {
   PublicOperationOptions,

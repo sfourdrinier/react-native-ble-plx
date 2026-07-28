@@ -15,7 +15,6 @@
     "css-to-react-native": "3.2.0",
     "react": "~19.2.0",
     "react-native": "~0.86.0",
-    "react-native-base64": "^0.2.1",
     "react-native-safe-area-context": "^5.0.0",
     "react-native-screens": "^4.0.0",
     "react-native-toast-message": "^2.1.6",
@@ -35,7 +34,6 @@
     "@react-native/metro-config": "~0.86.0",
     "@react-native/typescript-config": "~0.86.0",
     "@types/react": "~19.2.0",
-    "@types/react-native-base64": "^0.2.0",
     "babel-plugin-module-resolver": "^5.0.0"
   },
   "engines": {

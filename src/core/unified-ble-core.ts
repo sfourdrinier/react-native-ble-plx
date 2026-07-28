@@ -13,7 +13,6 @@ import {
 import { createAttachmentBoundIdFactory } from '../backend-contract/primitives'
 import type { AdvertisementObservation, OwnerScanOptions, ScanOptions } from '../backend-contract/advertisement'
 import type { CleanupFailure, CleanupRecord } from '../backend-contract/errors'
-import type { CharacteristicPath, DescriptorPath } from '../backend-contract/gatt'
 import type { AdapterStateSnapshot, BackendIdentity } from '../backend-contract/identity'
 import type {
   PublicOperationOptions,
@@ -42,6 +41,7 @@ import { readCoreCharacteristic, writeCoreCharacteristic } from './core-characte
 import { createCoreConnectionControls, type CoreConnectionControls } from './core-connection-controls'
 import { readCoreDescriptor, writeCoreDescriptor } from './core-descriptor-operations'
 import { discoverCoreGattDatabase } from './core-discovery'
+import type { CurrentCharacteristicPath, CurrentDescriptorPath } from './current-gatt-paths'
 import {
   advertisementByteLength,
   advertisementPayloadByteLength,
@@ -56,25 +56,6 @@ import {
 } from './unified-ble-core-helpers'
 export { DEFAULT_CORE_MAXIMUM_VALUE_BYTES } from './unified-ble-core-helpers'
 export type { CoreDeadlineHandle, CoreDeadlineScheduler } from './unified-ble-core-helpers'
-
-type CurrentCharacteristicPath<Attachment extends string> = CharacteristicPath<
-  Attachment,
-  string,
-  string,
-  string,
-  string,
-  'current'
->
-
-type CurrentDescriptorPath<Attachment extends string> = DescriptorPath<
-  Attachment,
-  string,
-  string,
-  string,
-  string,
-  string,
-  'current'
->
 
 export interface UnifiedBleCoreOptions {
   readonly now: () => number
@@ -151,6 +132,8 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
       backend: construction.attachedBackend.backend,
       attachmentId: construction.attachedBackend.attachment.attachment.attachmentId,
       idFactory: {
+        clientId: value => this.requireIdFactory().clientId(value),
+        managerId: value => this.requireIdFactory().managerId(value),
         connectionId: value => this.requireIdFactory().connectionId(value),
         leaseId: value => this.requireIdFactory().leaseId(value),
         scanShareToken: value => this.requireIdFactory().scanShareToken(value),

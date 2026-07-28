@@ -1,6 +1,11 @@
 // src/electron/main-router.ts
 
-import { BackendContractError, contractError, type CleanupFailure, type CleanupRecord } from '../backend-contract/errors'
+import {
+  BackendContractError,
+  contractError,
+  type CleanupFailure,
+  type CleanupRecord
+} from '../backend-contract/errors'
 import {
   ElectronMainArbiterContext,
   type IpcEnvelope,
@@ -25,18 +30,21 @@ import {
   type SerializableValue
 } from '../backend-contract/primitives'
 import type { SubscriptionOptions } from '../backend-contract/operations'
-import {
-  BleManager,
-  Connection,
-  DiscoveredGattDatabase
-} from '../manager/ble-manager'
-import type { ElectronBleIpcEvent, ElectronBleIpcRequest, ElectronBleIpcResponse, ElectronRendererBootstrap } from './protocol'
+import { snapshotSerializableRecord } from '../backend-contract/serializable'
+import { BleManager, Connection, DiscoveredGattDatabase } from '../manager/ble-manager'
+import type {
+  ElectronBleIpcEvent,
+  ElectronBleIpcRequest,
+  ElectronBleIpcResponse,
+  ElectronRendererBootstrap
+} from './protocol'
 import {
   ElectronRendererStreamRegistry,
   type ElectronEventDelivery,
   type ManagedScan,
   type ManagedSubscription
 } from './renderer-stream-registry'
+import { electronRequestByteLength } from './ipc-message-sizing'
 
 export type { ElectronEventDelivery } from './renderer-stream-registry'
 
@@ -80,6 +88,13 @@ interface ManagedOperation {
   readonly controller: AbortController
   readonly settled: Promise<void>
   complete(): void
+}
+
+interface RendererResourceSnapshot {
+  readonly scans: ReadonlySet<string>
+  readonly connections: ReadonlySet<string>
+  readonly databases: ReadonlySet<string>
+  readonly subscriptions: ReadonlySet<string>
 }
 
 /**
@@ -141,8 +156,24 @@ export class ElectronMainBleRouter {
       const payload = await this.arbiter.route(sender, request.envelope)
       return { kind: 'route', payload }
     }
-    const cleanup = await this.arbiter.releaseRenderer(sender)
-    return { kind: 'release', cleanup }
+    if (request.kind === 'release') {
+      if (!this.resources.has(String(sender.authenticatedClientId))) {
+        return { kind: 'release', cleanup: { state: 'released', failures: [] } }
+      }
+      const cleanup = await this.arbiter.releaseRenderer(sender)
+      return { kind: 'release', cleanup }
+    }
+    throw contractError('protocol.violation', 'ipc', 'electron-main-router.event-ack-binding-required')
+  }
+
+  /** Enforces the configured byte limit before any request reaches routing or acknowledgement state. */
+  validateRequest<Renderer extends string, Operation extends string>(
+    request: ElectronBleIpcRequest<string, Renderer, Operation>
+  ): void {
+    const byteLength = electronRequestByteLength(request)
+    if (byteLength > this.maximumMessageBytes) {
+      throw contractError('bytes.too-large', 'ipc', 'electron-main-router.request-size')
+    }
   }
 
   /** Releases the authenticated renderer after a host-owned WebContents lifetime event. */
@@ -169,10 +200,27 @@ export class ElectronMainBleRouter {
   async destroy(): Promise<CleanupRecord> {
     const rendererFailures: CleanupFailure[] = []
     for (const clientId of [...this.resources.keys()]) {
-      const cleanup = await this.releaseResources(clientId)
-      rendererFailures.push(...cleanup.failures)
+      try {
+        const cleanup = await this.releaseResources(clientId)
+        rendererFailures.push(...cleanup.failures)
+      } catch (error) {
+        console.error('[ElectronMainBleRouter] Renderer cleanup rejected during router destroy:', { clientId, error })
+        rendererFailures.push({
+          resourceKind: 'electron-renderer',
+          error: normalizedCleanupError(error)
+        })
+      }
     }
-    const managerCleanup = await this.manager.destroy()
+    let managerCleanup: CleanupRecord
+    try {
+      managerCleanup = await this.manager.destroy()
+    } catch (error) {
+      console.error('[ElectronMainBleRouter] Manager cleanup rejected during router destroy:', error)
+      managerCleanup = {
+        state: 'release-failed',
+        failures: [{ resourceKind: 'manager', error: normalizedCleanupError(error) }]
+      }
+    }
     const failures = [...rendererFailures, ...managerCleanup.failures]
     return failures.length === 0 ? { state: 'released', failures: [] } : { state: 'release-failed', failures }
   }
@@ -204,40 +252,46 @@ export class ElectronMainBleRouter {
     if (envelope.command === 'operation.cancel') {
       return this.cancel(resources, envelope.payload)
     }
+    const operationKey = String(envelope.correlation)
+    if (resources.operations.has(operationKey)) {
+      throw contractError('protocol.violation', 'ipc', 'electron-main-router.correlation-in-flight')
+    }
     const controller = new AbortController()
     const operation = createManagedOperation(controller)
-    resources.operations.set(String(envelope.correlation), operation)
+    const resourceSnapshot = snapshotResourceHandles(resources)
+    resources.operations.set(operationKey, operation)
     try {
+      let response: SerializableRecord
       if (envelope.command === 'scan.start') {
-        return await this.startScan(resources, envelope, controller)
+        response = await this.startScan(resources, envelope, controller)
+      } else if (envelope.command === 'scan.stop') {
+        response = await this.stopScan(resources, envelope.payload)
+      } else if (envelope.command === 'connection.connect') {
+        response = await this.connect(resources, envelope.payload, controller)
+      } else if (envelope.command === 'connection.disconnect') {
+        response = await this.disconnect(resources, envelope.payload)
+      } else if (envelope.command === 'gatt.discover') {
+        response = await this.discover(resources, envelope.payload, controller)
+      } else if (envelope.command === 'gatt.read') {
+        response = await this.read(resources, envelope.payload, controller)
+      } else if (envelope.command === 'gatt.write') {
+        response = await this.write(resources, envelope.payload, envelope.binaryPayload, controller)
+      } else if (envelope.command === 'gatt.subscribe') {
+        response = await this.subscribe(resources, envelope, controller)
+      } else if (envelope.command === 'gatt.unsubscribe') {
+        response = await this.unsubscribe(resources, envelope.payload)
+      } else {
+        throw contractError('argument.invalid', 'ipc', 'electron-main-router.command')
       }
-      if (envelope.command === 'scan.stop') {
-        return this.stopScan(resources, envelope.payload)
+      if (snapshotSerializableRecord(response).byteLength > this.maximumMessageBytes) {
+        await this.rollbackOperationResources(resources, resourceSnapshot)
+        throw contractError('bytes.too-large', 'ipc', 'electron-main-router.response-size')
       }
-      if (envelope.command === 'connection.connect') {
-        return await this.connect(resources, envelope.payload, controller)
-      }
-      if (envelope.command === 'connection.disconnect') {
-        return this.disconnect(resources, envelope.payload)
-      }
-      if (envelope.command === 'gatt.discover') {
-        return await this.discover(resources, envelope.payload, controller)
-      }
-      if (envelope.command === 'gatt.read') {
-        return await this.read(resources, envelope.payload, controller)
-      }
-      if (envelope.command === 'gatt.write') {
-        return await this.write(resources, envelope.payload, envelope.binaryPayload, controller)
-      }
-      if (envelope.command === 'gatt.subscribe') {
-        return await this.subscribe(resources, envelope, controller)
-      }
-      if (envelope.command === 'gatt.unsubscribe') {
-        return this.unsubscribe(resources, envelope.payload)
-      }
-      throw contractError('argument.invalid', 'ipc', 'electron-main-router.command')
+      return response
     } finally {
-      resources.operations.delete(String(envelope.correlation))
+      if (resources.operations.get(operationKey) === operation) {
+        resources.operations.delete(operationKey)
+      }
       operation.complete()
     }
   }
@@ -280,7 +334,11 @@ export class ElectronMainBleRouter {
     payload: SerializableRecord,
     controller: AbortController
   ): Promise<SerializableRecord> {
-    const connection = requiredResource(resources.connections, requiredString(payload, 'connectionHandle'), 'connection')
+    const connection = requiredResource(
+      resources.connections,
+      requiredString(payload, 'connectionHandle'),
+      'connection'
+    )
     const database = await connection.discover(operationOptions(payload, controller))
     const snapshot = await database.snapshot()
     const characteristics = new Map<string, MainCharacteristicPath>()
@@ -443,7 +501,10 @@ export class ElectronMainBleRouter {
     for (const operation of resources.operations.values()) {
       operation.controller.abort()
     }
-    await Promise.all([...resources.operations.values()].map(operation => operation.settled))
+    const pendingOperations = [...resources.operations.values()]
+    for (const operation of pendingOperations) {
+      await operation.settled
+    }
     const failures: CleanupFailure[] = []
     for (const [handle, subscription] of resources.subscriptions) {
       const cleanup = await this.streams.removeSubscription(resources, handle, subscription, false)
@@ -480,10 +541,55 @@ export class ElectronMainBleRouter {
     if (failures.length === 0) {
       failures.push({
         resourceKind: 'renderer-resources',
-        error: contractError('lifecycle.invariant-violation', 'cleanup', 'electron-main-router.release-incomplete').normalized
+        error: contractError('lifecycle.invariant-violation', 'cleanup', 'electron-main-router.release-incomplete')
+          .normalized
       })
     }
     return { state: 'release-failed', failures }
+  }
+
+  private async rollbackOperationResources(
+    resources: RendererResources,
+    snapshot: RendererResourceSnapshot
+  ): Promise<void> {
+    for (const [handle, subscription] of resources.subscriptions) {
+      if (snapshot.subscriptions.has(handle)) {
+        continue
+      }
+      const cleanup = await this.streams.removeSubscription(resources, handle, subscription, false)
+      if (cleanup.state === 'release-failed') {
+        console.error('[ElectronMainBleRouter] Subscription rollback failed after oversized response:', {
+          handle,
+          cleanup
+        })
+      }
+    }
+    for (const [handle, scan] of resources.scans) {
+      if (snapshot.scans.has(handle)) {
+        continue
+      }
+      const cleanup = await this.streams.stopScan(resources, handle, scan, false)
+      if (cleanup.state === 'release-failed') {
+        console.error('[ElectronMainBleRouter] Scan rollback failed after oversized response:', { handle, cleanup })
+      }
+    }
+    for (const [handle, connection] of resources.connections) {
+      if (snapshot.connections.has(handle)) {
+        continue
+      }
+      const cleanup = await this.disconnectConnection(resources, handle, connection)
+      if (cleanup.state === 'release-failed') {
+        console.error('[ElectronMainBleRouter] Connection rollback failed after oversized response:', {
+          handle,
+          cleanup
+        })
+      }
+    }
+    for (const handle of resources.databases.keys()) {
+      if (!snapshot.databases.has(handle)) {
+        resources.databases.delete(handle)
+      }
+    }
   }
 
   private async disconnectConnection(
@@ -498,7 +604,6 @@ export class ElectronMainBleRouter {
     resources.connections.delete(handle)
     return { state: 'released', failures: [] }
   }
-
 
   private async cleanupResource(
     resourceKind: string,
@@ -519,7 +624,10 @@ export class ElectronMainBleRouter {
     }
   }
 
-  private async releaseSubscriptionsForConnection(resources: RendererResources, connectionHandle: string): Promise<CleanupRecord> {
+  private async releaseSubscriptionsForConnection(
+    resources: RendererResources,
+    connectionHandle: string
+  ): Promise<CleanupRecord> {
     const failures: CleanupFailure[] = []
     for (const [handle, resource] of resources.subscriptions) {
       if (!this.isSubscriptionForConnection(resources, resource, connectionHandle)) {
@@ -609,6 +717,15 @@ function rendererIdentity<Renderer extends string>(
     windowScope: sender.authenticatedWindowScope,
     sessionScope: sender.authenticatedSessionScope
   })
+}
+
+function snapshotResourceHandles(resources: RendererResources): RendererResourceSnapshot {
+  return {
+    scans: new Set(resources.scans.keys()),
+    connections: new Set(resources.connections.keys()),
+    databases: new Set(resources.databases.keys()),
+    subscriptions: new Set(resources.subscriptions.keys())
+  }
 }
 
 function createManagedOperation(controller: AbortController): ManagedOperation {

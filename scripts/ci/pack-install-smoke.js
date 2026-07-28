@@ -312,6 +312,11 @@ function main() {
     // Assert every current canonical entrypoint from installed artifacts (not a monorepo mapper).
     const assertScript = [
       "const assert = require('assert');",
+      "const fs = require('fs');",
+      "const path = require('path');",
+      "const packageRoot = path.dirname(require.resolve('unified-ble-manager/package.json'));",
+      "assert.strictEqual(fs.existsSync(path.join(packageRoot, 'lib/commonjs/tck/scenario-adapter.js')), false, 'removed CJS scenario issuer is absent');",
+      "assert.strictEqual(fs.existsSync(path.join(packageRoot, 'lib/module/tck/scenario-adapter.js')), false, 'removed ESM scenario issuer is absent');",
       "const canonical = require('unified-ble-manager');",
       "assert.strictEqual(typeof canonical.BleManager, 'function', 'canonical BleManager');",
       "for (const privateSpecifier of ['unified-ble-manager/NativeUnifiedBleProtocolControl', 'unified-ble-manager/native-protocol/v1-codec', 'unified-ble-manager/native-protocol/rn-apple-boundary', 'unified-ble-manager/native-protocol/rn-jsi-binary-runtime', 'unified-ble-manager/profiles/heartRate']) {",

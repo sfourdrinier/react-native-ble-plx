@@ -73,18 +73,15 @@ describe('deterministic production TCK binding', () => {
     deterministicReport = await runBackendTck(createDeterministicBackendTckFactory(), [])
   })
 
-  test.each(executableScenarioIds)(
-    '%s proves every required fact through public deterministic seams',
-    scenarioId => {
-      const receipt = receiptForScenario(scenarioId)
+  test.each(executableScenarioIds)('%s proves every required fact through public deterministic seams', scenarioId => {
+    const receipt = receiptForScenario(scenarioId)
 
-      expect(receipt.error).toBeNull()
-      expect(receipt.proof).toMatchObject({ scope: 'deterministic', claim: 'deterministic-conformance' })
-      expect(receipt.facts).toEqual(
-        expect.arrayContaining(receipt.facts.map(fact => expect.objectContaining({ id: fact.id, holds: true })))
-      )
-    }
-  )
+    expect(receipt.error).toBeNull()
+    expect(receipt.proof).toMatchObject({ scope: 'deterministic', claim: 'deterministic-conformance' })
+    expect(receipt.facts).toEqual(
+      expect.arrayContaining(receipt.facts.map(fact => expect.objectContaining({ id: fact.id, holds: true })))
+    )
+  })
 
   test('the production runner proves manager ownership through the G2 authority seam', async () => {
     const factory = createDeterministicBackendTckFactory()
@@ -115,11 +112,18 @@ describe('deterministic production TCK binding', () => {
     expect(receipts.every(receipt => receipt.facts.every(fact => fact.holds))).toBe(true)
   })
 
-  test('runner-owned evidence consumes controller fault and read-value controls', () => {
+  test('runner-owned evidence records the exact GATT read and descriptor observations', () => {
     const receipt = receiptForScenario('gatt.reads-descriptors-write-policy-and-dispatched-cancellation')
     const readFact = receipt.facts.find(fact => fact.id === 'gatt-read-and-descriptor-return-owned-bytes')
 
-    expect(readFact).toMatchObject({ holds: true, detail: { firstByte: 7, injectedReadRejected: true } })
+    expect(readFact).toMatchObject({
+      holds: true,
+      detail: {
+        ownedBytes: true,
+        firstByte: 7,
+        descriptorBytes: 7
+      }
+    })
   })
 
   test('the deterministic backend rejects deterministic evidence promoted to a supported capability', () => {

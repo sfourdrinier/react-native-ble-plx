@@ -45,9 +45,10 @@ export type {
   TckFeatureSuite,
   TckProofScope,
   TckRuntimeIdentity,
-  TckRunConfiguration,
+  TckRunOptions,
   TckRunReport,
   TckScenarioDefinition,
+  TckScenarioController,
   TckScenarioId
 } from './tck/contracts'
 export type {

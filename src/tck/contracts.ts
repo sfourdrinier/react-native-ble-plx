@@ -2,10 +2,9 @@
 
 import type { EvidenceLevel, FeatureRegistry, FeatureState, Limitation } from '../backend-contract/capabilities'
 import type { BleCentralBackend } from '../backend-contract/backend'
-import type { NormalizedBleError } from '../backend-contract/errors'
+import type { CleanupRecord, NormalizedBleError } from '../backend-contract/errors'
 import type { AdapterSelection, BackendIdentity, BackendProvider, HostKind } from '../backend-contract/identity'
 import type { SerializableRecord } from '../backend-contract/primitives'
-import type { TckScenarioAdapter } from './scenario-adapter'
 
 /**
  * A production TCK fixture is an adapter around a backend's public contract.
@@ -21,17 +20,30 @@ export interface BackendTckFactory<
   readonly backendId: string
   readonly provider: BackendProvider<Attachment, Identity>
   readonly selection: AdapterSelection<Attachment>
-  /**
-   * The caller chooses the proof tier for a complete run. Scenario definitions
-   * deliberately do not encode a tier, so one scenario can be exercised by a
-   * deterministic harness and later by a live-radio harness without drift.
-   */
-  readonly run: TckRunConfiguration
-  create(): Promise<BackendTckFixture<Attachment, Identity, Backend>>
+  /** Known-unlisted adapter selection used to prove stale-target rejection. */
+  readonly staleSelection: AdapterSelection<Attachment>
+  create(context: TckFixtureContext): Promise<BackendTckFixture<Attachment, Identity, Backend>>
 }
 
-export interface TckRunConfiguration {
-  readonly proofScope: TckProofScope
+export interface TckFixtureContext {
+  readonly scenarioId: TckScenarioId
+}
+
+export interface TckRunOptions {
+  readonly proofScope: 'deterministic'
+}
+
+/**
+ * Deterministic environment controls consumed by runner-owned public-contract
+ * scenarios. They can change the test boundary, but cannot return facts,
+ * receipts, or proof labels.
+ */
+export interface TckScenarioController {
+  readonly availableActions: readonly TckControllerAction[]
+  now(): number
+  settle<Value>(promise: Promise<Value>): Promise<Value>
+  flush(): Promise<void>
+  perform(action: TckControllerAction, input: SerializableRecord): Promise<void>
 }
 
 export interface BackendTckFixture<
@@ -40,45 +52,24 @@ export interface BackendTckFixture<
   Backend extends BleCentralBackend<Attachment, Identity>
 > {
   readonly backend: Backend
-  readonly controller: TckController
-  /**
-   * An opaque token issued by a runner-owned adapter. Backends cannot submit
-   * receipts or decide which facts hold; the runner verifies behavior through
-   * this adapter and creates the receipt itself.
-   */
-  readonly scenarioAdapter: TckScenarioAdapter
-  dispose(): Promise<void>
-}
-
-/**
- * This controller owns test-peripheral manipulation. Production suites never
- * reach into a backend's private state or assume a deterministic implementation.
- */
-export interface TckController {
-  readonly availableActions: readonly TckControllerAction[]
-  perform(action: TckControllerAction, input: SerializableRecord): Promise<TckControllerResult>
+  /** Deterministic environment inputs only; this boundary cannot submit facts or receipts. */
+  readonly controller: TckScenarioController
+  dispose(): Promise<CleanupRecord>
 }
 
 export type TckControllerAction =
-  | 'reset'
   | 'queue-advertisement'
+  | 'emit-notification'
+  | 'queue-operation-completion'
+  | 'advance-time'
   | 'force-disconnect'
   | 'trigger-services-changed'
-  | 'inject-att-error'
-  | 'configure-notifications'
-  | 'set-read-value'
-  | 'restart-backend'
+  | 'inject-unsubscribe-failure'
   | 'set-adapter-state'
   | 'reload-renderer'
   | 'seed-restoration-journal'
 
-export interface TckControllerResult {
-  readonly action: TckControllerAction
-  readonly applied: boolean
-  readonly detail: SerializableRecord
-}
-
-export type TckProofScope = 'deterministic' | 'live-radio'
+export type TckProofScope = 'deterministic'
 
 /**
  * A deterministic receipt proves conformance only. It can never represent a
@@ -86,7 +77,7 @@ export type TckProofScope = 'deterministic' | 'live-radio'
  */
 export interface TckProofLabel {
   readonly scope: TckProofScope
-  readonly claim: 'deterministic-conformance' | 'live-observed'
+  readonly claim: 'deterministic-conformance'
   readonly receiptId: string
 }
 
@@ -101,6 +92,7 @@ export type TckScenarioId =
   | 'scan.fairness-abort-deadline-and-final-cleanup'
   | 'connection.lease-joins-borrowing-transfer-and-revocation'
   | 'connection.two-client-arbitration'
+  | 'connection.rssi-and-att-mtu-capability-contract'
   | 'gatt.discovery-complete-paths-and-services-changed'
   | 'gatt.reads-descriptors-write-policy-and-dispatched-cancellation'
   | 'subscription.enable-ready-shared-cccd-and-fanout'
@@ -116,7 +108,7 @@ export type TckFactId =
   | 'adapter-selection-rejects-ambiguous-or-stale-target'
   | 'backend-instance-id-is-unique'
   | 'all-applicable-version-axes-negotiate-highest-overlap'
-  | 'skew-malformed-and-post-attachment-offers-reject-before-radio-work'
+  | 'skew-malformed-and-post-attachment-offers-reject-without-live-radio-resources'
   | 'capability-state-is-runtime-truth'
   | 'capability-limits-evidence-and-tck-binding-validate'
   | 'deterministic-proof-never-claims-live-support'
@@ -132,6 +124,8 @@ export type TckFactId =
   | 'connection-borrowing-cannot-destroy-or-cancel-owner-work'
   | 'connection-transfer-and-revocation-are-authenticated'
   | 'connection-second-client-arbitrates-without-stealing-link'
+  | 'connection-rssi-is-measured-or-explicitly-unavailable'
+  | 'connection-att-mtu-is-negotiated-or-explicitly-unavailable'
   | 'gatt-discovery-returns-complete-occurrence-safe-paths'
   | 'gatt-services-changed-invalidates-database-generation'
   | 'gatt-stale-path-rejects-before-dispatch'
@@ -157,6 +151,7 @@ export interface TckScenarioDefinition {
   readonly id: TckScenarioId
   readonly execution: 'base' | 'feature'
   readonly requiredFacts: readonly TckFactId[]
+  /** Every control must be declared by the fixture before runner execution. */
   readonly requiredControllerActions: readonly TckControllerAction[]
 }
 

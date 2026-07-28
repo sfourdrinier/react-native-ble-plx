@@ -302,7 +302,7 @@ describe('ElectronMainArbiterContext security accounting', () => {
     log.mockRestore()
   })
 
-  test('bounds terminal replay retention while preserving duplicate rejection inside the active ledger window', async () => {
+  test('retains exactly the active 128-entry terminal replay window and evicts older settled requests', async () => {
     const current = fixture(4096, 2, 8192)
     const routeHandler = jest.fn(async () => ({}))
     const arbiter = new ElectronMainArbiterContext(current.authority, {
@@ -317,7 +317,11 @@ describe('ElectronMainArbiterContext security accounting', () => {
     await expect(arbiter.route(current.senderA, envelope(current, current.rendererA, 300))).rejects.toMatchObject({
       normalized: { code: 'protocol.violation', operation: 'electron-main-arbiter.replay' }
     })
+    await expect(arbiter.route(current.senderA, envelope(current, current.rendererA, 173))).rejects.toMatchObject({
+      normalized: { code: 'protocol.violation', operation: 'electron-main-arbiter.replay' }
+    })
+    await expect(arbiter.route(current.senderA, envelope(current, current.rendererA, 172))).resolves.toEqual({})
     await expect(arbiter.route(current.senderA, envelope(current, current.rendererA, 1))).resolves.toEqual({})
-    expect(routeHandler).toHaveBeenCalledTimes(301)
+    expect(routeHandler).toHaveBeenCalledTimes(302)
   })
 })

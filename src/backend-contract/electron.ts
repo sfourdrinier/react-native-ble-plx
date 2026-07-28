@@ -170,7 +170,7 @@ export class ElectronMainArbiterContext<Attachment extends string> implements El
       accounting.outstandingOperations -= 1
       accounting.retainedBytes -= prepared.totalBytes
       this.markReplayTerminal(accounting, prepared.replayKey)
-      this.trimTerminalReplayLedger(accounting, 0)
+      this.trimTerminalReplayLedger(accounting, 0, 0)
     }
   }
 
@@ -309,7 +309,7 @@ export class ElectronMainArbiterContext<Attachment extends string> implements El
     if (accounting.outstandingOperations >= this.authority.quota.maximumOutstandingOperations) {
       throw contractError('stream.quota', 'ipc', 'electron-main-arbiter.outstanding-operations')
     }
-    this.trimTerminalReplayLedger(accounting, prepared.totalBytes + prepared.replayKeyBytes)
+    this.trimTerminalReplayLedger(accounting, prepared.totalBytes + prepared.replayKeyBytes, 1)
     const retainedAfterReservation = accounting.retainedBytes + prepared.totalBytes + prepared.replayKeyBytes
     if (retainedAfterReservation > this.authority.quota.maximumRetainedBytes) {
       throw contractError('stream.quota', 'ipc', 'electron-main-arbiter.retained-bytes')
@@ -335,9 +335,13 @@ export class ElectronMainArbiterContext<Attachment extends string> implements El
    * configured renderer budget and the bounded LRU window. A Map's insertion
    * order gives us deterministic eviction without timers or delayed cleanup.
    */
-  private trimTerminalReplayLedger(accounting: RendererAccounting<Attachment>, incomingBytes: number): void {
+  private trimTerminalReplayLedger(
+    accounting: RendererAccounting<Attachment>,
+    incomingBytes: number,
+    incomingEntryCount: number
+  ): void {
     while (
-      accounting.replayLedger.size >= ElectronMainArbiterContext.maximumTerminalReplayEntries ||
+      accounting.replayLedger.size + incomingEntryCount > ElectronMainArbiterContext.maximumTerminalReplayEntries ||
       accounting.retainedBytes + incomingBytes > this.authority.quota.maximumRetainedBytes
     ) {
       const oldestTerminal = this.oldestTerminalReplayKey(accounting)

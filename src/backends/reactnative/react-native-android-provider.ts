@@ -32,6 +32,7 @@ import type { BoundedAsyncStream } from '../../backend-contract/streams'
 import { CoreBluetoothBackend, type DirectGattBackendIdentityOptions } from '../corebluetooth/corebluetooth-backend'
 import { coreBluetoothCompatibility } from '../corebluetooth/corebluetooth-provider'
 import { ReactNativeAndroidProtocolBoundary } from '../../native-protocol/rn-android-boundary'
+import { createReactNativeConnectionControlFeatureRegistry } from './react-native-connection-control-features'
 
 export const REACT_NATIVE_ANDROID_BACKEND_ID = 'unified-ble:react-native-android'
 export const REACT_NATIVE_ANDROID_PLATFORM_ID = 'unified-ble:android-gatt'
@@ -54,7 +55,8 @@ const androidDirectGattIdentity: DirectGattBackendIdentityOptions = Object.freez
   limitations: Object.freeze([
     'Android exposes the process-selected default Bluetooth adapter through the canonical JSI protocol boundary',
     'Descriptor operations are unavailable because the Android native protocol does not publish descriptor callbacks'
-  ])
+  ]),
+  features: createReactNativeConnectionControlFeatureRegistry('android', REACT_NATIVE_ANDROID_IMPLEMENTATION_VERSION)
 })
 
 let nextBoundaryOwner = 1

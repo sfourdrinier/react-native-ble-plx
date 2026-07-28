@@ -1,21 +1,17 @@
 // src/tck/deterministic/deterministic-tck-factory.ts
 
 import type { AdapterSelection, BackendProvider, HostNeutralBackendIdentity } from '../../backend-contract/identity'
-import type { BackendCompatibilityOffer, SerializableRecord } from '../../backend-contract/primitives'
+import type { BackendCompatibilityOffer } from '../../backend-contract/primitives'
 import { opaqueId, version, versionRange } from '../../backend-contract/primitives'
 import { contractError } from '../../backend-contract/errors'
+import { createFeatureRegistry } from '../../backend-contract/capabilities'
 import {
   createDeterministicTestBackend,
-  type DeterministicBackendController,
   type DeterministicBackendOptions,
   type DeterministicTestBackend
 } from '../../testing/deterministic/deterministic-test-backend'
-import type { BackendTckFactory, TckController, TckControllerAction, TckControllerResult } from '../contracts'
-import { createRunnerControlledTckScenarioAdapter } from '../scenario-adapter'
-import {
-  createDeterministicTckAdvertisement,
-  executeDeterministicTckScenarioEvidence
-} from './deterministic-tck-scenarios'
+import type { BackendTckFactory } from '../contracts'
+import { createDeterministicTckScenarioController } from './deterministic-tck-controller'
 
 const deterministicCompatibility: BackendCompatibilityOffer = {
   backendContract: versionRange(version('backend-contract', 1), version('backend-contract', 1)),
@@ -23,18 +19,6 @@ const deterministicCompatibility: BackendCompatibilityOffer = {
   eventSchema: versionRange(version('event-schema', 1), version('event-schema', 1)),
   traceFormat: versionRange(version('trace-format', 1), version('trace-format', 1))
 }
-
-const supportedControllerActions: readonly TckControllerAction[] = [
-  'reset',
-  'queue-advertisement',
-  'force-disconnect',
-  'trigger-services-changed',
-  'inject-att-error',
-  'configure-notifications',
-  'set-read-value',
-  'restart-backend',
-  'set-adapter-state'
-]
 
 export interface DeterministicTckFactoryOptions {
   readonly backend?: DeterministicBackendOptions
@@ -44,24 +28,21 @@ export interface DeterministicTckFactoryOptions {
 export function createDeterministicBackendTckFactory(
   options: DeterministicTckFactoryOptions = {}
 ): BackendTckFactory<string, HostNeutralBackendIdentity<string>, DeterministicTestBackend> {
+  createFeatureRegistry(options.backend?.featureRegistrations ?? [])
   const providerBinding = createDeterministicProvider(options.backend)
   return {
     backendId: 'unified-ble:deterministic-test',
     provider: providerBinding.provider,
     selection: providerBinding.selection,
-    run: { proofScope: 'deterministic' },
-    create: async () => {
+    staleSelection: {
+      selectedAdapterId: opaqueId('stale-deterministic-adapter', 'adapter', 'deterministic')
+    },
+    create: async _context => {
       const fixture = createDeterministicTestBackend(options.backend)
-      const controller = new DeterministicTckController(fixture.controller)
       return {
         backend: fixture.backend,
-        controller,
-        scenarioAdapter: createRunnerControlledTckScenarioAdapter(definition =>
-          executeDeterministicTckScenarioEvidence(fixture, providerBinding.provider, definition)
-        ),
-        dispose: async () => {
-          await fixture.backend.destroy()
-        }
+        controller: createDeterministicTckScenarioController(fixture),
+        dispose: () => fixture.backend.destroy()
       }
     }
   }
@@ -71,10 +52,10 @@ function createDeterministicProvider(options: DeterministicBackendOptions | unde
   readonly provider: BackendProvider<string, HostNeutralBackendIdentity<string>>
   readonly selection: AdapterSelection<string>
 } {
-  const descriptorFixture = createDeterministicTestBackend(options)
-  const adapter = descriptorFixture.backend.identity.attachment.adapter
+  const selectedAdapterId = opaqueId(options?.adapterId ?? 'deterministic-adapter', 'adapter', 'deterministic')
+  const selection = { selectedAdapterId: selectedAdapterId }
   return {
-    selection: { selectedAdapterId: adapter.adapterId },
+    selection,
     provider: {
       descriptor: {
         providerId: 'unified-ble:deterministic-test-provider',
@@ -82,117 +63,21 @@ function createDeterministicProvider(options: DeterministicBackendOptions | unde
         loadability: 'loadable',
         compatibility: deterministicCompatibility
       },
-      listAdapters: async () => [adapter],
-      create: async selection => {
-        if (String(selection.selectedAdapterId) !== String(adapter.adapterId)) {
+      listAdapters: async () => {
+        const fixture = createDeterministicTestBackend(options)
+        const adapter = fixture.backend.identity.attachment.adapter
+        const cleanup = await fixture.backend.destroy()
+        if (cleanup.state !== 'released' || cleanup.failures.length !== 0) {
+          throw contractError('platform.failure', 'cleanup', 'deterministic-provider.list-adapters')
+        }
+        return [adapter]
+      },
+      create: async requestedSelection => {
+        if (String(requestedSelection.selectedAdapterId) !== selectedAdapterId) {
           throw contractError('adapter.unavailable', 'adapter', 'deterministic-provider.create')
         }
         return createDeterministicTestBackend(options).backend
       }
     }
-  }
-}
-
-class DeterministicTckController implements TckController {
-  readonly availableActions = supportedControllerActions
-
-  constructor(private readonly controller: DeterministicBackendController) {}
-
-  async perform(action: TckControllerAction, input: SerializableRecord): Promise<TckControllerResult> {
-    if (action === 'reset' || action === 'restart-backend') {
-      this.controller.reset()
-      return applied(action, { reset: true })
-    }
-    if (action === 'queue-advertisement') {
-      this.controller.emitAdvertisement(createDeterministicTckAdvertisement())
-      return applied(action, { emitted: true })
-    }
-    if (action === 'force-disconnect') {
-      this.controller.forceDisconnect(
-        opaqueId(inputString(input, 'peerId') ?? 'deterministic-peer', 'peer', 'deterministic')
-      )
-      return applied(action, { commandDelivered: true })
-    }
-    if (action === 'trigger-services-changed') {
-      this.controller.triggerServicesChanged(
-        opaqueId(inputString(input, 'peerId') ?? 'deterministic-peer', 'peer', 'deterministic')
-      )
-      return applied(action, { commandDelivered: true })
-    }
-    if (action === 'inject-att-error') {
-      this.controller.peripheral.injectFailure('read', 'gatt.read-failed')
-      return applied(action, { operation: 'read' })
-    }
-    if (action === 'configure-notifications') {
-      const address = defaultCharacteristicAddress(this.controller)
-      const notifying = this.controller.peripheral.canNotify(address, false)
-      return { action, applied: notifying, detail: { notifying } }
-    }
-    if (action === 'set-read-value') {
-      this.controller.peripheral.setCharacteristicValue(
-        defaultCharacteristicAddress(this.controller),
-        new Uint8Array([7])
-      )
-      return applied(action, { valueLength: 1 })
-    }
-    if (action === 'set-adapter-state') {
-      this.controller.setAdapterState(
-        adapterAvailability(inputString(input, 'availability')),
-        adapterAuthorization(inputString(input, 'authorization')),
-        adapterPower(inputString(input, 'power')),
-        inputString(input, 'safeReason')
-      )
-      return applied(action, { stateUpdated: true })
-    }
-    return { action, applied: false, detail: { unsupported: true } }
-  }
-}
-
-function applied(action: TckControllerAction, detail: SerializableRecord): TckControllerResult {
-  return { action, applied: true, detail }
-}
-
-function inputString(input: SerializableRecord, key: string): string | null {
-  const value = input[key]
-  return typeof value === 'string' ? value : null
-}
-
-function adapterAvailability(value: string | null): 'available' | 'unavailable' | 'unsupported' | 'unknown' {
-  if (value === 'unavailable' || value === 'unsupported' || value === 'unknown') {
-    return value
-  }
-  return 'available'
-}
-
-function adapterAuthorization(
-  value: string | null
-): 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unavailable' {
-  if (value === 'denied' || value === 'restricted' || value === 'not-determined' || value === 'unavailable') {
-    return value
-  }
-  return 'granted'
-}
-
-function adapterPower(value: string | null): 'on' | 'off' | 'resetting' | 'unsupported' | 'unknown' {
-  if (value === 'off' || value === 'resetting' || value === 'unsupported' || value === 'unknown') {
-    return value
-  }
-  return 'on'
-}
-
-function defaultCharacteristicAddress(controller: DeterministicBackendController) {
-  const service = controller.peripheral.services()[0]
-  if (service === undefined) {
-    throw new Error('deterministic TCK requires a virtual service')
-  }
-  const characteristic = service.characteristics[0]
-  if (characteristic === undefined) {
-    throw new Error('deterministic TCK requires a virtual characteristic')
-  }
-  return {
-    serviceUuid: service.uuid,
-    serviceOccurrence: service.occurrence,
-    characteristicUuid: characteristic.uuid,
-    characteristicOccurrence: characteristic.occurrence
   }
 }

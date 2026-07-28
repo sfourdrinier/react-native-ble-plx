@@ -1,5 +1,4 @@
 // src/backends/corebluetooth/corebluetooth-backend.ts
-// src/backends/corebluetooth/corebluetooth-backend.ts
 
 import type {
   AdapterBackend,
@@ -16,7 +15,7 @@ import type {
   ScannerBackend
 } from '../../backend-contract/backend'
 import type { AdvertisementObservation, OwnerScanOptions } from '../../backend-contract/advertisement'
-import { createFeatureRegistry } from '../../backend-contract/capabilities'
+import type { FeatureRegistry } from '../../backend-contract/capabilities'
 import { contractError, type CleanupFailure, type CleanupRecord } from '../../backend-contract/errors'
 import type { CharacteristicPath } from '../../backend-contract/gatt'
 import {
@@ -126,7 +125,7 @@ function allocateBackendInstance(): number {
  * transitional BlePort and Base64 facade are not in this execution path.
  */
 export class CoreBluetoothBackend implements BleCentralBackend<string, HostNeutralBackendIdentity<string>> {
-  readonly features = createFeatureRegistry([])
+  readonly features: FeatureRegistry
   readonly adapter: AdapterBackend<string>
   readonly scanner: ScannerBackend<string>
   readonly connections: ConnectionBackend<string>
@@ -167,6 +166,7 @@ export class CoreBluetoothBackend implements BleCentralBackend<string, HostNeutr
     private readonly hostKind: 'node' | 'electron-main' | 'native-mobile',
     private readonly identityOptions: DirectGattBackendIdentityOptions = coreBluetoothIdentityOptions
   ) {
+    this.features = identityOptions.features
     this.backendInstanceId = opaqueId(
       `${this.identityOptions.backendInstancePrefix}-${allocateBackendInstance()}`,
       'backend-instance',

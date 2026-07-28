@@ -95,7 +95,38 @@ describe('React Native Android canonical protocol vertical slice', () => {
     )
 
     expect(manager.identity.versions.nativeProtocol.selected.value).toBe(1)
-    expect(manager.features.registrations).toEqual([])
+    expect(manager.features.registrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'connection:rssi-measurement',
+          state: 'limited',
+          tck: expect.objectContaining({
+            suiteId: 'connection-controls',
+            requiredScenarioIds: ['connection.rssi-and-att-mtu-capability-contract']
+          }),
+          evidence: expect.objectContaining({ evidenceLevel: 'deterministic' })
+        }),
+        expect.objectContaining({
+          id: 'connection:request-att-mtu',
+          state: 'limited',
+          tck: expect.objectContaining({
+            suiteId: 'connection-controls',
+            requiredScenarioIds: ['connection.rssi-and-att-mtu-capability-contract']
+          }),
+          evidence: expect.objectContaining({ evidenceLevel: 'deterministic' }),
+          limits: { minimumAttMtu: 23, maximumRequestedAttMtu: 517 }
+        })
+      ])
+    )
+    const rssiFeature = manager.features.registrations.find(
+      registration => registration.id === 'connection:rssi-measurement'
+    )
+    if (rssiFeature === undefined) {
+      throw new Error('Android RSSI feature registration is missing')
+    }
+    await expect(rssiFeature.implementation.invoke({})).rejects.toMatchObject({
+      normalized: { code: 'lifecycle.invalid-state' }
+    })
 
     const scan = await manager.scan(scanOptions())
     runtime.emitAdvertisement()
@@ -312,6 +343,21 @@ describe('React Native Android canonical protocol vertical slice', () => {
     }
     await scan.stop()
     const connection = await manager.connect(observation.value.value.peerId, operation())
+    expect(manager.features.registrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'connection:rssi-measurement', state: 'limited' }),
+        expect.objectContaining({
+          id: 'connection:request-att-mtu',
+          state: 'unsupported',
+          evidence: expect.objectContaining({ evidenceLevel: 'blocked' }),
+          limits: { minimumAttMtu: 23, maximumRequestedAttMtu: 0 }
+        })
+      ])
+    )
+    await expect(connection.readRssi(operation())).resolves.toMatchObject({ rssi: -47 })
+    await expect(connection.requestMtu(300, operation())).rejects.toMatchObject({
+      normalized: { code: 'capability.unsupported' }
+    })
     const database = await connection.discover(operation())
     const snapshot = await database.snapshot()
     const characteristic = snapshot.characteristics[0].path
@@ -327,6 +373,7 @@ describe('React Native Android canonical protocol vertical slice', () => {
       'scanStart',
       'scanStop',
       'connect',
+      'readRssi',
       'discover',
       'read',
       'subscribe',

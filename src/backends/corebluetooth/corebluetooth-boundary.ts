@@ -1,5 +1,7 @@
 // src/backends/corebluetooth/corebluetooth-boundary.ts
 
+import type { ConnectionControlCapabilities } from '../../backend-contract/connection-controls'
+
 /**
  * Typed, bytes-first boundary between the CoreBluetooth addon and the shared
  * backend. Native peripheral identifiers remain inside this boundary; callers
@@ -47,6 +49,8 @@ export interface CoreBluetoothCharacteristicAddress {
 }
 
 export interface CoreBluetoothBoundary {
+  /** A platform declares an unavailable control before the core submits any native command. */
+  readonly connectionControlCapabilities?: ConnectionControlCapabilities
   adapterSnapshot(): CoreBluetoothAdapterSnapshot
   startScan(
     onAdvertisement: (advertisement: CoreBluetoothAdvertisement) => void,

@@ -24,14 +24,11 @@ export type {
 export { runBackendTck } from './tck/runner'
 export { baseTckScenarios, findTckScenario } from './tck/scenarios'
 export { TckAssertionError } from './tck/contracts'
-export type { TckScenarioAdapter } from './tck/scenario-adapter'
 export type {
   BackendTckFactory,
   BackendTckFixture,
   RegisteredFeature,
-  TckController,
   TckControllerAction,
-  TckControllerResult,
   TckFact,
   TckFactId,
   TckFeatureBinding,
@@ -39,9 +36,10 @@ export type {
   TckProofLabel,
   TckProofScope,
   TckRuntimeIdentity,
-  TckRunConfiguration,
+  TckRunOptions,
   TckRunReport,
   TckScenarioDefinition,
+  TckScenarioController,
   TckScenarioId,
   TckScenarioReceipt
 } from './tck/contracts'

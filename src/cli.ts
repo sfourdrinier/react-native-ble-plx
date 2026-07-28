@@ -229,7 +229,9 @@ async function runDoctorCommand(definition: CliBackendDefinition): Promise<Unifi
 }
 
 async function runCapabilitiesCommand(definition: CliBackendDefinition): Promise<UnifiedBleCliResult> {
-  const fixture = await definition.factory.create()
+  const fixture = await definition.factory.create(
+    Object.freeze({ scenarioId: 'capability.truth-limits-evidence-and-binding' })
+  )
   try {
     return success('capabilities', capabilityReportData(inspectBackendCapabilities(fixture.backend)))
   } finally {

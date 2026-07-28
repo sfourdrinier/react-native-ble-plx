@@ -268,20 +268,14 @@ describe('Electron v4 IPC boundary', () => {
     expect(bootstrapA.kind).toBe('bootstrap')
     expect(bootstrapB.kind).toBe('bootstrap')
     await expect(
-      current.port.handler(
-        { sender: senderB },
-        routeRequest(current, bootstrapA.bootstrap.renderer, 1)
-      )
+      current.port.handler({ sender: senderB }, routeRequest(current, bootstrapA.bootstrap.renderer, 1))
     ).rejects.toMatchObject({ normalized: { code: 'ownership.denied', operation: 'electron-main-arbiter.sender' } })
 
     senderA.destroy()
     await Promise.resolve()
     await Promise.resolve()
     await expect(
-      current.port.handler(
-        { sender: senderA },
-        routeRequest(current, bootstrapA.bootstrap.renderer, 2)
-      )
+      current.port.handler({ sender: senderA }, routeRequest(current, bootstrapA.bootstrap.renderer, 2))
     ).rejects.toMatchObject({ normalized: { code: 'lifecycle.invalid-state' } })
     await current.binding.destroy()
   })
@@ -327,7 +321,11 @@ describe('Electron v4 IPC boundary', () => {
     bytes[0] = 99
     expect([...capturedEnvelope.binaryPayload]).toEqual([1, 2, 3])
 
-    listeners[0]({ eventId: 'event-1', streamId: 'subscription-1', item: { kind: 'value', value: new Uint8Array([7]) } })
+    listeners[0]({
+      eventId: 'event-1',
+      streamId: 'subscription-1',
+      item: { kind: 'value', value: new Uint8Array([7]) }
+    })
     const iterator = client.events[Symbol.asyncIterator]()
     await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { kind: 'value' } })
     await expect(client.destroy()).resolves.toEqual({ state: 'released', failures: [] })
@@ -337,8 +335,20 @@ describe('Electron v4 IPC boundary', () => {
   test('disconnects only the selected connection descendants when two databases and subscriptions are live', async () => {
     const streamA = createControlledStream()
     const streamB = createControlledStream()
-    const subscriptionA = { values: streamA, remove: jest.fn(async () => { streamA.close(); return released() }) }
-    const subscriptionB = { values: streamB, remove: jest.fn(async () => { streamB.close(); return released() }) }
+    const subscriptionA = {
+      values: streamA,
+      remove: jest.fn(async () => {
+        streamA.close()
+        return released()
+      })
+    }
+    const subscriptionB = {
+      values: streamB,
+      remove: jest.fn(async () => {
+        streamB.close()
+        return released()
+      })
+    }
     const disconnectA = jest.fn(async () => released())
     const disconnectB = jest.fn(async () => released())
     const connectionA = createConnection('peer-a', createDatabase(subscriptionA), disconnectA)
@@ -418,7 +428,11 @@ describe('Electron v4 IPC boundary', () => {
     const connectStarted = deferred()
     const connectResult = deferred()
     const disconnect = jest.fn(async () => released())
-    const connection = createConnection('peer-pending', createDatabase({ values: createControlledStream(), remove: jest.fn() }), disconnect)
+    const connection = createConnection(
+      'peer-pending',
+      createDatabase({ values: createControlledStream(), remove: jest.fn() }),
+      disconnect
+    )
     let signal = null
     const current = createMainFixture({
       connect: jest.fn(async (_peerId, options) => {
@@ -452,9 +466,15 @@ describe('Electron v4 IPC boundary', () => {
 
   test('terminalizes failed sources and oversize subscription values exactly once after native cleanup', async () => {
     const scanStream = createControlledStream()
-    const scanStop = jest.fn(async () => { scanStream.close(); return released() })
+    const scanStop = jest.fn(async () => {
+      scanStream.close()
+      return released()
+    })
     const subscriptionStream = createControlledStream()
-    const subscriptionRemove = jest.fn(async () => { subscriptionStream.close(); return released() })
+    const subscriptionRemove = jest.fn(async () => {
+      subscriptionStream.close()
+      return released()
+    })
     const subscription = { values: subscriptionStream, remove: subscriptionRemove }
     const connection = createConnection('peer-overflow', createDatabase(subscription))
     const current = createMainFixture({
@@ -490,7 +510,9 @@ describe('Electron v4 IPC boundary', () => {
     subscriptionStream.push({ kind: 'value', value: { value: new Uint8Array(5000), indication: false } })
     await flushAsyncWork()
     expect(subscriptionRemove).toHaveBeenCalledTimes(1)
-    expect(current.router.resources.get('client-streams').subscriptions.has(subscriptionResponse.payload.handle)).toBe(false)
+    expect(current.router.resources.get('client-streams').subscriptions.has(subscriptionResponse.payload.handle)).toBe(
+      false
+    )
     const terminalEvents = sender.sent.filter(({ event }) => event.item.kind === 'terminal')
     expect(terminalEvents).toHaveLength(2)
     expect(terminalEvents.map(({ event }) => event.item.reason)).toEqual(
@@ -538,13 +560,21 @@ describe('Electron v4 IPC boundary', () => {
     expect(events.filter(event => event.item.kind === 'value')).toHaveLength(128)
     expect(events.filter(event => event.item.kind === 'terminal')).toHaveLength(1)
     expect(events.find(event => event.item.kind === 'terminal').item.reason).toBe('renderer-backpressure')
-    expect(current.router.resources.get('client-frozen').subscriptions.has(subscriptionResponse.payload.handle)).toBe(false)
+    expect(current.router.resources.get('client-frozen').subscriptions.has(subscriptionResponse.payload.handle)).toBe(
+      false
+    )
     await current.binding.destroy()
   })
 
   test('releases resources after a WebContents delivery failure without waiting on the failed stream pump', async () => {
     const stream = createControlledStream()
-    const subscription = { values: stream, remove: jest.fn(async () => { stream.close(); return released() }) }
+    const subscription = {
+      values: stream,
+      remove: jest.fn(async () => {
+        stream.close()
+        return released()
+      })
+    }
     const disconnect = jest.fn(async () => released())
     const connection = createConnection('peer-delivery-failure', createDatabase(subscription), disconnect)
     const current = createMainFixture({ connect: jest.fn(async () => connection) })
@@ -573,9 +603,9 @@ describe('Electron v4 IPC boundary', () => {
     await flushAsyncWork()
     expect(subscription.remove).toHaveBeenCalledTimes(1)
     expect(disconnect).toHaveBeenCalledTimes(1)
+    await expect(current.binding.destroy()).resolves.toEqual(released())
     expect(current.router.resources.has('client-delivery-failure')).toBe(false)
     log.mockRestore()
-    await current.binding.destroy()
   })
 
   test('retains failed stop and unsubscribe resources for explicit retry ownership', async () => {
@@ -583,12 +613,18 @@ describe('Electron v4 IPC boundary', () => {
     const scanStop = jest
       .fn()
       .mockResolvedValueOnce(failed('scan'))
-      .mockImplementationOnce(async () => { scanStream.close(); return released() })
+      .mockImplementationOnce(async () => {
+        scanStream.close()
+        return released()
+      })
     const subscriptionStream = createControlledStream()
     const subscriptionRemove = jest
       .fn()
       .mockResolvedValueOnce(failed('subscription'))
-      .mockImplementationOnce(async () => { subscriptionStream.close(); return released() })
+      .mockImplementationOnce(async () => {
+        subscriptionStream.close()
+        return released()
+      })
     const subscription = { values: subscriptionStream, remove: subscriptionRemove }
     const connection = createConnection('peer-retry', createDatabase(subscription))
     const current = createMainFixture({
@@ -632,15 +668,23 @@ describe('Electron v4 IPC boundary', () => {
     await expect(
       current.port.handler(
         { sender },
-        commandRequest(current, renderer, 7, 'gatt.unsubscribe', { subscriptionHandle: subscriptionResponse.payload.handle })
+        commandRequest(current, renderer, 7, 'gatt.unsubscribe', {
+          subscriptionHandle: subscriptionResponse.payload.handle
+        })
       )
     ).resolves.toMatchObject({ kind: 'route', payload: { state: 'release-failed' } })
-    expect(current.router.resources.get('client-retry').subscriptions.has(subscriptionResponse.payload.handle)).toBe(true)
+    expect(current.router.resources.get('client-retry').subscriptions.has(subscriptionResponse.payload.handle)).toBe(
+      true
+    )
     await current.port.handler(
       { sender },
-      commandRequest(current, renderer, 8, 'gatt.unsubscribe', { subscriptionHandle: subscriptionResponse.payload.handle })
+      commandRequest(current, renderer, 8, 'gatt.unsubscribe', {
+        subscriptionHandle: subscriptionResponse.payload.handle
+      })
     )
-    expect(current.router.resources.get('client-retry').subscriptions.has(subscriptionResponse.payload.handle)).toBe(false)
+    expect(current.router.resources.get('client-retry').subscriptions.has(subscriptionResponse.payload.handle)).toBe(
+      false
+    )
     await current.binding.destroy()
   })
 
@@ -676,5 +720,131 @@ describe('Electron v4 IPC boundary', () => {
     await expect(client.destroy()).resolves.toEqual(released())
     expect(listeners).toEqual([])
     errorLog.mockRestore()
+  })
+
+  test('coalesces concurrent bootstrap and releases main ownership when destroy races initialization', async () => {
+    const listeners = []
+    const bootstrapResult = deferred()
+    const bootstrapValue = {
+      attachment: attachment(),
+      attachmentId: opaqueId('racing-attachment', 'attachment', 'renderer'),
+      versions: { ...versions(), ipcProtocol: negotiated('ipc-protocol') },
+      renderer: {
+        clientId: opaqueId('racing-client', 'client', 'renderer:racing'),
+        windowScope: 'racing-window',
+        sessionScope: 'racing-session'
+      }
+    }
+    const transport = {
+      invoke: jest.fn(async request => {
+        if (request.kind === 'bootstrap') {
+          return bootstrapResult.promise
+        }
+        expect(request).toEqual({ kind: 'release' })
+        return { kind: 'release', cleanup: released() }
+      }),
+      async acknowledge() {},
+      subscribe(listener) {
+        listeners.push(listener)
+        return () => listeners.splice(listeners.indexOf(listener), 1)
+      }
+    }
+    const client = new ElectronRendererBleClient(transport)
+    const firstInitialization = client.initialize()
+    const secondInitialization = client.initialize()
+    expect(transport.invoke).toHaveBeenCalledTimes(1)
+
+    const destruction = client.destroy()
+    bootstrapResult.resolve({ kind: 'bootstrap', bootstrap: bootstrapValue })
+
+    await expect(firstInitialization).rejects.toMatchObject({ normalized: { code: 'lifecycle.invalid-state' } })
+    await expect(secondInitialization).rejects.toMatchObject({ normalized: { code: 'lifecycle.invalid-state' } })
+    await expect(destruction).resolves.toEqual(released())
+    expect(transport.invoke).toHaveBeenCalledTimes(2)
+    expect(listeners).toEqual([])
+  })
+
+  test('retains release-race events and acknowledges them only when failed cleanup restores the client', async () => {
+    const listeners = []
+    const releaseResult = deferred()
+    const bootstrapValue = {
+      attachment: attachment(),
+      attachmentId: opaqueId('event-race-attachment', 'attachment', 'renderer'),
+      versions: { ...versions(), ipcProtocol: negotiated('ipc-protocol') },
+      renderer: {
+        clientId: opaqueId('event-race-client', 'client', 'renderer:event-race'),
+        windowScope: 'event-race-window',
+        sessionScope: 'event-race-session'
+      }
+    }
+    const transport = {
+      invoke: jest
+        .fn()
+        .mockResolvedValueOnce({ kind: 'bootstrap', bootstrap: bootstrapValue })
+        .mockImplementationOnce(async () => releaseResult.promise)
+        .mockResolvedValueOnce({ kind: 'release', cleanup: released() }),
+      acknowledge: jest.fn(async () => undefined),
+      subscribe(listener) {
+        listeners.push(listener)
+        return () => listeners.splice(listeners.indexOf(listener), 1)
+      }
+    }
+    const client = new ElectronRendererBleClient(transport)
+    await client.initialize()
+    const destruction = client.destroy()
+    listeners[0]({ eventId: 'event-during-release', streamId: 'scan-1', item: { kind: 'observation', rssi: -42 } })
+    expect(transport.acknowledge).not.toHaveBeenCalled()
+
+    releaseResult.resolve({ kind: 'release', cleanup: failed('renderer') })
+    await expect(destruction).resolves.toEqual(failed('renderer'))
+    expect(transport.acknowledge).toHaveBeenCalledWith('event-during-release')
+    const iterator = client.events[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'value', value: { streamId: 'scan-1', item: { rssi: -42 } } }
+    })
+
+    await expect(client.destroy()).resolves.toEqual(released())
+    expect(listeners).toEqual([])
+  })
+
+  test('discards release-race events without stale acknowledgements after successful main cleanup', async () => {
+    const listeners = []
+    const releaseResult = deferred()
+    const bootstrapValue = {
+      attachment: attachment(),
+      attachmentId: opaqueId('released-event-attachment', 'attachment', 'renderer'),
+      versions: { ...versions(), ipcProtocol: negotiated('ipc-protocol') },
+      renderer: {
+        clientId: opaqueId('released-event-client', 'client', 'renderer:released-event'),
+        windowScope: 'released-event-window',
+        sessionScope: 'released-event-session'
+      }
+    }
+    const transport = {
+      invoke: jest
+        .fn()
+        .mockResolvedValueOnce({ kind: 'bootstrap', bootstrap: bootstrapValue })
+        .mockImplementationOnce(async () => releaseResult.promise),
+      acknowledge: jest.fn(async () => undefined),
+      subscribe(listener) {
+        listeners.push(listener)
+        return () => listeners.splice(listeners.indexOf(listener), 1)
+      }
+    }
+    const client = new ElectronRendererBleClient(transport)
+    await client.initialize()
+    const destruction = client.destroy()
+    listeners[0]({ eventId: 'released-event', streamId: 'scan-released', item: { kind: 'observation', rssi: -51 } })
+    releaseResult.resolve({ kind: 'release', cleanup: released() })
+
+    await expect(destruction).resolves.toEqual(released())
+    expect(transport.acknowledge).not.toHaveBeenCalled()
+    expect(listeners).toEqual([])
+    const iterator = client.events[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'terminal', reason: 'owner-released' }
+    })
   })
 })

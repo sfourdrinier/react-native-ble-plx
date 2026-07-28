@@ -73,7 +73,7 @@ export function createDeterministicManagerScenarioFactory(): ManagerScenarioFact
           )
           return borrower
         },
-        controller: deterministicController(fixture),
+        controller: createDeterministicManagerScenarioController(fixture),
         resourceCounters: () => fixture.backend.resourceCounters(),
         dispose: async () => {
           if (disposed) {
@@ -87,7 +87,9 @@ export function createDeterministicManagerScenarioFactory(): ManagerScenarioFact
   }
 }
 
-function deterministicController(fixture: DeterministicBackendFixture): ManagerScenarioController<string> {
+export function createDeterministicManagerScenarioController(
+  fixture: DeterministicBackendFixture
+): ManagerScenarioController<string> {
   return {
     availableControls: deterministicControls,
     now: () => Number(fixture.controller.clock.now()),

@@ -28,7 +28,7 @@ export const baseTckScenarios: readonly TckScenarioDefinition[] = [
   {
     id: 'identity.version-skew-and-malformed-offers',
     execution: 'base',
-    requiredFacts: ['skew-malformed-and-post-attachment-offers-reject-before-radio-work'],
+    requiredFacts: ['skew-malformed-and-post-attachment-offers-reject-without-live-radio-resources'],
     requiredControllerActions: []
   },
   {
@@ -81,6 +81,15 @@ export const baseTckScenarios: readonly TckScenarioDefinition[] = [
     requiredControllerActions: []
   },
   {
+    id: 'connection.rssi-and-att-mtu-capability-contract',
+    execution: 'feature',
+    requiredFacts: [
+      'connection-rssi-is-measured-or-explicitly-unavailable',
+      'connection-att-mtu-is-negotiated-or-explicitly-unavailable'
+    ],
+    requiredControllerActions: []
+  },
+  {
     id: 'gatt.discovery-complete-paths-and-services-changed',
     execution: 'base',
     requiredFacts: [
@@ -97,7 +106,7 @@ export const baseTckScenarios: readonly TckScenarioDefinition[] = [
       'gatt-read-and-descriptor-return-owned-bytes',
       'gatt-write-policy-and-uncertain-dispatched-commit-are-exact'
     ],
-    requiredControllerActions: ['set-read-value', 'inject-att-error']
+    requiredControllerActions: ['queue-operation-completion', 'advance-time']
   },
   {
     id: 'subscription.enable-ready-shared-cccd-and-fanout',
@@ -107,7 +116,7 @@ export const baseTckScenarios: readonly TckScenarioDefinition[] = [
       'subscription-shares-physical-cccd-with-consumer-refcount',
       'subscription-fanout-is-consumer-isolated'
     ],
-    requiredControllerActions: ['configure-notifications']
+    requiredControllerActions: ['queue-operation-completion', 'advance-time', 'emit-notification']
   },
   {
     id: 'subscription.pre-ready-overflow-controls-and-late-quarantine',
@@ -116,7 +125,7 @@ export const baseTckScenarios: readonly TckScenarioDefinition[] = [
       'subscription-overflow-quota-order-and-one-terminal-are-exact',
       'subscription-no-late-value-after-removal'
     ],
-    requiredControllerActions: ['configure-notifications']
+    requiredControllerActions: ['queue-operation-completion', 'advance-time', 'emit-notification']
   },
   {
     id: 'restoration.provider-journal-adoption-and-rejection',
@@ -157,7 +166,7 @@ export const baseTckScenarios: readonly TckScenarioDefinition[] = [
     id: 'scenario.scan-connect-discover-read-notify-destroy',
     execution: 'base',
     requiredFacts: ['vertical-slice-preserves-scan-and-cleans-up'],
-    requiredControllerActions: ['queue-advertisement', 'configure-notifications']
+    requiredControllerActions: ['queue-advertisement', 'emit-notification']
   }
 ]
 

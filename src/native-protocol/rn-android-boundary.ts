@@ -1,6 +1,7 @@
 // src/native-protocol/rn-android-boundary.ts
 
 import { contractError } from '../backend-contract/errors'
+import type { ConnectionControlCapabilities } from '../backend-contract/connection-controls'
 import type {
   NativeAttachmentIdentity,
   NativeProtocolHandshakeResult,
@@ -76,6 +77,10 @@ type NativeSubscription = {
  * direct-boundary interface consumed by the shared backend.
  */
 export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary {
+  readonly connectionControlCapabilities: ConnectionControlCapabilities = Object.freeze({
+    rssi: 'available',
+    requestMtu: 'available'
+  })
   private readonly pending = new Map<string, PendingResult>()
   private readonly connections = new Map<string, NativeConnection>()
   private readonly databases = new Map<string, NativeProtocolRecord>()

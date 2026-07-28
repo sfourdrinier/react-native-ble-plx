@@ -146,6 +146,8 @@ export interface AttachmentBinding<Attachment extends string> {
   readonly adapterGeneration: GenerationId<'adapter-generation', Attachment>
 }
 export interface AttachmentBoundIdFactory<Attachment extends string> {
+  clientId(value: string): ClientId<Attachment, string>
+  managerId(value: string): ManagerId<Attachment, string>
   connectionId(value: string): ConnectionId<Attachment, string>
   leaseId(value: string): LeaseId<Attachment, string>
   scanShareToken(value: string): ScanShareToken<Attachment, string>
@@ -212,6 +214,8 @@ export function createAttachmentBoundIdFactory<Attachment extends string>(
 ): AttachmentBoundIdFactory<Attachment> {
   const scope = attachmentScope(binding)
   return {
+    clientId: value => runtimeScopedOpaqueId<'client', `${Attachment}:${string}`>(value, 'client', scope),
+    managerId: value => runtimeScopedOpaqueId<'manager', `${Attachment}:${string}`>(value, 'manager', scope),
     connectionId: value => runtimeScopedOpaqueId<'connection', `${Attachment}:${string}`>(value, 'connection', scope),
     leaseId: value => runtimeScopedOpaqueId<'lease', `${Attachment}:${string}`>(value, 'lease', scope),
     scanShareToken: value =>
@@ -233,7 +237,9 @@ export function createAttachmentBoundIdFactory<Attachment extends string>(
   }
 }
 /** Creates renderer-local IPC correlation IDs scoped to one already-attached backend generation. */
-export function createIpcOperationIdFactory<Attachment extends string>(scope: string): IpcOperationIdFactory<Attachment> {
+export function createIpcOperationIdFactory<Attachment extends string>(
+  scope: string
+): IpcOperationIdFactory<Attachment> {
   return {
     ipcOperationCorrelation: value =>
       runtimeScopedOpaqueId<'ipc-operation', `${Attachment}:${string}`>(value, 'ipc-operation', scope),

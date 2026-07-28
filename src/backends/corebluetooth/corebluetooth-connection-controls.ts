@@ -22,6 +22,9 @@ export class CoreBluetoothConnectionControls {
     connection: BackendConnection<string, string>,
     request: ReadRssiRequest<string, Operation>
   ): BackendOperationDispatch<string, RssiMeasurement<string, Operation>> {
+    if (this.backend.boundary.connectionControlCapabilities?.rssi === 'unavailable') {
+      return this.unsupported(request.operation, 'corebluetooth.connection.read-rssi')
+    }
     const readRssi = this.backend.boundary.readRssi?.bind(this.backend.boundary)
     if (readRssi === undefined) {
       return this.unsupported(request.operation, 'corebluetooth.connection.read-rssi')
@@ -40,6 +43,9 @@ export class CoreBluetoothConnectionControls {
     connection: BackendConnection<string, string>,
     request: RequestMtuRequest<string, Operation>
   ): BackendOperationDispatch<string, MtuNegotiation<string, Operation>> {
+    if (this.backend.boundary.connectionControlCapabilities?.requestMtu === 'unavailable') {
+      return this.unsupported(request.operation, 'corebluetooth.connection.request-mtu')
+    }
     const requestMtu = this.backend.boundary.requestMtu?.bind(this.backend.boundary)
     if (requestMtu === undefined) {
       return this.unsupported(request.operation, 'corebluetooth.connection.request-mtu')

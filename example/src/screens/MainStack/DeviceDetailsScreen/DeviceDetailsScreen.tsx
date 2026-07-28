@@ -1,64 +1,76 @@
-import React, { useCallback, useEffect, useState } from 'react'
+// example/src/screens/MainStack/DeviceDetailsScreen/DeviceDetailsScreen.tsx
+
+import React, { useState } from 'react'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
-import { Button, ScrollView, View } from 'react-native'
-import { AppText, ScreenDefaultContainer } from '../../../components/atoms'
+import { ScrollView } from 'react-native'
+import { AppButton, AppText, ScreenDefaultContainer } from '../../../components/atoms'
 import type { MainStackParamList } from '../../../navigation/navigators'
 import { BLEService } from '../../../services'
 
 type DeviceDetailsScreenProps = NativeStackScreenProps<MainStackParamList, 'DEVICE_DETAILS_SCREEN'>
 
-/**
- * Bare RN device details — shows connected device + optional common SIG profile reads
- * (parity with Expo DeviceDetails / example-shared; R3-F036).
- */
+/** Shows the occurrence-safe database discovered through the canonical public connection handle. */
 export function DeviceScreen(_props: DeviceDetailsScreenProps) {
-  const connectedDevice = BLEService.getDevice()
-  const [profilesJson, setProfilesJson] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [snapshot, setSnapshot] = useState<string | null>(null)
+  const [rssi, setRssi] = useState<string | null>(null)
+  const [mtu, setMtu] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const loadProfiles = useCallback(async () => {
-    setLoading(true)
+  const refresh = async () => {
     setError(null)
     try {
-      const profiles = await BLEService.readCommonProfiles()
-      setProfilesJson(JSON.stringify(profiles, null, 2))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-      setProfilesJson(null)
-    } finally {
-      setLoading(false)
+      setSnapshot(JSON.stringify(await BLEService.snapshot(), null, 2))
+    } catch (refreshError) {
+      console.error('[DeviceScreen.refresh] Database snapshot failed:', refreshError)
+      setError(messageFor(refreshError))
     }
-  }, [])
+  }
 
-  useEffect(() => {
-    // Best-effort auto-load when a device is already connected
-    if (connectedDevice) {
-      void loadProfiles()
+  const readRssi = async () => {
+    setError(null)
+    try {
+      setRssi((await BLEService.readRssi()).toString())
+    } catch (rssiError) {
+      console.error('[DeviceScreen.readRssi] RSSI read failed:', rssiError)
+      setError(messageFor(rssiError))
     }
-  }, [connectedDevice, loadProfiles])
+  }
+
+  const requestMtu = async () => {
+    setError(null)
+    try {
+      setMtu((await BLEService.requestMtu(300)).toString())
+    } catch (mtuError) {
+      console.error('[DeviceScreen.requestMtu] ATT MTU request failed:', mtuError)
+      setError(messageFor(mtuError))
+    }
+  }
 
   return (
     <ScreenDefaultContainer>
       <ScrollView>
-        <AppText>{JSON.stringify(connectedDevice, null, 4)}</AppText>
-        <View style={{ marginVertical: 12 }}>
-          <Button
-            title={loading ? 'Reading profiles…' : 'Read common SIG profiles'}
-            onPress={() => {
-              void loadProfiles()
-            }}
-            disabled={loading || !connectedDevice}
-          />
-        </View>
-        {error ? <AppText>Error: {error}</AppText> : null}
-        {profilesJson ? (
-          <>
-            <AppText>Common profiles (Battery / DIS / HT / BP):</AppText>
-            <AppText>{profilesJson}</AppText>
-          </>
-        ) : null}
+        <AppButton label="Refresh discovered database" onPress={() => void refresh()} />
+        <AppButton label="Read RSSI" onPress={() => void readRssi()} />
+        <AppButton label="Request ATT MTU 300" onPress={() => void requestMtu()} />
+        <AppButton label="Disconnect" onPress={() => void disconnect(setError)} />
+        {rssi === null ? null : <AppText>RSSI: {rssi}</AppText>}
+        {mtu === null ? null : <AppText>Negotiated ATT MTU: {mtu}</AppText>}
+        {error === null ? null : <AppText>BLE error: {error}</AppText>}
+        {snapshot === null ? null : <AppText>{snapshot}</AppText>}
       </ScrollView>
     </ScreenDefaultContainer>
   )
+}
+
+async function disconnect(setError: (error: string | null) => void): Promise<void> {
+  try {
+    await BLEService.disconnect()
+  } catch (disconnectError) {
+    console.error('[DeviceScreen.disconnect] Canonical disconnect failed:', disconnectError)
+    setError(messageFor(disconnectError))
+  }
+}
+
+function messageFor<Value>(error: Value): string {
+  return error instanceof Error ? error.message : 'The BLE operation failed with a non-Error value.'
 }

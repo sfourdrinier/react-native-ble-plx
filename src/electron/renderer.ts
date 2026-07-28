@@ -5,11 +5,7 @@ import { CoreBoundedStream } from '../core/bounded-stream'
 import { byteLimit, capacity, createIpcOperationIdFactory, ownBytes } from '../backend-contract/primitives'
 import type { CleanupRecord } from '../backend-contract/errors'
 import type { IpcEnvelope } from '../backend-contract/electron'
-import type {
-  IpcOperationCorrelation,
-  OwnedBytes,
-  SerializableRecord
-} from '../backend-contract/primitives'
+import type { IpcOperationCorrelation, OwnedBytes, SerializableRecord } from '../backend-contract/primitives'
 import { snapshotSerializableRecord } from '../backend-contract/serializable'
 import type { BoundedAsyncStream } from '../backend-contract/streams'
 import type {
@@ -25,6 +21,7 @@ const rendererEventLimits = Object.freeze({
   byteCapacity: capacity(512 * 1024),
   reservedControlCapacity: capacity(1)
 })
+const acknowledgementRetryDelayMilliseconds = 100
 
 /**
  * Renderer-side v1 IPC client. It can only use a preload-supplied transport;
@@ -37,6 +34,11 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
   private nextOperation = 1
   private nextDispatchEpoch = 1
   private lifecycle: 'active' | 'releasing' | 'released' = 'active'
+  private initializationResult: Promise<ElectronRendererBootstrap<Attachment, Renderer>> | null = null
+  private readonly pendingAcknowledgementIds = new Set<string>()
+  private readonly pendingReleaseEventIds: string[] = []
+  private acknowledgementPumpRunning = false
+  private acknowledgementRetry: ReturnType<typeof setTimeout> | null = null
   private releaseResult: Promise<CleanupRecord> | null = null
 
   constructor(private readonly transport: ElectronRendererIpcTransport<Attachment, Renderer>) {
@@ -59,6 +61,20 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
     if (this.bootstrapValue !== null) {
       return this.bootstrapValue
     }
+    const initialization = this.initializationResult ?? this.invokeBootstrap()
+    this.initializationResult = initialization
+    try {
+      const bootstrap = await initialization
+      this.assertActive('initialize')
+      return bootstrap
+    } finally {
+      if (this.initializationResult === initialization) {
+        this.initializationResult = null
+      }
+    }
+  }
+
+  private async invokeBootstrap(): Promise<ElectronRendererBootstrap<Attachment, Renderer>> {
     const response = await this.transport.invoke({ kind: 'bootstrap' })
     if (response.kind !== 'bootstrap') {
       throw contractError('protocol.malformed', 'ipc', 'electron-renderer.bootstrap-response')
@@ -119,33 +135,47 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
       return this.releaseResult
     }
     const bootstrap = this.bootstrapValue
-    if (bootstrap === null) {
+    const initialization = this.initializationResult
+    if (bootstrap === null && initialization === null) {
       this.completeRelease()
       return { state: 'released', failures: [] }
     }
     this.lifecycle = 'releasing'
-    const releaseResult = this.transport
-      .invoke({ kind: 'release', renderer: bootstrap.renderer })
-      .then(response => {
-        if (response.kind !== 'release') {
-          throw contractError('protocol.malformed', 'ipc', 'electron-renderer.release-response')
-        }
-        if (response.cleanup.state === 'released') {
-          this.completeRelease()
-        } else {
-          this.lifecycle = 'active'
-          this.releaseResult = null
-        }
-        return response.cleanup
-      })
-      .catch(error => {
-        console.error('[ElectronRendererBleClient] Release transport failed; client remains retryable:', error)
-        this.lifecycle = 'active'
-        this.releaseResult = null
-        throw error
-      })
+    const releaseResult = this.releaseInitializedRenderer(initialization)
     this.releaseResult = releaseResult
     return releaseResult
+  }
+
+  private async releaseInitializedRenderer(
+    initialization: Promise<ElectronRendererBootstrap<Attachment, Renderer>> | null
+  ): Promise<CleanupRecord> {
+    if (initialization !== null) {
+      try {
+        await initialization
+      } catch (error) {
+        console.error(
+          '[ElectronRendererBleClient] Initialization failed during destroy; releasing main ownership:',
+          error
+        )
+      }
+    }
+    let response
+    try {
+      response = await this.transport.invoke({ kind: 'release' })
+      if (response.kind !== 'release') {
+        throw contractError('protocol.malformed', 'ipc', 'electron-renderer.release-response')
+      }
+    } catch (error) {
+      console.error('[ElectronRendererBleClient] Release failed; client remains retryable:', error)
+      await this.restoreAfterFailedRelease()
+      throw error
+    }
+    if (response.cleanup.state === 'released') {
+      this.completeRelease()
+    } else {
+      await this.restoreAfterFailedRelease()
+    }
+    return response.cleanup
   }
 
   private async requestCancellation(correlation: IpcOperationCorrelation<string, string>): Promise<void> {
@@ -161,14 +191,69 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
   }
 
   private receiveEvent(event: ElectronBleIpcEvent): void {
-    if (this.lifecycle !== 'active') {
+    if (this.lifecycle === 'released') {
       return
     }
     const payload = Object.freeze({ streamId: event.streamId, item: event.item })
     this.eventsStream.emit(payload, serializedByteLength(payload))
-    void this.transport.acknowledge(event.eventId).catch(error => {
-      console.error('[ElectronRendererBleClient] Event acknowledgement failed:', { eventId: event.eventId, error })
+    if (this.lifecycle === 'releasing') {
+      this.pendingReleaseEventIds.push(event.eventId)
+      return
+    }
+    this.enqueueAcknowledgement(event.eventId)
+  }
+
+  private enqueueAcknowledgement(eventId: string): void {
+    this.pendingAcknowledgementIds.add(eventId)
+    this.pumpAcknowledgements().catch(error => {
+      console.error('[ElectronRendererBleClient] Acknowledgement pump rejected:', error)
     })
+  }
+
+  private async pumpAcknowledgements(): Promise<void> {
+    if (this.acknowledgementPumpRunning || this.lifecycle === 'released') {
+      return
+    }
+    this.acknowledgementPumpRunning = true
+    try {
+      for (const eventId of this.pendingAcknowledgementIds) {
+        try {
+          await this.transport.acknowledge(eventId)
+          this.pendingAcknowledgementIds.delete(eventId)
+        } catch (error) {
+          console.error('[ElectronRendererBleClient] Event acknowledgement failed; retry scheduled:', {
+            eventId,
+            error
+          })
+          this.scheduleAcknowledgementRetry()
+          return
+        }
+      }
+    } finally {
+      this.acknowledgementPumpRunning = false
+    }
+  }
+
+  private scheduleAcknowledgementRetry(): void {
+    if (this.acknowledgementRetry !== null || this.lifecycle === 'released') {
+      return
+    }
+    this.acknowledgementRetry = setTimeout(() => {
+      this.acknowledgementRetry = null
+      this.pumpAcknowledgements().catch(error => {
+        console.error('[ElectronRendererBleClient] Scheduled acknowledgement retry rejected:', error)
+      })
+    }, acknowledgementRetryDelayMilliseconds)
+  }
+
+  private async restoreAfterFailedRelease(): Promise<void> {
+    const eventIds = this.pendingReleaseEventIds.splice(0, this.pendingReleaseEventIds.length)
+    this.lifecycle = 'active'
+    this.releaseResult = null
+    for (const eventId of eventIds) {
+      this.pendingAcknowledgementIds.add(eventId)
+    }
+    await this.pumpAcknowledgements()
   }
 
   private assertActive(operation: string): void {
@@ -179,8 +264,18 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
 
   private completeRelease(): void {
     this.lifecycle = 'released'
+    this.pendingReleaseEventIds.length = 0
+    this.pendingAcknowledgementIds.clear()
+    if (this.acknowledgementRetry !== null) {
+      clearTimeout(this.acknowledgementRetry)
+      this.acknowledgementRetry = null
+    }
     this.releaseResult = null
-    this.unsubscribe()
+    try {
+      this.unsubscribe()
+    } catch (error) {
+      console.error('[ElectronRendererBleClient] Preload event unsubscription failed during release:', error)
+    }
     this.eventsStream.closeWithReason('owner-released')
   }
 }

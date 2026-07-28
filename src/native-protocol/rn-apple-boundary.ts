@@ -1,8 +1,15 @@
 // src/native-protocol/rn-apple-boundary.ts
 
+import type { ConnectionControlCapabilities } from '../backend-contract/connection-controls'
+import { ReactNativeAndroidProtocolBoundary } from './rn-android-boundary'
+
 /**
- * The canonical v1 JSI codec is platform-neutral. Apple installs that exact runtime from its
- * TurboModule, while this Apple-owned name prevents the React Native Apple provider from exposing
- * Android implementation terminology to its callers.
+ * Apple shares the versioned JSI codec, but CoreBluetooth has no caller-directed ATT MTU request.
+ * The explicit capability declaration prevents the core from submitting that impossible command.
  */
-export { ReactNativeAndroidProtocolBoundary as ReactNativeAppleProtocolBoundary } from './rn-android-boundary'
+export class ReactNativeAppleProtocolBoundary extends ReactNativeAndroidProtocolBoundary {
+  readonly connectionControlCapabilities: ConnectionControlCapabilities = Object.freeze({
+    rssi: 'available',
+    requestMtu: 'unavailable'
+  })
+}

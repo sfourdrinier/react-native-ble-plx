@@ -31,7 +31,9 @@ function createDeterministicAuthorDefinition() {
 describe('external backend SDK and offline CLI', () => {
   test('derives a capability report from the runtime registry and runs the selected TCK through the author definition', async () => {
     const definition = createDeterministicAuthorDefinition()
-    const fixture = await definition.factory.create()
+    const fixture = await definition.factory.create({
+      scenarioId: 'capability.truth-limits-evidence-and-binding'
+    })
     try {
       expect(inspectBackendCapabilities(fixture.backend)).toEqual({
         backendId: 'unified-ble:deterministic-test',

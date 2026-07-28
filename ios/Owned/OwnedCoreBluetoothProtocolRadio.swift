@@ -43,7 +43,7 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
   private var pendingConnect = [String: PendingVoid]()
   private var pendingDiscovery = [String: PendingDiscovery]()
   private var pendingRead = [CharacteristicAddress: PendingData]()
-  private var pendingRssi = [String: PendingData]()
+  private var pendingRssi = [String: PendingRssi]()
   private var pendingWrite = [CharacteristicAddress: PendingVoid]()
   private var pendingNotify = [CharacteristicAddress: PendingNotify]()
   private var subscriptions = [CharacteristicAddress: String]()
@@ -67,6 +67,11 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
   private struct PendingData {
     let operationIdentifier: String
     let completion: (NSData?, NSError?) -> Void
+  }
+
+  private struct PendingRssi {
+    let operationIdentifier: String
+    let completion: (NSNumber?, NSError?) -> Void
   }
 
   private struct PendingNotify {
@@ -281,7 +286,7 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
         return
       }
       peripheral.delegate = self
-      self.pendingRssi[peerIdentifier] = PendingData(operationIdentifier: operationIdentifier, completion: completion)
+      self.pendingRssi[peerIdentifier] = PendingRssi(operationIdentifier: operationIdentifier, completion: completion)
       peripheral.readRSSI()
     }
   }

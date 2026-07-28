@@ -1,5 +1,7 @@
 // src/backends/corebluetooth/corebluetooth-identity.ts
 
+import { createFeatureRegistry, type FeatureRegistry } from '../../backend-contract/capabilities'
+
 import {
   COREBLUETOOTH_BACKEND_ID,
   COREBLUETOOTH_IMPLEMENTATION_VERSION,
@@ -16,6 +18,7 @@ export interface DirectGattBackendIdentityOptions {
   readonly adapterNativeId: string
   readonly adapterDisplayName: string
   readonly limitations: readonly string[]
+  readonly features: FeatureRegistry
 }
 
 export const coreBluetoothIdentityOptions: DirectGattBackendIdentityOptions = Object.freeze({
@@ -29,5 +32,6 @@ export const coreBluetoothIdentityOptions: DirectGattBackendIdentityOptions = Ob
   limitations: Object.freeze([
     'CoreBluetooth exposes one selected default central adapter through this host boundary',
     'Descriptor operations are unavailable until the direct addon publishes descriptor callbacks'
-  ])
+  ]),
+  features: createFeatureRegistry([])
 })

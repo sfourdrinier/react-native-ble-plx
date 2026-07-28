@@ -32,6 +32,7 @@ import type { NativeAttachmentIdentity, Spec as NativeProtocolControl } from '..
 import { CoreBluetoothBackend, type DirectGattBackendIdentityOptions } from '../corebluetooth/corebluetooth-backend'
 import { coreBluetoothCompatibility } from '../corebluetooth/corebluetooth-provider'
 import { ReactNativeAppleProtocolBoundary } from '../../native-protocol/rn-apple-boundary'
+import { createReactNativeConnectionControlFeatureRegistry } from './react-native-connection-control-features'
 
 export const REACT_NATIVE_APPLE_BACKEND_ID = 'unified-ble:react-native-apple'
 export const REACT_NATIVE_APPLE_PLATFORM_ID = 'unified-ble:apple-corebluetooth'
@@ -54,7 +55,8 @@ const appleDirectGattIdentity: DirectGattBackendIdentityOptions = Object.freeze(
   limitations: Object.freeze([
     'Apple exposes the process-owned CoreBluetooth central through the canonical JSI protocol boundary',
     'Descriptor operations are unavailable because Native Protocol v1 does not publish descriptor records'
-  ])
+  ]),
+  features: createReactNativeConnectionControlFeatureRegistry('apple', REACT_NATIVE_APPLE_IMPLEMENTATION_VERSION)
 })
 
 let nextBoundaryOwner = 1

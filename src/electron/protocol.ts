@@ -2,7 +2,12 @@
 
 import type { CleanupRecord } from '../backend-contract/errors'
 import type { IpcEnvelope, RendererIdentity } from '../backend-contract/electron'
-import type { AttachmentId, IpcOperationCorrelation, IpcVersionAxes, SerializableRecord } from '../backend-contract/primitives'
+import type {
+  AttachmentId,
+  IpcOperationCorrelation,
+  IpcVersionAxes,
+  SerializableRecord
+} from '../backend-contract/primitives'
 import type { AttachmentRecord } from '../backend-contract/identity'
 
 /** The one versioned request channel exposed by a host application's narrow preload bridge. */
@@ -33,9 +38,8 @@ export interface ElectronRouteRequest<Attachment extends string, Renderer extend
   readonly envelope: IpcEnvelope<Attachment, Renderer, Operation>
 }
 
-export interface ElectronReleaseRequest<Attachment extends string, Renderer extends string> {
+export interface ElectronReleaseRequest {
   readonly kind: 'release'
-  readonly renderer: RendererIdentity<Attachment, Renderer>
 }
 
 /** Acknowledges a main-to-renderer event after the preload has delivered it. */
@@ -47,7 +51,7 @@ export interface ElectronEventAcknowledgeRequest {
 export type ElectronBleIpcRequest<Attachment extends string, Renderer extends string, Operation extends string> =
   | ElectronBootstrapRequest
   | ElectronRouteRequest<Attachment, Renderer, Operation>
-  | ElectronReleaseRequest<Attachment, Renderer>
+  | ElectronReleaseRequest
   | ElectronEventAcknowledgeRequest
 
 export interface ElectronBootstrapResponse<Attachment extends string, Renderer extends string> {

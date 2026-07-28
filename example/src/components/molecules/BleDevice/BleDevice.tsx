@@ -1,28 +1,26 @@
+// example/src/components/molecules/BleDevice/BleDevice.tsx
+
 import React from 'react'
-import { Device } from 'unified-ble-manager'
+import type { ExamplePeer } from '../../../services/BLEService/BLEService'
 import { Container } from './BleDevice.styled'
 import { DeviceProperty } from './DeviceProperty/DeviceProperty'
 
 export type BleDeviceProps = {
-  onPress: (device: Device) => void
-  device: Device
+  readonly onPress: (peer: ExamplePeer) => void
+  readonly peer: ExamplePeer
 }
 
-export function BleDevice({ device, onPress }: BleDeviceProps) {
-  const isConnectableInfoValueIsUnavailable = typeof device.isConnectable !== 'boolean'
-  const isConnectableValue = device.isConnectable ? 'true' : 'false'
-  const parsedIsConnectable = isConnectableInfoValueIsUnavailable ? '-' : isConnectableValue
-
+export function BleDevice({ peer, onPress }: BleDeviceProps) {
   return (
-    <Container onPress={() => onPress(device)}>
-      <DeviceProperty name="name" value={device.name} />
-      <DeviceProperty name="localName" value={device.localName} />
-      <DeviceProperty name="id" value={device.id} />
-      <DeviceProperty name="manufacturerData" value={device.manufacturerData} />
-      <DeviceProperty name="rawScanRecord" value={device.rawScanRecord} />
-      <DeviceProperty name="isConnectable" value={parsedIsConnectable} />
-      <DeviceProperty name="mtu" value={device.mtu.toString()} />
-      <DeviceProperty name="rssi" value={device.rssi} />
+    <Container onPress={() => onPress(peer)}>
+      <DeviceProperty name="local name" value={peer.label} />
+      <DeviceProperty name="peer ID" value={String(peer.peerId)} />
+      <DeviceProperty
+        name="connectable"
+        value={peer.isConnectable === null ? 'unavailable' : String(peer.isConnectable)}
+      />
+      <DeviceProperty name="RSSI" value={peer.rssi === null ? 'unavailable' : peer.rssi.toString()} />
+      <DeviceProperty name="observed at" value={peer.seenAt.toString()} />
     </Container>
   )
 }

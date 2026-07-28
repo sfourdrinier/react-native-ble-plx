@@ -1,6 +1,11 @@
 // src/electron/renderer-stream-registry.ts
 
-import { BackendContractError, contractError, type CleanupFailure, type CleanupRecord } from '../backend-contract/errors'
+import {
+  BackendContractError,
+  contractError,
+  type CleanupFailure,
+  type CleanupRecord
+} from '../backend-contract/errors'
 import { byteLimit, ownBytes, type SerializableRecord } from '../backend-contract/primitives'
 import { snapshotSerializableRecord } from '../backend-contract/serializable'
 import type { StreamItem } from '../backend-contract/streams'
@@ -9,10 +14,13 @@ import type { ScanSession, Subscription } from '../manager/ble-manager'
 import type { ElectronBleIpcEvent } from './protocol'
 
 export type ElectronEventDelivery = 'delivered' | 'terminalized'
+const cleanupRetryDelayMilliseconds = 100
 
 export interface ManagedScan {
   readonly scan: ScanSession<string>
   pump: Promise<void>
+  cleanupRequested: boolean
+  retryHandle: ReturnType<typeof setTimeout> | null
   terminalPublished: boolean
 }
 
@@ -20,6 +28,8 @@ export interface ManagedSubscription {
   readonly databaseHandle: string
   readonly subscription: Subscription<string, HostNeutralBackendIdentity<string>>
   pump: Promise<void>
+  cleanupRequested: boolean
+  retryHandle: ReturnType<typeof setTimeout> | null
   terminalPublished: boolean
 }
 
@@ -51,11 +61,18 @@ export class ElectronRendererStreamRegistry {
     const resource: ManagedScan = {
       scan,
       pump: Promise.resolve(),
+      cleanupRequested: false,
+      retryHandle: null,
       terminalPublished: false
     }
     resources.scans.set(handle, resource)
-    resource.pump = this.forwardStream(rendererClientId, handle, scan.observations, reason =>
-      this.terminalizeScan(resources, rendererClientId, handle, resource, reason)
+    resource.pump = this.forwardStream(
+      rendererClientId,
+      handle,
+      scan.observations,
+      reason => this.terminalizeScan(resources, rendererClientId, handle, resource, reason),
+      () => this.completeTerminalScan(resources, handle, resource),
+      () => resource.cleanupRequested
     )
     return resource
   }
@@ -71,11 +88,18 @@ export class ElectronRendererStreamRegistry {
       databaseHandle,
       subscription,
       pump: Promise.resolve(),
+      cleanupRequested: false,
+      retryHandle: null,
       terminalPublished: false
     }
     resources.subscriptions.set(handle, resource)
-    resource.pump = this.forwardStream(rendererClientId, handle, subscription.values, reason =>
-      this.terminalizeSubscription(resources, rendererClientId, handle, resource, reason)
+    resource.pump = this.forwardStream(
+      rendererClientId,
+      handle,
+      subscription.values,
+      reason => this.terminalizeSubscription(resources, rendererClientId, handle, resource, reason),
+      () => this.completeTerminalSubscription(resources, handle, resource),
+      () => resource.cleanupRequested
     )
     return resource
   }
@@ -87,9 +111,12 @@ export class ElectronRendererStreamRegistry {
     awaitPump: boolean
   ): Promise<CleanupRecord> {
     const failures: CleanupFailure[] = []
+    resource.cleanupRequested = true
     if (!(await this.cleanupResource('scan', () => resource.scan.stop(), failures))) {
+      resource.cleanupRequested = false
       return { state: 'release-failed', failures }
     }
+    this.clearRetry(resource)
     if (awaitPump) {
       await resource.pump
     }
@@ -104,9 +131,12 @@ export class ElectronRendererStreamRegistry {
     awaitPump: boolean
   ): Promise<CleanupRecord> {
     const failures: CleanupFailure[] = []
+    resource.cleanupRequested = true
     if (!(await this.cleanupResource('subscription', () => resource.subscription.remove(), failures))) {
+      resource.cleanupRequested = false
       return { state: 'release-failed', failures }
     }
+    this.clearRetry(resource)
     if (awaitPump) {
       await resource.pump
     }
@@ -137,7 +167,9 @@ export class ElectronRendererStreamRegistry {
     rendererClientId: string,
     streamId: string,
     stream: AsyncIterable<StreamItem<Value>>,
-    terminalize: (reason: 'ipc-message-too-large' | 'source-failed') => Promise<void>
+    terminalize: (reason: 'ipc-message-too-large' | 'source-failed') => Promise<void>,
+    completeTerminal: () => Promise<void>,
+    cleanupRequested: () => boolean
   ): Promise<void> {
     try {
       for await (const item of stream) {
@@ -160,10 +192,59 @@ export class ElectronRendererStreamRegistry {
         if (delivery === 'terminalized') {
           return
         }
+        if (item.kind === 'terminal') {
+          await completeTerminal()
+          return
+        }
       }
+      if (cleanupRequested()) {
+        return
+      }
+      console.error('[ElectronRendererStreamRegistry] Stream ended without a terminal item:', { streamId })
+      await terminalize('source-failed')
     } catch (error) {
       console.error('[ElectronRendererStreamRegistry] Stream forwarding failed:', { streamId, error })
       await terminalize('source-failed')
+    }
+  }
+
+  private async completeTerminalScan(
+    resources: RendererStreamResources,
+    handle: string,
+    resource: ManagedScan
+  ): Promise<void> {
+    if (resource.terminalPublished || resource.cleanupRequested) {
+      return
+    }
+    resource.terminalPublished = true
+    const cleanup = await this.stopScan(resources, handle, resource, false)
+    if (cleanup.state === 'release-failed') {
+      console.error('[ElectronRendererStreamRegistry] Failed to stop scan after source terminal:', {
+        handle,
+        cleanup
+      })
+      resource.terminalPublished = false
+      this.scheduleScanRetry(resources, '', handle, resource, null)
+    }
+  }
+
+  private async completeTerminalSubscription(
+    resources: RendererStreamResources,
+    handle: string,
+    resource: ManagedSubscription
+  ): Promise<void> {
+    if (resource.terminalPublished || resource.cleanupRequested) {
+      return
+    }
+    resource.terminalPublished = true
+    const cleanup = await this.removeSubscription(resources, handle, resource, false)
+    if (cleanup.state === 'release-failed') {
+      console.error('[ElectronRendererStreamRegistry] Failed to remove subscription after source terminal:', {
+        handle,
+        cleanup
+      })
+      resource.terminalPublished = false
+      this.scheduleSubscriptionRetry(resources, '', handle, resource, null)
     }
   }
 
@@ -174,7 +255,7 @@ export class ElectronRendererStreamRegistry {
     resource: ManagedScan,
     reason: 'ipc-message-too-large' | 'source-failed' | 'renderer-backpressure' | 'renderer-unavailable'
   ): Promise<void> {
-    if (resource.terminalPublished) {
+    if (resource.terminalPublished || resource.cleanupRequested) {
       return
     }
     resource.terminalPublished = true
@@ -185,6 +266,9 @@ export class ElectronRendererStreamRegistry {
         reason,
         cleanup
       })
+      resource.terminalPublished = false
+      this.scheduleScanRetry(resources, rendererClientId, handle, resource, reason)
+      return
     }
     await this.publishTerminal(rendererClientId, handle, reason)
   }
@@ -196,7 +280,7 @@ export class ElectronRendererStreamRegistry {
     resource: ManagedSubscription,
     reason: 'ipc-message-too-large' | 'source-failed' | 'renderer-backpressure' | 'renderer-unavailable'
   ): Promise<void> {
-    if (resource.terminalPublished) {
+    if (resource.terminalPublished || resource.cleanupRequested) {
       return
     }
     resource.terminalPublished = true
@@ -207,8 +291,67 @@ export class ElectronRendererStreamRegistry {
         reason,
         cleanup
       })
+      resource.terminalPublished = false
+      this.scheduleSubscriptionRetry(resources, rendererClientId, handle, resource, reason)
+      return
     }
     await this.publishTerminal(rendererClientId, handle, reason)
+  }
+
+  private scheduleScanRetry(
+    resources: RendererStreamResources,
+    rendererClientId: string,
+    handle: string,
+    resource: ManagedScan,
+    reason: 'ipc-message-too-large' | 'source-failed' | 'renderer-backpressure' | 'renderer-unavailable' | null
+  ): void {
+    if (resource.retryHandle !== null || !resources.scans.has(handle)) {
+      return
+    }
+    resource.retryHandle = setTimeout(() => {
+      resource.retryHandle = null
+      const retry =
+        reason === null
+          ? this.completeTerminalScan(resources, handle, resource)
+          : this.terminalizeScan(resources, rendererClientId, handle, resource, reason)
+      retry.catch(error => {
+        console.error('[ElectronRendererStreamRegistry] Scheduled scan cleanup retry rejected:', { handle, error })
+        this.scheduleScanRetry(resources, rendererClientId, handle, resource, reason)
+      })
+    }, cleanupRetryDelayMilliseconds)
+  }
+
+  private scheduleSubscriptionRetry(
+    resources: RendererStreamResources,
+    rendererClientId: string,
+    handle: string,
+    resource: ManagedSubscription,
+    reason: 'ipc-message-too-large' | 'source-failed' | 'renderer-backpressure' | 'renderer-unavailable' | null
+  ): void {
+    if (resource.retryHandle !== null || !resources.subscriptions.has(handle)) {
+      return
+    }
+    resource.retryHandle = setTimeout(() => {
+      resource.retryHandle = null
+      const retry =
+        reason === null
+          ? this.completeTerminalSubscription(resources, handle, resource)
+          : this.terminalizeSubscription(resources, rendererClientId, handle, resource, reason)
+      retry.catch(error => {
+        console.error('[ElectronRendererStreamRegistry] Scheduled subscription cleanup retry rejected:', {
+          handle,
+          error
+        })
+        this.scheduleSubscriptionRetry(resources, rendererClientId, handle, resource, reason)
+      })
+    }, cleanupRetryDelayMilliseconds)
+  }
+
+  private clearRetry(resource: ManagedScan | ManagedSubscription): void {
+    if (resource.retryHandle !== null) {
+      clearTimeout(resource.retryHandle)
+      resource.retryHandle = null
+    }
   }
 
   private async publishTerminal(

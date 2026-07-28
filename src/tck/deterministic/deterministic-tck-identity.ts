@@ -107,7 +107,7 @@ export async function deterministicIdentityRejectionFacts(): Promise<readonly Tc
   )
   return [
     fact(
-      'skew-malformed-and-post-attachment-offers-reject-before-radio-work',
+      'skew-malformed-and-post-attachment-offers-reject-without-live-radio-resources',
       postAttachmentRejected && skewRejected && malformedRejected,
       { postAttachmentRejected, skewRejected, malformedRejected }
     )
