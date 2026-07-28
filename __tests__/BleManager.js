@@ -395,6 +395,22 @@ test('When BleManager calls connectToDevice equivalent BleModule function should
   expect((await bleManager.connectToDevice('id', {})).id).toBe('id')
 })
 
+// #99: omitted/null options must not reach native as null (iOS New Arch crash).
+test('When BleManager connectToDevice is called without options it passes empty object to BleModule', async () => {
+  Native.BleModule.connectToDevice = jest.fn().mockReturnValue(Promise.resolve({ id: 'id' }))
+  expect(await bleManager.connectToDevice('id')).toBeInstanceOf(Device)
+  expect(Native.BleModule.connectToDevice).toBeCalledWith('id', {})
+  Native.BleModule.connectToDevice.mockClear()
+  expect(await bleManager.connectToDevice('id', null)).toBeInstanceOf(Device)
+  expect(Native.BleModule.connectToDevice).toBeCalledWith('id', {})
+})
+
+test('When BleManager startDeviceScan is called with null options it passes empty object to BleModule', () => {
+  const listener = jest.fn()
+  bleManager.startDeviceScan(null, null, listener)
+  expect(Native.BleModule.startDeviceScan).toBeCalledWith(null, {})
+})
+
 test('When BleManager calls cancelDeviceConnection equivalent BleModule function should be called', async () => {
   Native.BleModule.cancelDeviceConnection = jest.fn().mockReturnValue(Promise.resolve({ id: 'id' }))
   expect(await bleManager.cancelDeviceConnection('id')).toBeInstanceOf(Device)

@@ -427,7 +427,10 @@ export class BleManager {
 
     this._scanEventSubscription = this._eventEmitter.addListener(BleModule.ScanEvent, scanListener)
 
-    return this._callPromise(BleModule.startDeviceScan(UUIDs || null, options || null))
+    // Pass {} rather than null: New Arch iOS bridges null options as a C++
+    // reference that cannot be null-checked safely (#99). Empty object is
+    // equivalent to "no options" on all platforms.
+    return this._callPromise(BleModule.startDeviceScan(UUIDs || null, options ?? {}))
   }
 
   /**
@@ -540,7 +543,9 @@ export class BleManager {
     if (Platform.OS === 'android' && (await this.isDeviceConnected(deviceIdentifier))) {
       await this.cancelDeviceConnection(deviceIdentifier)
     }
-    const nativeDevice = await this._callPromise(BleModule.connectToDevice(deviceIdentifier, options || null))
+    // Pass {} rather than null: New Arch iOS segfaults on null ConnectionOptions
+    // (EXC_BAD_ACCESS in NSDictionaryFromConnectionOptions). See #99.
+    const nativeDevice = await this._callPromise(BleModule.connectToDevice(deviceIdentifier, options ?? {}))
     return new Device(nativeDevice, this)
   }
 
@@ -1403,7 +1408,7 @@ export class BleManager {
       )
       return true
     }
-    return this._callPromise(BleModule.enableBackgroundMode(options || null))
+    return this._callPromise(BleModule.enableBackgroundMode(options ?? {}))
   }
 
   /**
@@ -1445,7 +1450,7 @@ export class BleManager {
     if (isIOS) {
       return true
     }
-    return this._callPromise(BleModule.updateBackgroundNotification(options || null))
+    return this._callPromise(BleModule.updateBackgroundNotification(options ?? {}))
   }
 
   /**
