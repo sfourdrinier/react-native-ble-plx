@@ -4,6 +4,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.9.3] - 2026-07-28
+
 ### Fixed
 
 - **iOS New Arch: `connectToDevice` / `startDeviceScan` with omitted or null `options` no longer crashes ([#99](https://github.com/sfourdrinier/react-native-ble-plx/issues/99)).** JS now passes `{}` instead of `null` when options are omitted; native `NSDictionaryFromConnectionOptions` / `NSDictionaryFromScanOptions` null-guard the bridged C++ option wrappers (which cannot represent null and previously segfaulted on `autoConnect()` etc.).

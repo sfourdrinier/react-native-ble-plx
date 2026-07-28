@@ -268,9 +268,9 @@ describe('package modernization targets', () => {
     // Current Release block tracks last *published* version (updated after Path A succeeds).
     // While preparing a release PR, package.json may already be the next version.
     expect(releaseDoc).toMatch(/Current released version: `\d+\.\d+\.\d+`/)
-    expect(rootPackage.version).toBe('3.9.2')
-    expect(fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf8')).toContain('## [3.9.2]')
-    expect(fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf8')).toMatch(/#31|fcxx-modules|fmt/)
+    expect(rootPackage.version).toBe('3.9.3')
+    expect(fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf8')).toContain('## [3.9.3]')
+    expect(fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf8')).toMatch(/#99|null.*options|NSDictionaryFromConnectionOptions/)
     expect(releaseDoc).toContain('Expo SDK 57')
     expect(releaseDoc).toContain('React Native 0.86')
     expect(releaseDoc).toContain('pnpm test:package')

@@ -73,7 +73,7 @@ For older React Native versions, use the upstream [dotintent/react-native-ble-pl
 
 ## Current Branch Status
 
-- **3.9.2** stable line: gated `ConnectionManager.attemptConnectOnce`, `BleManager.getRestoredState()`, reporting-only iOS restore (D5), **true opt-in** Restoration subspec (`iosEnableRestoration`, [#32](https://github.com/sfourdrinier/react-native-ble-plx/issues/32)), Apple CI composites; iOS podspec no longer uses `-fmodules`/`-fcxx-modules` (fmt link fix, [#31](https://github.com/sfourdrinier/react-native-ble-plx/issues/31)).
+- **3.9.3** stable line: gated `ConnectionManager.attemptConnectOnce`, `BleManager.getRestoredState()`, reporting-only iOS restore (D5), **true opt-in** Restoration subspec (`iosEnableRestoration`, [#32](https://github.com/sfourdrinier/react-native-ble-plx/issues/32)), Apple CI composites; iOS podspec no longer uses `-fmodules`/`-fcxx-modules` (fmt link fix, [#31](https://github.com/sfourdrinier/react-native-ble-plx/issues/31)); New Arch null `options` crash fix ([#99](https://github.com/sfourdrinier/react-native-ble-plx/issues/99)).
 - Requires RN 0.86 / Expo SDK 57 and uses the generated TurboModule spec (`NativeBlePlxSpec`).
 - Android registers through `BaseReactPackage` and depends on `react-android`.
 - The Expo example is CNG-first: `example-expo/android` and `example-expo/ios` are generated, not checked in.
@@ -83,6 +83,10 @@ For older React Native versions, use the upstream [dotintent/react-native-ble-pl
 - Programmatic Android Bluetooth adapter toggling was removed because it is blocked for normal apps targeting Android 13+.
 
 ## Version History
+
+**3.9.3 (This Fork)**
+
+- Fixes iOS New Architecture crash when `connectToDevice` / `startDeviceScan` are called with omitted or null `options` (`EXC_BAD_ACCESS` in options conversion helpers) ([#99](https://github.com/sfourdrinier/react-native-ble-plx/issues/99)).
 
 **3.9.2 (This Fork)**
 
