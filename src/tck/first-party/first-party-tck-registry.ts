@@ -2,12 +2,12 @@
 
 import type { FeatureState } from '../../backend-contract/capabilities'
 import type { BleCentralBackend } from '../../backend-contract/backend'
-import type { HostNeutralBackendIdentity } from '../../backend-contract/identity'
+import type { BackendIdentity } from '../../backend-contract/identity'
 import { runBackendTck } from '../runner'
 import { findTckScenario } from '../scenarios'
 import type { BackendTckFactory, TckFeatureSuite, TckRunReport, TckScenarioId } from '../contracts'
 
-type FirstPartyBackend = BleCentralBackend<string, HostNeutralBackendIdentity<string>>
+type FirstPartyBackend = BleCentralBackend<string, BackendIdentity<string>>
 
 export interface FirstPartyTckSuite {
   readonly suiteId: string
@@ -22,7 +22,7 @@ export interface FirstPartyTckCapabilityExclusion {
 
 export interface FirstPartyBackendTckRegistration {
   readonly backendId: string
-  readonly factory: BackendTckFactory<string, HostNeutralBackendIdentity<string>, FirstPartyBackend>
+  readonly factory: BackendTckFactory<string, BackendIdentity<string>, FirstPartyBackend>
   readonly suites: readonly FirstPartyTckSuite[]
   readonly featureSuites: readonly TckFeatureSuite[]
   readonly capabilityExclusions: readonly FirstPartyTckCapabilityExclusion[]

@@ -5,6 +5,7 @@ import type { BleCentralBackend } from '../backend-contract/backend'
 import type { CleanupRecord, NormalizedBleError } from '../backend-contract/errors'
 import type { AdapterSelection, BackendIdentity, BackendProvider, HostKind } from '../backend-contract/identity'
 import type { SerializableRecord } from '../backend-contract/primitives'
+import type { ManagerRestorationCapability, RestorationAdoptionRequest } from '../backend-contract/restoration'
 
 /**
  * A production TCK fixture is an adapter around a backend's public contract.
@@ -22,6 +23,11 @@ export interface BackendTckFactory<
   readonly selection: AdapterSelection<Attachment>
   /** Known-unlisted adapter selection used to prove stale-target rejection. */
   readonly staleSelection: AdapterSelection<Attachment>
+  /**
+   * Opt-in for providers whose host owns one attachment-scoped event sink. The
+   * standard runner otherwise always creates one fixture for every base scenario.
+   */
+  readonly providerOnlyIdentityScenarios?: boolean
   create(context: TckFixtureContext): Promise<BackendTckFixture<Attachment, Identity, Backend>>
 }
 
@@ -51,6 +57,37 @@ export interface TckScenarioController {
   perform(action: TckControllerAction, input: SerializableRecord): Promise<void>
 }
 
+/**
+ * Inputs a deterministic boundary must expose for the standard connection-controls observer.
+ * The runner performs the public connection, RSSI, and MTU calls itself; this adapter supplies
+ * only the host's valid request parameter and therefore cannot manufacture feature facts.
+ */
+export interface TckConnectionControlsScenarioAdapter {
+  readonly requestedMtu: number
+}
+
+/**
+ * Provider-owned restoration wiring for the standard restoration observer. The adapter supplies
+ * a real manager capability, a concrete adoption request, and an environment action; the runner
+ * owns all adoption calls and derives every fact from their public results.
+ */
+export interface TckRestorationScenarioAdapter<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>
+> {
+  createCapability(
+    clientId: import('../backend-contract/primitives').ClientId<Attachment, string>
+  ): ManagerRestorationCapability<Attachment>
+  createRequest(identity: Identity): RestorationAdoptionRequest<Attachment>
+  seedJournal(controller: TckScenarioController): Promise<void>
+}
+
+/** Typed deterministic-boundary inputs for feature scenarios that the standard runner observes. */
+export interface TckFeatureScenarioAdapters<Attachment extends string, Identity extends BackendIdentity<Attachment>> {
+  readonly connectionControls?: TckConnectionControlsScenarioAdapter
+  readonly restoration?: TckRestorationScenarioAdapter<Attachment, Identity>
+}
+
 export interface BackendTckFixture<
   Attachment extends string,
   Identity extends BackendIdentity<Attachment>,
@@ -59,6 +96,8 @@ export interface BackendTckFixture<
   readonly backend: Backend
   /** Deterministic environment inputs only; this boundary cannot submit facts or receipts. */
   readonly controller: TckScenarioController
+  /** Optional only when this fixture registers a feature scenario requiring typed host wiring. */
+  readonly featureScenarioAdapters?: TckFeatureScenarioAdapters<Attachment, Identity>
   dispose(): Promise<CleanupRecord>
 }
 

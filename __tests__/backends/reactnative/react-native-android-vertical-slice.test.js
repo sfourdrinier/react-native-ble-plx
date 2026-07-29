@@ -10,6 +10,11 @@ const {
 const { decodeNativeProtocolRecord, encodeNativeProtocolRecord } = require('../../../src/native-protocol/v1-codec')
 const { ReactNativeAndroidProtocolBoundary } = require('../../../src/native-protocol/rn-android-boundary')
 const { ReactNativeAppleProtocolBoundary } = require('../../../src/native-protocol/rn-apple-boundary')
+const {
+  createReactNativeAndroidFirstPartyTckRegistration,
+  createReactNativeAppleFirstPartyTckRegistration
+} = require('../../../src/tck/first-party/react-native-tck-registration')
+const { runBackendTck } = require('../../../src/tck/runner')
 
 const serviceUuid = '0000180d-0000-1000-8000-00805f9b34fb'
 const characteristicUuid = '00002a37-0000-1000-8000-00805f9b34fb'
@@ -600,6 +605,99 @@ describe('React Native Android canonical protocol vertical slice', () => {
   })
 })
 
+describe('React Native first-party standard TCK registrations', () => {
+  let previousRuntime
+
+  beforeEach(() => {
+    previousRuntime = global.__unifiedBleNativeProtocolV1
+  })
+
+  afterEach(() => {
+    if (previousRuntime === undefined) {
+      delete global.__unifiedBleNativeProtocolV1
+    } else {
+      global.__unifiedBleNativeProtocolV1 = previousRuntime
+    }
+  })
+
+  test('Android executes its deterministic provider, RSSI, and ATT-MTU suites without claiming restoration', async () => {
+    const control = new DeterministicAndroidControl()
+    const runtime = new DeterministicAndroidProtocolRuntime(control, null, false)
+    global.__unifiedBleNativeProtocolV1 = runtime
+    let owner = 0
+    const registration = createReactNativeAndroidFirstPartyTckRegistration({
+      control,
+      now: () => 20,
+      nativePeerId: peerId,
+      boundary: deterministicTckBoundary(runtime),
+      createOwnerId: () => {
+        owner += 1
+        return `android-tck-owner-${owner}`
+      }
+    })
+
+    const report = await runBackendTck(registration.factory, registration.featureSuites, {
+      proofScope: 'deterministic',
+      baseScenarioIds: registration.suites.flatMap(suite => suite.baseScenarioIds)
+    })
+
+    expect(report.featureSuiteIds).toEqual(['connection-controls'])
+    expect(report.receipts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scenarioId: 'connection.rssi-and-att-mtu-capability-contract', error: null })
+      ])
+    )
+    expect(registration.capabilityExclusions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ featureId: 'state:restoration-adoption', state: 'unsupported' })])
+    )
+  })
+
+  test('Apple executes its deterministic provider, RSSI, and restoration suites while excluding MTU and descriptors', async () => {
+    const control = new DeterministicAndroidControl()
+    const runtime = new DeterministicAndroidProtocolRuntime(control, null, false)
+    global.__unifiedBleNativeProtocolV1 = runtime
+    let owner = 0
+    const registration = createReactNativeAppleFirstPartyTckRegistration({
+      control,
+      now: () => 20,
+      nativePeerId: peerId,
+      boundary: {
+        ...deterministicTckBoundary(runtime),
+        seedRestorationJournal: () => control.seedRestorationJournal()
+      },
+      createOwnerId: () => {
+        owner += 1
+        return `apple-tck-owner-${owner}`
+      }
+    })
+
+    const report = await runBackendTck(registration.factory, registration.featureSuites, {
+      proofScope: 'deterministic',
+      baseScenarioIds: registration.suites.flatMap(suite => suite.baseScenarioIds)
+    })
+
+    expect(report.featureSuiteIds).toEqual(expect.arrayContaining(['connection-controls', 'restoration']))
+    expect(report.receipts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scenarioId: 'restoration.provider-journal-adoption-and-rejection', error: null })
+      ])
+    )
+    expect(registration.capabilityExclusions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ featureId: 'connection:request-att-mtu', state: 'unsupported' }),
+        expect.objectContaining({ featureId: 'gatt:descriptor-operations', state: 'unavailable' })
+      ])
+    )
+  })
+})
+
+function deterministicTckBoundary(runtime) {
+  return {
+    emitAdvertisement: () => runtime.emitAdvertisement(),
+    emitNotification: (address, bytes) => runtime.emitNotification(address, bytes)
+  }
+}
+
 class DeterministicAndroidControl {
   constructor(installFailure = null, closeAttachmentFailuresRemaining = 0) {
     this.handshakes = []
@@ -607,6 +705,8 @@ class DeterministicAndroidControl {
     this.closeAttachmentAttempts = []
     this.installFailure = installFailure
     this.closeAttachmentFailuresRemaining = closeAttachmentFailuresRemaining
+    this.restorationJournalSeeded = false
+    this.restorationConsumed = false
   }
 
   handshake(request) {
@@ -635,6 +735,52 @@ class DeterministicAndroidControl {
   }
 
   adoptRestoration(request) {
+    if (this.restorationJournalSeeded) {
+      if (request.namespaceValue.endsWith('.rejected')) {
+        return Promise.resolve({
+          receiptId: '',
+          outcome: 'namespaceMismatch',
+          boundClientId: '',
+          adoptionEpoch: request.expectedEpoch,
+          replayRecordCount: 0,
+          records: []
+        })
+      }
+      if (this.restorationConsumed) {
+        return Promise.resolve({
+          receiptId: '',
+          outcome: 'alreadyConsumed',
+          boundClientId: request.clientId,
+          adoptionEpoch: request.expectedEpoch,
+          replayRecordCount: 0,
+          records: []
+        })
+      }
+      this.restorationConsumed = true
+      return Promise.resolve({
+        receiptId: 'deterministic-restoration-receipt',
+        outcome: 'adopted',
+        boundClientId: request.clientId,
+        adoptionEpoch: request.expectedEpoch,
+        replayRecordCount: 1,
+        records: [
+          {
+            encodedRecord: Array.from(
+              encodeNativeProtocolRecord(
+                record('restorationRecord', [
+                  field(1, 1),
+                  field(2, request.namespaceValue),
+                  field(3, this.activeAttachment()),
+                  field(4, 1),
+                  field(5, request.expectedEpoch),
+                  field(6, 'adapter')
+                ])
+              )
+            )
+          }
+        ]
+      })
+    }
     return Promise.resolve({
       receiptId: '',
       outcome: 'alreadyConsumed',
@@ -643,6 +789,11 @@ class DeterministicAndroidControl {
       replayRecordCount: 0,
       records: []
     })
+  }
+
+  seedRestorationJournal() {
+    this.restorationJournalSeeded = true
+    this.restorationConsumed = false
   }
 
   closeAttachment(attachment) {
@@ -671,7 +822,7 @@ class DeterministicAndroidControl {
 }
 
 class DeterministicAndroidProtocolRuntime {
-  constructor(control, sinkFailure = null) {
+  constructor(control, sinkFailure = null, emitInitialSubscriptionNotification = true) {
     this.control = control
     this.listener = null
     this.buffers = new Map()
@@ -682,6 +833,7 @@ class DeterministicAndroidProtocolRuntime {
     this.writes = []
     this.connection = null
     this.sinkFailure = sinkFailure
+    this.emitInitialSubscriptionNotification = emitInitialSubscriptionNotification
     this.destroyFailuresRemaining = 0
   }
 
@@ -776,10 +928,12 @@ class DeterministicAndroidProtocolRuntime {
     }
     if (kind === 'subscribe') {
       this.subscriptionId = requiredString(command, 7)
-      this.emitEvent('notification', [
-        field(11, this.subscriptionId),
-        field(13, binaryReferenceRecord(this.retain('notification-output', new Uint8Array([3, 4]))))
-      ])
+      if (this.emitInitialSubscriptionNotification) {
+        this.emitEvent('notification', [
+          field(11, this.subscriptionId),
+          field(13, binaryReferenceRecord(this.retain('notification-output', new Uint8Array([3, 4]))))
+        ])
+      }
       this.emitResult(command, 'subscribed', [field(5, requiredRecord(command, 4)), field(7, this.subscriptionId)])
       return
     }
@@ -854,6 +1008,16 @@ class DeterministicAndroidProtocolRuntime {
       fields.push(field(16, binaryReferenceRecord(this.retain('advertisement-scan-response', rich.scanResponseRecord))))
     }
     this.emitEvent('advertisement', [field(12, record('advertisement', fields))])
+  }
+
+  emitNotification(_address, bytes) {
+    if (this.subscriptionId === null) {
+      throw new Error('The deterministic runtime has no active subscription')
+    }
+    this.emitEvent('notification', [
+      field(11, this.subscriptionId),
+      field(13, binaryReferenceRecord(this.retain('notification-output', bytes)))
+    ])
   }
 
   emitConnectionLost(status) {

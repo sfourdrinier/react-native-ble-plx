@@ -10,10 +10,20 @@ import org.junit.Test
 class UnifiedBleProtocolAndroidDispatcherLifecycleTest {
   @Test
   fun decodesTheCanonicalDestroyCommandUsedByTheDispatcher() {
+    val attachment = ProtocolWireRecord(
+      RecordKind.ATTACHMENT,
+      mapOf(
+        1 to ProtocolWireValue.StringValue("attachment-1"),
+        2 to ProtocolWireValue.StringValue("android-native-protocol-test"),
+        3 to ProtocolWireValue.StringValue("generation-1"),
+        4 to ProtocolWireValue.StringValue("adapter-1"),
+        5 to ProtocolWireValue.StringValue("adapter-generation-1")
+      )
+    )
     val correlation = ProtocolWireRecord(
       RecordKind.OPERATION_CORRELATION,
       mapOf(
-        1 to ProtocolWireValue.StringValue("android-native-protocol-test"),
+        1 to ProtocolWireValue.RecordValue(attachment),
         2 to ProtocolWireValue.UnsignedIntegerValue(7L),
         3 to ProtocolWireValue.StringValue("destroy-command")
       )

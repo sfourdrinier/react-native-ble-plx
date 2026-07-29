@@ -2,11 +2,13 @@
 
 #include <napi.h>
 #include <windows.h>
+#include <appmodel.h>
 #include <winrt/Windows.Devices.Bluetooth.h>
 #include <winrt/Windows.Devices.Bluetooth.Advertisement.h>
 #include <winrt/Windows.Devices.Bluetooth.GenericAttributeProfile.h>
 #include <winrt/Windows.Devices.Radios.h>
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Security.Cryptography.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <winrt/base.h>
@@ -59,7 +61,7 @@ std::string ToUtf8(const winrt::hstring& value) {
 }
 
 std::string CanonicalUuid(const winrt::guid& value) {
-  std::string text = winrt::to_string(value);
+  std::string text = winrt::to_string(winrt::to_hstring(value));
   if (text.size() == 38 && text.front() == '{' && text.back() == '}') {
     text = text.substr(1, text.size() - 2);
   }
@@ -89,8 +91,18 @@ uint64_t ParseAddress(const std::string& address) {
 }
 
 bool IsPackagedProcess() {
+  using GetCurrentPackageFullNameFunction = LONG(WINAPI*)(UINT32* package_full_name_length, PWSTR package_full_name);
+  const HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+  if (kernel32 == nullptr) {
+    return false;
+  }
+  const auto get_current_package_full_name = reinterpret_cast<GetCurrentPackageFullNameFunction>(
+      GetProcAddress(kernel32, "GetCurrentPackageFullName"));
+  if (get_current_package_full_name == nullptr) {
+    return false;
+  }
   UINT32 full_name_length = 0;
-  return GetCurrentPackageFullName(&full_name_length, nullptr) == ERROR_INSUFFICIENT_BUFFER;
+  return get_current_package_full_name(&full_name_length, nullptr) == ERROR_INSUFFICIENT_BUFFER;
 }
 
 std::string RadioPower(const Radio& radio) {
@@ -405,16 +417,20 @@ class ListenerLifecycle {
   Napi::ThreadSafeFunction function_;
 
   void NoteIngressRejection(napi_status status) const {
-    if (!telemetry_ || !channel.has_value()) return;
+    if (!telemetry_ || !channel_.has_value()) return;
     std::atomic_uint64_t& counter = status == napi_closing
-        ? (*channel == IngressChannel::notification ? telemetry_->notification_close_drops : telemetry_->advertisement_close_drops)
-        : (*channel == IngressChannel::notification ? telemetry_->notification_queue_drops : telemetry_->advertisement_queue_drops);
+        ? (*channel_ == IngressChannel::notification ? telemetry_->notification_close_drops : telemetry_->advertisement_close_drops)
+        : (*channel_ == IngressChannel::notification ? telemetry_->notification_queue_drops : telemetry_->advertisement_queue_drops);
     const uint64_t total = counter.fetch_add(1U) + 1U;
     if (status != napi_closing && (total == 1U || (total & (total - 1U)) == 0U)) {
       std::fprintf(stderr, "[unified_ble_winrt] bounded %s ingress dropped %llu payloads (napi status %d)\n",
-                   *channel == IngressChannel::notification ? "notification" : "advertisement",
+                   *channel_ == IngressChannel::notification ? "notification" : "advertisement",
                    static_cast<unsigned long long>(total), static_cast<int>(status));
     }
+  }
+
+  void ReportControlIngressFailure(const char* control, napi_status status) const {
+    std::fprintf(stderr, "[unified_ble_winrt] control %s delivery failed (napi status %d)\n", control, static_cast<int>(status));
   }
 
  private:
@@ -493,12 +509,14 @@ class ConnectionLossListener final : public ListenerLifecycle {
 
   void Emit(const std::string& peer, const std::optional<std::string>& reason) {
     auto* payload = new ConnectionLossPayload{peer, reason};
-    const napi_status status = function_.NonBlockingCall(payload, [](Napi::Env env, Napi::Function callback, ConnectionLossPayload* value) {
+    // State-control events apply bounded backpressure rather than silently dropping loss signals.
+    const napi_status status = function_.BlockingCall(payload, [](Napi::Env env, Napi::Function callback, ConnectionLossPayload* value) {
+      std::unique_ptr<ConnectionLossPayload> owned(value);
       callback.Call({Napi::String::New(env, value->peer), value->reason.has_value() ? Napi::String::New(env, *value->reason) : env.Null()});
-      delete value;
     });
     if (status != napi_ok) {
       delete payload;
+      ReportControlIngressFailure("connection-loss", status);
     }
   }
 };
@@ -509,12 +527,14 @@ class DatabaseListener final : public ListenerLifecycle {
 
   void Emit(const std::string& peer) {
     auto* payload = new std::string(peer);
-    const napi_status status = function_.NonBlockingCall(payload, [](Napi::Env env, Napi::Function callback, std::string* value) {
+    // State-control events apply bounded backpressure rather than silently dropping invalidation signals.
+    const napi_status status = function_.BlockingCall(payload, [](Napi::Env env, Napi::Function callback, std::string* value) {
+      std::unique_ptr<std::string> owned(value);
       callback.Call({Napi::String::New(env, *value)});
-      delete value;
     });
     if (status != napi_ok) {
       delete payload;
+      ReportControlIngressFailure("database-changed", status);
     }
   }
 };
@@ -525,12 +545,14 @@ class AdapterListener final : public ListenerLifecycle {
 
   void Emit(const AdapterView& adapter) {
     auto* payload = new AdapterView(adapter);
-    const napi_status status = function_.NonBlockingCall(payload, [](Napi::Env env, Napi::Function callback, AdapterView* value) {
+    // State-control events apply bounded backpressure rather than silently dropping adapter state.
+    const napi_status status = function_.BlockingCall(payload, [](Napi::Env env, Napi::Function callback, AdapterView* value) {
+      std::unique_ptr<AdapterView> owned(value);
       callback.Call({ToJsAdapterState(env, *value)});
-      delete value;
     });
     if (status != napi_ok) {
       delete payload;
+      ReportControlIngressFailure("adapter-state", status);
     }
   }
 };
@@ -644,7 +666,7 @@ struct BoundaryState : public std::enable_shared_from_this<BoundaryState> {
 
   void RemoveConnection(const std::string& peer) {
     std::shared_ptr<ConnectionEntry> connection;
-    std::vector<std::pair<std::string, NotificationEntry>> notifications_for_peer;
+    std::vector<NotificationEntry> notifications_for_peer;
     std::string peer_prefix = peer;
     peer_prefix.push_back('\0');
     {
@@ -654,28 +676,25 @@ struct BoundaryState : public std::enable_shared_from_this<BoundaryState> {
         return;
       }
       connection = found->second;
-      for (const auto& entry : notifications) {
-        if (entry.first.rfind(peer_prefix, 0) == 0) {
-          notifications_for_peer.push_back(entry);
+      connections.erase(found);
+      for (auto notification = notifications.begin(); notification != notifications.end();) {
+        if (notification->first.rfind(peer_prefix, 0) == 0) {
+          notifications_for_peer.push_back(std::move(notification->second));
+          notification = notifications.erase(notification);
+        } else {
+          ++notification;
         }
       }
     }
-    for (const auto& entry : notifications_for_peer) {
-      entry.second.characteristic.ValueChanged(entry.second.value_token);
-      entry.second.listener->Release();
+    for (NotificationEntry& entry : notifications_for_peer) {
+      entry.characteristic.ValueChanged(entry.value_token);
+      entry.listener->Release();
     }
     connection->device.ConnectionStatusChanged(connection->connection_token);
     connection->session.SessionStatusChanged(connection->session_token);
     connection->session.MaintainConnection(false);
     connection->session.Close();
     connection->device.Close();
-    {
-      std::lock_guard<std::mutex> guard(mutex);
-      for (const auto& entry : notifications_for_peer) {
-        notifications.erase(entry.first);
-      }
-      connections.erase(peer);
-    }
   }
 
   void StopScan() {
@@ -693,62 +712,7 @@ struct BoundaryState : public std::enable_shared_from_this<BoundaryState> {
     entry->listener->Release();
   }
 
-  void Destroy() {
-    std::vector<std::shared_ptr<ConnectionEntry>> live_connections;
-    std::vector<NotificationEntry> live_notifications;
-    std::optional<ScanEntry> active_scan;
-    std::optional<Radio> active_radio;
-    std::optional<winrt::event_token> active_radio_token;
-    std::vector<std::shared_ptr<ConnectionLossListener>> loss_listeners;
-    std::vector<std::shared_ptr<DatabaseListener>> changed_listeners;
-    std::vector<std::shared_ptr<AdapterListener>> state_listeners;
-    {
-      std::lock_guard<std::mutex> guard(mutex);
-      if (destroyed) {
-        return;
-      }
-      destroyed = true;
-      active_scan = std::move(scan);
-      scan.reset();
-      for (const auto& pair : connections) {
-        live_connections.push_back(pair.second);
-      }
-      connections.clear();
-      for (auto& pair : notifications) {
-        live_notifications.push_back(std::move(pair.second));
-      }
-      notifications.clear();
-      active_radio = std::move(radio);
-      active_radio_token = radio_token;
-      radio.reset();
-      radio_token.reset();
-      loss_listeners = std::move(connection_listeners);
-      changed_listeners = std::move(database_listeners);
-      state_listeners = std::move(adapter_listeners);
-    }
-    if (active_scan.has_value()) {
-      active_scan->watcher.Received(active_scan->received_token);
-      active_scan->watcher.Stop();
-      active_scan->listener->Release();
-    }
-    if (active_radio.has_value() && active_radio_token.has_value()) {
-      active_radio->StateChanged(*active_radio_token);
-    }
-    for (NotificationEntry& notification : live_notifications) {
-      notification.characteristic.ValueChanged(notification.value_token);
-      notification.listener->Release();
-    }
-    for (const std::shared_ptr<ConnectionEntry>& connection : live_connections) {
-      connection->device.ConnectionStatusChanged(connection->connection_token);
-      connection->session.SessionStatusChanged(connection->session_token);
-      connection->session.MaintainConnection(false);
-      connection->session.Close();
-      connection->device.Close();
-    }
-    for (const auto& listener : loss_listeners) listener->Release();
-    for (const auto& listener : changed_listeners) listener->Release();
-    for (const auto& listener : state_listeners) listener->Release();
-  }
+  void Destroy();
 };
 
 std::shared_ptr<ConnectionEntry> RequiredConnection(const std::shared_ptr<BoundaryState>& state, const std::string& peer) {

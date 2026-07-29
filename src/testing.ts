@@ -33,6 +33,12 @@ export { createDeterministicBackendTckFactory } from './tck/deterministic/determ
 export { createFirstPartyBackendTckRegistry } from './tck/first-party/first-party-tck-registry'
 export { createWebBluetoothFirstPartyTckRegistration } from './tck/first-party/web-bluetooth-tck-registration'
 export { createCoreBluetoothFirstPartyTckRegistration } from './tck/first-party/corebluetooth-tck-registration'
+export { createBluezFirstPartyTckRegistration } from './tck/first-party/bluez-tck-registration'
+export { createWinRtFirstPartyTckRegistration } from './tck/first-party/winrt-tck-registration'
+export {
+  createReactNativeAndroidFirstPartyTckRegistration,
+  createReactNativeAppleFirstPartyTckRegistration
+} from './tck/first-party/react-native-tck-registration'
 export { createDeterministicManagerScenarioFactory } from './testing/scenarios/deterministic-manager-scenario-factory'
 export { createManagerScenarioFixture } from './testing/scenarios/manager-scenario-fixture'
 export {
@@ -66,6 +72,17 @@ export type {
   DeterministicCoreBluetoothBoundary
 } from './tck/first-party/corebluetooth-tck-registration'
 export type { WebBluetoothFirstPartyTckRegistrationOptions } from './tck/first-party/web-bluetooth-tck-registration'
+export type { BluezFirstPartyTckRegistrationOptions } from './tck/first-party/bluez-tck-registration'
+export type {
+  DeterministicWinRtBoundary,
+  WinRtFirstPartyTckRegistrationOptions
+} from './tck/first-party/winrt-tck-registration'
+export type {
+  DeterministicReactNativeAppleTckBoundary,
+  DeterministicReactNativeTckBoundary,
+  ReactNativeAndroidFirstPartyTckRegistrationOptions,
+  ReactNativeAppleFirstPartyTckRegistrationOptions
+} from './tck/first-party/react-native-tck-registration'
 export type {
   ManagerScenarioDefinition,
   ManagerScenarioControl,

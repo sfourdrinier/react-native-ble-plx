@@ -1,6 +1,8 @@
 // src/tck/runner-public-scenarios.ts
 
 import type { BleCentralBackend } from '../backend-contract/backend'
+import { MINIMUM_ATT_MTU } from '../backend-contract/connection-controls'
+import { BackendContractError } from '../backend-contract/errors'
 import type { BackendIdentity } from '../backend-contract/identity'
 import {
   createAttachmentBoundIdFactory,
@@ -66,12 +68,19 @@ export async function executePublicTckScenario<
     adapterGeneration: attachment.adapter.adapterGeneration
   })
   const authority = createManagerOwnershipAuthority(attached)
+  const restorationAdapter =
+    definition.id === 'restoration.provider-journal-adoption-and-rejection'
+      ? requireRestorationAdapter(fixture, definition)
+      : null
   const manager = await createBleManager(
     {
       attachedBackend: attached,
       clientId: ids.clientId(`tck-${definition.id}-client`),
       managerId: ids.managerId(`tck-${definition.id}-manager`),
-      ownerMode: 'owning'
+      ownerMode: 'owning',
+      ...(restorationAdapter === null
+        ? {}
+        : { restoration: restorationAdapter.createCapability(ids.clientId(`tck-${definition.id}-client`)) })
     },
     authority,
     {
@@ -148,11 +157,17 @@ async function executeManagerScenario<
   if (definition.id === 'connection.two-client-arbitration') {
     return executeConnectionArbitrationScenario(manager, authority, fixture, definition)
   }
+  if (definition.id === 'connection.rssi-and-att-mtu-capability-contract') {
+    return executeConnectionControlsScenario(manager, fixture, definition)
+  }
   if (definition.id === 'gatt.discovery-complete-paths-and-services-changed') {
     return executeGattDiscoveryScenario(manager, fixture, definition)
   }
   if (definition.id === 'gatt.reads-descriptors-write-policy-and-dispatched-cancellation') {
     return executeGattReadWriteScenario(manager, fixture, definition)
+  }
+  if (definition.id === 'restoration.provider-journal-adoption-and-rejection') {
+    return executeRestorationScenario(manager, fixture, definition)
   }
   if (definition.id === 'subscription.enable-ready-shared-cccd-and-fanout') {
     return executeSubscriptionSharingScenario(manager, fixture, definition)
@@ -872,6 +887,139 @@ async function executeDiagnosticsScenario<
       diagnosticJourneyObserved: observed && ordered && bounded && payloadFree
     })
   ]
+}
+
+async function executeConnectionControlsScenario<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>,
+  Backend extends BleCentralBackend<Attachment, Identity>
+>(
+  manager: PublicManager<Attachment, Identity>,
+  fixture: BackendTckFixture<Attachment, Identity, Backend>,
+  definition: TckScenarioDefinition
+): Promise<readonly TckFact[]> {
+  const adapter = fixture.featureScenarioAdapters?.connectionControls
+  if (adapter === undefined) {
+    throw new TckAssertionError(definition.id, 'fixture lacks a connection-controls scenario adapter')
+  }
+  if (!Number.isSafeInteger(adapter.requestedMtu) || adapter.requestedMtu < MINIMUM_ATT_MTU) {
+    throw new TckAssertionError(definition.id, 'connection-controls adapter has an invalid requested ATT MTU')
+  }
+  const connection = await connectToDeterministicPeer(manager, fixture, definition)
+  let rssiMeasured = false
+  let mtuObserved = false
+  let mtuExplicitlyUnavailable = false
+  try {
+    const rssi = await fixture.controller.settle(connection.readRssi(operationOptions))
+    rssiMeasured = Number.isSafeInteger(rssi.rssi)
+    const mtuState = featureState(fixture.backend, 'connection:request-att-mtu')
+    if (mtuState === 'supported' || mtuState === 'limited') {
+      const negotiation = await fixture.controller.settle(connection.requestMtu(adapter.requestedMtu, operationOptions))
+      mtuObserved =
+        negotiation.requestedMtu === adapter.requestedMtu &&
+        Number.isSafeInteger(negotiation.negotiatedMtu) &&
+        negotiation.negotiatedMtu >= MINIMUM_ATT_MTU &&
+        negotiation.negotiatedMtu <= adapter.requestedMtu
+    } else {
+      mtuExplicitlyUnavailable = await rejectsWithCapabilityCode(
+        fixture.controller.settle(connection.requestMtu(adapter.requestedMtu, operationOptions)),
+        'capability.unsupported'
+      )
+    }
+  } finally {
+    assertCleanupReleased(
+      definition,
+      await fixture.controller.settle(connection.release()),
+      'connection-controls connection'
+    )
+  }
+  return [
+    fact('connection-rssi-is-measured-or-explicitly-unavailable', rssiMeasured, { rssiMeasured }),
+    fact('connection-att-mtu-is-negotiated-or-explicitly-unavailable', mtuObserved || mtuExplicitlyUnavailable, {
+      mtuExplicitlyUnavailable,
+      mtuObserved,
+      requestedMtu: adapter.requestedMtu
+    })
+  ]
+}
+
+async function executeRestorationScenario<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>,
+  Backend extends BleCentralBackend<Attachment, Identity>
+>(
+  manager: PublicManager<Attachment, Identity>,
+  fixture: BackendTckFixture<Attachment, Identity, Backend>,
+  definition: TckScenarioDefinition
+): Promise<readonly TckFact[]> {
+  const adapter = requireRestorationAdapter(fixture, definition)
+  await adapter.seedJournal(fixture.controller)
+  const request = adapter.createRequest(manager.identity)
+  const rejected = await fixture.controller.settle(
+    manager.adoptRestoration(Object.freeze({ ...request, namespace: `${request.namespace}.rejected` }))
+  )
+  const adopted = await fixture.controller.settle(manager.adoptRestoration(request))
+  const repeated = await fixture.controller.settle(manager.adoptRestoration(request))
+  const bounded = restorationRecordCountIsBounded(fixture.backend, adopted.replayedRecords.length)
+  return [
+    fact('restoration-journal-is-provider-owned-and-bounded', adopted.outcome === 'adopted' && bounded, {
+      adoptedOutcome: adopted.outcome,
+      replayedRecordCount: adopted.replayedRecords.length,
+      bounded
+    }),
+    fact(
+      'restoration-adoption-is-verified-and-exactly-once',
+      adopted.outcome === 'adopted' && repeated.outcome === 'already-consumed',
+      { adoptedOutcome: adopted.outcome, repeatedOutcome: repeated.outcome }
+    ),
+    fact(
+      'restoration-rejection-is-non-consuming',
+      rejected.outcome === 'namespace-mismatch' && adopted.outcome === 'adopted',
+      { rejectedOutcome: rejected.outcome, adoptedOutcome: adopted.outcome }
+    )
+  ]
+}
+
+function requireRestorationAdapter<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>,
+  Backend extends BleCentralBackend<Attachment, Identity>
+>(fixture: BackendTckFixture<Attachment, Identity, Backend>, definition: TckScenarioDefinition) {
+  const adapter = fixture.featureScenarioAdapters?.restoration
+  if (adapter === undefined) {
+    throw new TckAssertionError(definition.id, 'fixture lacks a restoration scenario adapter')
+  }
+  return adapter
+}
+
+function featureState<Attachment extends string, Identity extends BackendIdentity<Attachment>>(
+  backend: BleCentralBackend<Attachment, Identity>,
+  featureId: string
+) {
+  const registration = backend.features.registrations.find(candidate => candidate.id === featureId)
+  if (registration === undefined) {
+    throw new TckAssertionError(
+      'connection.rssi-and-att-mtu-capability-contract',
+      `backend does not register ${featureId}`
+    )
+  }
+  return registration.state
+}
+
+function restorationRecordCountIsBounded<Attachment extends string, Identity extends BackendIdentity<Attachment>>(
+  backend: BleCentralBackend<Attachment, Identity>,
+  count: number
+): boolean {
+  const registration = backend.features.registrations.find(candidate => candidate.id === 'state:restoration-adoption')
+  const maximum = registration?.limits.maximumRestorationRecords
+  return typeof maximum === 'number' && Number.isSafeInteger(maximum) && maximum >= 0 && count <= maximum
+}
+
+async function rejectsWithCapabilityCode<Value>(promise: Promise<Value>, code: string): Promise<boolean> {
+  return promise.then(
+    () => false,
+    error => error instanceof BackendContractError && error.normalized.code === code
+  )
 }
 
 function compatibility(): BackendCompatibilityOffer {

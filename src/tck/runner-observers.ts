@@ -57,6 +57,165 @@ export async function executeRunnerOwnedTckScenario<
   return executePublicTckScenario(factory, fixture, definition)
 }
 
+/**
+ * These identity probes exercise provider creation directly. Keeping a fixture open while they
+ * run is invalid for providers whose native runtime owns one attachment-scoped event sink.
+ */
+export function isProviderOnlyTckScenario(definition: TckScenarioDefinition): boolean {
+  return (
+    definition.id === 'identity.provider-loadability-and-adapter-availability' ||
+    definition.id === 'identity.adapter-selection-and-unique-instance' ||
+    definition.id === 'identity.version-skew-and-malformed-offers'
+  )
+}
+
+/** Executes provider-only identity probes without constructing a competing fixture backend. */
+export async function executeProviderOnlyTckScenario<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>,
+  Backend extends BleCentralBackend<Attachment, Identity>
+>(
+  factory: BackendTckFactory<Attachment, Identity, Backend>,
+  definition: TckScenarioDefinition
+): Promise<readonly TckFact[]> {
+  if (definition.id === 'identity.provider-loadability-and-adapter-availability') {
+    return providerLoadabilityFacts(factory)
+  }
+  if (definition.id === 'identity.adapter-selection-and-unique-instance') {
+    return providerSelectionFacts(factory)
+  }
+  if (definition.id === 'identity.version-skew-and-malformed-offers') {
+    return providerRejectionFacts(factory)
+  }
+  throw new TckAssertionError(definition.id, 'scenario is not provider-only')
+}
+
+async function providerLoadabilityFacts<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>,
+  Backend extends BleCentralBackend<Attachment, Identity>
+>(factory: BackendTckFactory<Attachment, Identity, Backend>): Promise<readonly TckFact[]> {
+  const adapters = await factory.provider.listAdapters()
+  const adapter = adapters.find(
+    candidate => String(candidate.adapterId) === String(factory.selection.selectedAdapterId)
+  )
+  if (adapter === undefined) {
+    return [
+      fact('provider-loadability-separate-from-adapter-availability', false, {
+        providerLoadable: factory.provider.descriptor.loadability === 'loadable',
+        adapterStateMatches: false
+      }),
+      fact('adapter-selection-rejects-ambiguous-or-stale-target', false, { staleRejected: false }),
+      fact('backend-instance-id-is-unique', false, { providerCreatedFreshInstance: false })
+    ]
+  }
+  const first = await factory.provider.create(factory.selection)
+  const firstObservation = await withProviderBackend(
+    first,
+    'identity.provider-loadability-and-adapter-availability',
+    'provider-created backend',
+    async backend => {
+      const state = await backend.adapter.currentState()
+      return {
+        adapterStateMatches:
+          adapter.state.availability === state.availability &&
+          adapter.state.authorization === state.authorization &&
+          adapter.state.power === state.power,
+        backendInstanceId: String(backend.identity.attachment.backendInstanceId)
+      }
+    }
+  )
+  const second = await factory.provider.create(factory.selection)
+  const unique = await withProviderBackend(
+    second,
+    'identity.provider-loadability-and-adapter-availability',
+    'second provider-created backend',
+    backend => String(backend.identity.attachment.backendInstanceId) !== firstObservation.backendInstanceId
+  )
+  const staleRejected = await rejectsWithCode(factory.provider.create(factory.staleSelection), 'adapter.unavailable')
+  return [
+    fact(
+      'provider-loadability-separate-from-adapter-availability',
+      factory.provider.descriptor.loadability === 'loadable' && firstObservation.adapterStateMatches,
+      {
+        providerLoadable: factory.provider.descriptor.loadability === 'loadable',
+        adapterStateMatches: firstObservation.adapterStateMatches
+      }
+    ),
+    fact('adapter-selection-rejects-ambiguous-or-stale-target', staleRejected, { staleRejected }),
+    fact('backend-instance-id-is-unique', unique, { providerCreatedFreshInstance: unique })
+  ]
+}
+
+async function providerSelectionFacts<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>,
+  Backend extends BleCentralBackend<Attachment, Identity>
+>(factory: BackendTckFactory<Attachment, Identity, Backend>): Promise<readonly TckFact[]> {
+  const first = await factory.provider.create(factory.selection)
+  const firstObservation = await withProviderBackend(
+    first,
+    'identity.adapter-selection-and-unique-instance',
+    'selected provider backend',
+    backend =>
+      Object.freeze({
+        selectedCorrectly:
+          String(backend.identity.attachment.adapter.adapterId) === String(factory.selection.selectedAdapterId),
+        backendInstanceId: String(backend.identity.attachment.backendInstanceId)
+      })
+  )
+  const second = await factory.provider.create(factory.selection)
+  const unique = await withProviderBackend(
+    second,
+    'identity.adapter-selection-and-unique-instance',
+    'fresh selected provider backend',
+    backend => String(backend.identity.attachment.backendInstanceId) !== firstObservation.backendInstanceId
+  )
+  const staleRejected = await rejectsWithCode(factory.provider.create(factory.staleSelection), 'adapter.unavailable')
+  return [
+    fact('adapter-selection-rejects-ambiguous-or-stale-target', staleRejected && firstObservation.selectedCorrectly, {
+      selectedCorrectly: firstObservation.selectedCorrectly,
+      staleRejected
+    }),
+    fact('backend-instance-id-is-unique', unique, { providerCreatedFreshInstance: unique })
+  ]
+}
+
+async function providerRejectionFacts<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>,
+  Backend extends BleCentralBackend<Attachment, Identity>
+>(factory: BackendTckFactory<Attachment, Identity, Backend>): Promise<readonly TckFact[]> {
+  const valid = await factory.provider.create(factory.selection)
+  const validObservation = await withProviderBackend(
+    valid,
+    'identity.version-skew-and-malformed-offers',
+    'valid attachment probe backend',
+    async backend => {
+      await backend.attach({ coreCompatibility: compatibility(1, 1) })
+      const postAttachmentRejected = await rejectsWithCode(
+        backend.attach({ coreCompatibility: compatibility(1, 1) }),
+        'lifecycle.invalid-state'
+      )
+      return Object.freeze({ postAttachmentRejected, noLiveResources: resourceCountersAreZero(backend) })
+    }
+  )
+  const skewRejected = await providerAttachRejected(factory, compatibility(2, 2), 'protocol.incompatible')
+  const malformedRejected = await providerAttachRejected(factory, malformedCompatibility(), 'protocol.malformed')
+  return [
+    fact(
+      'skew-malformed-and-post-attachment-offers-reject-without-live-radio-resources',
+      validObservation.postAttachmentRejected && validObservation.noLiveResources && skewRejected && malformedRejected,
+      {
+        malformedRejected,
+        noLiveResourcesAfterPostAttachmentRejection: validObservation.noLiveResources,
+        postAttachmentRejected: validObservation.postAttachmentRejected,
+        skewRejected
+      }
+    )
+  ]
+}
+
 async function identityLoadabilityFacts<
   Attachment extends string,
   Identity extends BackendIdentity<Attachment>,

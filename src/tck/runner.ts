@@ -20,7 +20,12 @@ import type {
   TckScenarioReceipt
 } from './contracts'
 import { TckAssertionError } from './contracts'
-import { claimRunnerOwnedBackend, executeRunnerOwnedTckScenario } from './runner-observers'
+import {
+  claimRunnerOwnedBackend,
+  executeProviderOnlyTckScenario,
+  executeRunnerOwnedTckScenario,
+  isProviderOnlyTckScenario
+} from './runner-observers'
 import { baseTckScenarios, findTckScenario } from './scenarios'
 
 /**
@@ -323,6 +328,10 @@ async function executeDefinition<
   definition: TckScenarioDefinition,
   proofScope: 'deterministic'
 ): Promise<TckScenarioReceipt> {
+  if (factory.providerOnlyIdentityScenarios === true && isProviderOnlyTckScenario(definition)) {
+    const facts = await executeProviderOnlyTckScenario(factory, definition)
+    return receiptFromFacts(definition, facts, proofScope)
+  }
   return withFixture(factory, identity, definition.id, async fixture => {
     assertRequiredControllerActions(fixture, definition)
     return executeRunnerControlledDefinition(factory, fixture, definition, proofScope)
@@ -817,6 +826,14 @@ async function executeRunnerControlledDefinition<
   proofScope: 'deterministic'
 ): Promise<TckScenarioReceipt> {
   const facts = await executeRunnerOwnedTckScenario(factory, fixture, definition)
+  return receiptFromFacts(definition, facts, proofScope)
+}
+
+function receiptFromFacts(
+  definition: TckScenarioDefinition,
+  facts: readonly TckFact[],
+  proofScope: 'deterministic'
+): TckScenarioReceipt {
   assertScenarioEvidence(definition, facts)
   return Object.freeze({
     scenarioId: definition.id,

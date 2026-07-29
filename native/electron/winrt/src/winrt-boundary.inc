@@ -1,5 +1,95 @@
 // native/electron/winrt/src/winrt-boundary.inc
 
+template <typename Cleanup>
+void ContinueWinRtTeardown(std::vector<std::string>& failures, const char* operation, Cleanup&& cleanup) {
+  try {
+    std::forward<Cleanup>(cleanup)();
+  } catch (const winrt::hresult_error& error) {
+    const std::string detail = ToUtf8(error.message());
+    std::fprintf(stderr, "[unified_ble_winrt] Destroy %s failed: %s\n", operation, detail.c_str());
+    failures.push_back(std::string(operation) + ": " + detail);
+  } catch (const std::exception& error) {
+    std::fprintf(stderr, "[unified_ble_winrt] Destroy %s failed: %s\n", operation, error.what());
+    failures.push_back(std::string(operation) + ": " + error.what());
+  } catch (...) {
+    std::fprintf(stderr, "[unified_ble_winrt] Destroy %s failed with a non-standard error\n", operation);
+    failures.push_back(std::string(operation) + ": non-standard error");
+  }
+}
+
+void BoundaryState::Destroy() {
+  std::vector<std::shared_ptr<ConnectionEntry>> live_connections;
+  std::vector<NotificationEntry> live_notifications;
+  std::optional<ScanEntry> active_scan;
+  std::optional<Radio> active_radio;
+  std::optional<winrt::event_token> active_radio_token;
+  std::vector<std::shared_ptr<ConnectionLossListener>> loss_listeners;
+  std::vector<std::shared_ptr<DatabaseListener>> changed_listeners;
+  std::vector<std::shared_ptr<AdapterListener>> state_listeners;
+  {
+    std::lock_guard<std::mutex> guard(mutex);
+    if (destroyed) {
+      return;
+    }
+    destroyed = true;
+    active_scan = std::move(scan);
+    scan.reset();
+    for (const auto& pair : connections) {
+      live_connections.push_back(pair.second);
+    }
+    connections.clear();
+    for (auto& pair : notifications) {
+      live_notifications.push_back(std::move(pair.second));
+    }
+    notifications.clear();
+    active_radio = std::move(radio);
+    active_radio_token = radio_token;
+    radio.reset();
+    radio_token.reset();
+    loss_listeners = std::move(connection_listeners);
+    changed_listeners = std::move(database_listeners);
+    state_listeners = std::move(adapter_listeners);
+  }
+
+  std::vector<std::string> failures;
+  if (active_scan.has_value()) {
+    ContinueWinRtTeardown(failures, "scan event deregistration", [&] { active_scan->watcher.Received(active_scan->received_token); });
+    ContinueWinRtTeardown(failures, "scan stop", [&] { active_scan->watcher.Stop(); });
+    ContinueWinRtTeardown(failures, "scan listener release", [&] { active_scan->listener->Release(); });
+  }
+  if (active_radio.has_value() && active_radio_token.has_value()) {
+    ContinueWinRtTeardown(failures, "radio event deregistration", [&] { active_radio->StateChanged(*active_radio_token); });
+  }
+  for (NotificationEntry& notification : live_notifications) {
+    ContinueWinRtTeardown(failures, "notification event deregistration", [&] { notification.characteristic.ValueChanged(notification.value_token); });
+    ContinueWinRtTeardown(failures, "notification listener release", [&] { notification.listener->Release(); });
+  }
+  for (const std::shared_ptr<ConnectionEntry>& connection : live_connections) {
+    ContinueWinRtTeardown(failures, "connection event deregistration", [&] { connection->device.ConnectionStatusChanged(connection->connection_token); });
+    ContinueWinRtTeardown(failures, "session event deregistration", [&] { connection->session.SessionStatusChanged(connection->session_token); });
+    ContinueWinRtTeardown(failures, "connection maintenance release", [&] { connection->session.MaintainConnection(false); });
+    ContinueWinRtTeardown(failures, "session close", [&] { connection->session.Close(); });
+    ContinueWinRtTeardown(failures, "device close", [&] { connection->device.Close(); });
+  }
+  for (const std::shared_ptr<ConnectionLossListener>& listener : loss_listeners) {
+    ContinueWinRtTeardown(failures, "connection-loss listener release", [&] { listener->Release(); });
+  }
+  for (const std::shared_ptr<DatabaseListener>& listener : changed_listeners) {
+    ContinueWinRtTeardown(failures, "database-change listener release", [&] { listener->Release(); });
+  }
+  for (const std::shared_ptr<AdapterListener>& listener : state_listeners) {
+    ContinueWinRtTeardown(failures, "adapter-state listener release", [&] { listener->Release(); });
+  }
+  if (!failures.empty()) {
+    std::ostringstream message;
+    message << "WinRT destroy encountered teardown failures";
+    for (const std::string& failure : failures) {
+      message << "; " << failure;
+    }
+    throw std::runtime_error(message.str());
+  }
+}
+
 class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundary> {
  public:
   static Napi::FunctionReference constructor;
@@ -37,7 +127,13 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
   }
 
   ~WinRtContractBoundary() override {
-    state_->Destroy();
+    try {
+      state_->Destroy();
+    } catch (const std::exception& error) {
+      std::fprintf(stderr, "[unified_ble_winrt] WinRtContractBoundary destructor teardown failed: %s\n", error.what());
+    } catch (...) {
+      std::fprintf(stderr, "[unified_ble_winrt] WinRtContractBoundary destructor teardown failed with a non-standard error\n");
+    }
   }
 
  private:
@@ -77,9 +173,9 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
     try {
       return ToJsAdapterState(info.Env(), ReadAdapter());
     } catch (const winrt::hresult_error& error) {
-      return ToJsAdapterState(info.Env(), {"", "", "unavailable", "unavailable", "unknown", ToUtf8(error.message()), "not-applicable", IsPackagedProcess() ? "packaged" : "unpackaged"});
+      return ToJsAdapterState(info.Env(), {"", "", "unavailable", "unavailable", "unknown", ToUtf8(error.message()), IsPackagedProcess() ? "packaged" : "unpackaged"});
     } catch (const std::exception& error) {
-      return ToJsAdapterState(info.Env(), {"", "", "unavailable", "unavailable", "unknown", error.what(), "not-applicable", IsPackagedProcess() ? "packaged" : "unpackaged"});
+      return ToJsAdapterState(info.Env(), {"", "", "unavailable", "unavailable", "unknown", error.what(), IsPackagedProcess() ? "packaged" : "unpackaged"});
     }
   }
 
@@ -96,24 +192,34 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
         Napi::ThreadSafeFunction::New(info.Env(), info[1].As<Napi::Function>(), "winrt-advertisement", kAdvertisementIngressQueueCapacity, 1),
         state->ingress_telemetry);
     return StartOperation<VoidResult>(info.Env(), [state, service_uuids, listener] {
-      EnsureWinRtApartment();
-      BluetoothLEAdvertisementWatcher watcher;
-      for (const std::string& service_uuid : service_uuids) watcher.AdvertisementFilter().Advertisement().ServiceUuids().Append(ParseUuid(service_uuid));
-      const std::weak_ptr<BoundaryState> weak_state = state;
-      const winrt::event_token received_token = watcher.Received([weak_state, listener](const BluetoothLEAdvertisementWatcher&, const BluetoothLEAdvertisementReceivedEventArgs& event) {
-        if (weak_state.expired()) return;
-        const auto advertisement = event.Advertisement();
-        const std::string peer = AddressKey(event.BluetoothAddress());
-        const std::string name = ToUtf8(advertisement.LocalName());
-        std::vector<std::string> services;
-        for (const winrt::guid& uuid : advertisement.ServiceUuids()) services.push_back(CanonicalUuid(uuid));
-        listener->Emit(peer, name, event.RawSignalStrengthInDBm(), std::move(services));
-      });
-      std::lock_guard<std::mutex> guard(state->mutex);
-      if (state->destroyed || state->scan.has_value()) throw std::runtime_error("A WinRT physical scan is already active or destroyed");
-      watcher.Start();
-      state->scan = ScanEntry{watcher, received_token, listener};
-      return VoidResult{};
+      try {
+        EnsureWinRtApartment();
+        ThrowIfCurrentOperationWasCancelled();
+        BluetoothLEAdvertisementWatcher watcher;
+        for (const std::string& service_uuid : service_uuids) watcher.AdvertisementFilter().Advertisement().ServiceUuids().Append(ParseUuid(service_uuid));
+        const std::weak_ptr<BoundaryState> weak_state = state;
+        const winrt::event_token received_token = watcher.Received([weak_state, listener](const BluetoothLEAdvertisementWatcher&, const BluetoothLEAdvertisementReceivedEventArgs& event) {
+          if (weak_state.expired()) return;
+          const auto advertisement = event.Advertisement();
+          const std::string peer = AddressKey(event.BluetoothAddress());
+          const std::string name = ToUtf8(advertisement.LocalName());
+          std::vector<std::string> services;
+          const auto advertised_service_uuids = advertisement.ServiceUuids();
+          for (uint32_t index = 0; index < advertised_service_uuids.Size(); ++index) {
+            services.push_back(CanonicalUuid(advertised_service_uuids.GetAt(index)));
+          }
+          listener->Emit(peer, name, event.RawSignalStrengthInDBm(), std::move(services));
+        });
+        std::lock_guard<std::mutex> guard(state->mutex);
+        if (state->destroyed || state->scan.has_value()) throw std::runtime_error("A WinRT physical scan is already active or destroyed");
+        ThrowIfCurrentOperationWasCancelled();
+        watcher.Start();
+        state->scan = ScanEntry{watcher, received_token, listener};
+        return VoidResult{};
+      } catch (...) {
+        listener->Release();
+        throw;
+      }
     }, ToJsVoid);
   }
 
@@ -214,14 +320,18 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
       std::vector<ServiceEntry> services;
       DiscoveryView view;
       std::unordered_map<std::string, uint32_t> service_occurrences;
-      for (const GattDeviceService& native_service : services_result.Services()) {
+      const auto native_services = services_result.Services();
+      for (uint32_t service_index = 0; service_index < native_services.Size(); ++service_index) {
+        const GattDeviceService native_service = native_services.GetAt(service_index);
         const std::string service_uuid = CanonicalUuid(native_service.Uuid());
         ServiceEntry service{service_uuid, service_occurrences[service_uuid]++, native_service, {}};
         ServiceView service_view{service.uuid, service.occurrence, {}};
         const auto characteristics_result = AwaitWinRt(native_service.GetCharacteristicsAsync(winrt::Windows::Devices::Bluetooth::BluetoothCacheMode::Uncached));
         RequireSuccess(characteristics_result.Status(), "Gatt characteristic discovery");
         std::unordered_map<std::string, uint32_t> characteristic_occurrences;
-        for (const GattCharacteristic& native_characteristic : characteristics_result.Characteristics()) {
+        const auto native_characteristics = characteristics_result.Characteristics();
+        for (uint32_t characteristic_index = 0; characteristic_index < native_characteristics.Size(); ++characteristic_index) {
+          const GattCharacteristic native_characteristic = native_characteristics.GetAt(characteristic_index);
           const std::string characteristic_uuid = CanonicalUuid(native_characteristic.Uuid());
           CharacteristicEntry characteristic{
               characteristic_uuid,
@@ -241,7 +351,9 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
           const auto descriptors_result = AwaitWinRt(native_characteristic.GetDescriptorsAsync(winrt::Windows::Devices::Bluetooth::BluetoothCacheMode::Uncached));
           RequireSuccess(descriptors_result.Status(), "Gatt descriptor discovery");
           std::unordered_map<std::string, uint32_t> descriptor_occurrences;
-          for (const GattDescriptor& native_descriptor : descriptors_result.Descriptors()) {
+          const auto native_descriptors = descriptors_result.Descriptors();
+          for (uint32_t descriptor_index = 0; descriptor_index < native_descriptors.Size(); ++descriptor_index) {
+            const GattDescriptor native_descriptor = native_descriptors.GetAt(descriptor_index);
             const std::string descriptor_uuid = CanonicalUuid(native_descriptor.Uuid());
             DescriptorEntry descriptor{
                 descriptor_uuid,
@@ -343,54 +455,53 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
         Napi::ThreadSafeFunction::New(info.Env(), info[2].As<Napi::Function>(), "winrt-notification", kNotificationIngressQueueCapacity, 1),
         state->ingress_telemetry);
     return StartOperation<VoidResult>(info.Env(), [state, address, mode, listener] {
-      std::shared_ptr<ConnectionEntry> connection = RequiredConnection(state, address.peer);
-      GattCharacteristic characteristic;
+      std::shared_ptr<ConnectionEntry> connection;
+      GattCharacteristic characteristic{nullptr};
       winrt::event_token token{};
-      {
-        std::lock_guard<std::mutex> gatt_guard(connection->gatt_mutex);
-        CharacteristicEntry& entry = RequiredCharacteristic(*connection, address);
-        characteristic = entry.characteristic;
-        const GattClientCharacteristicConfigurationDescriptorValue cccd = mode == "indicate"
-            ? GattClientCharacteristicConfigurationDescriptorValue::Indicate
-            : GattClientCharacteristicConfigurationDescriptorValue::Notify;
-        token = characteristic.ValueChanged([listener](const GattCharacteristic&, const winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattValueChangedEventArgs& event) {
-          listener->Emit(BufferBytes(event.CharacteristicValue()));
-        });
-        try {
+      bool value_handler_registered = false;
+      bool cccd_enabled = false;
+      try {
+        connection = RequiredConnection(state, address.peer);
+        {
+          std::lock_guard<std::mutex> gatt_guard(connection->gatt_mutex);
+          CharacteristicEntry& entry = RequiredCharacteristic(*connection, address);
+          characteristic = entry.characteristic;
+          const GattClientCharacteristicConfigurationDescriptorValue cccd = mode == "indicate"
+              ? GattClientCharacteristicConfigurationDescriptorValue::Indicate
+              : GattClientCharacteristicConfigurationDescriptorValue::Notify;
+          token = characteristic.ValueChanged([listener](const GattCharacteristic&, const winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattValueChangedEventArgs& event) {
+            listener->Emit(BufferBytes(event.CharacteristicValue()));
+          });
+          value_handler_registered = true;
           RequireSuccess(AwaitWinRt(characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(cccd)), "Gatt CCCD enable");
-        } catch (...) {
-          characteristic.ValueChanged(token);
-          listener->Release();
-          throw;
+          cccd_enabled = true;
         }
-      }
-      const std::string key = CharacteristicKey(address);
-      bool requires_rollback = false;
-      {
-        std::lock_guard<std::mutex> state_guard(state->mutex);
-        if (state->destroyed || state->notifications.contains(key)) {
-          requires_rollback = true;
-        } else {
+        const std::string key = CharacteristicKey(address);
+        {
+          std::lock_guard<std::mutex> state_guard(state->mutex);
+          if (state->destroyed || !state->connections.contains(address.peer) || state->notifications.contains(key)) {
+            throw std::runtime_error("The WinRT notification subscription is no longer admissible");
+          }
           state->notifications.emplace(key, NotificationEntry{characteristic, token, listener});
         }
-      }
-      if (requires_rollback) {
-        try {
-          std::lock_guard<std::mutex> gatt_guard(connection->gatt_mutex);
-          RequireSuccess(
-              AwaitWinRt(characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
-                  GattClientCharacteristicConfigurationDescriptorValue::None)),
-              "Gatt CCCD rollback");
-        } catch (...) {
-          characteristic.ValueChanged(token);
-          listener->Release();
-          throw;
+        return VoidResult{};
+      } catch (...) {
+        std::vector<std::string> cleanup_failures;
+        if (value_handler_registered) {
+          if (cccd_enabled) {
+            ContinueWinRtTeardown(cleanup_failures, "notification subscription rollback", [&] {
+              std::lock_guard<std::mutex> gatt_guard(connection->gatt_mutex);
+              RequireSuccess(
+                  AwaitWinRt(characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
+                      GattClientCharacteristicConfigurationDescriptorValue::None)),
+                  "Gatt CCCD rollback");
+            });
+          }
+          ContinueWinRtTeardown(cleanup_failures, "notification event deregistration", [&] { characteristic.ValueChanged(token); });
         }
-        characteristic.ValueChanged(token);
-        listener->Release();
-        throw std::runtime_error("The WinRT notification subscription is no longer admissible");
+        ContinueWinRtTeardown(cleanup_failures, "notification listener release", [&] { listener->Release(); });
+        throw;
       }
-      return VoidResult{};
     }, ToJsVoid);
   }
 
@@ -399,20 +510,20 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
     const std::shared_ptr<BoundaryState> state = state_;
     return StartOperation<VoidResult>(info.Env(), [state, address] {
       const std::string key = CharacteristicKey(address);
-      NotificationEntry notification;
+      std::optional<NotificationEntry> notification;
       {
         std::lock_guard<std::mutex> guard(state->mutex);
         const auto found = state->notifications.find(key);
         if (found == state->notifications.end()) return VoidResult{};
-        notification = found->second;
+        notification.emplace(found->second);
       }
-      RequireSuccess(AwaitWinRt(notification.characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue::None)), "Gatt CCCD disable");
-      notification.characteristic.ValueChanged(notification.value_token);
+      RequireSuccess(AwaitWinRt(notification->characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue::None)), "Gatt CCCD disable");
+      notification->characteristic.ValueChanged(notification->value_token);
       {
         std::lock_guard<std::mutex> guard(state->mutex);
         state->notifications.erase(key);
       }
-      notification.listener->Release();
+      notification->listener->Release();
       return VoidResult{};
     }, ToJsVoid);
   }

@@ -154,7 +154,7 @@ export const baseTckScenarios: readonly TckScenarioDefinition[] = [
       'destroy-settles-each-operation-once',
       'resource-counters-return-to-zero-without-underflow'
     ],
-    requiredControllerActions: []
+    requiredControllerActions: ['queue-advertisement', 'queue-operation-completion', 'advance-time']
   },
   {
     id: 'diagnostics.trace-redaction-and-resource-counters',
