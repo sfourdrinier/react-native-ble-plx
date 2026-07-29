@@ -182,6 +182,11 @@ jobs:
             echo "Shim package name must be @sfourdrinier/react-native-ble-plx, got ${SHIM_NAME}"
             exit 1
           fi
+          if [[ "$ROOT_VER" == *-* ]]; then
+            echo "NPM_DIST_TAG=next" >> "$GITHUB_ENV"
+          else
+            echo "NPM_DIST_TAG=latest" >> "$GITHUB_ENV"
+          fi
           echo "Publishing ${ROOT_NAME}@${ROOT_VER} + ${SHIM_NAME}@${SHIM_VER} from tag ${GITHUB_REF_NAME}"
 
       # Soft check so a re-run after npm success can still create the GitHub Release.
@@ -218,7 +223,7 @@ jobs:
       # Trusted Publishing uses GitHub OIDC automatically with id-token: write.
       - name: Publish unified-ble-manager (OIDC + provenance)
         if: steps.npm_status.outputs.root_published != 'true'
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --tag "${NPM_DIST_TAG}"
 
       - name: Prepare and publish @sfourdrinier/react-native-ble-plx shim (OIDC + provenance)
         if: steps.npm_status.outputs.shim_published != 'true'
@@ -234,7 +239,7 @@ jobs:
               exit 1
               ;;
           esac
-          (cd "${SHIM_DIR}" && npm publish --provenance --access public)
+          (cd "${SHIM_DIR}" && npm publish --provenance --access public --tag "${NPM_DIST_TAG}")
           echo "Published shim from ${SHIM_DIR} (dep unified-ble-manager@${DEP})"
 
       # Tags remain manual. After npm succeeds, create the GitHub Release from

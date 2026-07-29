@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.8] - 2026-07-29
+
+### Fixed
+
+- Publish prereleases with npm's explicit `next` dist-tag while stable releases retain the `latest` dist-tag, allowing OIDC provenance publication to complete.
+
 ## [4.0.0-alpha.7] - 2026-07-29
 
 ### Fixed

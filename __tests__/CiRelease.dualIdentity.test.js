@@ -119,7 +119,9 @@ describe('ci-release dual identity (4.0)', () => {
     expect(w).toContain('node scripts/prepare-shim-pack.js --print-dir')
     expect(w).toContain('node scripts/prepare-shim-pack.js --assert-packed')
     expect(w).toMatch(/Refusing to publish shim with non-semver dependency/)
-    expect(w).toContain('(cd "${SHIM_DIR}" && npm publish --provenance --access public)')
+    expect(w).toContain('(cd "${SHIM_DIR}" && npm publish --provenance --access public --tag "${NPM_DIST_TAG}")')
+    expect(w).toContain('echo "NPM_DIST_TAG=next" >> "$GITHUB_ENV"')
+    expect(w).toContain('echo "NPM_DIST_TAG=latest" >> "$GITHUB_ENV"')
 
     // Dual pack inspection before publish.
     expect(w).toContain('Inspect npm pack contents (canonical + shim)')

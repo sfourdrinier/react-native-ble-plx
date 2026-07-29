@@ -36,7 +36,7 @@ import { createReactNativeConnectionControlFeatureRegistry } from './react-nativ
 
 export const REACT_NATIVE_APPLE_BACKEND_ID = 'unified-ble:react-native-apple'
 export const REACT_NATIVE_APPLE_PLATFORM_ID = 'unified-ble:apple-corebluetooth'
-export const REACT_NATIVE_APPLE_IMPLEMENTATION_VERSION = '4.0.0-alpha.7'
+export const REACT_NATIVE_APPLE_IMPLEMENTATION_VERSION = '4.0.0-alpha.8'
 export const REACT_NATIVE_APPLE_DEFAULT_ADAPTER_NATIVE_ID = 'apple-corebluetooth-default-adapter'
 
 export const reactNativeAppleCompatibility: NativeCompatibilityOffer = Object.freeze({
