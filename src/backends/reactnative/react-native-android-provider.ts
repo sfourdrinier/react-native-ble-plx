@@ -36,7 +36,7 @@ import { createReactNativeConnectionControlFeatureRegistry } from './react-nativ
 
 export const REACT_NATIVE_ANDROID_BACKEND_ID = 'unified-ble:react-native-android'
 export const REACT_NATIVE_ANDROID_PLATFORM_ID = 'unified-ble:android-gatt'
-export const REACT_NATIVE_ANDROID_IMPLEMENTATION_VERSION = '4.0.0-alpha.6'
+export const REACT_NATIVE_ANDROID_IMPLEMENTATION_VERSION = '4.0.0-alpha.7'
 export const REACT_NATIVE_ANDROID_DEFAULT_ADAPTER_NATIVE_ID = 'android-default-adapter'
 
 export const reactNativeAndroidCompatibility: NativeCompatibilityOffer = Object.freeze({

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.7] - 2026-07-29
+
+### Fixed
+
+- Rewrote the Electron L1 smoke around the published 4.0 entrypoints and deterministic vertical scenario; it now validates scan, connect, discover, read, notify, destroy, and cleanup from a clean package build.
+
 ## [4.0.0-alpha.6] - 2026-07-29
 
 ### Fixed

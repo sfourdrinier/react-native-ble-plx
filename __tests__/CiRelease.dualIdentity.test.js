@@ -232,13 +232,14 @@ describe('ci-release dual identity (4.0)', () => {
     expect(ci).toMatch(/requireNative under Electron|R3-F012|CoreBluetooth requireNative/)
   })
 
-  // R3-F007: electron smoke does not claim Fake bonding success
+  // R3-F007: Electron L1 smoke does not claim bonding; it proves the public deterministic vertical scenario.
   test('R3-F007 example-electron smoke does not pair/list/unpair', () => {
     const smoke = read('example-electron/smoke.js')
     expect(smoke).not.toMatch(/demo\.pairDevice/)
     expect(smoke).not.toMatch(/demo\.listPairedDevices/)
     expect(smoke).not.toMatch(/demo\.unpairDevice/)
-    expect(smoke).toMatch(/bonding N on electron|must not advertise bonding/)
+    expect(smoke).toMatch(/manager\.scan-connect-discover-read-notify-destroy/)
+    expect(smoke).toMatch(/published 4\.0 entrypoints/)
   })
 
   // The historical release script remains characterization; 4.0 release approval is plan-gated.
