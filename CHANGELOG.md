@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.2] - 2026-07-28
+
+### Fixed
+
+- **React Native package artifact closure:** publish the TypeScript codegen input tree required by the declared `codegenConfig.jsSrcsDir`, so Expo/CocoaPods can generate the `BlePlxSpec` and `UnifiedBleProtocolControl` TurboModules from an installed tarball.
+
+## [4.0.0-alpha.1] - 2026-07-28
+
+### Fixed
+
+- **React Native package artifact closure:** the public `unified-ble-manager/react-native` entry now ships the generated `NativeUnifiedBleProtocolControl` module that Metro resolves from the host entrypoint.
+
 ### Added
 
 - **Owned Android radio (4.0 GA default):** pure Kotlin `OwnedAndroidGattRadio` + `OwnedBleAdapter`; RxAndroidBle removed from default `android/build.gradle`; legacy Java adapter under `android/src/legacy`.

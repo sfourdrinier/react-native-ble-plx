@@ -12,14 +12,12 @@ const pluginSourceRoot = path.join(root, 'plugin', 'src')
 const pluginOutputRoot = path.join(root, 'plugin', 'build')
 const packageJson = require(path.join(root, 'package.json'))
 
-/**
- * This Codegen declaration exists only for type references and intentionally
- * has no JavaScript artifact or package-exported entrypoint.
- */
-const internalTypeOnlySourceFiles = Object.freeze(['NativeUnifiedBleProtocolControl.ts'])
+/** Exact declaration-only source emitted by the React Native Codegen/type build. */
+const internalTypeOnlySourceFiles = Object.freeze([])
 
 /** Exact private runtime modules needed by the public React Native host entrypoint. */
 const internalRuntimeSourceFiles = Object.freeze([
+  'NativeUnifiedBleProtocolControl.ts',
   'native-protocol/generated/native-protocol-v1-schema.ts',
   'native-protocol/rn-apple-boundary.ts',
   'native-protocol/rn-android-boundary.ts',

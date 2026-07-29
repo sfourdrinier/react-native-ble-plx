@@ -1,6 +1,6 @@
 {
   "name": "unified-ble-manager",
-  "version": "4.0.0-alpha.0",
+  "version": "4.0.0-alpha.2",
   "description": "Unified Bluetooth Low Energy manager for React Native, Electron, Web, and desktop (4.0 train; successor lineage of @sfourdrinier/react-native-ble-plx)",
   "packageManager": "pnpm@10.14.0",
   "main": "lib/commonjs/index.js",
@@ -9,6 +9,7 @@
   "source": "src/index",
   "files": [
     "lib",
+    "src",
     "bin",
     "android",
     "ios",
@@ -235,7 +236,7 @@
   "react-native-builder-bob": {
     "source": "src",
     "output": "lib",
-    "exclude": "{BleError.ts,BleManager.ts,BleModule.ts,Characteristic.ts,ConnectionManager.ts,Descriptor.ts,Device.ts,DeviceOperationQueue.ts,NativeBlePlx.ts,NativeUnifiedBleProtocolControl.ts,Service.ts,TypeDefinition.ts,Utils.ts,encoding.ts,longWrite.ts,permissions.ts,stringUtils.ts,supports.ts,unsupported.ts,**/{__tests__,__fixtures__,__mocks__,discovery,helpers,hosts,port}/**,profiles/{battery.ts,bloodPressure.ts,deviceInformation.ts,healthThermometer.ts,heartRate.ts,ieee11073.ts,index.ts,serviceHelpers.ts,types.ts}}",
+    "exclude": "{BleError.ts,BleManager.ts,BleModule.ts,Characteristic.ts,ConnectionManager.ts,Descriptor.ts,Device.ts,DeviceOperationQueue.ts,NativeBlePlx.ts,Service.ts,TypeDefinition.ts,Utils.ts,encoding.ts,longWrite.ts,permissions.ts,stringUtils.ts,supports.ts,unsupported.ts,**/{__tests__,__fixtures__,__mocks__,discovery,helpers,hosts,port}/**,profiles/{battery.ts,bloodPressure.ts,deviceInformation.ts,healthThermometer.ts,heartRate.ts,ieee11073.ts,index.ts,serviceHelpers.ts,types.ts}}",
     "targets": [
       [
         "commonjs",

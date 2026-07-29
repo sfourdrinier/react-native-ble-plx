@@ -12,10 +12,11 @@ const pluginSourceRoot = path.join(root, 'plugin', 'src')
 const shimSourceRoot = path.join(root, 'packages', 'react-native-ble-plx-shim')
 
 /** Exact declaration-only source emitted by the React Native Codegen/type build. */
-const internalTypeOnlySourceFiles = Object.freeze(['NativeUnifiedBleProtocolControl.ts'])
+const internalTypeOnlySourceFiles = Object.freeze([])
 
 /** Exact private runtime modules required by the public React Native host entrypoint. */
 const internalRuntimeSourceFiles = Object.freeze([
+  'NativeUnifiedBleProtocolControl.ts',
   'native-protocol/generated/native-protocol-v1-schema.ts',
   'native-protocol/rn-apple-boundary.ts',
   'native-protocol/rn-android-boundary.ts',
@@ -188,6 +189,19 @@ function isPublishedSourceFile(sourceFile) {
   )
 }
 
+function isCodegenSourceFile(sourceFile) {
+  return (
+    /\.(?:ts|tsx)$/.test(sourceFile) &&
+    !sourceFile.includes(`${path.sep}__tests__${path.sep}`) &&
+    !sourceFile.includes(`${path.sep}__fixtures__${path.sep}`) &&
+    !sourceFile.includes(`${path.sep}__mocks__${path.sep}`)
+  )
+}
+
+function codegenSourceArchivePath(sourceFile) {
+  return `package/src/${path.relative(sourceRoot, sourceFile).split(path.sep).join('/')}`
+}
+
 function pluginArtifactPaths(sourceFile) {
   const sourceRelative = path.relative(pluginSourceRoot, sourceFile).split(path.sep).join('/')
   const basename = sourceRelative.replace(/\.ts$/, '')
@@ -265,8 +279,17 @@ function assertExactShimManifest(packageJson, canonicalVersion) {
   }
 }
 
-function isRootArchiveEntryAllowed(entryPath, expectedArtifacts, expectedPluginArtifacts) {
-  if (expectedArtifacts.has(entryPath) || expectedPluginArtifacts.has(entryPath)) {
+function isRootArchiveEntryAllowed(
+  entryPath,
+  expectedArtifacts,
+  expectedPluginArtifacts,
+  expectedCodegenSourceEntries
+) {
+  if (
+    expectedArtifacts.has(entryPath) ||
+    expectedPluginArtifacts.has(entryPath) ||
+    expectedCodegenSourceEntries.has(entryPath)
+  ) {
     return true
   }
   const allowedFiles = new Set([
@@ -318,6 +341,9 @@ function verifyRootTarball(tarballPath) {
   if (packageJson.dependencies?.['dbus-next'] !== undefined) {
     throw new Error('Packed canonical dbus-next must remain an optional host dependency')
   }
+  if (packageJson.codegenConfig?.jsSrcsDir !== 'src') {
+    throw new Error('Packed canonical React Native Codegen must resolve its shipped src directory')
+  }
   const requiredNativeInputs = [
     'package/native/protocol/CMakeLists.txt',
     'package/native/protocol/generated/NativeProtocolV1Schema.hpp',
@@ -347,6 +373,18 @@ function verifyRootTarball(tarballPath) {
   const declarationSourceFiles = listFiles(sourceRoot)
     .filter(sourceFile => /\.ts$/.test(sourceFile) && !sourceFile.includes(`${path.sep}__tests__${path.sep}`))
     .sort((left, right) => left.localeCompare(right))
+  const codegenSourceFiles = listFiles(sourceRoot)
+    .filter(isCodegenSourceFile)
+    .sort((left, right) => left.localeCompare(right))
+  const expectedCodegenSourceEntries = new Set(codegenSourceFiles.map(codegenSourceArchivePath))
+  for (const requiredCodegenInput of [
+    'package/src/NativeBlePlx.ts',
+    'package/src/NativeUnifiedBleProtocolControl.ts'
+  ]) {
+    if (!expectedCodegenSourceEntries.has(requiredCodegenInput)) {
+      throw new Error(`Required React Native Codegen source is missing from the package source tree: ${requiredCodegenInput}`)
+    }
+  }
   const expectedArtifacts = new Set([
     'package/lib/commonjs/package.json',
     'package/lib/module/package.json',
@@ -392,6 +430,19 @@ function verifyRootTarball(tarballPath) {
     )
   }
 
+  const packedCodegenSourceEntries = [...files.keys()].filter(entryPath => entryPath.startsWith('package/src/'))
+  const missingCodegenSourceEntries = [...expectedCodegenSourceEntries]
+    .filter(entryPath => !files.has(entryPath))
+    .sort()
+  const unexpectedCodegenSourceEntries = packedCodegenSourceEntries
+    .filter(entryPath => !expectedCodegenSourceEntries.has(entryPath))
+    .sort()
+  if (missingCodegenSourceEntries.length > 0 || unexpectedCodegenSourceEntries.length > 0) {
+    throw new Error(
+      `Packed React Native Codegen source set differs from the declared src tree. Missing: ${missingCodegenSourceEntries.join(', ') || 'none'}. Unexpected: ${unexpectedCodegenSourceEntries.join(', ') || 'none'}.`
+    )
+  }
+
   const pluginSourceFiles = listFiles(pluginSourceRoot)
     .filter(sourceFile => /\.ts$/.test(sourceFile) && !sourceFile.includes(`${path.sep}__tests__${path.sep}`))
     .sort((left, right) => left.localeCompare(right))
@@ -413,7 +464,14 @@ function verifyRootTarball(tarballPath) {
   }
 
   for (const entryPath of files.keys()) {
-    if (!isRootArchiveEntryAllowed(entryPath, expectedArtifacts, expectedPluginArtifacts)) {
+    if (
+      !isRootArchiveEntryAllowed(
+        entryPath,
+        expectedArtifacts,
+        expectedPluginArtifacts,
+        expectedCodegenSourceEntries
+      )
+    ) {
       throw new Error(`Packed entry is outside the package archive allowlist: ${entryPath}`)
     }
   }
@@ -429,7 +487,6 @@ function verifyRootTarball(tarballPath) {
       entryPath.includes('/docs/audits/') ||
       entryPath.includes('/docs/review/') ||
       entryPath.includes('/docs/evidence/g0/') ||
-      entryPath.startsWith('package/src/') ||
       entryPath.includes('/spikes/') ||
       entryPath.includes('/benchmarks/') ||
       entryPath.includes('/lab/') ||
@@ -443,7 +500,11 @@ function verifyRootTarball(tarballPath) {
     if (/\.(?:js|d\.ts|map|json|ts|tsx)$/.test(entryPath)) {
       assertNoPrivatePath(entryPath, contents)
     }
-    if ((entryPath.endsWith('.ts') || entryPath.endsWith('.tsx')) && !entryPath.endsWith('.d.ts')) {
+    if (
+      (entryPath.endsWith('.ts') || entryPath.endsWith('.tsx')) &&
+      !entryPath.endsWith('.d.ts') &&
+      !expectedCodegenSourceEntries.has(entryPath)
+    ) {
       throw new Error(`Source-only TypeScript leaked into the packed artifact: ${entryPath}`)
     }
   }
@@ -471,7 +532,7 @@ function verifyRootTarball(tarballPath) {
   }
 
   console.log(
-    `canonical tarball verified: ${sourceFiles.length} published source files, ${internalRuntimeSourceFiles.length} exact internal runtime sources, ${internalTypeOnlySourceFiles.length} exact internal declaration-only sources, ${expectedArtifacts.size} required runtime/type artifacts, ${pluginSourceFiles.length} plugin source files, ${targets.length} current entrypoint targets`
+    `canonical tarball verified: ${sourceFiles.length} published source files, ${codegenSourceFiles.length} exact React Native Codegen source files, ${internalRuntimeSourceFiles.length} exact internal runtime sources, ${internalTypeOnlySourceFiles.length} exact internal declaration-only sources, ${expectedArtifacts.size} required runtime/type artifacts, ${pluginSourceFiles.length} plugin source files, ${targets.length} current entrypoint targets`
   )
   return packageJson.version
 }

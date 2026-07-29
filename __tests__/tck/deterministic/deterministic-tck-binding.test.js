@@ -57,7 +57,7 @@ function featureRegistration(overrides = {}) {
     evidence: {
       receiptId: 'deterministic-receipt',
       evidenceLevel: 'deterministic',
-      implementationVersion: '4.0.0-alpha.0',
+      implementationVersion: '4.0.0-alpha.2',
       sourceDigest: 'test-digest',
       scenarioIds: ['restoration.provider-journal-adoption-and-rejection'],
       limitations: [deterministicLimitation]
@@ -137,7 +137,7 @@ describe('deterministic production TCK binding', () => {
               evidence: {
                 receiptId: 'deterministic-receipt',
                 evidenceLevel: 'deterministic',
-                implementationVersion: '4.0.0-alpha.0',
+                implementationVersion: '4.0.0-alpha.2',
                 sourceDigest: 'test-digest',
                 scenarioIds: ['restoration.provider-journal-adoption-and-rejection'],
                 limitations: []

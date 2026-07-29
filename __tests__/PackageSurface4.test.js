@@ -162,7 +162,8 @@ describe('4.0 public package surface', () => {
       './electron/main',
       './electron/renderer'
     ])
-    expect(packageJson.files).not.toContain('src')
+    expect(packageJson.files).toContain('src')
+    expect(packageJson.codegenConfig.jsSrcsDir).toBe('src')
     expect(packageJson['react-native-builder-bob'].exclude).toContain('BleManager.ts')
   })
 
