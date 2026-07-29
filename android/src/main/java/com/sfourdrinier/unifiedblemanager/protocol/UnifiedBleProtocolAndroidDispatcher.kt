@@ -498,7 +498,7 @@ class UnifiedBleProtocolAndroidDispatcher(
       RecordKind.RESULT,
       mapOf(
         1 to ProtocolWireValue.UnsignedIntegerValue(1),
-        2 to ProtocolWireValue.StringValue(resultKindFor(command.requiredString(3))),
+        2 to ProtocolWireValue.StringValue(dispatcherResultKindFor(command.requiredString(3))),
         3 to ProtocolWireValue.RecordValue(terminal(command, "failed", code)),
         10 to ProtocolWireValue.RecordValue(error)
       )
@@ -661,22 +661,6 @@ class UnifiedBleProtocolAndroidDispatcher(
   private fun commandNonce(command: ProtocolWireRecord): String = command.requiredRecord(2).requiredString(3)
   private fun operationKey(command: ProtocolWireRecord): String = "${commandEpoch(command)}:${commandNonce(command)}"
   private fun isPending(command: ProtocolWireRecord): Boolean = pendingCommands[operationKey(command)] === command
-  private fun resultKindFor(commandKind: String): String = when (commandKind) {
-    "scanStart" -> "scanStarted"
-    "connect" -> "connected"
-    "discover" -> "database"
-    "read" -> "read"
-    "write" -> "write"
-    "readDescriptor" -> "descriptorRead"
-    "writeDescriptor" -> "descriptorWrite"
-    "readRssi" -> "rssi"
-    "requestMtu" -> "mtu"
-    "subscribe" -> "subscribed"
-    "unsubscribe" -> "unsubscribed"
-    "destroy" -> "destroyed"
-    else -> "accepted"
-  }
-
   private data class CharacteristicEndpoint(
     val deviceId: String,
     val serviceUuid: UUID,
@@ -750,6 +734,22 @@ internal fun connectionLostEvent(
       14 to ProtocolWireValue.RecordValue(error)
     )
   )
+}
+
+internal fun dispatcherResultKindFor(commandKind: String): String = when (commandKind) {
+  "scanStart" -> "scanStarted"
+  "connect" -> "connected"
+  "discover" -> "database"
+  "read" -> "read"
+  "write" -> "write"
+  "readDescriptor" -> "descriptorRead"
+  "writeDescriptor" -> "descriptorWrite"
+  "readRssi" -> "rssi"
+  "requestMtu" -> "mtu"
+  "subscribe" -> "subscribed"
+  "unsubscribe" -> "unsubscribed"
+  "destroy" -> "destroyed"
+  else -> "accepted"
 }
 
 private fun ProtocolWireRecord.requiredBoolean(fieldId: Int): Boolean {

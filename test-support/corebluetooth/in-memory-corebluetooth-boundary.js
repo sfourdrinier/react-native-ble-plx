@@ -1,9 +1,13 @@
 // test-support/corebluetooth/in-memory-corebluetooth-boundary.js
 
+// test-support/corebluetooth/in-memory-corebluetooth-boundary.js
+
 class InMemoryCoreBluetoothBoundary {
-  constructor({ serviceUuid, characteristicUuid }) {
+  constructor({ serviceUuid, characteristicUuid, descriptorUuid = '00002902-0000-1000-8000-00805f9b34fb' }) {
     this.serviceUuid = serviceUuid
     this.characteristicUuid = characteristicUuid
+    this.descriptorUuid = descriptorUuid
+    this.descriptorOperationsAvailable = true
     this.adapter = { availability: 'available', authorization: 'granted', power: 'on', safeReason: null }
     this.connected = false
     this.destroyed = false
@@ -14,7 +18,10 @@ class InMemoryCoreBluetoothBoundary {
     this.notificationHandlers = new Map()
     this.stoppedNotificationHandlers = new Map()
     this.readGate = null
+    this.descriptorReadGate = null
+    this.descriptorReadValue = null
     this.writeValues = []
+    this.descriptorWriteValues = []
     this.startNotifyCalls = 0
     this.stopNotifyCalls = 0
   }
@@ -78,7 +85,7 @@ class InMemoryCoreBluetoothBoundary {
               writableWithResponse: true,
               writableWithoutResponse: true,
               notifiable: true,
-              descriptors: []
+              descriptors: [{ uuid: this.descriptorUuid, occurrence: 0 }]
             },
             {
               uuid: this.characteristicUuid,
@@ -87,7 +94,7 @@ class InMemoryCoreBluetoothBoundary {
               writableWithResponse: true,
               writableWithoutResponse: true,
               notifiable: true,
-              descriptors: []
+              descriptors: [{ uuid: this.descriptorUuid, occurrence: 0 }]
             }
           ]
         },
@@ -102,7 +109,7 @@ class InMemoryCoreBluetoothBoundary {
               writableWithResponse: true,
               writableWithoutResponse: true,
               notifiable: true,
-              descriptors: []
+              descriptors: [{ uuid: this.descriptorUuid, occurrence: 0 }]
             }
           ]
         }
@@ -119,6 +126,20 @@ class InMemoryCoreBluetoothBoundary {
 
   async write(address, bytes, withResponse) {
     this.writeValues.push({ address, bytes: new Uint8Array(bytes), withResponse })
+  }
+
+  async readDescriptor(address) {
+    if (this.descriptorReadGate !== null) {
+      return this.descriptorReadGate
+    }
+    if (this.descriptorReadValue !== null) {
+      return this.descriptorReadValue
+    }
+    return new Uint8Array([address.serviceOccurrence, address.characteristicOccurrence, address.descriptorOccurrence])
+  }
+
+  async writeDescriptor(address, bytes) {
+    this.descriptorWriteValues.push({ address, bytes: new Uint8Array(bytes) })
   }
 
   async startNotify(address, onValue) {

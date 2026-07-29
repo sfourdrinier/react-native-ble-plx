@@ -1,5 +1,7 @@
 // native/electron/corebluetooth/index.js
 
+// native/electron/corebluetooth/index.js
+
 /**
  * macOS CoreBluetooth contract-v1 boundary for Electron main.
  */
@@ -51,6 +53,8 @@ function createContractBoundary() {
     'getAdapterState',
     'discoverServices',
     'discoverCharacteristicsAt',
+    'readDescriptorAt',
+    'writeDescriptorAt',
     'readCharacteristicAt',
     'writeCharacteristicAt',
     'startNotifyAt',
@@ -73,6 +77,7 @@ function createContractBoundary() {
     }
   })
   return {
+    descriptorOperationsAvailable: true,
     adapterSnapshot: () => adapterSnapshot(radio.getAdapterState()),
     startScan: async (onAdvertisement, serviceUuids) => {
       await radio.startScan(
@@ -114,6 +119,29 @@ function createContractBoundary() {
         address.characteristicOccurrence,
         Buffer.from(toUint8Array(bytes)),
         withResponse
+      ),
+    readDescriptor: address =>
+      radio
+        .readDescriptorAt(
+          address.nativePeerId,
+          address.serviceUuid,
+          address.serviceOccurrence,
+          address.characteristicUuid,
+          address.characteristicOccurrence,
+          address.descriptorUuid,
+          address.descriptorOccurrence
+        )
+        .then(toUint8Array),
+    writeDescriptor: (address, bytes) =>
+      radio.writeDescriptorAt(
+        address.nativePeerId,
+        address.serviceUuid,
+        address.serviceOccurrence,
+        address.characteristicUuid,
+        address.characteristicOccurrence,
+        address.descriptorUuid,
+        address.descriptorOccurrence,
+        Buffer.from(toUint8Array(bytes))
       ),
     startNotify: (address, onValue) =>
       radio.startNotifyAt(
@@ -171,6 +199,14 @@ async function discoverGattDatabase(radio, nativePeerId) {
       const characteristicUuid = String(characteristic.uuid)
       const characteristicOccurrence = characteristicOccurrences.get(characteristicUuid) || 0
       characteristicOccurrences.set(characteristicUuid, characteristicOccurrence + 1)
+      const descriptorOccurrences = new Map()
+      const descriptors = []
+      for (const nativeDescriptor of characteristic.descriptors) {
+        const descriptorUuid = String(nativeDescriptor.uuid)
+        const descriptorOccurrence = descriptorOccurrences.get(descriptorUuid) || 0
+        descriptorOccurrences.set(descriptorUuid, descriptorOccurrence + 1)
+        descriptors.push({ uuid: descriptorUuid, occurrence: descriptorOccurrence })
+      }
       characteristics.push({
         uuid: characteristicUuid,
         occurrence: characteristicOccurrence,
@@ -178,7 +214,7 @@ async function discoverGattDatabase(radio, nativePeerId) {
         writableWithResponse: characteristic.isWritableWithResponse === true,
         writableWithoutResponse: characteristic.isWritableWithoutResponse === true,
         notifiable: characteristic.isNotifiable === true,
-        descriptors: []
+        descriptors
       })
     }
     services.push({ uuid, occurrence, characteristics })

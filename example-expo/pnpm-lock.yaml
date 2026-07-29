@@ -2806,6 +2806,7 @@ packages:
   unified-ble-manager@file:..:
     resolution: {directory: .., type: directory}
     engines: {node: ^20.19.4 || ^22.13.0 || ^24.3.0 || >=25.0.0}
+    hasBin: true
     peerDependencies:
       react: '*'
       react-native: '>=0.86.0'

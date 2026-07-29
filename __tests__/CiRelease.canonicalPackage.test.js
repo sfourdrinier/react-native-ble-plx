@@ -140,22 +140,34 @@ describe('ci-release canonical package (4.0)', () => {
     expect(publish).toContain('node-version: 24')
   })
 
-  test('keeps macOS package coverage on Node 20 while routing native CoreBluetooth gates to Node 22', () => {
+  test('keeps macOS and Windows package coverage on Node 20 while routing native host gates to Node 22', () => {
     const ci = read('.github/workflows/ci.yml')
     expect(ci).toMatch(/- os: macos-latest\n\s+node: '20\.19\.4'/)
     expect(ci).toMatch(/- os: macos-latest\n\s+node: '22'/)
+    expect(ci).toMatch(/- os: windows-latest\n\s+node: '20\.19\.4'/)
+    expect(ci).toMatch(/- os: windows-latest\n\s+node: '22'/)
+    expect(ci).toContain(
+      "if: (runner.os == 'macOS' && matrix.node == '22') || (runner.os == 'Windows' && matrix.node == '22')"
+    )
     expect(ci).toMatch(
       /CoreBluetooth native boundary L2 \(node-gyp Node ABI \+ public boundary\)\n\s+if: runner\.os == 'macOS' && matrix\.node == '22'/
     )
     expect(ci).toMatch(
       /Electron ABI rebuild \+ main-process smoke \(L3, Node ABI ≠ Electron ABI\)\n\s+if: runner\.os == 'macOS' && matrix\.node == '22'/
     )
+    expect(ci).toMatch(
+      /WinRT native boundary compile and ABI load \(Windows; no live radio\)\n\s+if: runner\.os == 'Windows' && matrix\.node == '22'/
+    )
   })
 
   // R2-F037: Electron ABI rebuild + main-process L3 smoke (not only node-gyp L2)
-  test('R2-F037 ci.yml runs @electron/rebuild and electron-main-smoke under Electron binary', () => {
+  test('R2-F037 ci.yml rebuilds only the package CoreBluetooth addon for the Electron ABI', () => {
     const ci = read('.github/workflows/ci.yml')
-    expect(ci).toContain('@electron/rebuild')
+    expect(ci).toContain('ELECTRON_VERSION=$(node -p')
+    expect(ci).toContain('native/electron/corebluetooth')
+    expect(ci).toContain('node-gyp rebuild')
+    expect(ci).toContain('--dist-url=https://electronjs.org/headers')
+    expect(ci).not.toContain('@electron/rebuild')
     expect(ci).toContain('scripts/ci/electron-main-smoke.js')
     expect(ci).toMatch(/Node ABI ≠ Electron ABI|Node ABI != Electron ABI|Node ABI/)
     expect(ci).toContain('./node_modules/.bin/electron scripts/ci/electron-main-smoke.js')

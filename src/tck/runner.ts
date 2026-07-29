@@ -37,29 +37,49 @@ export async function runBackendTck<
   featureSuites: readonly TckFeatureSuite[],
   options: TckRunOptions = Object.freeze({ proofScope: 'deterministic' })
 ): Promise<TckRunReport> {
-  const proofScope = snapshotRunOptions(options)
+  const selectedBaseScenarios = snapshotRunOptions(options)
   const identity = await verifyFactoryRuntimeIdentity(factory)
-  const receipts = await runBaseSuites(factory, identity, proofScope)
-  const featureRun = await runRegisteredFeatureSuites(factory, identity, featureSuites, receipts, proofScope)
+  const receipts = await runBaseSuites(factory, identity, selectedBaseScenarios, options.proofScope)
+  const featureRun = await runRegisteredFeatureSuites(factory, identity, featureSuites, receipts, options.proofScope)
   return Object.freeze({
     backendId: identity.registeredBackendId,
     identity,
     verification: 'runner-controlled',
-    proofScope,
-    baseScenarioIds: Object.freeze(
-      baseTckScenarios.filter(definition => definition.execution === 'base').map(definition => definition.id)
-    ),
+    proofScope: options.proofScope,
+    baseScenarioIds: Object.freeze(selectedBaseScenarios.map(definition => definition.id)),
     featureSuiteIds: featureRun.suiteIds,
     featureBindings: featureRun.bindings,
     receipts: Object.freeze(receipts)
   })
 }
 
-function snapshotRunOptions(options: TckRunOptions): 'deterministic' {
+function snapshotRunOptions(options: TckRunOptions): readonly TckScenarioDefinition[] {
   if (options.proofScope !== 'deterministic') {
     throw new TckAssertionError('identity.provider-loadability-and-adapter-availability', 'unsupported TCK proof scope')
   }
-  return 'deterministic'
+  if (options.baseScenarioIds === undefined) {
+    return baseTckScenarios.filter(definition => definition.execution === 'base')
+  }
+  if (options.baseScenarioIds.length === 0) {
+    throw new TckAssertionError(
+      'identity.provider-loadability-and-adapter-availability',
+      'base scenario selection is empty'
+    )
+  }
+  const selected = new Set<TckScenarioId>()
+  const definitions: TckScenarioDefinition[] = []
+  for (const scenarioId of options.baseScenarioIds) {
+    const definition = findTckScenario(scenarioId)
+    if (definition.execution !== 'base') {
+      throw new TckAssertionError(scenarioId, 'base scenario selection includes a feature scenario')
+    }
+    if (selected.has(scenarioId)) {
+      throw new TckAssertionError(scenarioId, 'base scenario selection repeats a scenario')
+    }
+    selected.add(scenarioId)
+    definitions.push(definition)
+  }
+  return Object.freeze(definitions)
 }
 
 interface FeatureRunSelection {
@@ -79,14 +99,12 @@ async function runBaseSuites<
 >(
   factory: BackendTckFactory<Attachment, Identity, Backend>,
   identity: TckRuntimeIdentity,
+  definitions: readonly TckScenarioDefinition[],
   proofScope: 'deterministic'
 ): Promise<TckScenarioReceipt[]> {
   const receipts: TckScenarioReceipt[] = []
   const deferredCleanupErrors: TckFixtureCleanupError[] = []
-  for (const definition of baseTckScenarios) {
-    if (definition.execution !== 'base') {
-      continue
-    }
+  for (const definition of definitions) {
     try {
       receipts.push(await executeDefinition(factory, identity, definition, proofScope))
     } catch (error) {
@@ -212,7 +230,11 @@ async function runtimeValidateFeatureRegistrations<
           `feature ${registration.id} fails runtime registration validation: ${validationDetail}`
         )
       }
-      bindings.push(snapshotFeatureBinding(registration))
+      // Unsupported and unavailable capabilities remain validated runtime truth,
+      // but have no executable standard TCK suite to bind to this runner.
+      if (requiresFeatureSuite(registration.state)) {
+        bindings.push(snapshotFeatureBinding(registration))
+      }
     }
     return Object.freeze(bindings)
   })

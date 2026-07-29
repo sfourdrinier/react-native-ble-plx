@@ -59,6 +59,10 @@ jobs:
             node: '24'
           - os: windows-latest
             node: '20.19.4'
+          # Keep Windows package coverage at the engines floor. Native Node-API
+          # compilation runs under Node 22 because node-gyp 13 needs its undici helper.
+          - os: windows-latest
+            node: '22'
           - os: macos-latest
             node: '20.19.4'
           # Keep the engines-floor suite on Node 20 and run native node-gyp gates
@@ -70,10 +74,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.0
 
-      # Node 20 keeps macOS package coverage. Native node-gyp 13 gates run on
-      # Node 22 because its bundled undici provides the required WebIDL helper.
-      - name: Setup Python for macOS native builds
-        if: runner.os == 'macOS' && matrix.node == '22'
+      # Node 20 keeps macOS and Windows package coverage. Native node-gyp 13 gates
+      # run on Node 22 because its bundled undici provides the required WebIDL helper.
+      - name: Setup Python for native Node22 builds
+        if: (runner.os == 'macOS' || runner.os == 'Windows') && matrix.node == '22'
         uses: actions/setup-python@v6.0.0
         with:
           python-version: '3.12'
@@ -92,6 +96,12 @@ jobs:
 
       - name: Run plugin tests
         run: pnpm test:plugin
+
+      # C++ codec/runtime execution only. It compiles and runs the host harness,
+      # but cannot prove a physical adapter, peripheral, or radio lifecycle.
+      - name: Execute Native Protocol C++ host tests (L2; no physical radio)
+        if: runner.os == 'Linux' && matrix.node == '22'
+        run: pnpm test:native-protocol
 
       # Lint/typecheck + prepack once on Linux (path/tooling quirks differ on Windows)
       - name: Lint and typecheck
@@ -113,7 +123,7 @@ jobs:
       # L2 needs compiled hosts (src/*.ts is not resolvable by plain Node). prepack is Linux-only above;
       # emit lib/ here before requireNative probes (R2-F005).
       - name: Build package artifacts (macOS/Windows L2 hosts)
-        if: (runner.os == 'macOS' && matrix.node == '22') || runner.os == 'Windows'
+        if: (runner.os == 'macOS' && matrix.node == '22') || (runner.os == 'Windows' && matrix.node == '22')
         run: pnpm prepack
 
       # L2: compile the CoreBluetooth Node-API addon, then load the public 4.0
@@ -155,13 +165,21 @@ jobs:
         if: runner.os == 'macOS' && matrix.node == '22'
         run: |
           set -euo pipefail
-          npx --yes @electron/rebuild -f -w native/electron/corebluetooth
+          ELECTRON_VERSION=$(node -p "require('./node_modules/electron/package.json').version")
+          (
+            cd native/electron/corebluetooth
+            ../../../node_modules/.bin/node-gyp rebuild \
+              --target="$ELECTRON_VERSION" \
+              --arch="$(node -p 'process.arch')" \
+              --dist-url=https://electronjs.org/headers
+          )
+          test -f native/electron/corebluetooth/build/Release/unified_ble_corebluetooth.node
           ./node_modules/.bin/electron scripts/ci/electron-main-smoke.js
 
       # This is Node-API ABI and boundary-shape proof only. It does not claim a
       # live adapter, advertisement, peripheral, or radio-support result.
       - name: WinRT native boundary compile and ABI load (Windows; no live radio)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && matrix.node == '22'
         shell: bash
         run: |
           set -euo pipefail
@@ -259,6 +277,8 @@ jobs:
           filters: |
             android:
               - 'android/**'
+              - 'native/protocol/**'
+              - 'scripts/native-protocol/**'
               - 'plugin/**'
               - 'example/android/**'
               - 'example-expo/**'
@@ -270,6 +290,8 @@ jobs:
               - '.github/actions/**'
             apple:
               - 'ios/**'
+              - 'native/protocol/**'
+              - 'scripts/native-protocol/**'
               - 'example/ios/**'
               - 'example/package.json'
               - 'example/**/Gemfile'
@@ -380,6 +402,11 @@ jobs:
 
       - name: Verify React Native gradle plugin path
         run: test -d example/node_modules/@react-native/gradle-plugin
+
+      # Executes the package's JVM dispatcher command/result/event coverage;
+      # no emulator, adapter, peripheral, or physical-radio assertion is made.
+      - name: Execute Android Native Protocol dispatcher JVM tests (JVM; no physical BLE radio)
+        run: pnpm test:native-protocol:android
 
       - name: Assemble classic example debug APK
         working-directory: example/android

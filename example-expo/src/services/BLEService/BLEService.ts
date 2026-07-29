@@ -82,6 +82,9 @@ const DEVICE_INFORMATION_CHARACTERISTICS: readonly DeviceInformationCharacterist
 
 let nextExampleManagerId = 1
 
+// This application identifier is stable across manager recreation and native restoration adoption.
+const EXPO_APPLICATION_HOST_SESSION_SCOPE = 'com.sfourdrinier.bleplxexample'
+
 /** The Expo app owns exactly one canonical 4.0 manager and no legacy compatibility facade. */
 class CanonicalBleExampleService {
   private manager: CanonicalManager | null = null
@@ -273,7 +276,8 @@ class CanonicalBleExampleService {
       control: getNativeUnifiedBleProtocolControl(),
       now: monotonicNow,
       clientId: `expo-example-client-${managerId.toString()}`,
-      managerId: `expo-example-manager-${managerId.toString()}`
+      managerId: `expo-example-manager-${managerId.toString()}`,
+      hostSessionScope: EXPO_APPLICATION_HOST_SESSION_SCOPE
     })
     this.managerCreation = creation
     try {

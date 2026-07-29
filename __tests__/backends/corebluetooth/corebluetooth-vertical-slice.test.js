@@ -11,6 +11,7 @@ const {
 
 const serviceUuid = '0000180d-0000-1000-8000-00805f9b34fb'
 const characteristicUuid = '00002a37-0000-1000-8000-00805f9b34fb'
+const descriptorUuid = '00002902-0000-1000-8000-00805f9b34fb'
 
 function deferred() {
   let resolve = null
@@ -162,10 +163,15 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
     const snapshot = await database.snapshot()
     expect(snapshot.services).toHaveLength(2)
     expect(snapshot.characteristics).toHaveLength(3)
+    expect(snapshot.descriptors).toHaveLength(3)
     expect(snapshot.services[0].path.serviceUuid).toBe(snapshot.services[1].path.serviceUuid)
     expect(snapshot.services[0].path.serviceOccurrence).not.toBe(snapshot.services[1].path.serviceOccurrence)
     const duplicateCharacteristic = snapshot.characteristics.find(
       path => String(path.path.characteristicOccurrence) === '1'
+    ).path
+    const duplicateDescriptor = snapshot.descriptors.find(
+      descriptor =>
+        String(descriptor.path.serviceOccurrence) === '0' && String(descriptor.path.characteristicOccurrence) === '1'
     ).path
 
     await expect(database.read(duplicateCharacteristic, operation())).resolves.toEqual(new Uint8Array([0, 1]))
@@ -174,10 +180,34 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
     writeInput[0] = 77
     expect([...boundary.writeValues[0].bytes]).toEqual([9, 8])
 
+    boundary.descriptorReadValue = new Uint8Array([0, 1, 0])
+    const descriptorRead = await database.readDescriptor(duplicateDescriptor, operation())
+    boundary.descriptorReadValue[0] = 99
+    expect(descriptorRead).toEqual(new Uint8Array([0, 1, 0]))
+    expect(descriptorRead).not.toBe(boundary.descriptorReadValue)
+    const descriptorWriteInput = new Uint8Array([7, 6])
+    await database.writeDescriptor(duplicateDescriptor, descriptorWriteInput, {
+      ...operation(),
+      mode: 'with-response'
+    })
+    descriptorWriteInput[0] = 99
+    expect([...boundary.descriptorWriteValues[0].bytes]).toEqual([7, 6])
+    expect(boundary.descriptorWriteValues[0].address).toMatchObject({
+      serviceOccurrence: 0,
+      characteristicOccurrence: 1,
+      descriptorUuid,
+      descriptorOccurrence: 0
+    })
+
     const subscription = await database.subscribe(duplicateCharacteristic, { ...operation(), delivery: delivery() })
     const value = subscription.values[Symbol.asyncIterator]().next()
     boundary.emitNotification(boundary.writeValues[0].address, new Uint8Array([3, 4]))
     await expect(value).resolves.toMatchObject({ value: { kind: 'value', value: { value: new Uint8Array([3, 4]) } } })
+    const refreshedDatabase = await connection.discover(operation())
+    await expect(database.readDescriptor(duplicateDescriptor, operation())).rejects.toMatchObject({
+      normalized: { code: 'gatt.stale-handle' }
+    })
+    await expect(refreshedDatabase.snapshot()).resolves.toMatchObject({ descriptors: expect.any(Array) })
     await expect(manager.destroy()).resolves.toEqual({ state: 'released', failures: [] })
     expect(Object.values(manager.localResourceCounters()).every(valueCount => Number(valueCount) === 0)).toBe(true)
     expect(boundary.destroyed).toBe(true)
@@ -210,7 +240,7 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
     await expect(manager.destroy()).resolves.toEqual({ state: 'released', failures: [] })
   })
 
-  test('rejects an aborted public read while quarantining its physical completion from the next operation', async () => {
+  test('rejects an aborted descriptor read while quarantining its physical completion from the next operation', async () => {
     const { backend, boundary } = await backendFixture()
     const peerId = await observedPeerId(backend)
     const lease = await backend.connections.connect(
@@ -219,16 +249,16 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
       operation()
     )
     const database = await backend.gatt.discover(lease.connection, operation())
-    const characteristic = (await database.snapshot()).characteristics[0].path
+    const descriptor = (await database.snapshot()).descriptors[0].path
     let releaseRead
-    boundary.readGate = new Promise(resolve => {
+    boundary.descriptorReadGate = new Promise(resolve => {
       releaseRead = resolve
     })
     const abortController = new AbortController()
-    const dispatch = backend.gatt.read(characteristic, {
+    const dispatch = backend.gatt.readDescriptor(descriptor, {
       operation: {
         ...operation(abortController.signal),
-        correlation: opaqueId('cancel-read', 'operation', 'corebluetooth:cancel')
+        correlation: opaqueId('cancel-descriptor-read', 'operation', 'corebluetooth:cancel')
       }
     })
     abortController.abort()
@@ -236,11 +266,11 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
     await expect(dispatch.requestCancellation()).resolves.toMatchObject({ state: 'not-cancellable' })
     releaseRead(new Uint8Array([7, 7]))
     await flushAdapterLossCleanup()
-    boundary.readGate = null
-    const next = backend.gatt.read(characteristic, {
-      operation: { ...operation(), correlation: opaqueId('next-read', 'operation', 'corebluetooth:cancel') }
+    boundary.descriptorReadGate = null
+    const next = backend.gatt.readDescriptor(descriptor, {
+      operation: { ...operation(), correlation: opaqueId('next-descriptor-read', 'operation', 'corebluetooth:cancel') }
     })
-    await expect(next.completion).resolves.toMatchObject({ value: new Uint8Array([0, 0]) })
+    await expect(next.completion).resolves.toMatchObject({ value: new Uint8Array([0, 0, 0]) })
     await backend.destroy()
   })
 
@@ -365,7 +395,10 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
       releaseRead = resolve
     })
     const dispatch = backend.gatt.read(characteristic, {
-      operation: { ...operation(), correlation: opaqueId('pending-loss-read', 'operation', 'corebluetooth:pending-loss') }
+      operation: {
+        ...operation(),
+        correlation: opaqueId('pending-loss-read', 'operation', 'corebluetooth:pending-loss')
+      }
     })
 
     emitAdapterState(boundary, {
@@ -383,7 +416,9 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
       backend.scanner.start(scanOptions(), opaqueId('pending-loss-scan', 'client', 'corebluetooth:pending-loss'))
     ).rejects.toMatchObject({ normalized: { code: 'lifecycle.invalid-state' } })
     const lossTransition = await stateWatch.transitions[Symbol.asyncIterator]().next()
-    expect(lossTransition).toMatchObject({ value: { kind: 'value', value: { backendGeneration: stateWatch.initial.backendGeneration } } })
+    expect(lossTransition).toMatchObject({
+      value: { kind: 'value', value: { backendGeneration: stateWatch.initial.backendGeneration } }
+    })
 
     releaseRead(new Uint8Array([8, 8]))
     await flushAdapterLossCleanup()
@@ -486,7 +521,11 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
       backend.scanner.start(scanOptions(), opaqueId('permission-scan', 'client', 'corebluetooth:permission'))
     ).rejects.toMatchObject({ normalized: { code } })
     await expect(
-      backend.connections.connect(peerId, opaqueId('permission-connect', 'client', 'corebluetooth:permission'), operation())
+      backend.connections.connect(
+        peerId,
+        opaqueId('permission-connect', 'client', 'corebluetooth:permission'),
+        operation()
+      )
     ).rejects.toMatchObject({ normalized: { code } })
     await backend.destroy()
   })
@@ -636,7 +675,11 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
       backend.scanner.start(scanOptions(), opaqueId('blocked-scan', 'client', 'corebluetooth:adapter-state'))
     ).rejects.toMatchObject({ normalized: { code } })
     await expect(
-      backend.connections.connect(peerId, opaqueId('blocked-connect', 'client', 'corebluetooth:adapter-state'), operation())
+      backend.connections.connect(
+        peerId,
+        opaqueId('blocked-connect', 'client', 'corebluetooth:adapter-state'),
+        operation()
+      )
     ).rejects.toMatchObject({ normalized: { code } })
 
     emitAdapterState(boundary, {

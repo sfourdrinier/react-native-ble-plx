@@ -52,6 +52,8 @@
     "native-protocol:generate": "node scripts/native-protocol/generate-native-protocol.js",
     "native-protocol:check": "node scripts/native-protocol/generate-native-protocol.js --check",
     "test:native-protocol": "node scripts/native-protocol/test-native-protocol.js",
+    "test:native-protocol:android": "cd example/android && ./gradlew :unified-ble-manager:testDebugUnitTest --tests 'com.sfourdrinier.unifiedblemanager.protocol.UnifiedBleProtocolAndroidDispatcher*' --no-daemon --console=plain",
+    "test:native-protocol:apple": "node scripts/native-protocol/test-apple-native-protocol.js",
     "validate:evidence": "node scripts/evidence/validate-current-evidence.js",
     "docs:backend-sdk": "node scripts/docs/generate-backend-sdk-reference.js",
     "docs:check": "node scripts/docs/generate-backend-sdk-reference.js --check",

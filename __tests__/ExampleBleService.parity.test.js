@@ -43,6 +43,8 @@ function normalizeServiceSource(source) {
   return source
     .replace('// example-expo/', '// example/')
     .replace('The Expo app owns', 'The bare app owns')
+    .replace("// This application identifier is stable across manager recreation and native restoration adoption.\nconst EXPO_APPLICATION_HOST_SESSION_SCOPE = 'com.sfourdrinier.bleplxexample'\n\n", '')
+    .replace(',\n      hostSessionScope: EXPO_APPLICATION_HOST_SESSION_SCOPE', '')
     .replaceAll('expo-example-', 'bare-example-')
 }
 

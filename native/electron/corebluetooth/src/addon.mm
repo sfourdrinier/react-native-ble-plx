@@ -1,7 +1,5 @@
 // native/electron/corebluetooth/src/addon.mm
 
-// native/electron/corebluetooth/src/addon.mm
-
 /**
  * Electron macOS CoreBluetooth contract-v1 radio.
  * Scan, connect, discover, read/write bytes, and notify.
@@ -12,6 +10,7 @@
 #import <CoreBluetooth/CoreBluetooth.h>
 #include <napi.h>
 #include <climits>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -37,6 +36,68 @@ static NSString *NormalizeUUID(NSString *uuid) {
 
 static BOOL UUIDEqual(CBUUID *a, NSString *b) {
   return [NormalizeUUID(a.UUIDString) isEqualToString:NormalizeUUID(b)];
+}
+
+static NSError *DescriptorValueError(NSString *message) {
+  return [NSError errorWithDomain:@"UBMCoreBluetooth"
+                             code:422
+                         userInfo:@{NSLocalizedDescriptionKey : message}];
+}
+
+static BOOL IsUnsigned16Descriptor(CBDescriptor *descriptor) {
+  return UUIDEqual(descriptor.UUID, @"00002900-0000-1000-8000-00805f9b34fb") ||
+      UUIDEqual(descriptor.UUID, @"00002902-0000-1000-8000-00805f9b34fb") ||
+      UUIDEqual(descriptor.UUID, @"00002903-0000-1000-8000-00805f9b34fb");
+}
+
+static NSData *DescriptorReadBytes(CBDescriptor *descriptor, NSError **outError) {
+  id value = descriptor.value;
+  if ([value isKindOfClass:[NSData class]]) {
+    return value;
+  }
+  if ([value isKindOfClass:[NSNumber class]] && IsUnsigned16Descriptor(descriptor)) {
+    const unsigned long long number = [value unsignedLongLongValue];
+    if (number > UINT16_MAX) {
+      if (outError) *outError = DescriptorValueError(@"Descriptor integer value exceeds the Bluetooth 16-bit wire format");
+      return nil;
+    }
+    const std::uint16_t littleEndian = static_cast<std::uint16_t>(number);
+    const std::uint8_t bytes[] = {
+      static_cast<std::uint8_t>(littleEndian & 0xffU),
+      static_cast<std::uint8_t>((littleEndian >> 8U) & 0xffU)
+    };
+    return [NSData dataWithBytes:bytes length:sizeof(bytes)];
+  }
+  if ([value isKindOfClass:[NSString class]] && UUIDEqual(descriptor.UUID, @"00002901-0000-1000-8000-00805f9b34fb")) {
+    NSData *bytes = [value dataUsingEncoding:NSUTF8StringEncoding];
+    if (bytes) return bytes;
+  }
+  if (outError) {
+    *outError = DescriptorValueError(@"CoreBluetooth returned a descriptor value without an exact byte representation");
+  }
+  return nil;
+}
+
+static id DescriptorWriteValue(CBDescriptor *descriptor, NSData *bytes, NSError **outError) {
+  if (IsUnsigned16Descriptor(descriptor)) {
+    if (bytes.length != 2U) {
+      if (outError) *outError = DescriptorValueError(@"Bluetooth 16-bit descriptor writes require exactly two bytes");
+      return nil;
+    }
+    const auto *source = static_cast<const std::uint8_t *>(bytes.bytes);
+    const std::uint16_t value = static_cast<std::uint16_t>(source[0]) |
+        (static_cast<std::uint16_t>(source[1]) << 8U);
+    return @(value);
+  }
+  if (UUIDEqual(descriptor.UUID, @"00002901-0000-1000-8000-00805f9b34fb")) {
+    NSString *value = [[NSString alloc] initWithData:bytes encoding:NSUTF8StringEncoding];
+    if (!value) {
+      if (outError) *outError = DescriptorValueError(@"Characteristic user description writes must be valid UTF-8");
+      return nil;
+    }
+    return value;
+  }
+  return [NSData dataWithData:bytes];
 }
 
 static std::string StateToString(CBManagerState state) {
@@ -68,6 +129,7 @@ typedef void (^UBMNotifyBlock)(NSData *value);
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMVoidBlock> *pendingDisconnect;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMArrayBlock> *pendingDiscover;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *pendingDiscoverCharsLeft;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *pendingDiscoverDescriptorsLeft;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMDataBlock> *pendingRead;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMVoidBlock> *pendingWrite;
 /** Completions for setNotifyValue:YES — resolved only in didUpdateNotificationStateFor. */
@@ -75,6 +137,8 @@ typedef void (^UBMNotifyBlock)(NSData *value);
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMNotifyBlock> *notifyHandlers;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMDataBlock> *pendingReadAt;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMVoidBlock> *pendingWriteAt;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, UBMDataBlock> *pendingReadDescriptorAt;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, UBMVoidBlock> *pendingWriteDescriptorAt;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMVoidBlock> *pendingNotifyEnableAt;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMNotifyBlock> *notifyHandlersAt;
 /** Fired on unexpected or intentional link loss after pending ops are failed. */
@@ -97,6 +161,24 @@ typedef void (^UBMNotifyBlock)(NSData *value);
                        serviceUUID:(NSString *)serviceUUID
                  serviceOccurrence:(NSInteger)serviceOccurrence
                         completion:(UBMArrayBlock)completion;
+- (NSArray<NSDictionary *> *)descriptorRecordsForCharacteristic:(CBCharacteristic *)characteristic;
+- (void)readDescriptorAt:(NSString *)deviceId
+              serviceUUID:(NSString *)serviceUUID
+        serviceOccurrence:(NSInteger)serviceOccurrence
+       characteristicUUID:(NSString *)characteristicUUID
+ characteristicOccurrence:(NSInteger)characteristicOccurrence
+           descriptorUUID:(NSString *)descriptorUUID
+     descriptorOccurrence:(NSInteger)descriptorOccurrence
+                completion:(UBMDataBlock)completion;
+- (void)writeDescriptorAt:(NSString *)deviceId
+               serviceUUID:(NSString *)serviceUUID
+         serviceOccurrence:(NSInteger)serviceOccurrence
+        characteristicUUID:(NSString *)characteristicUUID
+  characteristicOccurrence:(NSInteger)characteristicOccurrence
+            descriptorUUID:(NSString *)descriptorUUID
+      descriptorOccurrence:(NSInteger)descriptorOccurrence
+                      data:(NSData *)data
+                completion:(UBMVoidBlock)completion;
 - (void)readCharacteristic:(NSString *)deviceId
                serviceUUID:(NSString *)serviceUUID
         characteristicUUID:(NSString *)characteristicUUID
@@ -158,12 +240,15 @@ characteristicUUID:(NSString *)characteristicUUID
     _pendingDisconnect = [NSMutableDictionary dictionary];
     _pendingDiscover = [NSMutableDictionary dictionary];
     _pendingDiscoverCharsLeft = [NSMutableDictionary dictionary];
+    _pendingDiscoverDescriptorsLeft = [NSMutableDictionary dictionary];
     _pendingRead = [NSMutableDictionary dictionary];
     _pendingWrite = [NSMutableDictionary dictionary];
     _pendingNotifyEnable = [NSMutableDictionary dictionary];
     _notifyHandlers = [NSMutableDictionary dictionary];
     _pendingReadAt = [NSMutableDictionary dictionary];
     _pendingWriteAt = [NSMutableDictionary dictionary];
+    _pendingReadDescriptorAt = [NSMutableDictionary dictionary];
+    _pendingWriteDescriptorAt = [NSMutableDictionary dictionary];
     _pendingNotifyEnableAt = [NSMutableDictionary dictionary];
     _notifyHandlersAt = [NSMutableDictionary dictionary];
     _central = [[CBCentralManager alloc] initWithDelegate:self queue:_queue options:nil];
@@ -184,6 +269,7 @@ characteristicUUID:(NSString *)characteristicUUID
       UBMArrayBlock done = self.pendingDiscover[key];
       [self.pendingDiscover removeObjectForKey:key];
       [self.pendingDiscoverCharsLeft removeObjectForKey:key];
+      [self.pendingDiscoverDescriptorsLeft removeObjectForKey:key];
       [self.pendingDiscoverCharsLeft removeObjectForKey:deviceId];
       if (done) done(nil, error);
     }
@@ -236,6 +322,22 @@ characteristicUUID:(NSString *)characteristicUUID
       if (done) done(error);
     }
   }
+  NSArray<NSString *> *descriptorReadKeys = [self.pendingReadDescriptorAt.allKeys copy];
+  for (NSString *key in descriptorReadKeys) {
+    if ([key hasPrefix:prefix]) {
+      UBMDataBlock done = self.pendingReadDescriptorAt[key];
+      [self.pendingReadDescriptorAt removeObjectForKey:key];
+      if (done) done(nil, error);
+    }
+  }
+  NSArray<NSString *> *descriptorWriteKeys = [self.pendingWriteDescriptorAt.allKeys copy];
+  for (NSString *key in descriptorWriteKeys) {
+    if ([key hasPrefix:prefix]) {
+      UBMVoidBlock done = self.pendingWriteDescriptorAt[key];
+      [self.pendingWriteDescriptorAt removeObjectForKey:key];
+      if (done) done(error);
+    }
+  }
   NSArray<NSString *> *directNotifyKeys = [self.notifyHandlersAt.allKeys copy];
   for (NSString *key in directNotifyKeys) {
     if ([key hasPrefix:prefix]) {
@@ -266,12 +368,15 @@ characteristicUUID:(NSString *)characteristicUUID
   [self.pendingDisconnect removeAllObjects];
   [self.pendingDiscover removeAllObjects];
   [self.pendingDiscoverCharsLeft removeAllObjects];
+  [self.pendingDiscoverDescriptorsLeft removeAllObjects];
   [self.pendingRead removeAllObjects];
   [self.pendingWrite removeAllObjects];
   [self.pendingNotifyEnable removeAllObjects];
   [self.notifyHandlers removeAllObjects];
   [self.pendingReadAt removeAllObjects];
   [self.pendingWriteAt removeAllObjects];
+  [self.pendingReadDescriptorAt removeAllObjects];
+  [self.pendingWriteDescriptorAt removeAllObjects];
   [self.pendingNotifyEnableAt removeAllObjects];
   [self.notifyHandlersAt removeAllObjects];
   self.scanHandler = nil;
@@ -584,7 +689,8 @@ characteristicUUID:(NSString *)characteristicUUID
         @"isWritableWithResponse" : @((props & CBCharacteristicPropertyWrite) != 0),
         @"isWritableWithoutResponse" : @((props & CBCharacteristicPropertyWriteWithoutResponse) != 0),
         @"isNotifiable" : @((props & CBCharacteristicPropertyNotify) != 0 ||
-                            (props & CBCharacteristicPropertyIndicate) != 0)
+                            (props & CBCharacteristicPropertyIndicate) != 0),
+        @"descriptors" : [self descriptorRecordsForCharacteristic:ch]
       }];
     }
     completion(out, nil);
@@ -631,8 +737,34 @@ characteristicUUID:(NSString *)characteristicUUID
   return nil;
 }
 
+- (CBDescriptor *)findDescriptor:(CBPeripheral *)peripheral
+                     serviceUUID:(NSString *)serviceUUID
+               serviceOccurrence:(NSInteger)serviceOccurrence
+              characteristicUUID:(NSString *)characteristicUUID
+    characteristicOccurrence:(NSInteger)characteristicOccurrence
+                   descriptorUUID:(NSString *)descriptorUUID
+             descriptorOccurrence:(NSInteger)descriptorOccurrence {
+  CBCharacteristic *characteristic = [self findCharacteristic:peripheral
+                                                   serviceUUID:serviceUUID
+                                             serviceOccurrence:serviceOccurrence
+                                            characteristicUUID:characteristicUUID
+                                      characteristicOccurrence:characteristicOccurrence];
+  if (!characteristic) return nil;
+  NSInteger occurrence = 0;
+  for (CBDescriptor *descriptor in characteristic.descriptors ?: @[]) {
+    if (!UUIDEqual(descriptor.UUID, descriptorUUID)) continue;
+    if (occurrence == descriptorOccurrence) return descriptor;
+    occurrence += 1;
+  }
+  return nil;
+}
+
 - (NSString *)directCharacteristicKey:(NSString *)deviceId characteristic:(CBCharacteristic *)characteristic {
   return [NSString stringWithFormat:@"%@::direct::%p", deviceId, characteristic];
+}
+
+- (NSString *)directDescriptorKey:(NSString *)deviceId descriptor:(CBDescriptor *)descriptor {
+  return [NSString stringWithFormat:@"%@::direct-descriptor::%p", deviceId, descriptor];
 }
 
 - (void)discoverCharacteristicsAt:(NSString *)deviceId
@@ -664,10 +796,92 @@ characteristicUUID:(NSString *)characteristicUUID
         @"isWritableWithResponse" : @((properties & CBCharacteristicPropertyWrite) != 0),
         @"isWritableWithoutResponse" : @((properties & CBCharacteristicPropertyWriteWithoutResponse) != 0),
         @"isNotifiable" : @((properties & CBCharacteristicPropertyNotify) != 0 ||
-                             (properties & CBCharacteristicPropertyIndicate) != 0)
+                             (properties & CBCharacteristicPropertyIndicate) != 0),
+        @"descriptors" : [self descriptorRecordsForCharacteristic:characteristic]
       }];
     }
     completion(result, nil);
+  });
+}
+
+- (NSArray<NSDictionary *> *)descriptorRecordsForCharacteristic:(CBCharacteristic *)characteristic {
+  NSMutableArray<NSDictionary *> *descriptors = [NSMutableArray array];
+  for (CBDescriptor *descriptor in characteristic.descriptors ?: @[]) {
+    [descriptors addObject:@{ @"uuid" : NormalizeUUID(descriptor.UUID.UUIDString) }];
+  }
+  return descriptors;
+}
+
+- (void)readDescriptorAt:(NSString *)deviceId
+              serviceUUID:(NSString *)serviceUUID
+        serviceOccurrence:(NSInteger)serviceOccurrence
+       characteristicUUID:(NSString *)characteristicUUID
+ characteristicOccurrence:(NSInteger)characteristicOccurrence
+           descriptorUUID:(NSString *)descriptorUUID
+     descriptorOccurrence:(NSInteger)descriptorOccurrence
+                completion:(UBMDataBlock)completion {
+  dispatch_async(self.queue, ^{
+    NSError *error = nil;
+    CBPeripheral *peripheral = [self requireConnected:deviceId error:&error];
+    if (!peripheral) {
+      completion(nil, error);
+      return;
+    }
+    CBDescriptor *descriptor = [self findDescriptor:peripheral
+                                         serviceUUID:serviceUUID
+                                   serviceOccurrence:serviceOccurrence
+                                  characteristicUUID:characteristicUUID
+                            characteristicOccurrence:characteristicOccurrence
+                                       descriptorUUID:descriptorUUID
+                                 descriptorOccurrence:descriptorOccurrence];
+    if (!descriptor) {
+      completion(nil, [NSError errorWithDomain:@"UBMCoreBluetooth"
+                                          code:404
+                                      userInfo:@{NSLocalizedDescriptionKey : @"Descriptor occurrence not found"}]);
+      return;
+    }
+    self.pendingReadDescriptorAt[[self directDescriptorKey:deviceId descriptor:descriptor]] = completion;
+    [peripheral readValueForDescriptor:descriptor];
+  });
+}
+
+- (void)writeDescriptorAt:(NSString *)deviceId
+               serviceUUID:(NSString *)serviceUUID
+         serviceOccurrence:(NSInteger)serviceOccurrence
+        characteristicUUID:(NSString *)characteristicUUID
+  characteristicOccurrence:(NSInteger)characteristicOccurrence
+            descriptorUUID:(NSString *)descriptorUUID
+      descriptorOccurrence:(NSInteger)descriptorOccurrence
+                      data:(NSData *)data
+                completion:(UBMVoidBlock)completion {
+  dispatch_async(self.queue, ^{
+    NSError *error = nil;
+    CBPeripheral *peripheral = [self requireConnected:deviceId error:&error];
+    if (!peripheral) {
+      completion(error);
+      return;
+    }
+    CBDescriptor *descriptor = [self findDescriptor:peripheral
+                                         serviceUUID:serviceUUID
+                                   serviceOccurrence:serviceOccurrence
+                                  characteristicUUID:characteristicUUID
+                            characteristicOccurrence:characteristicOccurrence
+                                       descriptorUUID:descriptorUUID
+                                 descriptorOccurrence:descriptorOccurrence];
+    if (!descriptor) {
+      completion([NSError errorWithDomain:@"UBMCoreBluetooth"
+                                     code:404
+                                 userInfo:@{NSLocalizedDescriptionKey : @"Descriptor occurrence not found"}]);
+      return;
+    }
+    NSError *valueError = nil;
+    id value = DescriptorWriteValue(descriptor, data, &valueError);
+    if (!value) {
+      completion(valueError ?: DescriptorValueError(@"Descriptor write value is unavailable"));
+      return;
+    }
+    self.pendingWriteDescriptorAt[[self directDescriptorKey:deviceId descriptor:descriptor]] = completion;
+    [peripheral writeValue:value forDescriptor:descriptor];
   });
 }
 
@@ -975,6 +1189,7 @@ characteristicUUID:(NSString *)characteristicUUID
   if (left) {
     if (error) {
       [self.pendingDiscoverCharsLeft removeObjectForKey:deviceId];
+      [self.pendingDiscoverDescriptorsLeft removeObjectForKey:deviceId];
       UBMArrayBlock done = self.pendingDiscover[deviceId];
       [self.pendingDiscover removeObjectForKey:deviceId];
       if (done) done(nil, error);
@@ -983,14 +1198,25 @@ characteristicUUID:(NSString *)characteristicUUID
     NSInteger remaining = left.integerValue - 1;
     if (remaining <= 0) {
       [self.pendingDiscoverCharsLeft removeObjectForKey:deviceId];
-      UBMArrayBlock done = self.pendingDiscover[deviceId];
-      [self.pendingDiscover removeObjectForKey:deviceId];
-      if (done) {
-        NSMutableArray *uuids = [NSMutableArray array];
-        for (CBService *s in peripheral.services ?: @[]) {
-          [uuids addObject:NormalizeUUID(s.UUID.UUIDString)];
+      NSMutableArray<CBCharacteristic *> *characteristics = [NSMutableArray array];
+      for (CBService *discoveredService in peripheral.services ?: @[]) {
+        [characteristics addObjectsFromArray:discoveredService.characteristics ?: @[]];
+      }
+      if (characteristics.count == 0) {
+        UBMArrayBlock done = self.pendingDiscover[deviceId];
+        [self.pendingDiscover removeObjectForKey:deviceId];
+        if (done) {
+          NSMutableArray *uuids = [NSMutableArray array];
+          for (CBService *discoveredService in peripheral.services ?: @[]) {
+            [uuids addObject:NormalizeUUID(discoveredService.UUID.UUIDString)];
+          }
+          done(uuids, nil);
         }
-        done(uuids, nil);
+        return;
+      }
+      self.pendingDiscoverDescriptorsLeft[deviceId] = @(characteristics.count);
+      for (CBCharacteristic *characteristic in characteristics) {
+        [peripheral discoverDescriptorsForCharacteristic:characteristic];
       }
     } else {
       self.pendingDiscoverCharsLeft[deviceId] = @(remaining);
@@ -1009,6 +1235,36 @@ characteristicUUID:(NSString *)characteristicUUID
       else done(@[], nil);
     }
   }
+}
+
+- (void)peripheral:(CBPeripheral *)peripheral
+    didDiscoverDescriptorsForCharacteristic:(CBCharacteristic *)characteristic
+                                       error:(NSError *)error {
+  (void)characteristic;
+  NSString *deviceId = peripheral.identifier.UUIDString;
+  NSNumber *left = self.pendingDiscoverDescriptorsLeft[deviceId];
+  if (!left) return;
+  if (error) {
+    [self.pendingDiscoverDescriptorsLeft removeObjectForKey:deviceId];
+    UBMArrayBlock done = self.pendingDiscover[deviceId];
+    [self.pendingDiscover removeObjectForKey:deviceId];
+    if (done) done(nil, error);
+    return;
+  }
+  NSInteger remaining = left.integerValue - 1;
+  if (remaining > 0) {
+    self.pendingDiscoverDescriptorsLeft[deviceId] = @(remaining);
+    return;
+  }
+  [self.pendingDiscoverDescriptorsLeft removeObjectForKey:deviceId];
+  UBMArrayBlock done = self.pendingDiscover[deviceId];
+  [self.pendingDiscover removeObjectForKey:deviceId];
+  if (!done) return;
+  NSMutableArray *uuids = [NSMutableArray array];
+  for (CBService *service in peripheral.services ?: @[]) {
+    [uuids addObject:NormalizeUUID(service.UUID.UUIDString)];
+  }
+  done(uuids, nil);
 }
 
 - (void)peripheral:(CBPeripheral *)peripheral
@@ -1044,6 +1300,23 @@ characteristicUUID:(NSString *)characteristicUUID
 }
 
 - (void)peripheral:(CBPeripheral *)peripheral
+    didUpdateValueForDescriptor:(CBDescriptor *)descriptor
+                           error:(NSError *)error {
+  NSString *deviceId = peripheral.identifier.UUIDString;
+  NSString *key = [self directDescriptorKey:deviceId descriptor:descriptor];
+  UBMDataBlock done = self.pendingReadDescriptorAt[key];
+  if (!done) return;
+  [self.pendingReadDescriptorAt removeObjectForKey:key];
+  if (error) {
+    done(nil, error);
+    return;
+  }
+  NSError *valueError = nil;
+  NSData *bytes = DescriptorReadBytes(descriptor, &valueError);
+  done(bytes, valueError);
+}
+
+- (void)peripheral:(CBPeripheral *)peripheral
     didWriteValueForCharacteristic:(CBCharacteristic *)characteristic
                              error:(NSError *)error {
   NSString *deviceId = peripheral.identifier.UUIDString;
@@ -1062,6 +1335,17 @@ characteristicUUID:(NSString *)characteristicUUID
     [self.pendingWrite removeObjectForKey:key];
     done(error);
   }
+}
+
+- (void)peripheral:(CBPeripheral *)peripheral
+    didWriteValueForDescriptor:(CBDescriptor *)descriptor
+                          error:(NSError *)error {
+  NSString *deviceId = peripheral.identifier.UUIDString;
+  NSString *key = [self directDescriptorKey:deviceId descriptor:descriptor];
+  UBMVoidBlock done = self.pendingWriteDescriptorAt[key];
+  if (!done) return;
+  [self.pendingWriteDescriptorAt removeObjectForKey:key];
+  done(error);
 }
 
 - (void)peripheral:(CBPeripheral *)peripheral
@@ -1117,6 +1401,15 @@ characteristicUUID:(NSString *)characteristicUUID
 
 // ---- N-API ----
 
+struct JsCharacteristicMetadata {
+  std::string uuid;
+  bool isReadable = false;
+  bool isWritableWithResponse = false;
+  bool isWritableWithoutResponse = false;
+  bool isNotifiable = false;
+  std::vector<std::string> descriptorUuids;
+};
+
 struct JsCallbackData {
   std::string type;
   std::string message;
@@ -1125,10 +1418,23 @@ struct JsCallbackData {
   std::string name;
   int rssi = INT_MIN;
   std::vector<std::string> strings;
-  std::vector<std::map<std::string, std::string>> charMetas;
+  std::vector<JsCharacteristicMetadata> charMetas;
   napi_deferred deferred = nullptr;
   bool hasDeferred = false;
 };
+
+static JsCharacteristicMetadata CharacteristicMetadataFromDictionary(NSDictionary *value) {
+  JsCharacteristicMetadata metadata;
+  metadata.uuid = [value[@"uuid"] UTF8String];
+  metadata.isReadable = [value[@"isReadable"] boolValue];
+  metadata.isWritableWithResponse = [value[@"isWritableWithResponse"] boolValue];
+  metadata.isWritableWithoutResponse = [value[@"isWritableWithoutResponse"] boolValue];
+  metadata.isNotifiable = [value[@"isNotifiable"] boolValue];
+  for (NSDictionary *descriptor in value[@"descriptors"] ?: @[]) {
+    metadata.descriptorUuids.push_back([descriptor[@"uuid"] UTF8String]);
+  }
+  return metadata;
+}
 
 static void CallJs(Napi::Env env, Napi::Function jsCallback, JsCallbackData *data) {
   if (!data) return;
@@ -1169,12 +1475,19 @@ static void CallJs(Napi::Env env, Napi::Function jsCallback, JsCallbackData *dat
       Napi::Array arr = Napi::Array::New(env, data->charMetas.size());
       for (size_t i = 0; i < data->charMetas.size(); i++) {
         Napi::Object o = Napi::Object::New(env);
-        auto &m = data->charMetas[i];
-        o.Set("uuid", m["uuid"]);
-        o.Set("isReadable", m["isReadable"] == "1");
-        o.Set("isWritableWithResponse", m["isWritableWithResponse"] == "1");
-        o.Set("isWritableWithoutResponse", m["isWritableWithoutResponse"] == "1");
-        o.Set("isNotifiable", m["isNotifiable"] == "1");
+        const auto &metadata = data->charMetas[i];
+        o.Set("uuid", metadata.uuid);
+        o.Set("isReadable", metadata.isReadable);
+        o.Set("isWritableWithResponse", metadata.isWritableWithResponse);
+        o.Set("isWritableWithoutResponse", metadata.isWritableWithoutResponse);
+        o.Set("isNotifiable", metadata.isNotifiable);
+        Napi::Array descriptors = Napi::Array::New(env, metadata.descriptorUuids.size());
+        for (size_t descriptorIndex = 0; descriptorIndex < metadata.descriptorUuids.size(); descriptorIndex++) {
+          Napi::Object descriptor = Napi::Object::New(env);
+          descriptor.Set("uuid", metadata.descriptorUuids[descriptorIndex]);
+          descriptors.Set(descriptorIndex, descriptor);
+        }
+        o.Set("descriptors", descriptors);
         arr.Set(i, o);
       }
       napi_resolve_deferred(env, data->deferred, arr);
@@ -1220,6 +1533,8 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
             InstanceMethod("getConnectionState", &CoreBluetoothAddon::GetConnectionState),
             InstanceMethod("discoverServices", &CoreBluetoothAddon::DiscoverServices),
             InstanceMethod("discoverCharacteristicsAt", &CoreBluetoothAddon::DiscoverCharacteristicsAt),
+            InstanceMethod("readDescriptorAt", &CoreBluetoothAddon::ReadDescriptorAt),
+            InstanceMethod("writeDescriptorAt", &CoreBluetoothAddon::WriteDescriptorAt),
             InstanceMethod("readCharacteristicAt", &CoreBluetoothAddon::ReadCharacteristicAt),
             InstanceMethod("writeCharacteristicAt", &CoreBluetoothAddon::WriteCharacteristicAt),
             InstanceMethod("startNotifyAt", &CoreBluetoothAddon::StartNotifyAt),
@@ -1423,14 +1738,7 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
                            } else {
                              data->type = "resolve_chars";
                              for (NSDictionary *d in value ?: @[]) {
-                               std::map<std::string, std::string> m;
-                               m["uuid"] = [d[@"uuid"] UTF8String];
-                               m["isReadable"] = [d[@"isReadable"] boolValue] ? "1" : "0";
-                               m["isWritableWithResponse"] = [d[@"isWritableWithResponse"] boolValue] ? "1" : "0";
-                               m["isWritableWithoutResponse"] =
-                                   [d[@"isWritableWithoutResponse"] boolValue] ? "1" : "0";
-                               m["isNotifiable"] = [d[@"isNotifiable"] boolValue] ? "1" : "0";
-                               data->charMetas.push_back(m);
+                               data->charMetas.push_back(CharacteristicMetadataFromDictionary(d));
                              }
                            }
                            tsfn.BlockingCall(data, CallJs);
@@ -1494,13 +1802,7 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
                              } else {
                                data->type = "resolve_chars";
                                for (NSDictionary *d in value ?: @[]) {
-                                 std::map<std::string, std::string> m;
-                                 m["uuid"] = [d[@"uuid"] UTF8String];
-                                 m["isReadable"] = [d[@"isReadable"] boolValue] ? "1" : "0";
-                                 m["isWritableWithResponse"] = [d[@"isWritableWithResponse"] boolValue] ? "1" : "0";
-                                 m["isWritableWithoutResponse"] = [d[@"isWritableWithoutResponse"] boolValue] ? "1" : "0";
-                                 m["isNotifiable"] = [d[@"isNotifiable"] boolValue] ? "1" : "0";
-                                 data->charMetas.push_back(m);
+                                 data->charMetas.push_back(CharacteristicMetadataFromDictionary(d));
                                }
                              }
                              tsfn.BlockingCall(data, CallJs);
@@ -1540,6 +1842,46 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
                         tsfn.BlockingCall(data, CallJs);
                         tsfn.Release();
                       }];
+    return Napi::Promise(env, promise);
+  }
+
+  Napi::Value ReadDescriptorAt(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    std::string id = info[0].As<Napi::String>().Utf8Value();
+    std::string service = info[1].As<Napi::String>().Utf8Value();
+    NSInteger serviceOccurrence = info[2].As<Napi::Number>().Int32Value();
+    std::string characteristic = info[3].As<Napi::String>().Utf8Value();
+    NSInteger characteristicOccurrence = info[4].As<Napi::Number>().Int32Value();
+    std::string descriptor = info[5].As<Napi::String>().Utf8Value();
+    NSInteger descriptorOccurrence = info[6].As<Napi::Number>().Int32Value();
+    auto tsfn = MakeResolverTsfn(env, "ubm_rd_descriptor_at");
+    napi_deferred deferred;
+    napi_value promise;
+    napi_create_promise(env, &deferred, &promise);
+    [radio_ readDescriptorAt:[NSString stringWithUTF8String:id.c_str()]
+                 serviceUUID:[NSString stringWithUTF8String:service.c_str()]
+           serviceOccurrence:serviceOccurrence
+          characteristicUUID:[NSString stringWithUTF8String:characteristic.c_str()]
+    characteristicOccurrence:characteristicOccurrence
+              descriptorUUID:[NSString stringWithUTF8String:descriptor.c_str()]
+        descriptorOccurrence:descriptorOccurrence
+                 completion:^(NSData *dataBytes, NSError *error) {
+                   auto *data = new JsCallbackData();
+                   data->hasDeferred = true;
+                   data->deferred = deferred;
+                   if (error) {
+                     data->type = "reject";
+                     data->message = error.localizedDescription
+                         ? [error.localizedDescription UTF8String]
+                         : "readDescriptorAt failed";
+                   } else {
+                     data->type = "resolve_buffer";
+                     const auto *bytes = static_cast<const std::uint8_t *>(dataBytes.bytes);
+                     data->bytes.assign(bytes, bytes + dataBytes.length);
+                   }
+                   tsfn.BlockingCall(data, CallJs);
+                   tsfn.Release();
+                 }];
     return Napi::Promise(env, promise);
   }
 
@@ -1616,6 +1958,33 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
                              data:nsData
                      withResponse:withResponse
                        completion:^(NSError *error) { CompleteVoid(tsfn, deferred, error); }];
+    return Napi::Promise(env, promise);
+  }
+
+  Napi::Value WriteDescriptorAt(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    std::string id = info[0].As<Napi::String>().Utf8Value();
+    std::string service = info[1].As<Napi::String>().Utf8Value();
+    NSInteger serviceOccurrence = info[2].As<Napi::Number>().Int32Value();
+    std::string characteristic = info[3].As<Napi::String>().Utf8Value();
+    NSInteger characteristicOccurrence = info[4].As<Napi::Number>().Int32Value();
+    std::string descriptor = info[5].As<Napi::String>().Utf8Value();
+    NSInteger descriptorOccurrence = info[6].As<Napi::Number>().Int32Value();
+    Napi::Buffer<uint8_t> buffer = info[7].As<Napi::Buffer<uint8_t>>();
+    NSData *data = [NSData dataWithBytes:buffer.Data() length:buffer.Length()];
+    auto tsfn = MakeResolverTsfn(env, "ubm_wr_descriptor_at");
+    napi_deferred deferred;
+    napi_value promise;
+    napi_create_promise(env, &deferred, &promise);
+    [radio_ writeDescriptorAt:[NSString stringWithUTF8String:id.c_str()]
+                  serviceUUID:[NSString stringWithUTF8String:service.c_str()]
+            serviceOccurrence:serviceOccurrence
+           characteristicUUID:[NSString stringWithUTF8String:characteristic.c_str()]
+     characteristicOccurrence:characteristicOccurrence
+               descriptorUUID:[NSString stringWithUTF8String:descriptor.c_str()]
+         descriptorOccurrence:descriptorOccurrence
+                       data:data
+                 completion:^(NSError *error) { CompleteVoid(tsfn, deferred, error); }];
     return Napi::Promise(env, promise);
   }
 

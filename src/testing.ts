@@ -30,6 +30,9 @@ export { runBackendTck } from './tck/runner'
 export { baseTckScenarios, findTckScenario } from './tck/scenarios'
 export { TckAssertionError } from './tck/contracts'
 export { createDeterministicBackendTckFactory } from './tck/deterministic/deterministic-tck-factory'
+export { createFirstPartyBackendTckRegistry } from './tck/first-party/first-party-tck-registry'
+export { createWebBluetoothFirstPartyTckRegistration } from './tck/first-party/web-bluetooth-tck-registration'
+export { createCoreBluetoothFirstPartyTckRegistration } from './tck/first-party/corebluetooth-tck-registration'
 export { createDeterministicManagerScenarioFactory } from './testing/scenarios/deterministic-manager-scenario-factory'
 export { createManagerScenarioFixture } from './testing/scenarios/manager-scenario-fixture'
 export {
@@ -51,6 +54,18 @@ export type {
   TckScenarioController,
   TckScenarioId
 } from './tck/contracts'
+export type {
+  FirstPartyBackendTckRegistration,
+  FirstPartyBackendTckRegistry,
+  FirstPartyBackendTckRunReport,
+  FirstPartyTckCapabilityExclusion,
+  FirstPartyTckSuite
+} from './tck/first-party/first-party-tck-registry'
+export type {
+  CoreBluetoothFirstPartyTckRegistrationOptions,
+  DeterministicCoreBluetoothBoundary
+} from './tck/first-party/corebluetooth-tck-registration'
+export type { WebBluetoothFirstPartyTckRegistrationOptions } from './tck/first-party/web-bluetooth-tck-registration'
 export type {
   ManagerScenarioDefinition,
   ManagerScenarioControl,

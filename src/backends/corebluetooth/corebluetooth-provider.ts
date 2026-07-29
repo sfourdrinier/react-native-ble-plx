@@ -1,5 +1,7 @@
 // src/backends/corebluetooth/corebluetooth-provider.ts
 
+// src/backends/corebluetooth/corebluetooth-provider.ts
+
 import { contractError } from '../../backend-contract/errors'
 import type { AdapterDescriptor, BackendProvider, HostNeutralBackendIdentity } from '../../backend-contract/identity'
 import {
@@ -73,9 +75,16 @@ function adapterDescriptor(boundary: CoreBluetoothBoundary, now: () => number): 
       safeReason: state.safeReason
     }),
     adapterGeneration: opaqueId('1', 'adapter-generation', 'corebluetooth'),
-    limitations: Object.freeze([
-      'CoreBluetooth exposes one selected default central adapter through this host boundary',
-      'Descriptor operations are unavailable until the direct addon publishes descriptor callbacks'
-    ])
+    limitations: adapterLimitations(boundary)
   })
+}
+
+function adapterLimitations(boundary: CoreBluetoothBoundary): readonly string[] {
+  const limitations = ['CoreBluetooth exposes one selected default central adapter through this host boundary']
+  if (boundary.descriptorOperationsAvailable !== true) {
+    limitations.push(
+      'Descriptor operations are unavailable because this boundary does not publish descriptor callbacks'
+    )
+  }
+  return Object.freeze(limitations)
 }

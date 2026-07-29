@@ -107,7 +107,7 @@ export class WebBluetoothProvider implements BackendProvider<string, HostNeutral
 
   async create(selection: { readonly selectedAdapterId: AdapterId<string> }): Promise<WebBluetoothBackend> {
     if (selection.selectedAdapterId !== WEB_ADAPTER_ID) {
-      throw contractError('adapter.selection-required', 'adapter', 'web-provider.create')
+      throw contractError('adapter.unavailable', 'adapter', 'web-provider.create')
     }
     const available = await this.options.boundary.bluetoothAvailable()
     if (!available) {

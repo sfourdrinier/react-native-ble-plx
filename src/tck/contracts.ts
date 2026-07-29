@@ -31,6 +31,11 @@ export interface TckFixtureContext {
 
 export interface TckRunOptions {
   readonly proofScope: 'deterministic'
+  /**
+   * First-party deterministic-boundary registrations execute only the base
+   * scenarios for which their boundary exposes every required control.
+   */
+  readonly baseScenarioIds?: readonly TckScenarioId[]
 }
 
 /**

@@ -1,3 +1,5 @@
+# .github/workflows/apple-ci.yml
+
 # Reusable Apple compile checks (#20). Called from ci.yml when the Apple gate is open.
 # Compile/link only — no simulator boot, no BLE runtime (see #14).
 #
@@ -41,6 +43,11 @@ jobs:
       - name: Install CocoaPods
         working-directory: example/ios
         run: BUNDLE_GEMFILE="$GITHUB_WORKSPACE/example/Gemfile" bundle exec pod install
+
+      # Executes host C++ protocol tests plus the Swift CoreBluetooth parser harness.
+      # It does not boot a simulator or establish a physical BLE radio/peripheral session.
+      - name: Execute Apple Native Protocol executable harness (L2 host; no physical BLE radio)
+        run: pnpm test:native-protocol:apple
 
       - name: Build BlePlxExample (iphonesimulator, New Arch)
         working-directory: example/ios

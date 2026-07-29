@@ -29,6 +29,12 @@ describe('Expo example cold-review regressions', () => {
     }
   })
 
+  test('Expo binds restoration adoption to its stable application identity', () => {
+    const service = readExampleSource('example-expo', 'services/BLEService/BLEService.ts')
+    expect(service).toContain("const EXPO_APPLICATION_HOST_SESSION_SCOPE = 'com.sfourdrinier.bleplxexample'")
+    expect(service).toContain('hostSessionScope: EXPO_APPLICATION_HOST_SESSION_SCOPE')
+  })
+
   test('nRF flow respects Apple-managed MTU and treats Android MTU failure as a failed flow', () => {
     for (const exampleDirectory of ['example', 'example-expo']) {
       const nrf = readExampleSource(exampleDirectory, 'screens/MainStack/DevicenRFTestScreen/DevicenRFTestScreen.tsx')

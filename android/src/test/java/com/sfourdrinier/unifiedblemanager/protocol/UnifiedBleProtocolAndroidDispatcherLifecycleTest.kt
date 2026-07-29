@@ -9,6 +9,39 @@ import org.junit.Test
 
 class UnifiedBleProtocolAndroidDispatcherLifecycleTest {
   @Test
+  fun decodesTheCanonicalDestroyCommandUsedByTheDispatcher() {
+    val correlation = ProtocolWireRecord(
+      RecordKind.OPERATION_CORRELATION,
+      mapOf(
+        1 to ProtocolWireValue.StringValue("android-native-protocol-test"),
+        2 to ProtocolWireValue.UnsignedIntegerValue(7L),
+        3 to ProtocolWireValue.StringValue("destroy-command")
+      )
+    )
+    val command = ProtocolWireRecord(
+      RecordKind.COMMAND,
+      mapOf(
+        1 to ProtocolWireValue.UnsignedIntegerValue(1L),
+        2 to ProtocolWireValue.RecordValue(correlation),
+        3 to ProtocolWireValue.StringValue("destroy")
+      )
+    )
+
+    assertEquals(command, ProtocolCommandDecoder.decodeCommand(ProtocolWireEncoder.encode(command)))
+  }
+
+  @Test
+  fun mapsDispatcherCommandsToTheirCanonicalResultKinds() {
+    assertEquals("scanStarted", dispatcherResultKindFor("scanStart"))
+    assertEquals("connected", dispatcherResultKindFor("connect"))
+    assertEquals("database", dispatcherResultKindFor("discover"))
+    assertEquals("read", dispatcherResultKindFor("read"))
+    assertEquals("descriptorWrite", dispatcherResultKindFor("writeDescriptor"))
+    assertEquals("destroyed", dispatcherResultKindFor("destroy"))
+    assertEquals("accepted", dispatcherResultKindFor("disconnect"))
+  }
+
+  @Test
   fun connectionLostEventPreservesCanonicalConnectionAndTerminalStatus() {
     val attachment = ProtocolWireRecord(
       RecordKind.ATTACHMENT,
