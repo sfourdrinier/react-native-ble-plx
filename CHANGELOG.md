@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.9] - 2026-07-29
+
+### Fixed
+
+- Configure the npm registry exactly as the current trusted-publishing contract requires, while retaining GitHub OIDC as the sole publication credential.
+
 ## [4.0.0-alpha.8] - 2026-07-29
 
 ### Fixed

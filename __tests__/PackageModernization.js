@@ -320,8 +320,8 @@ describe('package modernization targets', () => {
     expect(publishWorkflow).toContain('node-version: 24')
     expect(publishWorkflow).toContain("npm install -g 'npm@^11.5.1'")
     expect(publishWorkflow).toContain('package-manager-cache: false')
-    // registry-url makes setup-node write a broken _authToken line for OIDC
-    expect(publishWorkflow).not.toMatch(/registry-url:\s*https:\/\/registry\.npmjs\.org/)
+    // npm's trusted-publishing workflow requires an explicit registry URL.
+    expect(publishWorkflow).toMatch(/registry-url:\s*https:\/\/registry\.npmjs\.org/)
     expect(publishWorkflow).toContain('pnpm test:package')
     expect(publishWorkflow).toContain('pnpm test:plugin')
     expect(publishWorkflow).toContain('pnpm lint')

@@ -20,7 +20,7 @@ import { BluezObjectStore } from './bluez-object-store'
 
 export const BLUEZ_BACKEND_ID = 'unified-ble:bluez-dbus'
 export const BLUEZ_PLATFORM_ID = 'unified-ble:linux-bluez'
-export const BLUEZ_IMPLEMENTATION_VERSION = '4.0.0-alpha.8'
+export const BLUEZ_IMPLEMENTATION_VERSION = '4.0.0-alpha.9'
 
 export const bluezCompatibility: BackendCompatibilityOffer = Object.freeze({
   backendContract: versionRange(version('backend-contract', 1), version('backend-contract', 1)),
