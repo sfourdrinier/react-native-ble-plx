@@ -116,6 +116,8 @@ jobs:
       # contract boundary directly. No legacy BlePort host participates in this gate.
       - name: CoreBluetooth native boundary L2 (node-gyp Node ABI + public boundary)
         if: runner.os == 'macOS'
+        env:
+          npm_config_python: ${{ env.pythonLocation }}/bin/python
         run: |
           set -euo pipefail
           pnpm run build:electron:macos

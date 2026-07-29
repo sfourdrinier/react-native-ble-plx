@@ -15,7 +15,9 @@ function javaAndKotlinFiles(directory) {
     .flatMap(entry => {
       const entryPath = path.join(directory, entry.name)
       if (entry.isDirectory()) return javaAndKotlinFiles(entryPath)
-      return entry.isFile() && /\.(?:java|kt)$/.test(entry.name) ? [path.relative(androidRoot, entryPath)] : []
+      return entry.isFile() && /\.(?:java|kt)$/.test(entry.name)
+        ? [path.relative(androidRoot, entryPath).split(path.sep).join('/')]
+        : []
     })
     .sort()
 }

@@ -21,7 +21,9 @@ function sourceFilesBelow(directory) {
       if (entry.isDirectory()) {
         return sourceFilesBelow(entryPath)
       }
-      return entry.isFile() && /\.(?:java|kt)$/.test(entry.name) ? [path.relative(androidJavaRoot, entryPath)] : []
+      return entry.isFile() && /\.(?:java|kt)$/.test(entry.name)
+        ? [path.relative(androidJavaRoot, entryPath).split(path.sep).join('/')]
+        : []
     })
     .sort()
 }
