@@ -4,7 +4,6 @@
 # Shared checklist with publish.yml (R2-F040):
 #   - package/plugin/lint/prepack
 #   - host export typeof BleManager (scripts/ci/check-host-exports.js)
-#   - web vite build smoke (example-web packaging; radio is L4)
 #   - electron Fake L1 smoke
 #   - Expo CNG Android (always)
 #   - classic RN Android assemble (required when Android SDK available;
@@ -56,9 +55,6 @@ pnpm prepack
 
 echo "== host export resolution (post-prepack, typeof BleManager) =="
 node scripts/ci/check-host-exports.js
-
-echo "== Web vite build smoke (L2 packaging; radio is L4 lab) =="
-npx --yes vite build --config example-web/vite.config.js --outDir /tmp/example-web-dist-verify-release
 
 echo "== Electron Fake multi-device demo smoke (L1) =="
 node example-electron/smoke.js

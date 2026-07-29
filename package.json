@@ -1,6 +1,6 @@
 {
   "name": "unified-ble-manager",
-  "version": "4.0.0-alpha.10",
+  "version": "4.0.0-alpha.11",
   "description": "Unified Bluetooth Low Energy manager for React Native, Electron, Web, and desktop (4.0 train)",
   "packageManager": "pnpm@10.14.0",
   "main": "lib/commonjs/index.js",
@@ -78,11 +78,7 @@
     "test:codemod": "node scripts/codemod/transform-bytes-path.js --check scripts/codemod/fixtures/before-read.js && node scripts/codemod/transform-bytes-path.js --check scripts/codemod/fixtures/before-read-safe.js && node scripts/codemod/transform-bytes-path.js --check scripts/codemod/fixtures/before-read-mixed.js",
     "build:electron:macos": "cd native/electron/corebluetooth && node-gyp rebuild --release",
     "build:electron:winrt": "cd native/electron/winrt && node-gyp rebuild --release",
-    "example:web": "pnpm prepack && npx --yes vite --config example-web/vite.config.js",
-    "example:electron": "pnpm prepack && electron example-electron/main.js",
-    "example:electron:live": "pnpm run build:electron:macos && pnpm prepack && node example-electron/live-polar.js",
-    "example:electron:ui:live": "pnpm run build:electron:macos && pnpm prepack && npx --yes @electron/rebuild -f -w native/electron/corebluetooth && ELECTRON_BLE_REQUIRE_NATIVE=1 electron example-electron/main.js",
-    "example:electron:smoke": "pnpm prepack && node example-electron/smoke.js",
+    "example:electron": "pnpm prepack && node example-electron/smoke.js",
     "prepare": "pnpm clean:plugin && pnpm build:plugin",
     "lint:plugin": "eslint plugin/src/*"
   },

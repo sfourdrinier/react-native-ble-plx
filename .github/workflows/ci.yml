@@ -186,13 +186,12 @@ jobs:
             });
           "
 
-      # L2 packaging: host export resolve after prepack; vite builds shared UI (radio is L4 lab).
-      - name: Web host export + vite build smoke (L2)
+      # L2 packaging: resolve every canonical host entrypoint after prepack.
+      - name: Canonical host export resolve (L2)
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
           node scripts/ci/check-host-exports.js
-          npx --yes vite build --config example-web/vite.config.js --outDir /tmp/example-web-dist
 
       # L3 wiring under the Electron binary on Linux. This uses Electron's
       # documented CI-safe no-sandbox mode and still executes the public smoke.

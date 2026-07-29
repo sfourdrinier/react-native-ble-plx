@@ -65,7 +65,8 @@ describe('ci-release canonical package (4.0)', () => {
     expect(w).not.toMatch(/prepare-shim|dual packages|canonical \+ shim/i)
     expect(w).toContain('Electron Fake multi-device demo smoke (L1)')
     expect(w).toContain('Assemble classic RN Android debug APK')
-    expect(w).toMatch(/vite build --config example-web\/vite\.config\.js/)
+    expect(w).toContain('Canonical host export resolve (L2 packaging)')
+    expect(w).not.toMatch(/vite build|example-web\/vite\.config\.js/)
   })
 
   test('RELEASE.md makes the clean-baseline plan the 4.0 publication authority', () => {
@@ -88,14 +89,15 @@ describe('ci-release canonical package (4.0)', () => {
     expect(sh).not.toMatch(/prepare-shim|canonical \+ shim/i)
   })
 
-  test('ci.yml honest L1 Fake label, electron L2, web L2, live apple podspec only', () => {
+  test('ci.yml has honest L1/L2 labels and no retired web example build', () => {
     const ci = read('.github/workflows/ci.yml')
     expect(ci).toContain('Electron Fake multi-device demo smoke (L1)')
     expect(ci).toContain('CoreBluetooth native boundary L2')
     expect(ci).toContain('build:electron:macos')
     expect(ci).toContain('WinRT native boundary compile and ABI load')
     expect(ci).toContain('createContractBoundary')
-    expect(ci).toMatch(/vite build --config example-web\/vite\.config\.js/)
+    expect(ci).toContain('Canonical host export resolve (L2)')
+    expect(ci).not.toMatch(/vite build|example-web\/vite\.config\.js/)
     expect(ci).toContain('unified-ble-manager.podspec')
     expect(ci).not.toContain('react-native-ble-plx.podspec')
     expect(ci).toContain('native/electron/**')
@@ -117,15 +119,11 @@ describe('ci-release canonical package (4.0)', () => {
     expect(winL2).toBeGreaterThan(prepackL2)
   })
 
-  // R2-F013: live = headless live-polar; ui:live = @electron/rebuild + fail-closed Electron main
-  test('R2-F013 example:electron:live is live-polar; ui:live rebuilds Electron ABI', () => {
+  test('canonical Electron example is the deterministic package smoke only', () => {
     const pkg = JSON.parse(read('package.json'))
-    expect(pkg.scripts['example:electron:live']).toContain('example-electron/live-polar.js')
-    expect(pkg.scripts['example:electron:live']).not.toMatch(/electron example-electron\/main\.js/)
-    expect(pkg.scripts['example:electron:ui:live']).toContain('@electron/rebuild')
-    expect(pkg.scripts['example:electron:ui:live']).toContain('native/electron/corebluetooth')
-    expect(pkg.scripts['example:electron:ui:live']).toContain('ELECTRON_BLE_REQUIRE_NATIVE=1')
-    expect(pkg.scripts['example:electron:ui:live']).toContain('example-electron/main.js')
+    expect(pkg.scripts['example:electron']).toBe('pnpm prepack && node example-electron/smoke.js')
+    expect(pkg.scripts['example:electron:live']).toBeUndefined()
+    expect(pkg.scripts['example:electron:ui:live']).toBeUndefined()
   })
 
   // R2-F036: Linux package matrix includes Node 24 (publish line) and 20.19.4 floor
@@ -173,11 +171,10 @@ describe('ci-release canonical package (4.0)', () => {
     expect(smoke).toMatch(/published 4\.0 entrypoints/)
   })
 
-  // The historical release script remains characterization; 4.0 release approval is plan-gated.
-  test('verify-release keeps its current web vite smoke while RELEASE stays plan-gated', () => {
+  test('verify-release omits the retired web example while RELEASE stays plan-gated', () => {
     const sh = read('scripts/verify-release.sh')
     const release = read('RELEASE.md')
-    expect(sh).toMatch(/vite build --config example-web\/vite\.config\.js/)
+    expect(sh).not.toMatch(/vite build|example-web\/vite\.config\.js/)
     expect(release).toContain('controlling plan')
     expect(release).toContain('packed artifact')
   })

@@ -36,6 +36,7 @@ import {
   type AttachmentBinding,
   type BackendInstanceId,
   type ClientId,
+  type MonotonicTimestamp,
   type OperationCorrelation,
   type OwnedBytes,
   type PeerId
@@ -138,6 +139,7 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
   scanGroup: BluezScanGroup | null = null
   private backendGeneration = 1
   private adapterGeneration = 1
+  private adapterStateUpdatedAt: MonotonicTimestamp
   nextScan = 1
   nextConnection = 1
   nextLease = 1
@@ -154,6 +156,7 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
     this.store = construction.store
     this.selectedAdapter = construction.adapter
     this.now = construction.now
+    this.adapterStateUpdatedAt = monotonicTimestamp(this.now())
     this.backendInstanceId = construction.backendInstanceId
     this.dispatcher = new BluezOperationDispatcher(this.now)
     this.observer = this.store.addObserver(this)
@@ -284,6 +287,7 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
     }
     if (event.path === String(this.selectedAdapter.adapterId)) {
       this.adapterGeneration += 1
+      this.refreshAdapterStateUpdatedAt()
       this.broadcastAdapterState()
     }
   }
@@ -321,6 +325,7 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
       this.emitNotification(event.path, event.changed.Value.value)
     }
     if (event.path === String(this.selectedAdapter.adapterId) && event.interfaceName === BLUEZ_ADAPTER_INTERFACE) {
+      this.refreshAdapterStateUpdatedAt()
       this.broadcastAdapterState()
       if (event.changed.Powered?.signature === 'b' && event.changed.Powered.value === false) {
         this.advanceBackendGeneration('BlueZ adapter powered off')
@@ -477,7 +482,7 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
       authorization: present ? 'granted' : 'unavailable',
       power: powered === true ? 'on' : powered === false ? 'off' : 'unknown',
       backendGeneration: opaqueId(String(this.backendGeneration), 'backend-generation', 'bluez'),
-      updatedAt: monotonicTimestamp(this.now()),
+      updatedAt: this.adapterStateUpdatedAt,
       safeReason: present
         ? powered === false
           ? 'BlueZ adapter is powered off'
@@ -742,6 +747,7 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
   private advanceBackendGeneration(_reason: string): void {
     this.backendGeneration += 1
     this.adapterGeneration += 1
+    this.refreshAdapterStateUpdatedAt()
     this.peerPaths.clear()
     this.peerHandles.clear()
     if (this.scanGroup !== null) {
@@ -817,6 +823,10 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
       ingressOrdinal: this.ingressOrdinal
     })
     this.ingressOrdinal += 1
+  }
+
+  private refreshAdapterStateUpdatedAt(): void {
+    this.adapterStateUpdatedAt = monotonicTimestamp(this.now())
   }
 
   private broadcastEvent(event: BackendEvent<string>): void {

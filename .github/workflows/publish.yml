@@ -17,7 +17,7 @@
 # with provenance, then creates the GitHub Release. Tags stay manual. See RELEASE.md.
 #
 # GA gates (Ubuntu): package/plugin/lint/prepack, electron Fake L1 smoke, host
-# export typeof BleManager, web vite, classic RN Android assemble, Expo CNG
+# export resolution, classic RN Android assemble, Expo CNG
 # prebuild+assemble, canonical npm pack dry-run. Apple compile remains a pre-merge
 # gate (ci:apple on the release PR / master path filter) — not re-run here.
 # Align with scripts/verify-release.sh (R2-F040).
@@ -96,16 +96,15 @@ jobs:
       - name: Build package artifacts
         run: pnpm prepack
 
-      # Multi-host GA smoke (Ubuntu): Fake L1 electron, host typeof BleManager,
-      # web vite, classic Android, Expo CNG Android. Apple compile is pre-merge only.
+      # Multi-host GA smoke (Ubuntu): Fake L1 electron, host export resolution,
+      # classic Android, Expo CNG Android. Apple compile is pre-merge only.
       - name: Electron Fake multi-device demo smoke (L1)
         run: node example-electron/smoke.js
 
-      - name: Host export resolve (typeof BleManager) + vite build smoke (L2 packaging)
+      - name: Canonical host export resolve (L2 packaging)
         run: |
           set -euo pipefail
           node scripts/ci/check-host-exports.js
-          npx --yes vite build --config example-web/vite.config.js --outDir /tmp/example-web-dist
 
       - name: Setup Java (classic RN + Expo CNG Android assemble)
         uses: actions/setup-java@v5.5.0

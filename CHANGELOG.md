@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.11] - 2026-07-29
+
+### Fixed
+
+- Removed the retired Vite web-demo release gate and dead example scripts after the canonical package cutover; release CI now validates the current host exports directly.
+
 ## [4.0.0-alpha.10] - 2026-07-29
 
 ### Changed

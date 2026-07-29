@@ -1,6 +1,6 @@
 // __tests__/backends/bluez/bluez-lifecycle-regressions.test.js
 
-const { attachBackend } = require('../../../src/backend-contract/backend')
+const { assertAttachedBackend, attachBackend } = require('../../../src/backend-contract/backend')
 const { capacity, opaqueId, version, versionRange } = require('../../../src/backend-contract/primitives')
 const { createBluezBackendProvider } = require('../../../src/backends/bluez/bluez-backend-provider')
 const { BluezDbusMethodError } = require('../../../src/backends/bluez/bluez-dbus-contract')
@@ -130,8 +130,8 @@ async function fixture({ connected = true, now = () => 20 } = {}) {
     now
   })
   const backend = await provider.create({ selectedAdapterId: adapterPath })
-  await attachBackend(backend, compatibility())
-  return { backend, boundary }
+  const attachedBackend = await attachBackend(backend, compatibility())
+  return { attachedBackend, backend, boundary }
 }
 
 async function observedPeerId(backend) {
@@ -145,6 +145,15 @@ async function observedPeerId(backend) {
 }
 
 describe('BlueZ lifecycle regressions', () => {
+  test('retains its attached identity while monotonic time advances without an adapter event', async () => {
+    let now = 10
+    const { attachedBackend, backend } = await fixture({ now: () => now })
+    now = 20
+
+    expect(() => assertAttachedBackend(attachedBackend)).not.toThrow()
+    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+  })
+
   test('adopts an already-connected device and emits scoped database and remote-loss events', async () => {
     const { backend, boundary } = await fixture()
     boundary.onCall(devicePath, BLUEZ_DEVICE_INTERFACE, 'Connect', () => {
