@@ -21,21 +21,26 @@ This page is an evidence index, not a static 4.0 capability matrix. In 4.0, an a
 
 `Experimental`, `Preview`, `Live Preview`, `Supported`, and `Reliability-qualified` have the exact meanings in Section 21.4 of the controlling plan. A lower proof level must remain visible as a limitation. The explicit 2026-07-25 maintainer scope decision moves Meta Quest to 4.1; its retained intent is recorded in [`platforms/META_QUEST_4.1_SCOPE.md`](platforms/META_QUEST_4.1_SCOPE.md).
 
-## Current transitional characterization
+## Runtime capability truth
 
-Existing repository code has a host-oriented support helper and a legacy matrix. It also contains a Base64 bridge, byte convenience methods, port managers, a fake backend, current native work, and desktop experiments. These are current-source inputs only:
+The shipped 4.0 public core consumes the versioned backend contract and uses
+registered backend capabilities at runtime. It has no static platform matrix,
+legacy `BlePort`/`PortBleManager`, public Base64 BLE payload path, or Noble
+fallback. Host packages remain responsible for selecting an explicit concrete
+backend and for surfacing its typed unavailable/permission/adapter failures.
 
-- they do not determine 4.0 capability truth;
-- they do not authorize a support claim;
-- they must be re-proven through backend contract v1, the TCK, scenarios, and machine-readable evidence;
-- mocks and deterministic fault injection cannot be relabelled as live radio;
-- no Noble dependency or fallback survives in a first-party desktop backend.
+Deterministic and mock boundaries are test-only. They prove conformance and
+fault behavior, never live radio. Native compilation and package installation
+prove their own labeled scope only; they do not upgrade a backend to a live
+support label.
 
 ## Evidence records
 
 [`GAPS.4.0.md`](GAPS.4.0.md) inventories current evidence work. Final support pages must be generated from versioned evidence manifests containing backend identity, protocol versions, package digest, OS/runtime/hardware, commands, result artifacts, limitations, revalidation rules, and responsible maintainer.
 
-The current platform-specific documents linked below are historical/transitional characterization until rewritten against the packed 4.0 contract. They must not be used as 4.0 installation instructions:
+The host notes below describe the packed 4.0 contract and its current proof
+boundaries. They are not a substitute for backend-reported capability and
+evidence inspection:
 
 - [`EXPO_PLUGIN.md`](EXPO_PLUGIN.md)
 - [`BACKGROUND.md`](BACKGROUND.md)

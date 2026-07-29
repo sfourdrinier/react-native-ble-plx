@@ -1,6 +1,6 @@
 // src/node-winrt.ts
 
-import { contractError } from './backend-contract/errors'
+import { BackendContractError, contractError } from './backend-contract/errors'
 import type { BackendProvider, HostNeutralBackendIdentity } from './backend-contract/identity'
 import type { WinRtBoundary } from './backends/winrt/winrt-boundary'
 import { createWinRtBackendProvider, type WinRtBackendProviderOptions } from './backends/winrt/winrt-provider'
@@ -38,6 +38,15 @@ export interface NativeWinRtProviderOptions {
   readonly now: () => number
 }
 
+function nativeArtifactUnavailable(operation: string, code: string, safeMessage: string): BackendContractError {
+  return contractError('capability.unavailable', 'platform', operation, {
+    domain: 'winrt',
+    code,
+    safeMessage,
+    metadata: Object.freeze({})
+  })
+}
+
 /** Loads only the package-controlled Windows Node-API artifact and never substitutes a test radio. */
 export function createNativeWinRtBoundary(): WinRtBoundary {
   if (process.platform !== 'win32') {
@@ -48,8 +57,20 @@ export function createNativeWinRtBoundary(): WinRtBoundary {
       metadata: Object.freeze({})
     })
   }
-  const nativeModule: WinRtNativeModule = require('../../native/electron/winrt')
-  if (nativeModule.nativeProtocolVersion !== 1) {
+  let nativeModule: WinRtNativeModule
+  try {
+    nativeModule = require('../../native/electron/winrt')
+  } catch (error) {
+    if (error instanceof BackendContractError) {
+      throw error
+    }
+    throw nativeArtifactUnavailable(
+      'winrt.native-boundary.load',
+      'native-artifact-unavailable',
+      'The packaged WinRT native artifact could not be loaded for this Node or Electron runtime'
+    )
+  }
+  if (nativeModule.nativeProtocolVersion !== 1 || typeof nativeModule.createContractBoundary !== 'function') {
     throw contractError('protocol.incompatible', 'boundary', 'winrt.native-boundary.version', {
       domain: 'winrt',
       code: 'native-protocol-version',
@@ -57,7 +78,18 @@ export function createNativeWinRtBoundary(): WinRtBoundary {
       metadata: Object.freeze({})
     })
   }
-  return nativeModule.createContractBoundary()
+  try {
+    return nativeModule.createContractBoundary()
+  } catch (error) {
+    if (error instanceof BackendContractError) {
+      throw error
+    }
+    throw nativeArtifactUnavailable(
+      'winrt.native-boundary.create',
+      'native-boundary-unavailable',
+      'The WinRT native boundary could not be created for this Windows process'
+    )
+  }
 }
 
 /** Creates a strict Node provider for one explicitly selected Windows BLE adapter. */

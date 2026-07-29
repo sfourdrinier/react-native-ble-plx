@@ -3,7 +3,7 @@
 import type { AdapterStateSnapshot } from '../../backend-contract/identity'
 import { contractError } from '../../backend-contract/errors'
 import { monotonicTimestamp, opaqueId } from '../../backend-contract/primitives'
-import type { WinRtAdapterRecord, WinRtAdapterSnapshot } from './winrt-boundary'
+import type { WinRtAdapterSnapshot } from './winrt-boundary'
 
 export function winRtAdapterState(
   state: WinRtAdapterSnapshot,
@@ -24,14 +24,7 @@ export function winRtAdapterIsReady(state: WinRtAdapterSnapshot): boolean {
   return state.availability === 'available' && state.authorization === 'granted' && state.power === 'on'
 }
 
-export function assertWinRtAdapterReady(
-  adapter: WinRtAdapterRecord,
-  state: WinRtAdapterSnapshot,
-  operation: string
-): void {
-  if (adapter.deployment === 'packaged' && adapter.packagedCapability === 'missing') {
-    throw contractError('permission.denied', 'adapter', operation)
-  }
+export function assertWinRtAdapterReady(state: WinRtAdapterSnapshot, operation: string): void {
   if (state.availability !== 'available') {
     throw contractError('adapter.unavailable', 'adapter', operation)
   }

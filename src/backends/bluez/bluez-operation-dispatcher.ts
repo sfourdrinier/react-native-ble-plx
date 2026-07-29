@@ -15,6 +15,11 @@ interface ActiveBluezOperation {
   cancel(): CancellationAcknowledgement<string>
 }
 
+export interface BluezOperationDispatch<Result> extends BackendOperationDispatch<string, Result> {
+  /** Resolves only after the non-cancellable D-Bus work has physically settled. */
+  readonly physicalSettled: Promise<void>
+}
+
 export class BluezOperationDispatcher {
   private nextOperation = 1
   private readonly active = new Map<string, ActiveBluezOperation>()
@@ -26,13 +31,17 @@ export class BluezOperationDispatcher {
     options: PublicOperationOptions,
     operationName: string,
     operation: () => Promise<Result>
-  ): BackendOperationDispatch<string, Result> {
+  ): BluezOperationDispatch<Result> {
     const handle = opaqueId(`bluez-operation-${this.nextOperation}`, 'backend-operation', 'bluez:dispatcher')
     this.nextOperation += 1
     let callerTerminal = false
     let physicalTerminal = false
     let rejectCompletion: ((error: Error) => void) | null = null
     let deadlineTimer: ReturnType<typeof setTimeout> | null = null
+    let resolvePhysicalSettled: (() => void) | null = null
+    const physicalSettled = new Promise<void>(resolve => {
+      resolvePhysicalSettled = resolve
+    })
     const abort = (): void => {
       if (callerTerminal) {
         return
@@ -49,9 +58,16 @@ export class BluezOperationDispatcher {
       options.signal?.removeEventListener('abort', abort)
     }
     const settlePhysical = (): void => {
+      if (physicalTerminal) {
+        return
+      }
       physicalTerminal = true
       clearAdmission()
       this.active.delete(String(handle))
+      if (resolvePhysicalSettled === null) {
+        throw new Error('BlueZ physical settlement resolver was not initialized')
+      }
+      resolvePhysicalSettled()
       if (this.active.size === 0) {
         for (const resolve of this.idleWaiters) {
           resolve()
@@ -63,14 +79,14 @@ export class BluezOperationDispatcher {
       rejectCompletion = reject
       if (options.signal?.aborted === true) {
         callerTerminal = true
-        physicalTerminal = true
         reject(contractError('operation.aborted', 'core', operationName))
+        settlePhysical()
         return
       }
       if (options.deadline !== null && options.deadline <= this.now()) {
         callerTerminal = true
-        physicalTerminal = true
         reject(contractError('operation.timed-out', 'core', operationName))
+        settlePhysical()
         return
       }
       options.signal?.addEventListener('abort', abort, { once: true })
@@ -154,7 +170,7 @@ export class BluezOperationDispatcher {
     if (!physicalTerminal) {
       this.active.set(String(handle), active)
     }
-    return createBackendOperationDispatch(handle, completion, async () => active.cancel())
+    return { ...createBackendOperationDispatch(handle, completion, async () => active.cancel()), physicalSettled }
   }
 
   cancelAll(): void {

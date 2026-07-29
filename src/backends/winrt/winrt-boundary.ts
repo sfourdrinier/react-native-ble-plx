@@ -31,7 +31,6 @@ export interface WinRtAdapterRecord {
   readonly nativeAdapterId: string
   readonly displayName: string | null
   readonly state: WinRtAdapterSnapshot
-  readonly packagedCapability: 'present' | 'missing' | 'not-applicable'
   readonly deployment: 'packaged' | 'unpackaged'
 }
 
@@ -46,8 +45,6 @@ export interface WinRtAdvertisement {
 export interface WinRtDescriptorRecord {
   readonly uuid: string
   readonly occurrence: number
-  readonly readable: boolean
-  readonly writable: boolean
 }
 
 export interface WinRtCharacteristicRecord {

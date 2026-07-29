@@ -52,8 +52,10 @@ export async function connectBluezConnection(
     runtime.connectionRecords.set(devicePath, record)
     const alreadyConnected =
       runtime.store.optionalBooleanProperty(devicePath, BLUEZ_DEVICE_INTERFACE, 'Connected') === true
-    record.transition = runtime.dispatcher.dispatch({ signal: null, deadline: null }, 'bluez.connect', async () => {
+    record.physicalLinkMayExist = alreadyConnected
+    const dispatch = runtime.dispatcher.dispatch({ signal: null, deadline: null }, 'bluez.connect', async () => {
       if (!alreadyConnected) {
+        sharedRecord.physicalLinkMayExist = true
         await connectBluezPhysicalLink(runtime, devicePath)
         runtime.assertAttachmentCurrent(attachmentId, 'bluez.connect.after-method')
       }
@@ -61,17 +63,24 @@ export async function connectBluezConnection(
         signal: null,
         deadline: null
       })
-      runtime.assertAttachmentCurrent(attachmentId, 'bluez.connect.after-confirmation')
       sharedRecord.state = 'connected'
       sharedRecord.active = true
-    }).completion
+      runtime.assertAttachmentCurrent(attachmentId, 'bluez.connect.after-confirmation')
+    })
+    record.transition = dispatch.completion
     record.transition.catch(error => {
-      sharedRecord.active = false
-      sharedRecord.state = 'disconnected'
-      if (runtime.connectionRecords.get(devicePath) === sharedRecord) {
-        runtime.connectionRecords.delete(devicePath)
-      }
-      console.error('[connectBluezConnection] Shared BlueZ connect transition failed:', error)
+      dispatch.physicalSettled.then(() => {
+        if (
+          !sharedRecord.active &&
+          !runtime.isDestroying() &&
+          runtime.connectionRecords.get(devicePath) === sharedRecord
+        ) {
+          sharedRecord.physicalLinkMayExist = false
+          sharedRecord.state = 'disconnected'
+          runtime.connectionRecords.delete(devicePath)
+        }
+        console.error('[connectBluezConnection] Shared BlueZ connect transition failed:', error)
+      })
     })
   }
   record.pendingConnectors += 1
@@ -122,7 +131,7 @@ export async function disconnectBluezConnection(
   record: BluezConnectionRecord,
   invalidate: () => void
 ): Promise<CleanupRecord> {
-  if (!record.active) {
+  if (!record.active && !record.physicalLinkMayExist) {
     return releasedBluezCleanup
   }
   if (record.disconnection !== null) {
@@ -153,10 +162,13 @@ async function disconnectBluezPhysicalLink(
       deadline: null
     })
   } catch (error) {
-    if (!record.active || runtime.connectionRecords.get(record.devicePath) !== record) {
+    if (
+      runtime.connectionRecords.get(record.devicePath) !== record ||
+      (!record.active && !record.physicalLinkMayExist)
+    ) {
       return releasedBluezCleanup
     }
-    record.state = 'connected'
+    record.state = record.active ? 'connected' : 'connecting'
     throw error
   }
   invalidate()

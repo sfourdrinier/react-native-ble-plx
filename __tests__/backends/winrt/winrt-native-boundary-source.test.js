@@ -37,4 +37,12 @@ describe('WinRT native boundary source contract', () => {
     expect(boundary).toContain('kAdvertisementIngressQueueCapacity, 1')
     expect(boundary).toContain('InstanceMethod("ingressTelemetry"')
   })
+
+  test('does not invent packaged-manifest or descriptor access support', () => {
+    const addon = read('native/electron/winrt/src/addon.cpp')
+
+    expect(addon).not.toContain('IsPackagedProcess() ? "present"')
+    expect(addon).not.toContain('descriptor.Set("readable", Napi::Boolean::New(env, true))')
+    expect(addon).not.toContain('descriptor.Set("writable", Napi::Boolean::New(env, true))')
+  })
 })

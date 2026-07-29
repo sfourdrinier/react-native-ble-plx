@@ -61,6 +61,8 @@ export interface BluezConnectionRecord {
   readonly databases: Set<BluezGattDatabase>
   state: 'connecting' | 'connected' | 'disconnecting' | 'disconnected' | 'lost'
   active: boolean
+  /** A Connect call or an existing BlueZ link requires destroy-time Disconnect even before confirmation. */
+  physicalLinkMayExist: boolean
   ownerLeaseId: LeaseId<string, string> | null
   nextDatabaseGeneration: number
   currentDatabase: BluezGattDatabase | null

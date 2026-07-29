@@ -655,6 +655,7 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
   ): void {
     const connection = cause === 'connection.lost' ? this.connectionPathFor(record) : null
     record.active = false
+    record.physicalLinkMayExist = false
     record.state = cause === 'connection.lost' ? 'lost' : 'disconnected'
     for (const database of record.databases) {
       database.invalidate()
@@ -859,7 +860,7 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
       )
     }
     for (const record of this.connectionRecords.values()) {
-      if (record.active) {
+      if (record.active || record.physicalLinkMayExist) {
         failures.push(
           ...(await captureCleanup(this.disconnect(record), 'connection', 'bluez.destroy.connection')).failures
         )

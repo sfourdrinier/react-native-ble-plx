@@ -1,6 +1,6 @@
 // src/backends/winrt/winrt-provider.ts
 
-import { contractError } from '../../backend-contract/errors'
+import { BackendContractError, contractError } from '../../backend-contract/errors'
 import type {
   AdapterDescriptor,
   AdapterSelection,
@@ -34,6 +34,25 @@ export interface WinRtBackendProviderOptions {
   readonly hostKind: 'node' | 'electron-main'
 }
 
+function winRtProviderError(
+  error: unknown,
+  code: 'capability.unavailable' | 'adapter.unavailable' | 'platform.failure',
+  domain: 'platform' | 'adapter' | 'cleanup',
+  operation: string,
+  nativeCode: string,
+  safeMessage: string
+): BackendContractError {
+  if (error instanceof BackendContractError) {
+    return error
+  }
+  return contractError(code, domain, operation, {
+    domain: 'winrt',
+    code: nativeCode,
+    safeMessage,
+    metadata: Object.freeze({})
+  })
+}
+
 /** Enumerates first, then binds exactly one WinRT adapter to one backend instance. */
 export function createWinRtBackendProvider(
   options: WinRtBackendProviderOptions
@@ -46,24 +65,110 @@ export function createWinRtBackendProvider(
       compatibility: winRtCompatibility
     }),
     listAdapters: async () => {
-      const boundary = options.boundaryFactory()
+      let boundary: WinRtBoundary
       try {
-        const adapters = await boundary.listAdapters().completion
-        return Object.freeze(adapters.map(adapter => adapterDescriptor(adapter, options.now)))
-      } finally {
-        await boundary.destroy().completion
+        boundary = options.boundaryFactory()
+      } catch (error) {
+        throw winRtProviderError(
+          error,
+          'capability.unavailable',
+          'platform',
+          'winrt.provider.create-boundary',
+          'native-boundary-unavailable',
+          'The WinRT native boundary could not be created for adapter enumeration'
+        )
       }
+      let adapters: readonly WinRtAdapterRecord[]
+      try {
+        adapters = await boundary.listAdapters().completion
+      } catch (error) {
+        try {
+          await boundary.destroy().completion
+        } catch (cleanupError) {
+          console.error(
+            '[createWinRtBackendProvider] Boundary cleanup after adapter enumeration failure failed:',
+            cleanupError
+          )
+        }
+        throw winRtProviderError(
+          error,
+          'capability.unavailable',
+          'platform',
+          'winrt.provider.list-adapters',
+          'native-adapter-enumeration-failed',
+          'The WinRT native boundary could not enumerate a usable Windows Bluetooth adapter'
+        )
+      }
+      try {
+        await boundary.destroy().completion
+      } catch (error) {
+        throw winRtProviderError(
+          error,
+          'platform.failure',
+          'cleanup',
+          'winrt.provider.list-adapters.destroy',
+          'native-boundary-destroy-failed',
+          'The WinRT native boundary could not be released after adapter enumeration'
+        )
+      }
+      return Object.freeze(adapters.map(adapter => adapterDescriptor(adapter, options.now)))
     },
     create: async (selection: AdapterSelection<string>) => {
-      const boundary = options.boundaryFactory()
+      let boundary: WinRtBoundary
       try {
-        const adapters = await boundary.listAdapters().completion
+        boundary = options.boundaryFactory()
+      } catch (error) {
+        throw winRtProviderError(
+          error,
+          'capability.unavailable',
+          'platform',
+          'winrt.provider.create-boundary',
+          'native-boundary-unavailable',
+          'The WinRT native boundary could not be created for adapter selection'
+        )
+      }
+      try {
+        let adapters: readonly WinRtAdapterRecord[]
+        try {
+          adapters = await boundary.listAdapters().completion
+        } catch (error) {
+          throw winRtProviderError(
+            error,
+            'capability.unavailable',
+            'platform',
+            'winrt.provider.list-adapters',
+            'native-adapter-enumeration-failed',
+            'The WinRT native boundary could not enumerate a usable Windows Bluetooth adapter'
+          )
+        }
         const selected = adapters.find(adapter => String(adapterIdFor(adapter)) === String(selection.selectedAdapterId))
         if (selected === undefined) {
           throw contractError('adapter.unavailable', 'adapter', 'winrt.provider.select-adapter')
         }
-        await boundary.selectAdapter(selected.nativeAdapterId).completion
-        return new WinRtBackend(boundary, selected, options.now, options.hostKind)
+        try {
+          await boundary.selectAdapter(selected.nativeAdapterId).completion
+        } catch (error) {
+          throw winRtProviderError(
+            error,
+            'adapter.unavailable',
+            'adapter',
+            'winrt.provider.select-adapter',
+            'native-adapter-selection-failed',
+            'The selected WinRT adapter is no longer usable'
+          )
+        }
+        try {
+          return new WinRtBackend(boundary, selected, options.now, options.hostKind)
+        } catch (error) {
+          throw winRtProviderError(
+            error,
+            'capability.unavailable',
+            'platform',
+            'winrt.provider.activate-backend',
+            'native-boundary-activation-failed',
+            'The selected WinRT adapter could not be activated'
+          )
+        }
       } catch (error) {
         try {
           await boundary.destroy().completion
@@ -94,9 +199,7 @@ export function adapterDescriptor(adapter: WinRtAdapterRecord, now: () => number
     }),
     adapterGeneration: opaqueId('1', 'adapter-generation', `winrt:${adapter.nativeAdapterId}`),
     limitations: Object.freeze([
-      adapter.packagedCapability === 'missing'
-        ? 'The selected environment is missing its required Windows Bluetooth capability declaration'
-        : 'WinRT native addon compile proof does not establish live-radio support',
+      'WinRT native addon compile proof does not establish live-radio support',
       `Selected through ${adapter.deployment} Windows application deployment semantics`
     ])
   })

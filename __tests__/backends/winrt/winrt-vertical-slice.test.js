@@ -145,7 +145,6 @@ class DeterministicWinRtBoundary {
         nativeAdapterId: 'winrt-deterministic-adapter',
         displayName: 'Deterministic WinRT Adapter',
         state: this.state,
-        packagedCapability: 'not-applicable',
         deployment: 'unpackaged'
       }
     ])

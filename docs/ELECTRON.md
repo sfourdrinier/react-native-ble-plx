@@ -1,29 +1,79 @@
 <!-- docs/ELECTRON.md -->
 
-# Electron platform record
+# Electron
 
-**Status:** transitional implementation characterization; not a 4.0 integration guide
+`unified-ble-manager/electron/main` and
+`unified-ble-manager/electron/renderer` are the only Electron entrypoints.
+They deliberately split physical-radio ownership from renderer use:
 
-**Architecture and sequencing authority:** [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)
+- the Electron **main** process creates one selected owned backend and owns the
+  `BleManager`/radio lifecycle;
+- the preload exposes a narrow versioned IPC transport to the renderer;
+- the renderer uses `ElectronRendererBleClient` and can never select a radio,
+  access a native addon, or impersonate another renderer;
+- `ElectronMainBleBinding` authenticates each `WebContents` from host facts,
+  owns the attachment/session mapping, bounds outbound events, and cleans up
+  on navigation, renderer destruction, app shutdown, and backend restart.
 
-4.0 requires Electron main process ownership, a versioned renderer IPC protocol, bounded serializable events, explicit reload/rebind behavior, and the same shared core used by the selected owned backend. Electron must not create a second manager policy, use renderer Web Bluetooth as its production radio path, or wrap/fall back to Noble.
+There is no Noble dependency, renderer Web Bluetooth fallback, legacy
+`BlePort`, `PortBleManager`, or mock-radio production fallback in these
+entrypoints.
 
-The current source contains CoreBluetooth, BlueZ, WinRT placeholder, `BlePort`, `PortBleManager`, Fake, native-addon, and rebuild material. Treat that material only as current-state evidence for the Phase 0 host audit and baseline capture:
+## Main-process backend selection
 
-- existing macOS and Linux owned-radio results must be captured, then re-run through the new shared core;
-- BlueZ, CoreBluetooth, and WinRT must each pass their required contract, TCK, package, and live evidence before a support label is published;
-- Fake and mock buses are deterministic/CI inputs, never a production-radio fallback;
-- a Node or Electron ABI build alone is not a live-radio claim;
-- the old Electron API and port injection examples are not a 4.0 public contract.
+Select one concrete backend in main. The native loaders are fail-closed:
 
-The final public Electron subpaths, native artifact strategy, security boundary, and installation commands are defined only after the package and IPC ADRs are accepted and packed-artifact tests pass. Renderer reload must reconstruct declared state and explicitly rebind subscriptions; it may never depend on surviving JavaScript object identity.
+- `createElectronMainCoreBluetoothBackendProvider({ now })` loads only the
+  package-controlled CoreBluetooth Node-API artifact and rejects non-macOS
+  hosts.
+- `createElectronMainWinRtBackendProvider({ now })` loads only the
+  package-controlled WinRT Node-API artifact, requires Windows, and verifies
+  native boundary protocol v1.
+- `createDbusNextBluezBackendProvider({ busKind, now })` constructs the owned
+  BlueZ D-Bus backend for the explicitly selected system or session bus.
 
-## Evidence requirements
+An Electron application chooses the backend from trusted main-process platform
+configuration. Renderer-provided data is never a backend selector. Native
+addons must be rebuilt or supplied for the exact Electron ABI; an absent,
+incompatible, unauthorized, or unavailable native backend reports a typed
+failure rather than silently using a simulated radio.
 
-See Sections 17, 20, 21.4, 26, and 27 of the controlling plan and [`GAPS.4.0.md`](GAPS.4.0.md). The evidence manifest must distinguish TCK/mock proof, native ABI proof, a physical-radio vertical slice, and reliability proof.
+## IPC integration requirements
 
-## Related records
+Install one `ElectronMainBleBinding` on `ipcMain` with:
 
-- [`NODE.md`](NODE.md)
-- [`PLATFORMS.md`](PLATFORMS.md)
-- [`GAPS.4.0.md`](GAPS.4.0.md)
+- an `ElectronMainBleRouter` backed by the main-process manager;
+- an `authenticate(event)` function deriving the trusted attachment, renderer,
+  and client identity solely from `WebContents`/session facts;
+- a preload transport that implements the structural
+  `ElectronRendererIpcTransport` contract and exposes no generic IPC channel.
+
+The renderer creates `ElectronRendererBleClient` from that preload transport,
+calls `initialize()` before issuing requests, and calls `destroy()` during its
+own teardown. The main process calls `binding.destroy()` before it destroys the
+manager. The binding handles operation correlation, event acknowledgement,
+bounded backpressure, cancellation routing, and retryable cleanup; applications
+must not duplicate those policies.
+
+## Verification and evidence
+
+The packed-artifact L1 smoke proves the public Electron entrypoints and the
+deterministic scan → connect → discover → read → notify → destroy scenario:
+
+```sh
+pnpm prepack
+node example-electron/smoke.js
+```
+
+On macOS, build the CoreBluetooth addon for the installed Electron/Node ABI:
+
+```sh
+pnpm build:electron:macos
+```
+
+Windows and Linux have their own native/runtime requirements and are not
+implied by a macOS build. A build or deterministic smoke is not a live-radio
+support claim. Published evidence records state the exact backend, package
+digest, OS/runtime/ABI, hardware, scenario, limitations, and proof level.
+See [`PLATFORMS.md`](PLATFORMS.md) and the controlling
+[`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).

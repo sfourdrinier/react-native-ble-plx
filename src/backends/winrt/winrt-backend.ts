@@ -245,8 +245,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
         implementationVersion: WINRT_IMPLEMENTATION_VERSION,
         diagnostics: Object.freeze({
           boundary: 'winrt-direct-v1',
-          deployment: this.selectedAdapter.deployment,
-          packagedCapability: this.selectedAdapter.packagedCapability
+          deployment: this.selectedAdapter.deployment
         })
       })
     })
@@ -260,7 +259,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
       throw contractError('lifecycle.invalid-state', 'core', 'winrt.attach')
     }
     negotiateCoreVersions(winRtCompatibility, request.coreCompatibility)
-    assertWinRtAdapterReady(this.selectedAdapter, this.adapterStateSnapshot, 'winrt.attach')
+    assertWinRtAdapterReady(this.adapterStateSnapshot, 'winrt.attach')
     this.attached = true
     const identity = this.identity
     return Object.freeze({ attachment: identity.attachment, identity })
@@ -337,7 +336,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
   /** Applies the common lifecycle and radio-readiness gate to every GATT admission path. */
   assertGattUsable(operation: string): void {
     this.assertUsable(operation)
-    assertWinRtAdapterReady(this.selectedAdapter, this.adapterStateSnapshot, operation)
+    assertWinRtAdapterReady(this.adapterStateSnapshot, operation)
   }
 
   requireConnection(connection: BackendConnection<string, string>, operation: string): WinRtConnectionRecord {
@@ -461,7 +460,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     _clientId: ClientId<string, string>
   ): Promise<ScanLease<string, string>> {
     this.assertUsable('winrt.scan.start')
-    assertWinRtAdapterReady(this.selectedAdapter, this.adapterStateSnapshot, 'winrt.scan.start')
+    assertWinRtAdapterReady(this.adapterStateSnapshot, 'winrt.scan.start')
     assertWinRtOperationAdmission(options, this.now, 'winrt.scan.start')
     if (this.scanGroup !== null) {
       throw contractError('scan.already-active', 'scan', 'winrt.scan.start')
@@ -569,7 +568,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     options: PublicOperationOptions
   ): Promise<ConnectionLease<string, string, string>> {
     this.assertUsable('winrt.connect')
-    assertWinRtAdapterReady(this.selectedAdapter, this.adapterStateSnapshot, 'winrt.connect')
+    assertWinRtAdapterReady(this.adapterStateSnapshot, 'winrt.connect')
     assertWinRtOperationAdmission(options, this.now, 'winrt.connect')
     const nativePeerId = this.nativeIdsByPeerId.get(String(peerId))
     if (nativePeerId === undefined) {

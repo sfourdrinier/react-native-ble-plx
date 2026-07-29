@@ -265,6 +265,33 @@ describe('BlueZ lifecycle regressions', () => {
     await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
   })
 
+  test('disconnects a link that confirms after destroy cancels its shared connect transition', async () => {
+    const { backend, boundary } = await fixture({ connected: false })
+    const peerId = await observedPeerId(backend)
+    const clientId = opaqueId('destroyed-connect-client', 'client', 'bluez:regression')
+    let releaseConnect
+    const connectGate = new Promise(resolve => {
+      releaseConnect = resolve
+    })
+    boundary.onCall(devicePath, BLUEZ_DEVICE_INTERFACE, 'Connect', async () => {
+      await connectGate
+      boundary.objectManager.emitPropertiesChanged(devicePath, BLUEZ_DEVICE_INTERFACE, {
+        Connected: { signature: 'b', value: true }
+      })
+    })
+
+    const connecting = backend.connections.connect(peerId, clientId, operation())
+    await new Promise(resolve => setImmediate(resolve))
+    expect(boundary.calls.filter(call => call.method === 'Connect')).toHaveLength(1)
+
+    const destroying = backend.destroy()
+    await expect(connecting).rejects.toMatchObject({ normalized: { code: 'operation.aborted' } })
+    releaseConnect()
+
+    await expect(destroying).resolves.toEqual({ state: 'released', failures: [] })
+    expect(boundary.calls.filter(call => call.method === 'Disconnect')).toHaveLength(1)
+  })
+
   test('does not expose a scan lease when the deadline expires during filter setup', async () => {
     let now = 10
     const { backend, boundary } = await fixture({ connected: false, now: () => now })

@@ -1,19 +1,45 @@
 <!-- docs/NODE.md -->
 
-# Node platform record
+# Node.js
 
-**Status:** transitional implementation characterization; not a 4.0 integration guide
+The root `unified-ble-manager` entrypoint is host-neutral. Node applications
+must select an owned backend through an explicit subpath; a package import never
+chooses an adapter, enables a mock, or falls back to Noble.
 
-**Architecture and sequencing authority:** [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)
+## Backend factories
 
-The intended 4.0 Node surface selects an explicit owned host backend through an approved subpath. It shares the public manager and policy core with every other host. It does not expose legacy `BlePort`/`PortBleManager` construction, a static host matrix, a Base64/bytes dual API, or a mock fallback as a production behavior.
+Use exactly one of these factories in the host composition root:
 
-Current Node and Electron source, Fake backend behavior, addon loaders, and BlueZ/CoreBluetooth experiments are characterization inputs only. They may be used to audit behavior and capture baseline evidence, but they are not a support claim and must be replaced or deleted at the controlling plan's gates.
+- `unified-ble-manager/node/corebluetooth` exports
+  `createNativeCoreBluetoothBackendProvider({ now })`. It is macOS-only and
+  loads the package-controlled CoreBluetooth Node-API artifact.
+- `unified-ble-manager/node/bluez` exports
+  `createDbusNextBluezBackendProvider({ busKind, now })`. Callers explicitly
+  choose the BlueZ system or session D-Bus bus.
+- `unified-ble-manager/node/winrt` exports
+  `createNativeWinRtBackendProvider({ now })`. It is Windows-only and rejects
+  an absent or protocol-incompatible native boundary.
 
-Any released Node backend must declare an instantiated runtime identity, capability implementations, limitations, protocol ranges, and evidence manifest. The root import remains host-neutral; Node-specific native dependencies load only from the selected host subpath.
+Each provider declares backend identity, protocol compatibility, registered
+capabilities, and limitations at runtime. A nonmatching OS, missing addon,
+missing adapter, permission denial, or incompatible boundary fails with a
+typed contract error; deterministic and mock backends are testing-only inputs
+from `unified-ble-manager/testing` and are never selected implicitly.
 
-## Related records
+## Native artifacts
 
-- [`ELECTRON.md`](ELECTRON.md)
-- [`PLATFORMS.md`](PLATFORMS.md)
-- [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)
+Node-API artifacts are ABI-sensitive. Build or install the native addon for the
+exact Node/Electron runtime you run; a successful build proves packaging and
+ABI only, not live BLE behavior. The package does not ship a fake production
+replacement when that artifact is absent.
+
+For Electron, use the main/renderer boundary described in
+[`ELECTRON.md`](ELECTRON.md), rather than importing a Node radio factory from a
+renderer process.
+
+## Support evidence
+
+Read capabilities from the instantiated backend/manager rather than a static
+platform matrix. The declared proof level and live limitations are recorded in
+versioned evidence manifests; see [`PLATFORMS.md`](PLATFORMS.md) and
+[`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).

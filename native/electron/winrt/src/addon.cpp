@@ -112,7 +112,6 @@ struct AdapterView {
   std::string authorization;
   std::string power;
   std::optional<std::string> safe_reason;
-  std::string packaged_capability;
   std::string deployment;
 };
 
@@ -120,7 +119,7 @@ AdapterView ReadAdapter() {
   EnsureWinRtApartment();
   const BluetoothAdapter adapter = BluetoothAdapter::GetDefaultAsync().get();
   if (adapter == nullptr) {
-    return {"", "", "unavailable", "unavailable", "unknown", "No Windows Bluetooth adapter is available", "not-applicable", IsPackagedProcess() ? "packaged" : "unpackaged"};
+    return {"", "", "unavailable", "unavailable", "unknown", "No Windows Bluetooth adapter is available", IsPackagedProcess() ? "packaged" : "unpackaged"};
   }
   const Radio radio = adapter.GetRadioAsync().get();
   return {
@@ -130,7 +129,6 @@ AdapterView ReadAdapter() {
       "granted",
       RadioPower(radio),
       std::nullopt,
-      IsPackagedProcess() ? "present" : "not-applicable",
       IsPackagedProcess() ? "packaged" : "unpackaged"};
 }
 
@@ -148,7 +146,6 @@ Napi::Object ToJsAdapter(Napi::Env env, const AdapterView& view) {
   record.Set("nativeAdapterId", Napi::String::New(env, view.native_id));
   record.Set("displayName", view.display_name.empty() ? env.Null() : Napi::String::New(env, view.display_name));
   record.Set("state", ToJsAdapterState(env, view));
-  record.Set("packagedCapability", Napi::String::New(env, view.packaged_capability));
   record.Set("deployment", Napi::String::New(env, view.deployment));
   return record;
 }
@@ -633,7 +630,7 @@ struct BoundaryState : public std::enable_shared_from_this<BoundaryState> {
     try {
       adapter = ReadAdapter();
     } catch (const std::exception& error) {
-      adapter = {"", "", "unavailable", "unavailable", "unknown", error.what(), "not-applicable", IsPackagedProcess() ? "packaged" : "unpackaged"};
+      adapter = {"", "", "unavailable", "unavailable", "unknown", error.what(), IsPackagedProcess() ? "packaged" : "unpackaged"};
     }
     std::vector<std::shared_ptr<AdapterListener>> listeners;
     {
@@ -834,8 +831,6 @@ Napi::Value ToJsDiscovery(Napi::Env env, const DiscoveryView& discovery) {
         Napi::Object descriptor = Napi::Object::New(env);
         descriptor.Set("uuid", Napi::String::New(env, source_descriptor.uuid));
         descriptor.Set("occurrence", Napi::Number::New(env, source_descriptor.occurrence));
-        descriptor.Set("readable", Napi::Boolean::New(env, true));
-        descriptor.Set("writable", Napi::Boolean::New(env, true));
         descriptors.Set(descriptor_index, descriptor);
       }
       characteristic.Set("descriptors", descriptors);

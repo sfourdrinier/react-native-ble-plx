@@ -32,6 +32,7 @@ export function createPendingConnectionRecord(devicePath: string, peerId: PeerId
     databases: new Set(),
     state: 'connecting',
     active: false,
+    physicalLinkMayExist: false,
     ownerLeaseId: null,
     nextDatabaseGeneration: 1,
     currentDatabase: null,
