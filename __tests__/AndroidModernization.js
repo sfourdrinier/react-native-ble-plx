@@ -4,212 +4,95 @@ const fs = require('fs')
 const path = require('path')
 
 const root = path.join(__dirname, '..')
+const androidJavaRoot = path.join(
+  root,
+  'android/src/main/java/com/sfourdrinier/unifiedblemanager'
+)
 
 function read(relativePath) {
   return fs.readFileSync(path.join(root, relativePath), 'utf8')
 }
 
-describe('Android modernization defaults', () => {
-  test('uses Android API 36 defaults required by the React Native 0.86 / Expo SDK 57 line', () => {
+function sourceFilesBelow(directory) {
+  return fs
+    .readdirSync(directory, { withFileTypes: true })
+    .flatMap(entry => {
+      const entryPath = path.join(directory, entry.name)
+      if (entry.isDirectory()) {
+        return sourceFilesBelow(entryPath)
+      }
+      return entry.isFile() && /\.(?:java|kt)$/.test(entry.name) ? [path.relative(androidJavaRoot, entryPath)] : []
+    })
+    .sort()
+}
+
+describe('Android RN 0.86 unified protocol boundary', () => {
+  test('uses Android API 36 defaults and the modern React Android artifact', () => {
     const gradleProperties = read('android/gradle.properties')
+    const buildGradle = read('android/build.gradle')
 
     expect(gradleProperties).toContain('BlePlx_compileSdkVersion=36')
     expect(gradleProperties).toContain('BlePlx_targetSdkVersion=36')
-  })
-
-  test('depends on the modern React Android artifact', () => {
-    const buildGradle = read('android/build.gradle')
-
     expect(buildGradle).toContain('implementation "com.facebook.react:react-android"')
+    expect(buildGradle).toContain('apply plugin: "com.facebook.react"')
+    expect(buildGradle).toContain('codegenJavaPackageName = "com.sfourdrinier.unifiedblemanager"')
     expect(buildGradle).not.toContain('com.facebook.react:react-native:+')
+    expect(buildGradle).not.toContain('TurboReactPackage')
   })
 
-  test('implements the generated TurboModule spec and registers through BaseReactPackage', () => {
-    const moduleJava = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxModule.java')
+  test('registers exactly the generated control-only TurboModule', () => {
     const packageJava = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxPackage.java')
-    const ownedAdapter = read(
-      'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedBleAdapter.kt'
+    const controlJava = read(
+      'android/src/main/java/com/sfourdrinier/unifiedblemanager/protocol/UnifiedBleProtocolControlModule.java'
     )
-    const factory = read(
-      'android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/BleAdapterFactory.java'
-    )
-
-    expect(moduleJava).toContain('import com.sfourdrinier.unifiedblemanager.NativeBlePlxSpec;')
-    expect(moduleJava).toContain('public class BlePlxModule extends NativeBlePlxSpec')
-    expect(moduleJava).not.toContain('extends ReactContextBaseJavaModule')
+    const codegenConfig = JSON.parse(read('package.json')).codegenConfig
 
     expect(packageJava).toContain('import com.facebook.react.BaseReactPackage;')
-    expect(packageJava).not.toContain('TurboReactPackage')
-    expect(packageJava).toContain('import com.facebook.react.module.model.ReactModuleInfo;')
-    expect(packageJava).toContain('import com.facebook.react.module.model.ReactModuleInfoProvider;')
-    expect(packageJava).toContain('public class BlePlxPackage extends BaseReactPackage')
-    expect(packageJava).toContain('public NativeModule getModule(String name, ReactApplicationContext reactContext)')
-    expect(packageJava).toContain('public ReactModuleInfoProvider getReactModuleInfoProvider()')
-    expect(packageJava).not.toContain('implements ReactPackage')
-
-    // 4.0 GA: owned Kotlin adapter is the default BleAdapter
-    expect(factory).toContain('OwnedBleAdapter')
-    expect(ownedAdapter).toContain('class OwnedBleAdapter')
-    expect(ownedAdapter).toContain('OwnedAndroidGattRadio')
-    expect(ownedAdapter).not.toContain('RxBleClient')
+    expect(packageJava).toContain('import com.sfourdrinier.unifiedblemanager.protocol.UnifiedBleProtocolControlModule;')
+    expect(packageJava).toContain('if (UnifiedBleProtocolControlModule.NAME.equals(name))')
+    expect(packageJava).toContain('UnifiedBleProtocolControlModule.class.getName()')
+    expect(packageJava).not.toMatch(/\bBlePlxModule\b|\bNativeBlePlxSpec\b/)
+    expect(packageJava.match(/moduleInfos\.put\(/g)).toHaveLength(1)
+    expect(controlJava).toContain('extends NativeUnifiedBleProtocolControlSpec')
+    expect(controlJava).toContain('public static final String NAME = "UnifiedBleProtocolControl"')
+    expect(controlJava).toContain('UnifiedBleProtocolJsiBinding.install')
+    expect(controlJava).not.toContain('Base64')
+    expect(codegenConfig.jsSrcsDir).toBe('src')
   })
 
-  test('uses the direct RN 0.86 ReactHost bootstrap without a legacy host compatibility path', () => {
-    const buildGradle = read('android/build.gradle')
-    const exampleGradleProperties = read('example/android/gradle.properties')
-    const mainApplication = read('example/android/app/src/main/java/com/bleplxexample/MainApplication.kt')
-
-    expect(buildGradle).toContain('apply plugin: "com.facebook.react"')
-    expect(buildGradle).toContain('buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", "true"')
-    expect(buildGradle).toContain('react {')
-    expect(buildGradle).toContain('codegenJavaPackageName = "com.sfourdrinier.unifiedblemanager"')
-    expect(buildGradle).not.toContain('isNewArchitectureEnabled')
-    expect(buildGradle).not.toContain('newArchEnabled')
-    expect(exampleGradleProperties).not.toContain('newArchEnabled')
-    expect(mainApplication).toContain('private val packages: List<ReactPackage> =')
-    expect(mainApplication).toContain('PackageList(this).packages.apply')
-    expect(mainApplication).toContain('add(Ub4JsiBinaryBootstrapPackage())')
-    expect(mainApplication).toMatch(/getDefaultReactHost\(\s*applicationContext,\s*packages,/)
-    expect(mainApplication).toContain('load()')
-    expect(mainApplication).not.toContain('ReactNativeHost')
-    expect(mainApplication).not.toContain('DefaultReactNativeHost')
-    expect(mainApplication).not.toContain('isNewArchEnabled')
-    expect(mainApplication).not.toContain('isHermesEnabled')
-    expect(mainApplication).not.toContain('BuildConfig.IS_NEW_ARCHITECTURE_ENABLED')
-  })
-
-  test('declares the RN 0.86 Java 17 toolchain resolver for clean Gradle builds', () => {
-    const settingsGradle = read('example/android/settings.gradle')
-    const gradleProperties = read('example/android/gradle.properties')
-
-    expect(settingsGradle).toMatch(
-      /id\(["']org\.gradle\.toolchains\.foojay-resolver-convention["']\)\.version\(["']1\.0\.0["']\)/
+  test('ships only the current protocol source graph and no legacy Android bridge', () => {
+    expect(sourceFilesBelow(androidJavaRoot)).toEqual([
+      'BlePlxPackage.java',
+      'protocol/ProtocolCommandDecoder.kt',
+      'protocol/ProtocolWireEncoder.kt',
+      'protocol/UnifiedBleProtocolAndroidDispatcher.kt',
+      'protocol/UnifiedBleProtocolControlModule.java',
+      'protocol/UnifiedBleProtocolJsiBinding.java',
+      'protocol/generated/NativeProtocolV1Schema.kt',
+      'radio/OwnedAndroidLog.kt',
+      'radio/OwnedAndroidGattRadio.kt'
+    ].sort())
+    const protocolDispatcher = read(
+      'android/src/main/java/com/sfourdrinier/unifiedblemanager/protocol/UnifiedBleProtocolAndroidDispatcher.kt'
     )
-    expect(gradleProperties).not.toContain('org.gradle.java.installations.auto-download=false')
+    const radio = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedAndroidGattRadio.kt')
+    expect(protocolDispatcher).toContain('OwnedAndroidGattRadio')
+    expect(protocolDispatcher).not.toMatch(/com\.sfourdrinier\.unifiedblemanager\.(adapter|converter)|Base64|BlePlxModule/)
+    expect(radio).not.toMatch(/com\.sfourdrinier\.unifiedblemanager\.(adapter|converter)|Base64/)
   })
 
-  test('keeps Android 13+ GATT values and notification state in owned models', () => {
-    const characteristic = read(
-      'android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/Characteristic.java'
-    )
-    const descriptor = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/Descriptor.java')
-    const descriptorConverter = read(
-      'android/src/main/java/com/sfourdrinier/unifiedblemanager/converter/DescriptorToJsObjectConverter.java'
-    )
-    const radio = read(
-      'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedAndroidGattRadio.kt'
-    )
-    const adapter = read(
-      'android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedBleAdapter.kt'
-    )
+  test('does not declare a foreground service that the protocol does not own', () => {
+    const manifests = [
+      read('android/src/main/AndroidManifest.xml'),
+      read('android/src/main/AndroidManifestNew.xml'),
+      read('example/android/app/src/main/AndroidManifest.xml')
+    ]
+    const plugin = read('plugin/src/withBLE.ts')
 
-    expect(characteristic).toContain('private volatile boolean notifying = false;')
-    expect(characteristic).toContain('public void setNotifying(boolean notifying)')
-    expect(characteristic).not.toContain('descriptor.getValue()')
-    expect(characteristic).not.toContain('gattCharacteristic.getValue()')
-    expect(descriptor).not.toContain('descriptor.getValue()')
-    expect(descriptor).not.toContain('setValueFromCache')
-    expect(descriptorConverter).not.toContain('setValueFromCache')
-    expect(radio).not.toContain('pendingDescValues')
-    expect(radio).not.toContain('descriptor.value = stashed')
-    expect(adapter).toContain('entry.model.setNotifying(true)')
-    expect(adapter).toContain('entry.model.setNotifying(false)')
-  })
-
-  test('does not use deprecated Android metadata or foreground-service APIs', () => {
-    const debugLogging = read(
-      'android/src/main/java/com/sfourdrinier/unifiedblemanager/utils/BlePlxDebugLogging.java'
-    )
-    const foregroundService = read(
-      'android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxForegroundService.java'
-    )
-
-    expect(debugLogging).not.toContain('metaData.get(META_DATA_NAME)')
-    expect(debugLogging).toContain('OwnedAndroidLog.e("BlePlxDebugLogging metadata lookup", exception)')
-    expect(foregroundService).not.toContain('stopForeground(true)')
-    expect(foregroundService).toContain('stopForeground(STOP_FOREGROUND_REMOVE)')
-  })
-
-  test('README documents the Android API floors used by the library', () => {
-    const readme = read('README.md')
-
-    expect(readme).toContain('min SDK version is at least 24')
-    expect(readme).toContain('minSdkVersion = 24')
-    expect(readme).toContain('| Android 14+ (API 34+) | 24 | 36 |')
-    expect(readme).not.toContain('min SDK version is at least 23')
-    expect(readme).not.toContain('minSdkVersion = 23')
-    expect(readme).not.toContain('| Android 14+ (API 34+) | 24 | 34 |')
-  })
-
-  test('does not preserve deprecated Java promise overloads', () => {
-    const safePromise = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/utils/SafePromise.java')
-
-    expect(safePromise).not.toContain('@Deprecated')
-    expect(safePromise).not.toContain('public void reject(String message)')
-  })
-
-  test('exports ServicesChangedEvent in TurboModule constants (R2-F032)', () => {
-    const moduleJava = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxModule.java')
-    expect(moduleJava).toMatch(
-      /getTypedExportedConstants[\s\S]*ServicesChangedEvent[\s\S]*return constants/
-    )
-  })
-
-  test('FGS stack includes POST_NOTIFICATIONS for Android 13+ (R2-F031 / R3-F002)', () => {
-    // Active AGP 8 manifest path (build.gradle sourceSets → AndroidManifestNew.xml)
-    const manifestNew = read('android/src/main/AndroidManifestNew.xml')
-    expect(manifestNew).toContain('android.permission.POST_NOTIFICATIONS')
-    expect(manifestNew).toContain('BlePlxForegroundService')
-    expect(manifestNew).toContain('BLUETOOTH_CONNECT')
-    expect(manifestNew).toContain('FOREGROUND_SERVICE_CONNECTED_DEVICE')
-    const manifest = read('android/src/main/AndroidManifest.xml')
-    expect(manifest).toContain('android.permission.POST_NOTIFICATIONS')
-    const fgsPlugin = read('plugin/src/withBLEAndroidForegroundService.ts')
-    expect(fgsPlugin).toContain('POST_NOTIFICATIONS')
-    // build.gradle still points AGP-namespace builds at the New manifest
-    const buildGradle = read('android/build.gradle')
-    expect(buildGradle).toContain('AndroidManifestNew.xml')
-  })
-
-  test('R3-F026 example AndroidManifest declares library FGS FQCN', () => {
-    const example = read('example/android/app/src/main/AndroidManifest.xml')
-    expect(example).toContain('com.sfourdrinier.unifiedblemanager.BlePlxForegroundService')
-    expect(example).toContain('POST_NOTIFICATIONS')
-  })
-
-  test('R3-F077 module does not call getRunningServices', () => {
-    const moduleJava = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxModule.java')
-    expect(moduleJava).not.toContain('getRunningServices')
-    expect(moduleJava).toContain('isServiceRunningStatic')
-  })
-
-  test('keeps Android promise rejection paths null-safe', () => {
-    const safePromise = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/utils/SafePromise.java')
-    const errorDefaults = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/utils/ErrorDefaults.java')
-
-    expect(errorDefaults).toContain('public static final String CODE')
-    expect(errorDefaults).toContain('public static final String MESSAGE')
-    expect(errorDefaults).toContain('public static final String MESSAGE = "Unknown error"')
-    expect(safePromise).toContain('ErrorDefaults.CODE')
-    expect(safePromise).toContain('ErrorDefaults.MESSAGE')
-    expect(safePromise).toContain('code == null')
-    expect(safePromise).toContain('message == null')
-  })
-
-  test('legacy Rx GATT refresh op is off the default source set', () => {
-    const legacyRefresh = path.join(
-      root,
-      'android/src/legacy/java/com/sfourdrinier/unifiedblemanager/adapter/utils/RefreshGattCustomOperation.java'
-    )
-    const mainRefresh = path.join(
-      root,
-      'android/src/main/java/com/sfourdrinier/unifiedblemanager/adapter/utils/RefreshGattCustomOperation.java'
-    )
-    expect(fs.existsSync(mainRefresh)).toBe(false)
-    // May exist under legacy archaeology tree
-    if (fs.existsSync(legacyRefresh)) {
-      const refreshGattOperation = fs.readFileSync(legacyRefresh, 'utf8')
-      expect(refreshGattOperation).toContain('RxBleCustomOperation')
+    for (const manifest of manifests) {
+      expect(manifest).not.toMatch(/BlePlxForegroundService|FOREGROUND_SERVICE|POST_NOTIFICATIONS/)
     }
+    expect(plugin).not.toMatch(/androidEnableForegroundService|withBLEAndroidForegroundService/)
+    expect(fs.existsSync(path.join(root, 'plugin/src/withBLEAndroidForegroundService.ts'))).toBe(false)
   })
 })

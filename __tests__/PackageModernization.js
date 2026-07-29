@@ -114,8 +114,7 @@ describe('canonical package modernization', () => {
   })
 
   test('configures examples and the Expo plugin through the canonical package name', () => {
-    const plugin = read('plugin/src/withBLERestorationPodfile.ts')
-    const pluginTest = read('plugin/src/__tests__/withBLERestorationPodfile-test.ts')
+    const plugin = read('plugin/src/withBLE.ts')
     const expoLock = read('example-expo/pnpm-lock.yaml')
 
     expect(examplePackage.dependencies['unified-ble-manager']).toBe('file:..')
@@ -123,9 +122,9 @@ describe('canonical package modernization', () => {
     expect(examplePackage.dependencies).not.toHaveProperty('react-native-ble-plx')
     expect(exampleExpoPackage.dependencies).not.toHaveProperty('react-native-ble-plx')
     expect(expoLock).toMatch(/unified-ble-manager:\s*\n\s+specifier:\s+file:\.\./)
-    expect(plugin).toContain("const CANONICAL_PACKAGE_NAME = 'unified-ble-manager'")
-    expect(plugin).toContain('return [CANONICAL_PACKAGE_NAME]')
-    expect(pluginTest).toContain("expect(buildJsPackageCandidates()).toEqual(['unified-ble-manager'])")
+    expect(plugin).toContain('createRunOncePlugin(withBLE, pkg.name, pkg.version)')
+    expect(plugin).toContain('iosNativeProtocolRestorationIdentifier')
+    expect(plugin).not.toContain('withBLERestorationPodfile')
     expect(plugin).not.toContain('@sfourdrinier/react-native-ble-plx')
   })
 })

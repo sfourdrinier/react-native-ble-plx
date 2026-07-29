@@ -11,7 +11,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
-/** Owns protocol-v1 Android radio work; it never uses the legacy adapter or Base64 callbacks. */
+/** Owns protocol-v1 Android radio work and sends bytes only through the native protocol. */
 class UnifiedBleProtocolAndroidDispatcher(
   context: Context,
   private val nativeHandle: Long

@@ -111,7 +111,7 @@ RCT_EXPORT_MODULE(UnifiedBleProtocolControl)
   self = [super init];
   if (self != nil) {
     _runtime = std::make_shared<unified_ble::native_protocol::v1::NativeProtocolControlRuntime>();
-    id configuredIdentifier = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"BlePlxRestoreIdentifier"];
+    id configuredIdentifier = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"UnifiedBleProtocolRestoreIdentifier"];
     NSString *restoreIdentifier = [configuredIdentifier isKindOfClass:[NSString class]] ? configuredIdentifier : nil;
     _radio = [[OwnedCoreBluetoothProtocolRadio alloc] initWithRestoreIdentifierKey:restoreIdentifier];
     _execution = std::make_shared<unified_ble::apple_protocol::AppleNativeProtocolExecution>(

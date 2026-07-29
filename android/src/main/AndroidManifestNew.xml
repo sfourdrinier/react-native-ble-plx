@@ -1,9 +1,10 @@
+<!-- android/src/main/AndroidManifestNew.xml -->
+
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
   xmlns:tools="http://schemas.android.com/tools">
 
   <!-- AGP 8+ active manifest (build.gradle sourceSets.main.manifest.srcFile).
-       Namespace is declared in android/build.gradle; keep package off this file.
-       Permissions + FGS must live here so the published AAR merges them (R3-F002). -->
+       Namespace is declared in android/build.gradle; keep package off this file. -->
 
   <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
   <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -21,24 +22,5 @@
     android:name="android.permission.BLUETOOTH_CONNECT"
     tools:targetApi="s" />
 
-  <!-- Foreground service permissions for background BLE operations -->
-  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-  <uses-permission
-    android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"
-    tools:targetApi="upside_down_cake" />
-  <!-- Android 13+ runtime permission so the FGS persistent notification is user-visible (R2-F031).
-       Host apps must still request this at runtime before/when enabling background mode. -->
-  <uses-permission
-    android:name="android.permission.POST_NOTIFICATIONS"
-    tools:targetApi="tiramisu" />
-
-  <application>
-    <!-- BLE Foreground Service for background operations -->
-    <service
-      android:name=".BlePlxForegroundService"
-      android:enabled="true"
-      android:exported="false"
-      android:foregroundServiceType="connectedDevice"
-      tools:targetApi="q" />
-  </application>
+  <application />
 </manifest>

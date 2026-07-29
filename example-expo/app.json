@@ -23,9 +23,7 @@
         {
           "isBackgroundEnabled": true,
           "modes": ["central"],
-          "iosEnableRestoration": true,
-          "iosRestorationIdentifier": "com.sfourdrinier.bleplxexample.restore",
-          "androidEnableForegroundService": true
+          "iosNativeProtocolRestorationIdentifier": "com.sfourdrinier.bleplxexample.restore"
         }
       ]
     ],

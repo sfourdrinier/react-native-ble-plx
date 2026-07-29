@@ -1,3 +1,5 @@
+// android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxPackage.java
+
 package com.sfourdrinier.unifiedblemanager;
 
 import androidx.annotation.NonNull;
@@ -17,9 +19,6 @@ public class BlePlxPackage extends BaseReactPackage {
   @Nullable
   @Override
   public NativeModule getModule(String name, ReactApplicationContext reactContext) {
-    if (BlePlxModule.NAME.equals(name)) {
-      return new BlePlxModule(reactContext);
-    }
     if (UnifiedBleProtocolControlModule.NAME.equals(name)) {
       return new UnifiedBleProtocolControlModule(reactContext);
     }
@@ -32,17 +31,6 @@ public class BlePlxPackage extends BaseReactPackage {
   public ReactModuleInfoProvider getReactModuleInfoProvider() {
     return () -> {
       final Map<String, ReactModuleInfo> moduleInfos = new HashMap<>();
-      moduleInfos.put(
-        BlePlxModule.NAME,
-        new ReactModuleInfo(
-          BlePlxModule.NAME,
-          BlePlxModule.class.getName(),
-          false,
-          false,
-          false,
-          true
-        )
-      );
       moduleInfos.put(
         UnifiedBleProtocolControlModule.NAME,
         new ReactModuleInfo(

@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.12] - 2026-07-29
+
+### Changed
+
+- Removed the retired Android and Apple `BlePlx` bridge graphs, Base64 native transport, reactive vendor sources, legacy restoration shim, and unowned foreground-service path. React Native now exposes only the versioned `UnifiedBleProtocolControl` TurboModule and its JSI-owned radio implementations.
+
+### Fixed
+
+- Restored clean React Native 0.86 Android assembly by making the generated current protocol control spec the only registered Android native module.
+
 ## [4.0.0-alpha.11] - 2026-07-29
 
 ### Fixed

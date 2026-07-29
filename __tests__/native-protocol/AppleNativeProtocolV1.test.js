@@ -14,24 +14,25 @@ function read(relativePath) {
 const executesOnAppleHost = process.platform === 'darwin' ? test : test.skip
 
 describe('Apple Native Protocol v1 radio boundary', () => {
-  test('owns direct CoreBluetooth bytes, duplicate-aware paths, and restoration central adoption', () => {
+  test('owns direct CoreBluetooth bytes, duplicate-aware paths, and direct restoration', () => {
     const radio = read('ios/Owned/OwnedCoreBluetoothProtocolRadio.swift')
-    const adapter = read('ios/Owned/OwnedCoreBluetoothAdapter.swift')
     const control = read('ios/UnifiedBleProtocolControl.mm')
     const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
     const support = read('ios/Owned/OwnedCoreBluetoothProtocolRadioSupport.swift')
 
     expect(radio).toContain('OwnedCoreBluetoothProtocolRadio')
-    expect(radio).toContain('takeRestorationTransfer')
-    expect(support).toContain('takeUnifiedProtocolCentralTransfer')
+    expect(radio).toContain('private static let radioQueue')
+    expect(radio).toContain('willRestoreState')
+    expect(radio).toContain('restoredPeerIdentifiers')
     expect(radio).toContain('serviceOccurrence')
     expect(radio).toContain('characteristicOccurrence')
     expect(radio).toContain('cancelPendingOperation')
     expect(radio).toContain('maximumBinaryPayloadBytes')
     expect(radio).not.toMatch(/base64/i)
-    expect(adapter).toContain('takeUnifiedProtocolCentralTransfer')
+    expect(support).not.toMatch(/BlePlx|Restoration|perform\(/)
     expect(control).toContain('RCTTurboModuleWithJSIBindings')
     expect(control).toContain('installJSIBindingsWithRuntime')
+    expect(control).toContain('UnifiedBleProtocolRestoreIdentifier')
     expect(control).toContain('appendRestorationRecords')
     expect(control).not.toContain('Android-only slice')
     expect(execution).toContain('__unifiedBleNativeProtocolV1')
@@ -102,7 +103,6 @@ describe('Apple Native Protocol v1 radio boundary', () => {
         'xcrun',
         [
           'swiftc',
-          path.join(root, 'ios/Owned/BlePlxRadioQueue.swift'),
           path.join(root, 'ios/Owned/OwnedCoreBluetoothProtocolRadioSupport.swift'),
           path.join(root, 'ios/Owned/OwnedCoreBluetoothProtocolRadio.swift'),
           path.join(root, 'native/protocol/tests/AppleCoreBluetoothScanParserHarness.swift'),

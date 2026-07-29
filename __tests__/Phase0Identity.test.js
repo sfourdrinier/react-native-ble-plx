@@ -1,7 +1,5 @@
 // __tests__/Phase0Identity.test.js
 
-// __tests__/Phase0Identity.test.js
-
 const fs = require('fs')
 const path = require('path')
 
@@ -51,13 +49,16 @@ describe('Phase 0 product identity (unified-ble-manager)', () => {
     expect(pkg.exports['./node']).toBeUndefined()
   })
 
-  test('podspec is unified-ble-manager with Restoration subspec and default_subspecs :none', () => {
+  test('podspec is unified-ble-manager with only the Unified Protocol Apple boundary', () => {
     expect(fs.existsSync(podspecPath)).toBe(true)
     const pod = fs.readFileSync(podspecPath, 'utf8')
     expect(pod).toContain('s.name         = "unified-ble-manager"')
-    expect(pod).toMatch(/s\.default_subspecs\s*=\s*:none/)
-    expect(pod).toContain('subspec "Restoration"')
-    expect(pod).toContain('unified-ble-manager/Restoration')
+    expect(pod).toContain('ios/UnifiedBleProtocolControl.mm')
+    expect(pod).toContain('ios/Owned/OwnedCoreBluetoothProtocolRadio.swift')
+    expect(pod).not.toMatch(/default_subspecs|subspec "Restoration"|MultiplatformBleAdapter/)
+    expect(pkg.codegenConfig.ios.modulesProvider).toEqual({
+      UnifiedBleProtocolControl: 'UnifiedBleProtocolControl'
+    })
     // Not the old pod name as s.name
     expect(pod).not.toMatch(/s\.name\s*=\s*"react-native-ble-plx"/)
   })
@@ -66,29 +67,26 @@ describe('Phase 0 product identity (unified-ble-manager)', () => {
     expect(buildGradle).toContain('namespace = "com.sfourdrinier.unifiedblemanager"')
     expect(buildGradle).toContain('codegenJavaPackageName = "com.sfourdrinier.unifiedblemanager"')
     expect(pkg.codegenConfig.android.javaPackageName).toBe('com.sfourdrinier.unifiedblemanager')
-    const moduleJava = path.join(root, 'android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxModule.java')
-    expect(fs.existsSync(moduleJava)).toBe(true)
-    const fgsJava = path.join(
+    const packageJava = path.join(root, 'android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxPackage.java')
+    const controlJava = path.join(
       root,
-      'android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxForegroundService.java'
+      'android/src/main/java/com/sfourdrinier/unifiedblemanager/protocol/UnifiedBleProtocolControlModule.java'
     )
-    expect(fs.existsSync(fgsJava)).toBe(true)
+    expect(fs.existsSync(packageJava)).toBe(true)
+    expect(fs.existsSync(controlJava)).toBe(true)
+    expect(fs.existsSync(path.join(root, 'android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxModule.java'))).toBe(
+      false
+    )
   })
 
-  test('Expo FGS plugin injects FQCN matching Android namespace (not legacy com.bleplx)', () => {
-    const fgsSrc = fs.readFileSync(path.join(root, 'plugin/src/withBLEAndroidForegroundService.ts'), 'utf8')
-    // Primary constant must use locked namespace
-    expect(fgsSrc).toMatch(
-      /BLE_PLX_FOREGROUND_SERVICE_NAME\s*=\s*\n?\s*['"]com\.sfourdrinier\.unifiedblemanager\.BlePlxForegroundService['"]/
-    )
-    // When declaring a new service, android:name must use the constant (not hard-coded com.bleplx)
-    expect(fgsSrc).toContain("'android:name': BLE_PLX_FOREGROUND_SERVICE_NAME")
-    // Built plugin output must stay in sync (consumers load plugin/build)
-    const fgsBuild = fs.readFileSync(path.join(root, 'plugin/build/withBLEAndroidForegroundService.js'), 'utf8')
-    expect(fgsBuild).toContain('com.sfourdrinier.unifiedblemanager.BlePlxForegroundService')
-    // Must not still be the only/default inject target
-    expect(fgsBuild).not.toMatch(/serviceName\s*=\s*['"]com\.bleplx\.BlePlxForegroundService['"]/)
-    expect(fgsBuild).not.toMatch(/BLE_PLX_FOREGROUND_SERVICE_NAME\s*=\s*['"]com\.bleplx\.BlePlxForegroundService['"]/)
+  test('Expo plugin does not expose a retired Android foreground-service configuration', () => {
+    const pluginSource = fs.readFileSync(path.join(root, 'plugin/src/withBLE.ts'), 'utf8')
+    const pluginBuild = fs.readFileSync(path.join(root, 'plugin/build/withBLE.js'), 'utf8')
+
+    expect(pluginSource).not.toMatch(/androidEnableForegroundService|withBLEAndroidForegroundService/)
+    expect(pluginBuild).not.toMatch(/androidEnableForegroundService|withBLEAndroidForegroundService/)
+    expect(fs.existsSync(path.join(root, 'plugin/src/withBLEAndroidForegroundService.ts'))).toBe(false)
+    expect(fs.existsSync(path.join(root, 'plugin/build/withBLEAndroidForegroundService.js'))).toBe(false)
   })
 
   test('Expo plugin entry exists (id follows package name at runtime)', () => {

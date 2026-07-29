@@ -21,7 +21,7 @@ describe('4.0 canonical package baseline', () => {
       'scripts/ci/verify-package-tarballs.js',
       'jest.config.js',
       'package.json',
-      'plugin/src/withBLERestorationPodfile.ts',
+      'plugin/src/withBLE.ts',
       'README.md',
       'CLAUDE.md'
     ]

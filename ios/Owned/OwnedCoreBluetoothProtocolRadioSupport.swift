@@ -102,16 +102,4 @@ enum OwnedCoreBluetoothProtocolRadioSupport {
     }
     return uppercased
   }
-
-  static func takeRestorationTransfer() -> OwnedCoreBluetoothProtocolCentralTransfer? {
-    guard let stateClass = NSClassFromString("BlePlxRestorationState") as? NSObject.Type else { return nil }
-    let selector = NSSelectorFromString("takeRestoredManager")
-    guard stateClass.responds(to: selector),
-          let restoredManager = stateClass.perform(selector)?.takeUnretainedValue() as? NSObject,
-          restoredManager.responds(to: NSSelectorFromString("takeUnifiedProtocolCentralTransfer")) else {
-      return nil
-    }
-    return restoredManager.perform(NSSelectorFromString("takeUnifiedProtocolCentralTransfer"))?.takeUnretainedValue()
-      as? OwnedCoreBluetoothProtocolCentralTransfer
-  }
 }

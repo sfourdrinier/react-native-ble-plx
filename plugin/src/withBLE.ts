@@ -5,15 +5,9 @@ import { AndroidConfig, type ConfigPlugin, createRunOncePlugin, withInfoPlist } 
 // Path is ../../package.json because this file is compiled to plugin/build/withBLE.js
 const pkg = require('../../package.json')
 import { withBLEAndroidManifest } from './withBLEAndroidManifest'
-import { withBLEAndroidForegroundService } from './withBLEAndroidForegroundService'
 import { BackgroundMode, withBLEBackgroundModes } from './withBLEBackgroundModes'
 import { withBluetoothPermissions } from './withBluetoothPermissions'
 import { withBLEDebugLogging } from './withBLEDebugLogging'
-import {
-  clearBlePlxRestoreIdentifier,
-  setBlePlxRestoreIdentifier,
-  withBLERestorationPodfile
-} from './withBLERestorationPodfile'
 import { blePlxPluginDebugLog, isBlePlxPluginDebugEnabled } from './debugLog'
 
 /**
@@ -27,12 +21,8 @@ const withBLE: ConfigPlugin<
     neverForLocation?: boolean
     modes?: BackgroundMode[]
     bluetoothAlwaysPermission?: string | false
-    /** Enable iOS BLE state restoration support (Restoration subspec) */
-    iosEnableRestoration?: boolean
-    /** Optional custom restoration identifier passed to iOS central manager */
-    iosRestorationIdentifier?: string
-    /** Enable Android foreground service for background BLE operations */
-    androidEnableForegroundService?: boolean
+    /** Enables direct Unified BLE Protocol CoreBluetooth restoration when non-empty. */
+    iosNativeProtocolRestorationIdentifier?: string
   } | void
 > = (config, props = {}) => {
   const _props = props || {}
@@ -44,47 +34,37 @@ const withBLE: ConfigPlugin<
 
   const isBackgroundEnabled = _props.isBackgroundEnabled ?? false
   const neverForLocation = _props.neverForLocation ?? false
-  const iosEnableRestoration = _props.iosEnableRestoration ?? false
-  const iosRestorationIdentifier = _props.iosRestorationIdentifier ?? 'com.reactnativebleplx.restore'
-  const androidEnableForegroundService = _props.androidEnableForegroundService ?? false
-
-  blePlxPluginDebugLog(debugEnabled, 'iosEnableRestoration:', iosEnableRestoration)
-  blePlxPluginDebugLog(debugEnabled, 'androidEnableForegroundService:', androidEnableForegroundService)
+  const iosNativeProtocolRestorationIdentifier = _props.iosNativeProtocolRestorationIdentifier
+  if (
+    iosNativeProtocolRestorationIdentifier !== undefined &&
+    (typeof iosNativeProtocolRestorationIdentifier !== 'string' ||
+      iosNativeProtocolRestorationIdentifier.trim().length === 0)
+  ) {
+    throw new Error('iosNativeProtocolRestorationIdentifier must be a non-empty string when configured')
+  }
+  blePlxPluginDebugLog(
+    debugEnabled,
+    'iosNativeProtocolRestorationIdentifier configured:',
+    iosNativeProtocolRestorationIdentifier !== undefined
+  )
 
   // iOS
   config = withBluetoothPermissions(config, _props)
   config = withBLEBackgroundModes(config, _props.modes || [])
 
-  // Always run so true→false flips strip sticky Podfile/plist artifacts (#32).
-  if (iosEnableRestoration) {
-    blePlxPluginDebugLog(debugEnabled, '✓ iosEnableRestoration is TRUE - adding Restoration subspec')
-    blePlxPluginDebugLog(debugEnabled, 'Setting BlePlxRestoreIdentifier in Info.plist:', iosRestorationIdentifier)
-
-    config = withInfoPlist(config, conf => {
-      conf.modResults = setBlePlxRestoreIdentifier(
-        conf.modResults as Record<string, unknown>,
-        iosRestorationIdentifier
-      ) as typeof conf.modResults
-      return conf
-    })
-
-    blePlxPluginDebugLog(debugEnabled, 'Calling withBLERestorationPodfile (enable) for unified-ble-manager')
-    config = withBLERestorationPodfile(config, { enable: true })
-  } else {
-    blePlxPluginDebugLog(
-      debugEnabled,
-      '✗ iosEnableRestoration is FALSE - removing Restoration subspec / BlePlxRestoreIdentifier if present'
-    )
-
-    config = withInfoPlist(config, conf => {
-      conf.modResults = clearBlePlxRestoreIdentifier(
-        conf.modResults as Record<string, unknown>
-      ) as typeof conf.modResults
-      return conf
-    })
-
-    config = withBLERestorationPodfile(config, { enable: false })
-  }
+  // Direct CoreBluetooth restoration is owned by the Unified Protocol radio. It needs no
+  // second pod, registry, reflection, or 3.x adapter handoff.
+  config = withInfoPlist(config, conf => {
+    const infoPlist = { ...(conf.modResults as Record<string, unknown>) }
+    delete infoPlist.BlePlxRestoreIdentifier
+    if (iosNativeProtocolRestorationIdentifier === undefined) {
+      delete infoPlist.UnifiedBleProtocolRestoreIdentifier
+    } else {
+      infoPlist.UnifiedBleProtocolRestoreIdentifier = iosNativeProtocolRestorationIdentifier
+    }
+    conf.modResults = infoPlist as typeof conf.modResults
+    return conf
+  })
 
   // Android
   config = AndroidConfig.Permissions.withPermissions(config, [
@@ -95,16 +75,6 @@ const withBLE: ConfigPlugin<
   config = withBLEAndroidManifest(config, {
     isBackgroundEnabled,
     neverForLocation
-  })
-
-  // Always run so an enabled-to-disabled config transition removes the plugin's sticky FGS entries.
-  if (androidEnableForegroundService) {
-    blePlxPluginDebugLog(debugEnabled, '✓ androidEnableForegroundService is TRUE - adding foreground service config')
-  } else {
-    blePlxPluginDebugLog(debugEnabled, '✗ androidEnableForegroundService is FALSE - removing foreground service config')
-  }
-  config = withBLEAndroidForegroundService(config, {
-    enableAndroidForegroundService: androidEnableForegroundService
   })
 
   return config

@@ -3,20 +3,6 @@
 import CoreBluetooth
 import Foundation
 
-@objc(OwnedCoreBluetoothProtocolCentralTransfer)
-public final class OwnedCoreBluetoothProtocolCentralTransfer: NSObject {
-  let central: CBCentralManager
-  let restoredPeripherals: [CBPeripheral]
-  let restoreIdentifierKey: String?
-
-  init(central: CBCentralManager, restoredPeripherals: [CBPeripheral], restoreIdentifierKey: String?) {
-    self.central = central
-    self.restoredPeripherals = restoredPeripherals
-    self.restoreIdentifierKey = restoreIdentifierKey
-    super.init()
-  }
-}
-
 @objc public protocol OwnedCoreBluetoothProtocolRadioDelegate: NSObjectProtocol {
   func protocolRadioDidUpdateAdapterState(_ snapshot: NSDictionary)
   func protocolRadioDidReceiveAdvertisement(_ advertisement: NSDictionary)
@@ -28,11 +14,14 @@ public final class OwnedCoreBluetoothProtocolCentralTransfer: NSObject {
  * Direct CoreBluetooth radio façade for Native Protocol v1.
  *
  * Control records cross the JSI boundary in C++, while this class receives and produces native
- * Data only. Every mutable CoreBluetooth object stays confined to BlePlxRadioQueue.shared.
+ * Data only. Every mutable CoreBluetooth object stays confined to its serial radio queue.
  */
 @objc(OwnedCoreBluetoothProtocolRadio)
 public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
   private static let maximumBinaryPayloadBytes = 512 * 1024
+  private static let radioQueue = DispatchQueue(
+    label: "com.sfourdrinier.unifiedblemanager.unified-protocol-radio"
+  )
 
   @objc public weak var delegate: OwnedCoreBluetoothProtocolRadioDelegate?
 
@@ -91,21 +80,8 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
   }
 
   @objc public init(restoreIdentifierKey: String?) {
-    queue = BlePlxRadioQueue.shared
+    queue = Self.radioQueue
     super.init()
-    let transfer = OwnedCoreBluetoothProtocolRadioSupport.takeRestorationTransfer()
-    if let transfer {
-      central = transfer.central
-      central.delegate = self
-      for peripheral in transfer.restoredPeripherals {
-        let identifier = peripheral.identifier.uuidString
-        peripheralByIdentifier[identifier] = peripheral
-        restoredPeerIdentifiers.append(identifier)
-        peripheral.delegate = self
-      }
-      return
-    }
-
     var options = [String: Any]()
     #if os(iOS)
     if let restoreIdentifierKey, !restoreIdentifierKey.isEmpty {

@@ -26,6 +26,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
+import com.sfourdrinier.unifiedblemanager.protocol.UnifiedBleProtocolAndroidDispatcher
 import java.util.ArrayDeque
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -53,7 +54,7 @@ internal data class OwnedRadioAdapterProtocolState(
 
 /**
  * Pure Android BluetoothGatt radio core — no RxAndroidBle / RxJava.
- * Host-agnostic GATT operations used by [OwnedBleAdapter].
+ * Protocol-owned GATT operations used by [UnifiedBleProtocolAndroidDispatcher].
  *
  * Serializes GATT requests per device (Android allows only one outstanding
  * request at a time). Connection listeners are registered per-device so multi-

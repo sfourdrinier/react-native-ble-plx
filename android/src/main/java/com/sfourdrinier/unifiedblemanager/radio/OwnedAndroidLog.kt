@@ -1,12 +1,12 @@
+// android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedAndroidLog.kt
+
 package com.sfourdrinier.unifiedblemanager.radio
 
 import android.util.Log
 
-/**
- * Owned radio logging — no RxAndroidBle RxBleLog dependency.
- */
+/** Logging owned by the protocol's Android GATT radio. */
 object OwnedAndroidLog {
-  private const val TAG = "OwnedBleRadio"
+  private const val TAG = "UnifiedBleProtocolRadio"
   @JvmStatic var level: Int = Log.WARN
 
   @JvmStatic fun v(msg: String) {
