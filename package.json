@@ -1,6 +1,6 @@
 {
   "name": "unified-ble-manager",
-  "version": "4.0.0-alpha.5",
+  "version": "4.0.0-alpha.6",
   "description": "Unified Bluetooth Low Energy manager for React Native, Electron, Web, and desktop (4.0 train; successor lineage of @sfourdrinier/react-native-ble-plx)",
   "packageManager": "pnpm@10.14.0",
   "main": "lib/commonjs/index.js",
@@ -47,6 +47,7 @@
   "scripts": {
     "build": "pnpm prepack",
     "test": "pnpm test:package",
+    "pretest:package": "pnpm prepack",
     "test:package": "jest --config jest.config.js",
     "native-protocol:generate": "node scripts/native-protocol/generate-native-protocol.js",
     "native-protocol:check": "node scripts/native-protocol/generate-native-protocol.js --check",

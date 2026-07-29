@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.6] - 2026-07-29
+
+### Fixed
+
+- Made `test:package` self-contained by building its required generated package artifacts before tests run, including on a clean CI checkout.
+
 ## [4.0.0-alpha.5] - 2026-07-28
 
 ### Fixed

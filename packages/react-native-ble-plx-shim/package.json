@@ -1,6 +1,6 @@
 {
   "name": "@sfourdrinier/react-native-ble-plx",
-  "version": "4.0.0-alpha.5",
+  "version": "4.0.0-alpha.6",
   "description": "Compatibility shim: re-exports unified-ble-manager (4.0 train). Prefer installing unified-ble-manager directly.",
   "license": "MIT",
   "main": "index.js",

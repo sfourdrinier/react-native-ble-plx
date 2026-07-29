@@ -8,7 +8,7 @@ const {
   assertExactShimManifest
 } = require('../scripts/ci/verify-package-tarballs')
 
-const canonicalVersion = '4.0.0-alpha.5'
+const canonicalVersion = '4.0.0-alpha.6'
 
 function exactShimManifest() {
   const manifest = JSON.parse(
