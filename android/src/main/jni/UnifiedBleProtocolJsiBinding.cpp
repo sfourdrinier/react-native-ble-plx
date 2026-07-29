@@ -274,6 +274,81 @@ protocol::ProtocolStringList stringListFromJava(
   return output;
 }
 
+std::optional<protocol::ProtocolStringList> optionalStringListFromJava(
+    JNIEnv* environment,
+    jobjectArray values,
+    const char* name) {
+  if (values == nullptr) {
+    return std::nullopt;
+  }
+  return stringListFromJava(environment, values, name);
+}
+
+std::optional<std::vector<std::vector<std::uint8_t>>> optionalByteArrayListFromJava(
+    JNIEnv* environment,
+    jobjectArray values,
+    const char* name) {
+  if (values == nullptr) {
+    return std::nullopt;
+  }
+  const auto length = environment->GetArrayLength(values);
+  if (length < 0 || static_cast<std::size_t>(length) > 256U) {
+    throw protocol::ProtocolException(
+        protocol::ProtocolFailure::payloadTooLarge,
+        std::string("Native Protocol v1 ") + name + " exceeds its entry limit");
+  }
+  std::vector<std::vector<std::uint8_t>> output;
+  output.reserve(static_cast<std::size_t>(length));
+  for (jsize index = 0; index < length; index += 1) {
+    const auto item = static_cast<jbyteArray>(environment->GetObjectArrayElement(values, index));
+    try {
+      output.push_back(bytesFromJava(environment, item));
+    } catch (...) {
+      if (item != nullptr) {
+        environment->DeleteLocalRef(item);
+      }
+      throw;
+    }
+    environment->DeleteLocalRef(item);
+  }
+  return output;
+}
+
+std::optional<std::vector<jint>> optionalIntListFromJava(
+    JNIEnv* environment,
+    jintArray values,
+    const char* name) {
+  if (values == nullptr) {
+    return std::nullopt;
+  }
+  const auto length = environment->GetArrayLength(values);
+  if (length < 0 || static_cast<std::size_t>(length) > 256U) {
+    throw protocol::ProtocolException(
+        protocol::ProtocolFailure::payloadTooLarge,
+        std::string("Native Protocol v1 ") + name + " exceeds its entry limit");
+  }
+  std::vector<jint> output(static_cast<std::size_t>(length));
+  if (length > 0) {
+    environment->GetIntArrayRegion(values, 0, length, output.data());
+  }
+  return output;
+}
+
+template <typename Left, typename Right>
+void requirePairedAdvertisementFields(
+    const std::optional<Left>& left,
+    const std::optional<Right>& right,
+    const char* name) {
+  if (!left && !right) {
+    return;
+  }
+  if (!left || !right || left->size() != right->size()) {
+    throw protocol::ProtocolException(
+        protocol::ProtocolFailure::invalidFieldType,
+        std::string("Native Protocol v1 ") + name + " keys and values must have matching presence and length");
+  }
+}
+
 jbyteArray javaByteArray(JNIEnv* environment, const std::vector<std::uint8_t>& bytes) {
   const auto result = environment->NewByteArray(static_cast<jsize>(bytes.size()));
   if (result == nullptr) {
@@ -1084,10 +1159,20 @@ void emitAdvertisementFromJava(
     jstring deviceId,
     jstring name,
     jint rssi,
-    jboolean connectable,
+    jint txPower,
+    jboolean hasTxPower,
+    jint connectableState,
+    jlong appearance,
+    jboolean hasAppearance,
     jbyteArray rawRecord,
-    jobjectArray serviceUuids) {
-  std::optional<protocol::OwnedBinaryReference> outputReference;
+    jobjectArray serviceUuids,
+    jobjectArray solicitedServiceUuids,
+    jobjectArray serviceDataUuids,
+    jobjectArray serviceDataValues,
+    jintArray manufacturerCompanyIdentifiers,
+    jobjectArray manufacturerDataValues) {
+  std::shared_ptr<protocol::NativeProtocolControlRuntime> activeRuntime;
+  std::vector<protocol::OwnedBinaryReference> outputReferences;
   try {
     const auto state = eventSinkState(nativeHandle);
     if (!state) {
@@ -1098,7 +1183,7 @@ void emitAdvertisementFromJava(
           static_cast<long long>(nativeHandle));
       return;
     }
-    const auto activeRuntime = state->runtimeLease.lock();
+    activeRuntime = state->runtimeLease.lock();
     if (!activeRuntime) {
       __android_log_print(
           ANDROID_LOG_ERROR,
@@ -1118,13 +1203,59 @@ void emitAdvertisementFromJava(
     }
     const auto peerId = stringFromJava(environment, deviceId, "advertisement device identifier");
     const auto localName = optionalStringFromJava(environment, name);
-    const auto advertisedServiceUuids = stringListFromJava(environment, serviceUuids, "advertisement service UUIDs");
+    const auto advertisedServiceUuids = optionalStringListFromJava(
+        environment,
+        serviceUuids,
+        "advertisement service UUIDs");
+    const auto solicitedUuids = optionalStringListFromJava(
+        environment,
+        solicitedServiceUuids,
+        "advertisement solicited service UUIDs");
+    const auto serviceDataKeys = optionalStringListFromJava(
+        environment,
+        serviceDataUuids,
+        "advertisement service data UUIDs");
+    const auto serviceDataPayloads = optionalByteArrayListFromJava(
+        environment,
+        serviceDataValues,
+        "advertisement service data values");
+    const auto manufacturerIdentifiers = optionalIntListFromJava(
+        environment,
+        manufacturerCompanyIdentifiers,
+        "advertisement manufacturer company identifiers");
+    const auto manufacturerPayloads = optionalByteArrayListFromJava(
+        environment,
+        manufacturerDataValues,
+        "advertisement manufacturer data values");
+    requirePairedAdvertisementFields(serviceDataKeys, serviceDataPayloads, "advertisement service data");
+    requirePairedAdvertisementFields(
+        manufacturerIdentifiers,
+        manufacturerPayloads,
+        "advertisement manufacturer data");
+    if (connectableState != -1 && connectableState != 0 && connectableState != 1) {
+      throw protocol::ProtocolException(
+          protocol::ProtocolFailure::invalidFieldType,
+          "Native Protocol v1 advertisement connectable state is invalid");
+    }
+    if (hasAppearance == JNI_TRUE && (appearance < 0 || appearance > 0xFFFF)) {
+      throw protocol::ProtocolException(
+          protocol::ProtocolFailure::invalidFieldType,
+          "Native Protocol v1 advertisement appearance is outside the Bluetooth assigned-number range");
+    }
+    if (manufacturerIdentifiers) {
+      for (const auto companyIdentifier : *manufacturerIdentifiers) {
+        if (companyIdentifier < 0 || companyIdentifier > 0xFFFF) {
+          throw protocol::ProtocolException(
+              protocol::ProtocolFailure::invalidFieldType,
+              "Native Protocol v1 advertisement manufacturer company identifier is invalid");
+        }
+      }
+    }
     const auto ordinal = state->nextIngressOrdinal.fetch_add(1U);
     const auto timestamp = monotonicTimestampMilliseconds();
     protocol::ProtocolStringList fieldProvenance{
         "peerId:androidBluetoothLe",
-        "rssi:androidBluetoothLe",
-        "connectable:androidBluetoothLe"};
+        "rssi:androidBluetoothLe"};
     if (localName) {
       fieldProvenance.push_back("localName:androidBluetoothLe");
     }
@@ -1134,21 +1265,78 @@ void emitAdvertisementFromJava(
         protocolField(3U, ordinal),
         protocolField(4U, std::string("androidBluetoothLe")),
         protocolField(6U, static_cast<std::int64_t>(rssi)),
-        protocolField(8U, connectable == JNI_TRUE),
     };
     if (localName) {
       provenance.push_back(protocolField(5U, *localName));
     }
-    if (!advertisedServiceUuids.empty()) {
-      provenance.push_back(protocolField(10U, advertisedServiceUuids));
+    if (hasTxPower == JNI_TRUE) {
+      provenance.push_back(protocolField(7U, static_cast<std::int64_t>(txPower)));
+      fieldProvenance.push_back("txPower:androidBluetoothLe");
+    }
+    if (connectableState != -1) {
+      provenance.push_back(protocolField(8U, connectableState == 1));
+      fieldProvenance.push_back("connectable:androidBluetoothLe");
+    }
+    if (hasAppearance == JNI_TRUE) {
+      provenance.push_back(protocolField(9U, static_cast<std::uint64_t>(appearance)));
+      fieldProvenance.push_back("appearance:androidBluetoothLe");
+    }
+    if (advertisedServiceUuids && !advertisedServiceUuids->empty()) {
+      provenance.push_back(protocolField(10U, *advertisedServiceUuids));
       fieldProvenance.push_back("serviceUuids:androidBluetoothLe");
     }
+    if (solicitedUuids && !solicitedUuids->empty()) {
+      provenance.push_back(protocolField(11U, *solicitedUuids));
+      fieldProvenance.push_back("solicitedServiceUuids:androidBluetoothLe");
+    }
+    if (serviceDataKeys && !serviceDataKeys->empty()) {
+      protocol::ProtocolRecordList serviceDataEntries;
+      serviceDataEntries.reserve(serviceDataKeys->size());
+      for (std::size_t index = 0U; index < serviceDataKeys->size(); index += 1U) {
+        const auto reference = activeRuntime->retainNativeBytes(
+            std::string("advertisement:") + peerId + ":" + std::to_string(ordinal) + ":service-data:" +
+                std::to_string(index),
+            serviceDataPayloads->at(index));
+        outputReferences.push_back(reference);
+        serviceDataEntries.push_back(protocolRecordReference(protocol::ProtocolRecord{
+            .kind = protocol::RecordKind::serviceDataEntry,
+            .fields = {
+                protocolField(1U, serviceDataKeys->at(index)),
+                protocolField(2U, protocolRecordReference(binaryReferenceRecord(reference))),
+            },
+        }));
+      }
+      provenance.push_back(protocolField(13U, std::move(serviceDataEntries)));
+      fieldProvenance.push_back("serviceData:androidBluetoothLe");
+    }
+    if (manufacturerIdentifiers && !manufacturerIdentifiers->empty()) {
+      protocol::ProtocolRecordList manufacturerDataEntries;
+      manufacturerDataEntries.reserve(manufacturerIdentifiers->size());
+      for (std::size_t index = 0U; index < manufacturerIdentifiers->size(); index += 1U) {
+        const auto reference = activeRuntime->retainNativeBytes(
+            std::string("advertisement:") + peerId + ":" + std::to_string(ordinal) + ":manufacturer-data:" +
+                std::to_string(index),
+            manufacturerPayloads->at(index));
+        outputReferences.push_back(reference);
+        manufacturerDataEntries.push_back(protocolRecordReference(protocol::ProtocolRecord{
+            .kind = protocol::RecordKind::manufacturerDataEntry,
+            .fields = {
+                protocolField(1U, static_cast<std::uint64_t>(manufacturerIdentifiers->at(index))),
+                protocolField(2U, protocolRecordReference(binaryReferenceRecord(reference))),
+            },
+        }));
+      }
+      provenance.push_back(protocolField(14U, std::move(manufacturerDataEntries)));
+      fieldProvenance.push_back("manufacturerData:androidBluetoothLe");
+    }
+    // Android ScanRecord has no public overflow UUID or independent scan-response PDU accessors.
     if (rawRecord != nullptr) {
       const auto rawBytes = bytesFromJava(environment, rawRecord);
-      outputReference = activeRuntime->retainNativeBytes(
-          std::string("advertisement:") + peerId + ":" + std::to_string(ordinal),
+      const auto reference = activeRuntime->retainNativeBytes(
+          std::string("advertisement:") + peerId + ":" + std::to_string(ordinal) + ":raw-record",
           rawBytes);
-      provenance.push_back(protocolField(15U, protocolRecordReference(binaryReferenceRecord(*outputReference))));
+      outputReferences.push_back(reference);
+      provenance.push_back(protocolField(15U, protocolRecordReference(binaryReferenceRecord(reference))));
       fieldProvenance.push_back("rawRecord:androidBluetoothLe");
     }
     provenance.push_back(protocolField(17U, std::move(fieldProvenance)));
@@ -1173,14 +1361,12 @@ void emitAdvertisementFromJava(
         },
     };
     deliverNativeEvent(state, activeRuntime, event);
-    outputReference.reset();
+    outputReferences.clear();
   } catch (const std::exception& error) {
-    if (outputReference) {
-      const auto state = eventSinkState(nativeHandle);
-      const auto activeRuntime = state ? state->runtimeLease.lock() : nullptr;
-      if (activeRuntime) {
+    if (activeRuntime) {
+      for (const auto& outputReference : outputReferences) {
         try {
-          static_cast<void>(activeRuntime->releaseBinary(*outputReference));
+          static_cast<void>(activeRuntime->releaseBinary(outputReference));
         } catch (const std::exception& releaseError) {
           __android_log_print(
               ANDROID_LOG_ERROR,
@@ -1380,18 +1566,36 @@ Java_com_sfourdrinier_unifiedblemanager_protocol_UnifiedBleProtocolJsiBinding_em
     jstring deviceId,
     jstring name,
     jint rssi,
-    jboolean connectable,
+    jint txPower,
+    jboolean hasTxPower,
+    jint connectableState,
+    jlong appearance,
+    jboolean hasAppearance,
     jbyteArray rawRecord,
-    jobjectArray serviceUuids) {
+    jobjectArray serviceUuids,
+    jobjectArray solicitedServiceUuids,
+    jobjectArray serviceDataUuids,
+    jobjectArray serviceDataValues,
+    jintArray manufacturerCompanyIdentifiers,
+    jobjectArray manufacturerDataValues) {
   emitAdvertisementFromJava(
       environment,
       nativeHandle,
       deviceId,
       name,
       rssi,
-      connectable,
+      txPower,
+      hasTxPower,
+      connectableState,
+      appearance,
+      hasAppearance,
       rawRecord,
-      serviceUuids);
+      serviceUuids,
+      solicitedServiceUuids,
+      serviceDataUuids,
+      serviceDataValues,
+      manufacturerCompanyIdentifiers,
+      manufacturerDataValues);
 }
 
 extern "C" JNIEXPORT void JNICALL

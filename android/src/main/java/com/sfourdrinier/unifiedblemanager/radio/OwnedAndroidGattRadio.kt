@@ -15,6 +15,7 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanRecord
 import android.bluetooth.le.ScanResult as AndroidScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.BroadcastReceiver
@@ -50,6 +51,35 @@ internal data class OwnedRadioAdapterProtocolState(
   val authorization: String,
   val power: String,
   val safeReason: String?
+)
+
+internal data class OwnedAndroidProtocolServiceData(
+  val serviceUuid: String,
+  val value: ByteArray
+)
+
+internal data class OwnedAndroidProtocolManufacturerData(
+  val companyIdentifier: Int,
+  val value: ByteArray
+)
+
+/**
+ * Android fields observed from a single [AndroidScanResult]. Android's public
+ * ScanRecord API exposes neither overflow service UUIDs nor an independent scan
+ * response PDU, so those protocol fields are intentionally absent downstream.
+ */
+internal data class OwnedAndroidProtocolAdvertisement(
+  val deviceId: String,
+  val name: String?,
+  val rssi: Int,
+  val txPower: Int?,
+  val connectable: Boolean?,
+  val appearance: Int?,
+  val serviceUuids: List<String>?,
+  val solicitedServiceUuids: List<String>?,
+  val serviceData: List<OwnedAndroidProtocolServiceData>?,
+  val manufacturerData: List<OwnedAndroidProtocolManufacturerData>?,
+  val rawRecord: ByteArray?
 )
 
 /**
@@ -126,9 +156,9 @@ class OwnedAndroidGattRadio(private val context: Context) {
   private val closeTimeouts = ConcurrentHashMap<String, Runnable>()
 
   var onAdapterState: ((String) -> Unit)? = null
-  var onScanResult: ((deviceId: String, name: String?, rssi: Int, connectable: Boolean, raw: ByteArray?) -> Unit)? = null
-  /** Protocol-v1 scan callback including the scanner-reported service UUIDs. */
-  var onProtocolScanResult: ((deviceId: String, name: String?, rssi: Int, connectable: Boolean, raw: ByteArray?, serviceUuids: List<String>) -> Unit)? = null
+  var onScanResult: ((deviceId: String, name: String?, rssi: Int, connectable: Boolean?, raw: ByteArray?) -> Unit)? = null
+  /** Protocol-v1 scan callback with every field available from Android's public LE scanner APIs. */
+  internal var onProtocolScanResult: ((OwnedAndroidProtocolAdvertisement) -> Unit)? = null
   /**
    * Optional global connection hook (logging). Prefer [registerConnectionListener]
    * for multi-device delivery — never overwrite a single global per connect.
@@ -289,17 +319,15 @@ class OwnedAndroidGattRadio(private val context: Context) {
         val id = device.address
         if (!allowDuplicates && !scanSeenDeviceIds.add(id.uppercase())) return
         val name = result.scanRecord?.deviceName ?: device.name
-        val connectable =
-          if (Build.VERSION.SDK_INT >= 26) result.isConnectable else true
-        onScanResult?.invoke(id, name, result.rssi, connectable, result.scanRecord?.bytes)
-        onProtocolScanResult?.invoke(
-          id,
-          name,
-          result.rssi,
-          connectable,
-          result.scanRecord?.bytes,
-          result.scanRecord?.serviceUuids?.map { uuid -> uuid.uuid.toString() } ?: emptyList()
+        val advertisement = protocolAdvertisement(result, id, name)
+        onScanResult?.invoke(
+          advertisement.deviceId,
+          advertisement.name,
+          advertisement.rssi,
+          advertisement.connectable,
+          advertisement.rawRecord?.copyOf()
         )
+        onProtocolScanResult?.invoke(advertisement)
       }
 
       override fun onScanFailed(errorCode: Int) {
@@ -313,6 +341,63 @@ class OwnedAndroidGattRadio(private val context: Context) {
     } else {
       scanner?.startScan(filters, settings, cb)
     }
+  }
+
+  private fun protocolAdvertisement(
+    result: AndroidScanResult,
+    deviceId: String,
+    name: String?
+  ): OwnedAndroidProtocolAdvertisement {
+    val scanRecord = result.scanRecord
+    return OwnedAndroidProtocolAdvertisement(
+      deviceId = deviceId,
+      name = name,
+      rssi = result.rssi,
+      txPower = txPowerFrom(result, scanRecord),
+      connectable = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) result.isConnectable else null,
+      appearance = appearanceFrom(scanRecord),
+      serviceUuids = scanRecord?.serviceUuids
+        ?.map { uuid -> uuid.uuid.toString() }
+        ?.takeIf { it.isNotEmpty() },
+      solicitedServiceUuids = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        scanRecord?.serviceSolicitationUuids
+          ?.map { uuid -> uuid.uuid.toString() }
+          ?.takeIf { it.isNotEmpty() }
+      } else {
+        null
+      },
+      serviceData = scanRecord?.serviceData
+        ?.entries
+        ?.map { (uuid, value) -> OwnedAndroidProtocolServiceData(uuid.uuid.toString(), value.copyOf()) }
+        ?.sortedBy { entry -> entry.serviceUuid }
+        ?.takeIf { it.isNotEmpty() },
+      manufacturerData = manufacturerDataFrom(scanRecord),
+      rawRecord = scanRecord?.bytes?.copyOf()
+    )
+  }
+
+  private fun txPowerFrom(result: AndroidScanResult, scanRecord: ScanRecord?): Int? {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      return result.txPower.takeUnless { txPower -> txPower == AndroidScanResult.TX_POWER_NOT_PRESENT }
+    }
+    return scanRecord?.txPowerLevel?.takeUnless { txPower -> txPower == Int.MIN_VALUE }
+  }
+
+  private fun appearanceFrom(scanRecord: ScanRecord?): Int? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || scanRecord == null) return null
+    val appearanceBytes = scanRecord.advertisingDataMap[ScanRecord.DATA_TYPE_APPEARANCE] ?: return null
+    if (appearanceBytes.size != 2) return null
+    return (appearanceBytes[0].toInt() and 0xFF) or ((appearanceBytes[1].toInt() and 0xFF) shl 8)
+  }
+
+  private fun manufacturerDataFrom(scanRecord: ScanRecord?): List<OwnedAndroidProtocolManufacturerData>? {
+    val source = scanRecord?.manufacturerSpecificData ?: return null
+    val entries = mutableListOf<OwnedAndroidProtocolManufacturerData>()
+    for (index in 0 until source.size()) {
+      val value = source.valueAt(index) ?: continue
+      entries.add(OwnedAndroidProtocolManufacturerData(source.keyAt(index), value.copyOf()))
+    }
+    return entries.takeIf { it.isNotEmpty() }
   }
 
   internal fun stopScan(): OwnedRadioTeardownFailure? {

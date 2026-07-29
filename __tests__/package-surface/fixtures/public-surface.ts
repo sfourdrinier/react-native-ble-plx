@@ -29,15 +29,28 @@ import { parseTemperatureMeasurement } from 'unified-ble-manager/profiles/health
 import { parseBloodPressureMeasurement } from 'unified-ble-manager/profiles/blood-pressure'
 import { decodeIeee11073Sfloat } from 'unified-ble-manager/profiles/ieee-11073'
 import {
+  createBluezFirstPartyTckRegistration,
   createDeterministicBackendTckFactory,
   createDeterministicTestBackend,
+  createFirstPartyBackendTckRegistry,
+  createCoreBluetoothFirstPartyTckRegistration,
+  createReactNativeAndroidFirstPartyTckRegistration,
+  createReactNativeAppleFirstPartyTckRegistration,
+  createWebBluetoothFirstPartyTckRegistration,
+  createWinRtFirstPartyTckRegistration,
   DeterministicVirtualClock
 } from 'unified-ble-manager/testing'
-import type { DeterministicBackendFixture } from 'unified-ble-manager/testing'
-import {
-  createNavigatorWebBleManager,
-  createWebBleManager
-} from 'unified-ble-manager/web'
+import type {
+  BluezFirstPartyTckRegistrationOptions,
+  CoreBluetoothFirstPartyTckRegistrationOptions,
+  DeterministicBackendFixture,
+  FirstPartyBackendTckRegistry,
+  ReactNativeAndroidFirstPartyTckRegistrationOptions,
+  ReactNativeAppleFirstPartyTckRegistrationOptions,
+  WebBluetoothFirstPartyTckRegistrationOptions,
+  WinRtFirstPartyTckRegistrationOptions
+} from 'unified-ble-manager/testing'
+import { createNavigatorWebBleManager, createWebBleManager } from 'unified-ble-manager/web'
 import type {
   ChooserRequest,
   NavigatorWebBleManagerOptions,
@@ -70,6 +83,13 @@ declare const featureRegistry: FeatureRegistry
 declare const normalizedError: NormalizedBleError
 declare const backendAuthor: BackendAuthorDefinition<string, never>
 declare const deterministicFixture: DeterministicBackendFixture
+declare const firstPartyRegistry: FirstPartyBackendTckRegistry
+declare const bluezFirstPartyTckOptions: BluezFirstPartyTckRegistrationOptions
+declare const coreBluetoothFirstPartyTckOptions: CoreBluetoothFirstPartyTckRegistrationOptions
+declare const reactNativeAndroidFirstPartyTckOptions: ReactNativeAndroidFirstPartyTckRegistrationOptions
+declare const reactNativeAppleFirstPartyTckOptions: ReactNativeAppleFirstPartyTckRegistrationOptions
+declare const webBluetoothFirstPartyTckOptions: WebBluetoothFirstPartyTckRegistrationOptions
+declare const winRtFirstPartyTckOptions: WinRtFirstPartyTckRegistrationOptions
 declare const bluezBusKind: BluezBusKind
 declare const nativeWinRtOptions: NativeWinRtProviderOptions
 declare const nativeAndroidOptions: ReactNativeAndroidBackendProviderOptions
@@ -122,6 +142,13 @@ observe(parseTemperatureMeasurement)
 observe(parseBloodPressureMeasurement)
 observe(createDeterministicTestBackend)
 observe(createDeterministicBackendTckFactory)
+observe(createFirstPartyBackendTckRegistry)
+observe(createWebBluetoothFirstPartyTckRegistration(webBluetoothFirstPartyTckOptions))
+observe(createCoreBluetoothFirstPartyTckRegistration(coreBluetoothFirstPartyTckOptions))
+observe(createBluezFirstPartyTckRegistration(bluezFirstPartyTckOptions))
+observe(createWinRtFirstPartyTckRegistration(winRtFirstPartyTckOptions))
+observe(createReactNativeAndroidFirstPartyTckRegistration(reactNativeAndroidFirstPartyTckOptions))
+observe(createReactNativeAppleFirstPartyTckRegistration(reactNativeAppleFirstPartyTckOptions))
 observe(DeterministicVirtualClock)
 observe(capacity(1))
 observe(deadline(1))
@@ -132,6 +159,7 @@ observe(featureRegistry)
 observe(normalizedError)
 observe(backendAuthor)
 observe(deterministicFixture)
+observe(firstPartyRegistry)
 observe(createDbusNextBluezBackendProvider({ busKind: bluezBusKind, now: () => 0 }))
 observe(createNativeWinRtBackendProvider)
 observe(createElectronMainWinRtBackendProvider)

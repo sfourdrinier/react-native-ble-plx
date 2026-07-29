@@ -95,6 +95,50 @@ describe('Apple Native Protocol v1 radio boundary', () => {
     expect(support).toContain('This owns no radio state')
   })
 
+  test('carries every CoreBluetooth-provided rich advertisement field through owned protocol binary references', () => {
+    const support = read('ios/Owned/OwnedCoreBluetoothProtocolRadioSupport.swift')
+    const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
+    const sharedBoundary = read('src/native-protocol/rn-android-boundary.ts')
+    const appleBoundary = read('src/native-protocol/rn-apple-boundary.ts')
+    const advertisement = execution.slice(
+      execution.indexOf('void AppleNativeProtocolExecution::receiveAdvertisement'),
+      execution.indexOf('void AppleNativeProtocolExecution::receiveDisconnect')
+    )
+
+    expect(support).toContain('CBAdvertisementDataTxPowerLevelKey')
+    expect(support).toContain('CBAdvertisementDataIsConnectable')
+    expect(support).toContain('CBAdvertisementDataSolicitedServiceUUIDsKey')
+    expect(support).toContain('CBAdvertisementDataOverflowServiceUUIDsKey')
+    expect(support).toContain('CBAdvertisementDataServiceDataKey')
+    expect(support).toContain('CBAdvertisementDataManufacturerDataKey')
+    expect(advertisement).toContain('appendNumber(@"txPower", 7U)')
+    expect(advertisement).toContain('field(8U, [value[@"connectable"] boolValue])')
+    expect(advertisement).toContain('appendStrings(@"solicitedServiceUUIDs", 11U)')
+    expect(advertisement).toContain('appendStrings(@"overflowServiceUUIDs", 12U)')
+    expect(advertisement).toContain('field(13U, std::move(serviceData))')
+    expect(advertisement).toContain('field(14U, protocol::ProtocolRecordList{reference(entry)})')
+    expect(advertisement).toContain('retainNativeBytes(')
+    expect(advertisement).toContain('releaseBinary(binary)')
+    expect(advertisement).toContain('static_cast<std::uint64_t>(source[1]) << 8U')
+    expect(sharedBoundary).toContain('advertisementBinaryReferences(advertisement)')
+    expect(sharedBoundary).toContain('advertisementFromRecord(parsedAdvertisement, advertisementBytes)')
+    expect(appleBoundary).toContain('extends ReactNativeAndroidProtocolBoundary')
+  })
+
+  test('does not manufacture advertisement fields CoreBluetooth does not expose', () => {
+    const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
+    const advertisement = execution.slice(
+      execution.indexOf('void AppleNativeProtocolExecution::receiveAdvertisement'),
+      execution.indexOf('void AppleNativeProtocolExecution::receiveDisconnect')
+    )
+
+    expect(advertisement).not.toContain('field(9U')
+    expect(advertisement).not.toContain('field(15U')
+    expect(advertisement).not.toContain('field(16U')
+    expect(advertisement).not.toContain('rawRecord')
+    expect(advertisement).not.toContain('scanResponseRecord')
+  })
+
   executesOnAppleHost('executes canonical 128-bit UUID parsing through the native startScan path', () => {
     const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'ble-plx-apple-scan-parser-'))
     const executable = path.join(temporaryDirectory, 'AppleCoreBluetoothScanParserHarness')

@@ -327,6 +327,74 @@ describe('React Native Android canonical protocol vertical slice', () => {
     await expect(manager.destroy()).resolves.toEqual({ state: 'released', failures: [] })
   })
 
+  test('Android protocol fixture preserves every Android-reported advertisement field and leaves unavailable fields absent', async () => {
+    const control = new DeterministicAndroidControl()
+    const runtime = new DeterministicAndroidProtocolRuntime(control)
+    global.__unifiedBleNativeProtocolV1 = runtime
+    const provider = createReactNativeAndroidBackendProvider({
+      control,
+      now: () => 20,
+      createOwnerId: () => 'deterministic-react-native-android-platform-advertisement'
+    })
+    const [adapter] = await provider.listAdapters()
+    const manager = await createBleManagerFromProvider(
+      {
+        provider,
+        selection: { selectedAdapterId: adapter.adapterId },
+        coreCompatibility: compatibility(),
+        manager: {
+          clientId: opaqueId('manager-client', 'client', 'react-native-android:platform-advertisement'),
+          managerId: opaqueId('manager', 'manager', 'react-native-android:platform-advertisement'),
+          ownerMode: 'owning'
+        }
+      },
+      DEFAULT_BLE_MANAGER_OPTIONS
+    )
+    const scan = await manager.scan(scanOptions())
+    runtime.emitAdvertisement(new Uint8Array([1, 2, 3]), {
+      txPower: -4,
+      connectable: false,
+      appearance: 832,
+      solicitedServiceUuids: ['0000180f-0000-1000-8000-00805f9b34fb'],
+      serviceData: [{ serviceUuid: '0000180f-0000-1000-8000-00805f9b34fb', value: new Uint8Array([4, 5]) }],
+      manufacturerData: [{ companyIdentifier: 76, value: new Uint8Array([6, 7]) }]
+    })
+
+    const item = await scan.observations[Symbol.asyncIterator]().next()
+    if (item.done || item.value.kind !== 'value') {
+      throw new Error('Android provider did not emit a platform advertisement observation')
+    }
+    const observation = item.value.value
+    expect(observation.txPower).toMatchObject({ state: 'present', value: -4, provenance: 'observed' })
+    expect(observation.connectable).toMatchObject({ state: 'present', value: false, provenance: 'observed' })
+    expect(observation.appearance).toMatchObject({ state: 'present', value: 832, provenance: 'observed' })
+    expect(observation.solicitedServiceUuids).toMatchObject({
+      state: 'present',
+      value: ['0000180f-0000-1000-8000-00805f9b34fb'],
+      provenance: 'observed'
+    })
+    expect(observation.serviceData).toMatchObject({
+      state: 'present',
+      value: [{ serviceUuid: '0000180f-0000-1000-8000-00805f9b34fb', value: new Uint8Array([4, 5]) }],
+      provenance: 'observed'
+    })
+    expect(observation.manufacturerData).toMatchObject({
+      state: 'present',
+      value: [{ companyIdentifier: 76, value: new Uint8Array([6, 7]) }],
+      provenance: 'observed'
+    })
+    expect(observation.rawRecord).toMatchObject({
+      state: 'present',
+      value: new Uint8Array([1, 2, 3]),
+      provenance: 'observed'
+    })
+    expect(observation.overflowServiceUuids).toMatchObject({ state: 'unavailable' })
+    expect(observation.scanResponseRecord).toMatchObject({ state: 'unavailable' })
+
+    await scan.stop()
+    await expect(manager.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+  })
+
   test.each([
     {
       name: 'Android',

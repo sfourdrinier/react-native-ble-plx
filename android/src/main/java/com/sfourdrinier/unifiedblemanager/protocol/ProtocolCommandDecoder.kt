@@ -54,8 +54,9 @@ internal object ProtocolCommandDecoder {
       require(reader.byte() == expected) { "Native protocol record magic is invalid" }
     }
     require(reader.uint32() == NATIVE_PROTOCOL_VERSION.toLong()) { "Native protocol record version is incompatible" }
-    val kind = RecordKind.entries.firstOrNull { candidate -> candidate.wireValue == reader.uint16() }
-      ?: throw IllegalArgumentException("Native protocol record kind is unknown")
+    val wireKind = reader.uint16()
+    val kind = RecordKind.entries.firstOrNull { candidate -> candidate.wireValue == wireKind }
+      ?: throw IllegalArgumentException("Native protocol record kind $wireKind is unknown")
     val fieldCount = reader.uint16()
     val fields = mutableMapOf<Int, ProtocolWireValue>()
     repeat(fieldCount) {

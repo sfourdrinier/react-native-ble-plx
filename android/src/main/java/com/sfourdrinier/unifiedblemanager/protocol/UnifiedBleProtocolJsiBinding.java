@@ -99,10 +99,35 @@ final class UnifiedBleProtocolJsiBinding {
       String deviceId,
       String name,
       int rssi,
-      boolean connectable,
+      int txPower,
+      boolean hasTxPower,
+      int connectableState,
+      long appearance,
+      boolean hasAppearance,
       byte[] rawRecord,
-      String[] serviceUuids) {
-    emitAdvertisementNative(nativeHandle, deviceId, name, rssi, connectable, rawRecord, serviceUuids);
+      String[] serviceUuids,
+      String[] solicitedServiceUuids,
+      String[] serviceDataUuids,
+      byte[][] serviceDataValues,
+      int[] manufacturerCompanyIdentifiers,
+      byte[][] manufacturerDataValues) {
+    emitAdvertisementNative(
+        nativeHandle,
+        deviceId,
+        name,
+        rssi,
+        txPower,
+        hasTxPower,
+        connectableState,
+        appearance,
+        hasAppearance,
+        rawRecord,
+        serviceUuids,
+        solicitedServiceUuids,
+        serviceDataUuids,
+        serviceDataValues,
+        manufacturerCompanyIdentifiers,
+        manufacturerDataValues);
   }
 
   static void emitDiagnostic(long nativeHandle, String code, String message) {
@@ -127,9 +152,18 @@ final class UnifiedBleProtocolJsiBinding {
       String deviceId,
       String name,
       int rssi,
-      boolean connectable,
+      int txPower,
+      boolean hasTxPower,
+      int connectableState,
+      long appearance,
+      boolean hasAppearance,
       byte[] rawRecord,
-      String[] serviceUuids);
+      String[] serviceUuids,
+      String[] solicitedServiceUuids,
+      String[] serviceDataUuids,
+      byte[][] serviceDataValues,
+      int[] manufacturerCompanyIdentifiers,
+      byte[][] manufacturerDataValues);
   private static native void emitDiagnosticNative(long nativeHandle, String code, String message);
   private static native void emitDispatcherFailureNative(long nativeHandle, String message);
 }

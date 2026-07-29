@@ -169,6 +169,44 @@ describe('Native Protocol v1 schema authority', () => {
     )
   })
 
+  test('carries every public Android ScanRecord advertisement field through the generated protocol records', () => {
+    const radio = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedAndroidGattRadio.kt')
+    const dispatcher = read(
+      'android/src/main/java/com/sfourdrinier/unifiedblemanager/protocol/UnifiedBleProtocolAndroidDispatcher.kt'
+    )
+    const javaBinding = read(
+      'android/src/main/java/com/sfourdrinier/unifiedblemanager/protocol/UnifiedBleProtocolJsiBinding.java'
+    )
+    const jniBinding = read('android/src/main/jni/UnifiedBleProtocolJsiBinding.cpp')
+
+    expect(radio).toContain('data class OwnedAndroidProtocolAdvertisement')
+    expect(radio).toContain('AndroidScanResult.TX_POWER_NOT_PRESENT')
+    expect(radio).toContain('scanRecord?.txPowerLevel')
+    expect(radio).toContain('result.isConnectable')
+    expect(radio).toContain('Build.VERSION_CODES.Q')
+    expect(radio).toContain('serviceSolicitationUuids')
+    expect(radio).toContain('ScanRecord.DATA_TYPE_APPEARANCE')
+    expect(radio).toContain('Build.VERSION_CODES.TIRAMISU')
+    expect(radio).toContain('scanRecord?.serviceData')
+    expect(radio).toContain('manufacturerSpecificData')
+    expect(dispatcher).toContain('advertisement.serviceData')
+    expect(dispatcher).toContain('advertisement.manufacturerData')
+    expect(javaBinding).toContain('boolean hasTxPower')
+    expect(javaBinding).toContain('int connectableState')
+    expect(javaBinding).toContain('boolean hasAppearance')
+    expect(javaBinding).toContain('String[] solicitedServiceUuids')
+    expect(javaBinding).toContain('byte[][] serviceDataValues')
+    expect(javaBinding).toContain('int[] manufacturerCompanyIdentifiers')
+    expect(jniBinding).toContain('RecordKind::serviceDataEntry')
+    expect(jniBinding).toContain('RecordKind::manufacturerDataEntry')
+    expect(jniBinding).toContain('protocolField(7U, static_cast<std::int64_t>(txPower))')
+    expect(jniBinding).toContain('protocolField(9U, static_cast<std::uint64_t>(appearance))')
+    expect(jniBinding).toContain('protocolField(11U, *solicitedUuids)')
+    expect(jniBinding).toContain('protocolField(13U, std::move(serviceDataEntries))')
+    expect(jniBinding).toContain('protocolField(14U, std::move(manufacturerDataEntries))')
+    expect(jniBinding).not.toMatch(/Base64/)
+  })
+
   test('represents complete paths, rich advertisements, errors, cancellation, and restoration', () => {
     const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'))
     const records = new Map(schema.records.map(record => [record.name, record.fields.map(field => field[0])]))

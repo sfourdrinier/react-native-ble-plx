@@ -65,16 +65,25 @@ class UnifiedBleProtocolAndroidDispatcher(
       }
       UnifiedBleProtocolJsiBinding.emitDiagnostic(nativeHandle, "scanFailed", "Android scan failed code=$errorCode")
     }
-    radio.onProtocolScanResult = { deviceId, name, rssi, connectable, raw, serviceUuids ->
+    radio.onProtocolScanResult = { advertisement ->
       if (activeScanCommand != null) {
         UnifiedBleProtocolJsiBinding.emitAdvertisement(
           nativeHandle,
-          deviceId,
-          name,
-          rssi,
-          connectable,
-          raw,
-          serviceUuids.toTypedArray()
+          advertisement.deviceId,
+          advertisement.name,
+          advertisement.rssi,
+          advertisement.txPower ?: 0,
+          advertisement.txPower != null,
+          advertisement.connectable.toNativeConnectableState(),
+          advertisement.appearance?.toLong() ?: 0L,
+          advertisement.appearance != null,
+          advertisement.rawRecord,
+          advertisement.serviceUuids?.toTypedArray(),
+          advertisement.solicitedServiceUuids?.toTypedArray(),
+          advertisement.serviceData?.map { entry -> entry.serviceUuid }?.toTypedArray(),
+          advertisement.serviceData?.map { entry -> entry.value }?.toTypedArray(),
+          advertisement.manufacturerData?.map { entry -> entry.companyIdentifier }?.toIntArray(),
+          advertisement.manufacturerData?.map { entry -> entry.value }?.toTypedArray()
         )
       }
     }
@@ -765,4 +774,10 @@ private fun ProtocolWireRecord.requiredSignedInteger(fieldId: Int): Long {
 private fun ProtocolWireRecord.requiredStringList(fieldId: Int): List<String> {
   val value = fields[fieldId]
   return if (value is ProtocolWireValue.StringListValue) value.value else throw IllegalArgumentException("String list field is missing")
+}
+
+private fun Boolean?.toNativeConnectableState(): Int = when (this) {
+  true -> 1
+  false -> 0
+  null -> -1
 }
