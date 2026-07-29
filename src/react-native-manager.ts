@@ -1,7 +1,7 @@
 // src/react-native-manager.ts
 
-import type { BackendProvider } from './backend-contract/identity'
 import type { NativeBackendIdentity } from './backend-contract/identity'
+import { contractError } from './backend-contract/errors'
 import { opaqueId } from './backend-contract/primitives'
 import {
   createReactNativeAndroidBackendProvider,
@@ -17,6 +17,7 @@ import {
 } from './backends/reactnative/react-native-apple-provider'
 import { createBleManagerFromProvider, DEFAULT_BLE_MANAGER_OPTIONS, type BleManager } from './manager/ble-manager'
 import type { Spec as NativeUnifiedBleProtocolControl } from './NativeUnifiedBleProtocolControl'
+import type { ReactNativeRestorationBackendProvider } from './backends/reactnative/react-native-restoration'
 
 export type ReactNativeBlePlatform = 'android' | 'apple'
 
@@ -27,35 +28,48 @@ export interface ReactNativeBleManagerOptions {
   readonly now: () => number
   readonly clientId: string
   readonly managerId: string
+  /** Host authentication scope bound to the one native restoration adopter. */
+  readonly hostSessionScope: string
   readonly createOwnerId?: () => string
 }
 
 /**
  * Creates one owning 4.0 manager from the generated React Native protocol control.
  * The application must retain and destroy the returned manager before replacing it.
+ * Apple restoration adoption additionally requires the app-owned Info.plist values
+ * UnifiedBleProtocolRestorationNamespace, UnifiedBleProtocolRestorationEpoch,
+ * UnifiedBleProtocolRestorationClientId, and UnifiedBleProtocolRestorationHostSessionScope.
  */
 export async function createReactNativeBleManager(
   options: ReactNativeBleManagerOptions
 ): Promise<BleManager<string, NativeBackendIdentity<string>>> {
+  if (options.hostSessionScope.length === 0) {
+    throw contractError('argument.invalid', 'restoration', 'react-native-manager.host-session-scope')
+  }
   const provider = providerFor(options)
   const managerOptions = { ...DEFAULT_BLE_MANAGER_OPTIONS, now: options.now }
   const scope: `${string}:${string}` = `react-native:${options.platform}`
+  const clientId = opaqueId(options.clientId, 'client', scope)
   return createBleManagerFromProvider(
     {
       provider,
       selection: { selectedAdapterId: adapterIdFor(options.platform) },
       coreCompatibility: compatibilityFor(options.platform),
       manager: {
-        clientId: opaqueId(options.clientId, 'client', scope),
+        clientId,
         managerId: opaqueId(options.managerId, 'manager', scope),
-        ownerMode: 'owning'
+        ownerMode: 'owning',
+        restoration: Object.freeze({
+          client: Object.freeze({ clientId, hostSessionScope: options.hostSessionScope }),
+          coordinator: provider.restoration
+        })
       }
     },
     managerOptions
   )
 }
 
-function providerFor(options: ReactNativeBleManagerOptions): BackendProvider<string, NativeBackendIdentity<string>> {
+function providerFor(options: ReactNativeBleManagerOptions): ReactNativeRestorationBackendProvider {
   if (options.platform === 'android') {
     return createReactNativeAndroidBackendProvider(androidProviderOptions(options))
   }

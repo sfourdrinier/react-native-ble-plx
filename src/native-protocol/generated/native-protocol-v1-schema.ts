@@ -73,7 +73,9 @@ export const nativeProtocolEnumValues: Readonly<Record<string, readonly string[]
     'adoptRestoration',
     'destroy',
     'readRssi',
-    'requestMtu'
+    'requestMtu',
+    'readDescriptor',
+    'writeDescriptor'
   ],
   resultKinds: [
     'accepted',
@@ -88,7 +90,9 @@ export const nativeProtocolEnumValues: Readonly<Record<string, readonly string[]
     'restoration',
     'destroyed',
     'rssi',
-    'mtu'
+    'mtu',
+    'descriptorRead',
+    'descriptorWrite'
   ],
   eventKinds: [
     'adapterState',
@@ -132,7 +136,9 @@ export const commandKinds = Object.freeze([
   'adoptRestoration',
   'destroy',
   'readRssi',
-  'requestMtu'
+  'requestMtu',
+  'readDescriptor',
+  'writeDescriptor'
 ])
 export type CommandKinds = (typeof commandKinds)[number]
 
@@ -149,7 +155,9 @@ export const resultKinds = Object.freeze([
   'restoration',
   'destroyed',
   'rssi',
-  'mtu'
+  'mtu',
+  'descriptorRead',
+  'descriptorWrite'
 ])
 export type ResultKinds = (typeof resultKinds)[number]
 
@@ -301,6 +309,7 @@ export const nativeProtocolFields: readonly NativeProtocolFieldDescriptor[] = Ob
   nativeProtocolField('result', 12, 'databaseSnapshot', 'record:databaseSnapshot', false),
   nativeProtocolField('result', 13, 'rssi', 'int64', false),
   nativeProtocolField('result', 14, 'negotiatedMtu', 'uint64', false),
+  nativeProtocolField('result', 15, 'descriptorPath', 'record:descriptorPath', false),
   nativeProtocolField('advertisement', 1, 'peerId', 'string', true),
   nativeProtocolField('advertisement', 2, 'observedAt', 'uint64', true),
   nativeProtocolField('advertisement', 3, 'ingressOrdinal', 'uint64', true),

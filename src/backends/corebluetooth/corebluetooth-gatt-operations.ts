@@ -15,7 +15,11 @@ import type {
   WriteResult
 } from '../../backend-contract/operations'
 import { byteLimit, opaqueId, ownBytes, type OwnedBytes } from '../../backend-contract/primitives'
-import type { CoreBluetoothCharacteristicAddress, CoreBluetoothGattSnapshot } from './corebluetooth-boundary'
+import type {
+  CoreBluetoothCharacteristicAddress,
+  CoreBluetoothDescriptorAddress,
+  CoreBluetoothGattSnapshot
+} from './corebluetooth-boundary'
 import { CoreBoundedStream } from '../../core/bounded-stream'
 import {
   addressKey,
@@ -28,6 +32,11 @@ import {
 import type { CoreBluetoothBackend, PhysicalSubscription } from './corebluetooth-backend'
 
 const maximumValueBytes = byteLimit(512 * 1024)
+
+type DescriptorBoundary = {
+  readonly readDescriptor: (address: CoreBluetoothDescriptorAddress) => Promise<Uint8Array>
+  readonly writeDescriptor: (address: CoreBluetoothDescriptorAddress, bytes: Uint8Array) => Promise<void>
+}
 
 export class CoreBluetoothGattOperations {
   constructor(private readonly backend: CoreBluetoothBackend) {}
@@ -118,17 +127,42 @@ export class CoreBluetoothGattOperations {
   }
 
   readDescriptor(
-    _path: DescriptorPath<string, string, string, string, string, string, 'current'>,
+    path: DescriptorPath<string, string, string, string, string, string, 'current'>,
     request: ReadRequest<string, string>
   ): BackendOperationDispatch<string, ReadResult<string, string>> {
-    return this.unsupportedDispatch(request.operation, 'corebluetooth.gatt.read-descriptor')
+    this.backend.assertOperational('corebluetooth.gatt.read-descriptor')
+    const boundary = this.descriptorBoundary('corebluetooth.gatt.read-descriptor')
+    const database = this.backend.databaseForPath(path, 'corebluetooth.gatt.read-descriptor')
+    const address = database.descriptorAddressFor(path, 'corebluetooth.gatt.read-descriptor')
+    return this.backend.dispatcher.dispatch(
+      request.operation,
+      'corebluetooth.gatt.read-descriptor',
+      async () => ({
+        value: ownBytes(await boundary.readDescriptor(address), maximumValueBytes),
+        terminal: successfulTerminal(request.operation)
+      }),
+      String(path.connectionId)
+    )
   }
 
   writeDescriptor(
-    _path: DescriptorPath<string, string, string, string, string, string, 'current'>,
+    path: DescriptorPath<string, string, string, string, string, string, 'current'>,
     request: WriteRequest<string, string>
   ): BackendOperationDispatch<string, WriteResult<string, string>> {
-    return this.unsupportedDispatch(request.operation, 'corebluetooth.gatt.write-descriptor')
+    this.backend.assertOperational('corebluetooth.gatt.write-descriptor')
+    const boundary = this.descriptorBoundary('corebluetooth.gatt.write-descriptor')
+    const database = this.backend.databaseForPath(path, 'corebluetooth.gatt.write-descriptor')
+    const address = database.descriptorAddressFor(path, 'corebluetooth.gatt.write-descriptor')
+    const copied = new Uint8Array(request.bytes)
+    return this.backend.dispatcher.dispatch(
+      request.operation,
+      'corebluetooth.gatt.write-descriptor',
+      async () => {
+        await boundary.writeDescriptor(address, copied)
+        return Object.freeze({ terminal: successfulTerminal(request.operation), commitState: 'confirmed' })
+      },
+      String(path.connectionId)
+    )
   }
 
   subscribe(
@@ -348,6 +382,57 @@ export class CoreBluetoothGattOperations {
       connectionSerializationKey
     )
     await dispatch.completion
+  }
+
+  async readDescriptorFromDatabase(
+    address: CoreBluetoothDescriptorAddress,
+    options: PublicOperationOptions,
+    connectionSerializationKey: string
+  ): Promise<OwnedBytes> {
+    this.backend.assertOperational('corebluetooth.gatt.database-read-descriptor')
+    const boundary = this.descriptorBoundary('corebluetooth.gatt.database-read-descriptor')
+    const dispatch = this.backend.dispatcher.dispatch(
+      options,
+      'corebluetooth.gatt.database-read-descriptor',
+      async () => ownBytes(await boundary.readDescriptor(address), maximumValueBytes),
+      connectionSerializationKey
+    )
+    return dispatch.completion
+  }
+
+  async writeDescriptorFromDatabase(
+    address: CoreBluetoothDescriptorAddress,
+    value: Uint8Array,
+    options: PublicOperationOptions,
+    connectionSerializationKey: string
+  ): Promise<void> {
+    this.backend.assertOperational('corebluetooth.gatt.database-write-descriptor')
+    const boundary = this.descriptorBoundary('corebluetooth.gatt.database-write-descriptor')
+    const copied = new Uint8Array(value)
+    const dispatch = this.backend.dispatcher.dispatch(
+      options,
+      'corebluetooth.gatt.database-write-descriptor',
+      async () => boundary.writeDescriptor(address, copied),
+      connectionSerializationKey
+    )
+    await dispatch.completion
+  }
+
+  private descriptorBoundary(operation: string): DescriptorBoundary {
+    const boundary = this.backend.boundary
+    if (
+      boundary.descriptorOperationsAvailable !== true ||
+      boundary.readDescriptor === undefined ||
+      boundary.writeDescriptor === undefined
+    ) {
+      throw contractError('capability.unsupported', 'gatt', operation)
+    }
+    const readDescriptor = boundary.readDescriptor
+    const writeDescriptor = boundary.writeDescriptor
+    return Object.freeze({
+      readDescriptor: address => readDescriptor.call(boundary, address),
+      writeDescriptor: (address, bytes) => writeDescriptor.call(boundary, address, bytes)
+    })
   }
 
   emitNotification(physical: PhysicalSubscription, source: Uint8Array): void {

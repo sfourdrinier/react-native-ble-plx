@@ -479,18 +479,28 @@ void testCancellationAndRestorationExactlyOnce() {
       .clientId = "client-1",
       .hostSessionScope = "host-session-1",
   };
+  auto unauthorized = request;
+  unauthorized.clientId = "client-foreign";
+  expectFailure(protocol::ProtocolFailure::stalePath, [&] { static_cast<void>(journal.adopt(unauthorized)); });
+  assert(!journal.consumed());
   auto mismatch = request;
   mismatch.namespaceValue = "foreign.restoration";
   const auto mismatchReceipt = journal.adopt(mismatch);
   assert(mismatchReceipt.outcome == protocol::NativeRestorationOutcome::namespaceMismatch);
+  assert(mismatchReceipt.adoptionEpoch == "restoration-epoch-1");
   assert(!journal.consumed());
   const auto receipt = journal.adopt(request);
   assert(!receipt.receiptId.empty());
   assert(receipt.outcome == protocol::NativeRestorationOutcome::adopted);
+  assert(receipt.boundClientId == "client-1");
+  assert(receipt.adoptionEpoch == "restoration-epoch-1");
   assert(receipt.records.size() == 1U);
   assert(journal.consumed());
   assert(journal.size() == 0U);
-  assert(journal.adopt(request).outcome == protocol::NativeRestorationOutcome::alreadyConsumed);
+  const auto consumed = journal.adopt(request);
+  assert(consumed.outcome == protocol::NativeRestorationOutcome::alreadyConsumed);
+  assert(consumed.boundClientId == "client-1");
+  assert(consumed.adoptionEpoch == "restoration-epoch-1");
 
   auto replacement = identity;
   replacement.backendGeneration = "backend-generation-2";

@@ -50,6 +50,7 @@ import type {
 import { applicableVersionAxesEqual, assertCoreVersionsAccepted, snapshotApplicableVersionAxes } from './primitives'
 import { serializableRecordsEqual, snapshotSerializableRecord } from './serializable'
 import type { BoundedAsyncStream } from './streams'
+import type { ManagerRestorationCapability } from './restoration'
 
 export type OwnerMode = 'owning' | 'borrowing'
 export type ManagerState = 'new' | 'ready' | 'destroying' | 'destroyed' | 'failed'
@@ -443,6 +444,8 @@ export interface ManagerConstructionBase<Attachment extends string, Identity ext
   readonly attachedBackend: AttachedBackend<Attachment, Identity>
   readonly clientId: ClientId<Attachment, string>
   readonly managerId: ManagerId<Attachment, string>
+  /** Present only when this provider owns a bound native restoration authority. */
+  readonly restoration?: ManagerRestorationCapability<Attachment>
 }
 export interface BackendAttachmentRequest {
   readonly coreCompatibility: BackendCompatibilityOffer

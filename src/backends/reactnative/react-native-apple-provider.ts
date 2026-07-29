@@ -12,12 +12,7 @@ import type {
   ScannerBackend
 } from '../../backend-contract/backend'
 import { contractError } from '../../backend-contract/errors'
-import type {
-  AdapterSelection,
-  AttachmentRecord,
-  BackendProvider,
-  NativeBackendIdentity
-} from '../../backend-contract/identity'
+import type { AdapterSelection, AttachmentRecord, NativeBackendIdentity } from '../../backend-contract/identity'
 import {
   negotiateVersion,
   opaqueId,
@@ -33,6 +28,13 @@ import { CoreBluetoothBackend, type DirectGattBackendIdentityOptions } from '../
 import { coreBluetoothCompatibility } from '../corebluetooth/corebluetooth-provider'
 import { ReactNativeAppleProtocolBoundary } from '../../native-protocol/rn-apple-boundary'
 import { createReactNativeConnectionControlFeatureRegistry } from './react-native-connection-control-features'
+import {
+  combineReactNativeFeatureRegistries,
+  createReactNativeRestorationFeatureRegistry,
+  ReactNativeRestorationCoordinator,
+  type ReactNativeRestorationActivation,
+  type ReactNativeRestorationBackendProvider
+} from './react-native-restoration'
 
 export const REACT_NATIVE_APPLE_BACKEND_ID = 'unified-ble:react-native-apple'
 export const REACT_NATIVE_APPLE_PLATFORM_ID = 'unified-ble:apple-corebluetooth'
@@ -42,21 +44,6 @@ export const REACT_NATIVE_APPLE_DEFAULT_ADAPTER_NATIVE_ID = 'apple-corebluetooth
 export const reactNativeAppleCompatibility: NativeCompatibilityOffer = Object.freeze({
   ...coreBluetoothCompatibility,
   nativeProtocol: versionRange(version('native-protocol', 1), version('native-protocol', 1))
-})
-
-const appleDirectGattIdentity: DirectGattBackendIdentityOptions = Object.freeze({
-  registeredBackendId: REACT_NATIVE_APPLE_BACKEND_ID,
-  registeredPlatformId: REACT_NATIVE_APPLE_PLATFORM_ID,
-  implementationVersion: REACT_NATIVE_APPLE_IMPLEMENTATION_VERSION,
-  attachmentScope: 'react-native-apple',
-  backendInstancePrefix: 'react-native-apple-backend',
-  adapterNativeId: REACT_NATIVE_APPLE_DEFAULT_ADAPTER_NATIVE_ID,
-  adapterDisplayName: 'Apple CoreBluetooth central adapter',
-  limitations: Object.freeze([
-    'Apple exposes the process-owned CoreBluetooth central through the canonical JSI protocol boundary',
-    'Descriptor operations are unavailable because Native Protocol v1 does not publish descriptor records'
-  ]),
-  features: createReactNativeConnectionControlFeatureRegistry('apple', REACT_NATIVE_APPLE_IMPLEMENTATION_VERSION)
 })
 
 let nextBoundaryOwner = 1
@@ -73,8 +60,9 @@ export interface ReactNativeAppleBackendProviderOptions {
 /** Creates a production Apple React Native provider without importing React Native from this public module. */
 export function createReactNativeAppleBackendProvider(
   options: ReactNativeAppleBackendProviderOptions
-): BackendProvider<string, NativeBackendIdentity<string>> {
+): ReactNativeRestorationBackendProvider {
   const createOwnerId = options.createOwnerId ?? allocateBoundaryOwnerId
+  const restoration = new ReactNativeRestorationCoordinator(options.control, 'apple')
   return Object.freeze({
     descriptor: Object.freeze({
       providerId: 'unified-ble:react-native-apple-provider',
@@ -82,8 +70,9 @@ export function createReactNativeAppleBackendProvider(
       loadability: 'loadable',
       compatibility: reactNativeAppleCompatibility
     }),
+    restoration,
     listAdapters: async () => {
-      const backend = await createOpenedBackend(options.control, options.now, createOwnerId())
+      const backend = await createOpenedBackend(options.control, options.now, createOwnerId(), restoration, false)
       try {
         return Object.freeze([backend.identity.attachment.adapter])
       } finally {
@@ -100,7 +89,7 @@ export function createReactNativeAppleBackendProvider(
       if (String(selection.selectedAdapterId) !== REACT_NATIVE_APPLE_DEFAULT_ADAPTER_NATIVE_ID) {
         throw contractError('adapter.unavailable', 'adapter', 'react-native-apple.provider.select-adapter')
       }
-      return createOpenedBackend(options.control, options.now, createOwnerId())
+      return createOpenedBackend(options.control, options.now, createOwnerId(), restoration, true)
     }
   })
 }
@@ -112,7 +101,13 @@ class ReactNativeAppleBackend implements BleCentralBackend<string, NativeBackend
   readonly gatt: GattBackend<string>
   readonly features: CoreBluetoothBackend['features']
 
-  constructor(private readonly delegate: CoreBluetoothBackend) {
+  private destroyResult: Promise<import('../../backend-contract/errors').CleanupRecord> | null = null
+
+  constructor(
+    private readonly delegate: CoreBluetoothBackend,
+    readonly restoration: ReactNativeRestorationCoordinator,
+    private readonly restorationActivation: ReactNativeRestorationActivation | null
+  ) {
     this.adapter = delegate.adapter
     this.scanner = delegate.scanner
     this.connections = delegate.connections
@@ -155,7 +150,29 @@ class ReactNativeAppleBackend implements BleCentralBackend<string, NativeBackend
     return this.delegate.resourceCounters()
   }
 
-  destroy() {
+  destroy(): Promise<import('../../backend-contract/errors').CleanupRecord> {
+    if (this.destroyResult === null) {
+      const destruction = this.destroyInternal()
+      this.destroyResult = destruction.then(
+        cleanup => {
+          if (cleanup.state === 'release-failed') {
+            this.destroyResult = null
+          }
+          return cleanup
+        },
+        error => {
+          this.destroyResult = null
+          throw error
+        }
+      )
+    }
+    return this.destroyResult
+  }
+
+  private async destroyInternal(): Promise<import('../../backend-contract/errors').CleanupRecord> {
+    if (this.restorationActivation !== null) {
+      await this.restoration.deactivate(this.restorationActivation)
+    }
     return this.delegate.destroy()
   }
 }
@@ -163,18 +180,23 @@ class ReactNativeAppleBackend implements BleCentralBackend<string, NativeBackend
 async function createOpenedBackend(
   control: NativeProtocolControl,
   now: () => number,
-  ownerId: string
+  ownerId: string,
+  restoration: ReactNativeRestorationCoordinator,
+  activateRestoration: boolean
 ): Promise<ReactNativeAppleBackend> {
   if (ownerId.length === 0) {
     throw contractError('argument.invalid', 'core', 'react-native-apple.provider.owner-id')
   }
   const boundary = new ReactNativeAppleProtocolBoundary(control, ownerId)
-  const directBackend = new CoreBluetoothBackend(boundary, now, 'native-mobile', appleDirectGattIdentity)
+  const directBackend = new CoreBluetoothBackend(boundary, now, 'native-mobile', appleDirectGattIdentity())
   boundary.bindAttachment(nativeAttachmentIdentity(directBackend.attachment()))
   try {
     await boundary.open()
     directBackend.refreshAttachmentState()
-    return new ReactNativeAppleBackend(directBackend)
+    const activation = activateRestoration
+      ? restoration.activate(directBackend.identity.attachment, nativeVersions(directBackend.identity.versions))
+      : null
+    return new ReactNativeAppleBackend(directBackend, restoration, activation)
   } catch (error) {
     try {
       const cleanup = await directBackend.destroy()
@@ -189,6 +211,26 @@ async function createOpenedBackend(
     }
     throw error
   }
+}
+
+function appleDirectGattIdentity(): DirectGattBackendIdentityOptions {
+  return Object.freeze({
+    registeredBackendId: REACT_NATIVE_APPLE_BACKEND_ID,
+    registeredPlatformId: REACT_NATIVE_APPLE_PLATFORM_ID,
+    implementationVersion: REACT_NATIVE_APPLE_IMPLEMENTATION_VERSION,
+    attachmentScope: 'react-native-apple',
+    backendInstancePrefix: 'react-native-apple-backend',
+    adapterNativeId: REACT_NATIVE_APPLE_DEFAULT_ADAPTER_NATIVE_ID,
+    adapterDisplayName: 'Apple CoreBluetooth central adapter',
+    limitations: Object.freeze([
+      'Apple exposes the process-owned CoreBluetooth central through the canonical JSI protocol boundary',
+      'Descriptor operations are unavailable because Native Protocol v1 does not publish descriptor records'
+    ]),
+    features: combineReactNativeFeatureRegistries(
+      createReactNativeConnectionControlFeatureRegistry('apple', REACT_NATIVE_APPLE_IMPLEMENTATION_VERSION),
+      createReactNativeRestorationFeatureRegistry('apple', REACT_NATIVE_APPLE_IMPLEMENTATION_VERSION)
+    )
+  })
 }
 
 function nativeAttachmentIdentity(attachment: AttachmentRecord<string>): NativeAttachmentIdentity {

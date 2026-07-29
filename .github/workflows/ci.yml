@@ -61,15 +61,19 @@ jobs:
             node: '20.19.4'
           - os: macos-latest
             node: '20.19.4'
+          # Keep the engines-floor suite on Node 20 and run native node-gyp gates
+          # on Node 22, whose bundled undici has the WebIDL helper node-gyp 13 needs.
+          - os: macos-latest
+            node: '22'
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.0
 
-      # node-gyp's current Node 20 toolchain is not compatible with macOS's
-      # preinstalled Python 3.14. Keep the native L2 gate intact on Python 3.12.
+      # Node 20 keeps macOS package coverage. Native node-gyp 13 gates run on
+      # Node 22 because its bundled undici provides the required WebIDL helper.
       - name: Setup Python for macOS native builds
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.node == '22'
         uses: actions/setup-python@v6.0.0
         with:
           python-version: '3.12'
@@ -109,13 +113,13 @@ jobs:
       # L2 needs compiled hosts (src/*.ts is not resolvable by plain Node). prepack is Linux-only above;
       # emit lib/ here before requireNative probes (R2-F005).
       - name: Build package artifacts (macOS/Windows L2 hosts)
-        if: runner.os == 'macOS' || runner.os == 'Windows'
+        if: (runner.os == 'macOS' && matrix.node == '22') || runner.os == 'Windows'
         run: pnpm prepack
 
       # L2: compile the CoreBluetooth Node-API addon, then load the public 4.0
       # contract boundary directly. No legacy BlePort host participates in this gate.
       - name: CoreBluetooth native boundary L2 (node-gyp Node ABI + public boundary)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.node == '22'
         env:
           npm_config_python: ${{ env.pythonLocation }}/bin/python
         run: |
@@ -148,7 +152,7 @@ jobs:
       # CoreBluetooth boundary under the Electron ABI on macOS (R3-F012).
       # Not radio L4 — no BrowserWindow or live peripheral is involved.
       - name: Electron ABI rebuild + main-process smoke (L3, Node ABI ≠ Electron ABI)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.node == '22'
         run: |
           set -euo pipefail
           npx --yes @electron/rebuild -f -w native/electron/corebluetooth

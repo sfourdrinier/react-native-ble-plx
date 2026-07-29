@@ -140,6 +140,18 @@ describe('ci-release canonical package (4.0)', () => {
     expect(publish).toContain('node-version: 24')
   })
 
+  test('keeps macOS package coverage on Node 20 while routing native CoreBluetooth gates to Node 22', () => {
+    const ci = read('.github/workflows/ci.yml')
+    expect(ci).toMatch(/- os: macos-latest\n\s+node: '20\.19\.4'/)
+    expect(ci).toMatch(/- os: macos-latest\n\s+node: '22'/)
+    expect(ci).toMatch(
+      /CoreBluetooth native boundary L2 \(node-gyp Node ABI \+ public boundary\)\n\s+if: runner\.os == 'macOS' && matrix\.node == '22'/
+    )
+    expect(ci).toMatch(
+      /Electron ABI rebuild \+ main-process smoke \(L3, Node ABI ≠ Electron ABI\)\n\s+if: runner\.os == 'macOS' && matrix\.node == '22'/
+    )
+  })
+
   // R2-F037: Electron ABI rebuild + main-process L3 smoke (not only node-gyp L2)
   test('R2-F037 ci.yml runs @electron/rebuild and electron-main-smoke under Electron binary', () => {
     const ci = read('.github/workflows/ci.yml')

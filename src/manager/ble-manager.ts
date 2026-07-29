@@ -23,6 +23,7 @@ import type { AttachmentId, BackendCompatibilityOffer, OwnedBytes, PeerId } from
 import type { MtuNegotiation, RssiMeasurement } from '../backend-contract/connection-controls'
 import type { AttachedBackend, BleCentralBackend, OwningManagerConstruction } from '../backend-contract/backend'
 import type { BoundedAsyncStream } from '../backend-contract/streams'
+import type { RestorationAdoptionRequest, RestorationAdoptionResult } from '../backend-contract/restoration'
 import { DEFAULT_CORE_MAXIMUM_VALUE_BYTES, UnifiedBleCore } from '../core/unified-ble-core'
 import type { CoreScanSession, UnifiedBleCoreOptions } from '../core/unified-ble-core'
 import { CoreConnection, CoreGattDatabase } from '../core/core-gatt-handles'
@@ -142,11 +143,26 @@ export class BleManager<Attachment extends string, Identity extends BackendIdent
     return this.core.backend.features
   }
 
+  /** Explicitly consumes the active provider's bounded native restoration journal. */
+  adoptRestoration(request: RestorationAdoptionRequest<Attachment>): Promise<RestorationAdoptionResult<Attachment>> {
+    if (this.core.state !== 'ready') {
+      throw contractError('lifecycle.destroyed', 'restoration', 'ble-manager.adopt-restoration')
+    }
+    const restoration = this.core.construction.restoration
+    if (restoration === undefined) {
+      throw contractError('capability.unsupported', 'restoration', 'ble-manager.adopt-restoration')
+    }
+    return restoration.coordinator.adopt(restoration.client, request)
+  }
+
   static async create<Attachment extends string, Identity extends BackendIdentity<Attachment>>(
     construction: ManagerConstruction<Attachment, Identity>,
     ownershipAuthority: ManagerOwnershipAuthority<Attachment, Identity>,
     options: BleManagerOptions
   ): Promise<BleManager<Attachment, Identity>> {
+    if (construction.restoration !== undefined && construction.restoration.client.clientId !== construction.clientId) {
+      throw contractError('ownership.denied', 'restoration', 'ble-manager.create.restoration-client')
+    }
     const core = await UnifiedBleCore.attach(construction, options)
     const manager = new BleManager(core, ownershipAuthority)
     constructedBleManagerOwnershipParticipants.add(manager)

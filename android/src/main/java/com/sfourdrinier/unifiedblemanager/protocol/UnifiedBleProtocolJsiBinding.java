@@ -82,6 +82,10 @@ final class UnifiedBleProtocolJsiBinding {
     emitReadNative(nativeHandle, dispatchEpoch, nonce, value);
   }
 
+  static void emitDescriptorRead(long nativeHandle, long dispatchEpoch, String nonce, byte[] value) {
+    emitDescriptorReadNative(nativeHandle, dispatchEpoch, nonce, value);
+  }
+
   static byte[] copyCommandBinary(long nativeHandle, long dispatchEpoch, String nonce) {
     return copyCommandBinaryNative(nativeHandle, dispatchEpoch, nonce);
   }
@@ -115,6 +119,7 @@ final class UnifiedBleProtocolJsiBinding {
   private static native void emitRecordNative(long nativeHandle, byte[] encodedRecord);
   private static native void emitAdapterStateNative(long nativeHandle, byte[] encodedAdapterState);
   private static native void emitReadNative(long nativeHandle, long dispatchEpoch, String nonce, byte[] value);
+  private static native void emitDescriptorReadNative(long nativeHandle, long dispatchEpoch, String nonce, byte[] value);
   private static native byte[] copyCommandBinaryNative(long nativeHandle, long dispatchEpoch, String nonce);
   private static native void emitNotificationNative(long nativeHandle, String subscriptionId, byte[] value);
   private static native void emitAdvertisementNative(

@@ -25,6 +25,8 @@ export type {
   CoreBluetoothBoundary,
   CoreBluetoothCharacteristicAddress,
   CoreBluetoothCharacteristicRecord,
+  CoreBluetoothDescriptorAddress,
+  CoreBluetoothDescriptorRecord,
   CoreBluetoothGattSnapshot,
   CoreBluetoothServiceRecord
 } from './backends/corebluetooth/corebluetooth-boundary'

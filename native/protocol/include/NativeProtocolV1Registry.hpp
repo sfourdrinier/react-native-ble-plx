@@ -89,6 +89,7 @@ struct RestorationAdoptionReceipt {
   std::string receiptId;
   NativeRestorationOutcome outcome;
   std::string boundClientId;
+  std::string adoptionEpoch;
   std::vector<RestorationJournalEntry> records;
 };
 

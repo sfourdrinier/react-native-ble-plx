@@ -102,6 +102,37 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
     queue.sync { restoredPeerIdentifiers }
   }
 
+  /// Consumes only the OS-provided restoration identifiers after an authenticated adoption succeeds.
+  @objc public func consumeRestorationPeerIdentifiers() {
+    queue.async {
+      self.restoredPeerIdentifiers.removeAll()
+    }
+  }
+
+  /// Releases one JavaScript protocol client while preserving the process-owned restoration central.
+  @objc public func releaseProtocolClient(completion: @escaping (NSError?) -> Void) {
+    queue.async {
+      guard !self.destroyed else {
+        completion(self.error(code: 1021, message: "The Native Protocol v1 CoreBluetooth radio was destroyed"))
+        return
+      }
+      self.central.stopScan()
+      self.activeScanOperationIdentifier = nil
+      self.failAllPendingOperationsOnDestroy()
+      self.subscriptions.removeAll()
+      let restoredIdentifiers = Set(self.restoredPeerIdentifiers)
+      for (identifier, peripheral) in self.peripheralByIdentifier where !restoredIdentifiers.contains(identifier) {
+        if peripheral.state == .connected || peripheral.state == .connecting {
+          self.central.cancelPeripheralConnection(peripheral)
+        }
+        peripheral.delegate = nil
+      }
+      self.peripheralByIdentifier = self.peripheralByIdentifier.filter { restoredIdentifiers.contains($0.key) }
+      self.servicesByPeer = self.servicesByPeer.filter { restoredIdentifiers.contains($0.key) }
+      completion(nil)
+    }
+  }
+
   @objc public func startScan(
     serviceUUIDs: [String],
     allowDuplicates: Bool,

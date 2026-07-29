@@ -265,29 +265,54 @@ void NativeRestorationJournal::append(ProtocolRecord record) {
 RestorationAdoptionReceipt NativeRestorationJournal::adopt(
     const NativeRestorationAdoptionRequest& request) {
   std::scoped_lock lock(mutex_);
+  if (request.clientId != authorizedClientId_ ||
+      request.hostSessionScope != authorizedHostSessionScope_) {
+    throw ProtocolException(ProtocolFailure::stalePath, "Restoration adoption client or host session is unauthorized");
+  }
   if (consumed_) {
     return {
         .receiptId = "",
         .outcome = NativeRestorationOutcome::alreadyConsumed,
         .boundClientId = authorizedClientId_,
+        .adoptionEpoch = adoptionEpoch_,
         .records = {},
     };
   }
   if (request.namespaceValue != namespace_) {
-    return {.receiptId = "", .outcome = NativeRestorationOutcome::namespaceMismatch, .boundClientId = "", .records = {}};
+    return {
+        .receiptId = "",
+        .outcome = NativeRestorationOutcome::namespaceMismatch,
+        .boundClientId = "",
+        .adoptionEpoch = adoptionEpoch_,
+        .records = {},
+    };
   }
   if (request.attachmentId != attachment_.attachmentId) {
-    return {.receiptId = "", .outcome = NativeRestorationOutcome::attachmentMismatch, .boundClientId = "", .records = {}};
+    return {
+        .receiptId = "",
+        .outcome = NativeRestorationOutcome::attachmentMismatch,
+        .boundClientId = "",
+        .adoptionEpoch = adoptionEpoch_,
+        .records = {},
+    };
   }
   if (request.expectedBackendInstanceId != attachment_.backendInstanceId) {
-    return {.receiptId = "", .outcome = NativeRestorationOutcome::backendMismatch, .boundClientId = "", .records = {}};
+    return {
+        .receiptId = "",
+        .outcome = NativeRestorationOutcome::backendMismatch,
+        .boundClientId = "",
+        .adoptionEpoch = adoptionEpoch_,
+        .records = {},
+    };
   }
   if (request.expectedEpoch != adoptionEpoch_) {
-    return {.receiptId = "", .outcome = NativeRestorationOutcome::epochMismatch, .boundClientId = "", .records = {}};
-  }
-  if (request.clientId != authorizedClientId_ ||
-      request.hostSessionScope != authorizedHostSessionScope_) {
-    throw ProtocolException(ProtocolFailure::stalePath, "Restoration adoption client or host session is unauthorized");
+    return {
+        .receiptId = "",
+        .outcome = NativeRestorationOutcome::epochMismatch,
+        .boundClientId = "",
+        .adoptionEpoch = adoptionEpoch_,
+        .records = {},
+    };
   }
   static_cast<void>(NativeProtocolV1Codec::negotiate(
       {request.nativeProtocolMinimum, request.nativeProtocolMaximum},
@@ -304,6 +329,7 @@ RestorationAdoptionReceipt NativeRestorationJournal::adopt(
       .receiptId = "restoration-receipt-" + std::to_string(receiptNumber),
       .outcome = NativeRestorationOutcome::adopted,
       .boundClientId = authorizedClientId_,
+      .adoptionEpoch = adoptionEpoch_,
       .records = std::move(adoptedRecords),
   };
 }

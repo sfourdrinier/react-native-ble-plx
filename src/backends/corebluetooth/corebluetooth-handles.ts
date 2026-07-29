@@ -7,6 +7,8 @@ import type {
   Characteristic,
   CharacteristicPath,
   DatabasePath,
+  Descriptor,
+  DescriptorPath,
   GattDatabase,
   GattDatabaseSnapshot,
   NotificationValue,
@@ -33,7 +35,11 @@ import {
 } from '../../backend-contract/primitives'
 import type { BoundedAsyncStream } from '../../backend-contract/streams'
 import { CoreBoundedStream } from '../../core/bounded-stream'
-import type { CoreBluetoothCharacteristicAddress, CoreBluetoothGattSnapshot } from './corebluetooth-boundary'
+import type {
+  CoreBluetoothCharacteristicAddress,
+  CoreBluetoothDescriptorAddress,
+  CoreBluetoothGattSnapshot
+} from './corebluetooth-boundary'
 import type {
   ConnectionRecord,
   CoreBluetoothBackend,
@@ -152,6 +158,7 @@ export class CoreBluetoothGattDatabase implements GattDatabase<string, string, s
     this.assertCurrent('corebluetooth.gatt.snapshot')
     const services: Service<string, string, string, string>[] = []
     const characteristics: Characteristic<string, string, string, string, string>[] = []
+    const descriptors: Descriptor<string, string, string, string, string, string>[] = []
     for (const service of this.snapshotRecord.services) {
       const servicePath = Object.freeze({
         ...this.path,
@@ -173,13 +180,26 @@ export class CoreBluetoothGattDatabase implements GattDatabase<string, string, s
           }
         )
         characteristics.push(Object.freeze({ path: characteristicPath }))
+        for (const descriptor of characteristic.descriptors) {
+          const descriptorPath: DescriptorPath<string, string, string, string, string, string, 'current'> =
+            Object.freeze({
+              ...characteristicPath,
+              descriptorUuid: canonicalUuid(descriptor.uuid),
+              descriptorOccurrence: opaqueId(
+                String(descriptor.occurrence),
+                'descriptor-occurrence',
+                String(characteristicPath.characteristicOccurrence)
+              )
+            })
+          descriptors.push(Object.freeze({ path: descriptorPath }))
+        }
       }
     }
     return Object.freeze({
       path: this.path,
       services: Object.freeze(services),
       characteristics: Object.freeze(characteristics),
-      descriptors: Object.freeze([])
+      descriptors: Object.freeze(descriptors)
     })
   }
 
@@ -216,12 +236,60 @@ export class CoreBluetoothGattDatabase implements GattDatabase<string, string, s
     })
   }
 
-  async readDescriptor(): Promise<OwnedBytes> {
-    throw contractError('capability.unsupported', 'gatt', 'corebluetooth.gatt.database-read-descriptor')
+  async readDescriptor<
+    ServiceOccurrence extends string,
+    CharacteristicOccurrence extends string,
+    DescriptorOccurrence extends string
+  >(
+    path: DescriptorPath<
+      string,
+      string,
+      string,
+      ServiceOccurrence,
+      CharacteristicOccurrence,
+      DescriptorOccurrence,
+      'current'
+    >,
+    options: PublicOperationOptions
+  ): Promise<OwnedBytes> {
+    this.assertCurrent('corebluetooth.gatt.database-read-descriptor')
+    const address = this.descriptorAddressFor(path, 'corebluetooth.gatt.database-read-descriptor')
+    return this.backend.gattOperations.readDescriptorFromDatabase(address, options, String(this.path.connectionId))
   }
 
-  async writeDescriptor(): Promise<import('../../backend-contract/operations').WriteReceipt<string, string>> {
-    throw contractError('capability.unsupported', 'gatt', 'corebluetooth.gatt.database-write-descriptor')
+  async writeDescriptor<
+    ServiceOccurrence extends string,
+    CharacteristicOccurrence extends string,
+    DescriptorOccurrence extends string
+  >(
+    path: DescriptorPath<
+      string,
+      string,
+      string,
+      ServiceOccurrence,
+      CharacteristicOccurrence,
+      DescriptorOccurrence,
+      'current'
+    >,
+    value: Uint8Array,
+    options: import('../../backend-contract/operations').WritePolicy
+  ): Promise<import('../../backend-contract/operations').WriteReceipt<string, string>> {
+    this.assertCurrent('corebluetooth.gatt.database-write-descriptor')
+    const address = this.descriptorAddressFor(path, 'corebluetooth.gatt.database-write-descriptor')
+    await this.backend.gattOperations.writeDescriptorFromDatabase(
+      address,
+      value,
+      options,
+      String(this.path.connectionId)
+    )
+    return Object.freeze({
+      terminal: Object.freeze({
+        correlation: opaqueId('corebluetooth-database-write-descriptor', 'core-operation', 'corebluetooth:database'),
+        outcome: 'succeeded',
+        cause: null
+      }),
+      commitState: 'confirmed'
+    })
   }
 
   async subscribe<ServiceOccurrence extends string, CharacteristicOccurrence extends string>(
@@ -284,6 +352,31 @@ export class CoreBluetoothGattDatabase implements GattDatabase<string, string, s
       serviceOccurrence: service.occurrence,
       characteristicUuid: characteristic.uuid,
       characteristicOccurrence: characteristic.occurrence
+    })
+  }
+
+  descriptorAddressFor(
+    path: DescriptorPath<string, string, string, string, string, string, 'current'>,
+    operation: string
+  ): CoreBluetoothDescriptorAddress {
+    const characteristic = this.addressFor(path, operation)
+    const service = this.snapshotRecord.services.find(
+      candidate => candidate.uuid === path.serviceUuid && candidate.occurrence === Number(path.serviceOccurrence)
+    )
+    const characteristicRecord = service?.characteristics.find(
+      candidate =>
+        candidate.uuid === path.characteristicUuid && candidate.occurrence === Number(path.characteristicOccurrence)
+    )
+    const descriptor = characteristicRecord?.descriptors.find(
+      candidate => candidate.uuid === path.descriptorUuid && candidate.occurrence === Number(path.descriptorOccurrence)
+    )
+    if (descriptor === undefined) {
+      throw contractError('gatt.not-found', 'gatt', operation)
+    }
+    return Object.freeze({
+      ...characteristic,
+      descriptorUuid: descriptor.uuid,
+      descriptorOccurrence: descriptor.occurrence
     })
   }
 }
@@ -351,6 +444,28 @@ export function advertisementByteLength(observation: AdvertisementObservation<st
   }
   if (observation.serviceUuids.state === 'present') {
     size += observation.serviceUuids.value.length * 36
+  }
+  if (observation.solicitedServiceUuids.state === 'present') {
+    size += observation.solicitedServiceUuids.value.length * 36
+  }
+  if (observation.overflowServiceUuids.state === 'present') {
+    size += observation.overflowServiceUuids.value.length * 36
+  }
+  if (observation.rawRecord.state === 'present') {
+    size += observation.rawRecord.value.byteLength
+  }
+  if (observation.scanResponseRecord.state === 'present') {
+    size += observation.scanResponseRecord.value.byteLength
+  }
+  if (observation.serviceData.state === 'present') {
+    for (const entry of observation.serviceData.value) {
+      size += 36 + entry.value.byteLength
+    }
+  }
+  if (observation.manufacturerData.state === 'present') {
+    for (const entry of observation.manufacturerData.value) {
+      size += 2 + entry.value.byteLength
+    }
   }
   return size
 }

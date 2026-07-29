@@ -12,6 +12,7 @@ import type {
   CoreBluetoothAdvertisement,
   CoreBluetoothBoundary,
   CoreBluetoothCharacteristicAddress,
+  CoreBluetoothDescriptorAddress,
   CoreBluetoothGattSnapshot
 } from '../backends/corebluetooth/corebluetooth-boundary'
 import {
@@ -31,6 +32,7 @@ import {
 import {
   adapterStateFromRecord,
   addressKey,
+  advertisementBinaryReferences,
   advertisementFromRecord,
   attachmentIdentityFromRecord,
   binaryReferenceFromRecord,
@@ -47,8 +49,10 @@ import {
   snapshotFromRecord,
   optionalRecord,
   optionalString,
+  parseAdvertisementRecord,
   requiredUnsigned
 } from './rn-android-protocol-records'
+import type { ParsedNativeAdvertisement } from './rn-android-protocol-records'
 
 const protocolVersion = 1
 const maximumNativePayloadBytes = 512 * 1024
@@ -77,6 +81,7 @@ type NativeSubscription = {
  * direct-boundary interface consumed by the shared backend.
  */
 export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary {
+  readonly descriptorOperationsAvailable: boolean = true
   readonly connectionControlCapabilities: ConnectionControlCapabilities = Object.freeze({
     rssi: 'available',
     requestMtu: 'available'
@@ -307,6 +312,59 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
     }
   }
 
+  async readDescriptor(address: CoreBluetoothDescriptorAddress): Promise<Uint8Array> {
+    this.requireOpen('read-descriptor')
+    const descriptorPath = this.descriptorPath(address)
+    const result = await this.dispatch('readDescriptor', [field(5, descriptorPath)])
+    this.assertDescriptorResultPath(
+      descriptorPath,
+      requiredRecord(result, 15, 'rn-android-boundary.read-descriptor.path'),
+      'read-descriptor'
+    )
+    const reference = binaryReferenceFromRecord(requiredRecord(result, 6, 'rn-android-boundary.read-descriptor.binary'))
+    return this.takeOutputBytes(reference, 'read-descriptor')
+  }
+
+  async writeDescriptor(address: CoreBluetoothDescriptorAddress, bytes: Uint8Array): Promise<void> {
+    this.requireOpen('write-descriptor')
+    if (bytes.byteLength > this.maximumInputPayloadBytes) {
+      throw contractError('bytes.too-large', 'boundary', 'rn-android-boundary.write-descriptor')
+    }
+    const correlation = this.nextCorrelation()
+    const reference = retainNativeProtocolBytes(correlation.nonce, bytes)
+    const command = commandRecord(protocolVersion, 'writeDescriptor', correlation.record, [
+      field(5, this.descriptorPath(address)),
+      field(6, binaryReferenceRecord(reference))
+    ])
+    try {
+      const result = await this.submit(command, correlation.nonce, 'writeDescriptor')
+      this.assertDescriptorResultPath(
+        requiredRecord(command, 5, 'rn-android-boundary.write-descriptor.path'),
+        requiredRecord(result, 15, 'rn-android-boundary.write-descriptor.result-path'),
+        'write-descriptor'
+      )
+    } catch (error) {
+      try {
+        const released = releaseNativeProtocolBytes(reference)
+        if (!released) {
+          console.error(
+            '[ReactNativeAndroidProtocolBoundary.writeDescriptor] Native input was already released after dispatch failure:',
+            {
+              ownerToken: reference.ownerToken,
+              operationCorrelation: reference.operationCorrelation
+            }
+          )
+        }
+      } catch (releaseError) {
+        console.error(
+          '[ReactNativeAndroidProtocolBoundary.writeDescriptor] Native input release after dispatch failure failed:',
+          releaseError
+        )
+      }
+      throw error
+    }
+  }
+
   async startNotify(address: CoreBluetoothCharacteristicAddress, onValue: (bytes: Uint8Array) => void): Promise<void> {
     this.requireOpen('start-notify')
     const key = addressKey(address)
@@ -468,11 +526,9 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
     const kind = requiredString(event, 3, 'rn-android-boundary.event.kind')
     if (kind === 'advertisement') {
       const advertisement = requiredRecord(event, 12, 'rn-android-boundary.event.advertisement')
-      const rawRecord = optionalRecord(advertisement, 15)
-      if (rawRecord !== null) {
-        this.takeOutputBytes(binaryReferenceFromRecord(rawRecord), 'advertisement')
-      }
-      const value = advertisementFromRecord(advertisement)
+      const parsedAdvertisement = parseAdvertisementRecord(advertisement)
+      const advertisementBytes = this.takeAdvertisementBytes(parsedAdvertisement)
+      const value = advertisementFromRecord(parsedAdvertisement, advertisementBytes)
       for (const listener of this.scanListeners) {
         listener(value)
       }
@@ -536,6 +592,33 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
     console.error('[ReactNativeAndroidProtocolBoundary.receiveEvent] Unsupported native event was quarantined:', {
       kind
     })
+  }
+
+  private takeAdvertisementBytes(advertisement: ParsedNativeAdvertisement): Map<NativeBinaryReference, Uint8Array> {
+    const bytesByReference = new Map<NativeBinaryReference, Uint8Array>()
+    let firstFailure: Error | null = null
+    for (const reference of advertisementBinaryReferences(advertisement)) {
+      try {
+        bytesByReference.set(reference, this.takeOutputBytes(reference, 'advertisement'))
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error('Native advertisement output copy failed')
+        console.error(
+          '[ReactNativeAndroidProtocolBoundary.takeAdvertisementBytes] Native advertisement output copy failed:',
+          {
+            ownerToken: reference.ownerToken,
+            operationCorrelation: reference.operationCorrelation,
+            error: failure
+          }
+        )
+        if (firstFailure === null) {
+          firstFailure = failure
+        }
+      }
+    }
+    if (firstFailure !== null) {
+      throw firstFailure
+    }
+    return bytesByReference
   }
 
   private takeOutputBytes(reference: NativeBinaryReference, operation: string): Uint8Array {
@@ -635,6 +718,29 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
       field(2, address.characteristicUuid),
       field(3, String(address.characteristicOccurrence))
     ])
+  }
+
+  private descriptorPath(address: CoreBluetoothDescriptorAddress): NativeProtocolRecord {
+    return protocolRecord('descriptorPath', [
+      field(1, this.characteristicPath(address)),
+      field(2, address.descriptorUuid),
+      field(3, String(address.descriptorOccurrence))
+    ])
+  }
+
+  private assertDescriptorResultPath(
+    expected: NativeProtocolRecord,
+    actual: NativeProtocolRecord,
+    operation: string
+  ): void {
+    const expectedBytes = encodeNativeProtocolRecord(expected)
+    const actualBytes = encodeNativeProtocolRecord(actual)
+    if (
+      expectedBytes.byteLength !== actualBytes.byteLength ||
+      expectedBytes.some((byte, index) => byte !== actualBytes[index])
+    ) {
+      throw contractError('protocol.violation', 'boundary', `rn-android-boundary.${operation}.descriptor-path`)
+    }
   }
 
   private requireConnection(nativePeerId: string, operation: string): NativeConnection {

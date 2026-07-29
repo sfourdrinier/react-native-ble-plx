@@ -27,6 +27,16 @@ bool validString(NSString *value) {
   return value != nil && value.length > 0;
 }
 
+NSString *configuredInfoString(NSString *key) {
+  id value = [[NSBundle mainBundle] objectForInfoDictionaryKey:key];
+  if (![value isKindOfClass:[NSString class]]) {
+    return nil;
+  }
+
+  NSString *stringValue = value;
+  return validString(stringValue) ? stringValue : nil;
+}
+
 bool validInteger(double value) {
   return std::isfinite(value) && value >= 1.0 && value <= kMaximumSafeInteger && std::trunc(value) == value;
 }
@@ -100,6 +110,10 @@ void rejectControl(RCTPromiseRejectBlock reject, NSString *code, NSString *messa
   std::shared_ptr<unified_ble::native_protocol::v1::NativeProtocolControlRuntime> _runtime;
   std::shared_ptr<unified_ble::apple_protocol::AppleNativeProtocolExecution> _execution;
   NSDictionary *_attachment;
+  NSString *_restorationNamespace;
+  NSString *_restorationEpoch;
+  NSString *_restorationClientId;
+  NSString *_restorationHostSessionScope;
   OwnedCoreBluetoothProtocolRadio *_radio;
   UnifiedBleProtocolAppleRadioDelegate *_radioDelegate;
   BOOL _jsiInstalled;
@@ -111,8 +125,11 @@ RCT_EXPORT_MODULE(UnifiedBleProtocolControl)
   self = [super init];
   if (self != nil) {
     _runtime = std::make_shared<unified_ble::native_protocol::v1::NativeProtocolControlRuntime>();
-    id configuredIdentifier = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"UnifiedBleProtocolRestoreIdentifier"];
-    NSString *restoreIdentifier = [configuredIdentifier isKindOfClass:[NSString class]] ? configuredIdentifier : nil;
+    NSString *restoreIdentifier = configuredInfoString(@"UnifiedBleProtocolRestoreIdentifier");
+    _restorationNamespace = configuredInfoString(@"UnifiedBleProtocolRestorationNamespace");
+    _restorationEpoch = configuredInfoString(@"UnifiedBleProtocolRestorationEpoch");
+    _restorationClientId = configuredInfoString(@"UnifiedBleProtocolRestorationClientId");
+    _restorationHostSessionScope = configuredInfoString(@"UnifiedBleProtocolRestorationHostSessionScope");
     _radio = [[OwnedCoreBluetoothProtocolRadio alloc] initWithRestoreIdentifierKey:restoreIdentifier];
     _execution = std::make_shared<unified_ble::apple_protocol::AppleNativeProtocolExecution>(
         _runtime,
@@ -182,6 +199,25 @@ RCT_EXPORT_MODULE(UnifiedBleProtocolControl)
         range(request.capabilitySchema()),
         range(request.eventSchema()),
         range(request.traceFormat())));
+    if (_restorationNamespace != nil &&
+        _restorationEpoch != nil &&
+        _restorationClientId != nil &&
+        _restorationHostSessionScope != nil) {
+      const auto attachment = nativeAttachment(
+          request.attachmentId(),
+          request.backendInstanceId(),
+          request.backendGeneration(),
+          request.adapterId(),
+          request.adapterGeneration());
+      _execution->appendRestorationRecords({
+          .namespaceValue = nativeString(_restorationNamespace),
+          .attachment = attachment,
+          .adoptionEpoch = nativeString(_restorationEpoch),
+          .authorizedClientId = nativeString(_restorationClientId),
+          .authorizedHostSessionScope = nativeString(_restorationHostSessionScope),
+          .nativeProtocol = {.minimum = 1U, .maximum = 1U},
+      });
+    }
   } catch (const std::exception& error) {
     rejectControl(reject, @"nativeProtocolHandshake", [NSString stringWithUTF8String:error.what()]);
     return;
@@ -262,29 +298,15 @@ RCT_EXPORT_MODULE(UnifiedBleProtocolControl)
       !validString(request.namespaceValue()) ||
       !validString(request.expectedEpoch()) ||
       !validString(request.clientId()) ||
-      !validString(request.hostSessionScope())) {
+      !validString(request.hostSessionScope()) ||
+      _restorationNamespace == nil ||
+      _restorationEpoch == nil ||
+      _restorationClientId == nil ||
+      _restorationHostSessionScope == nil) {
     rejectControl(reject, @"nativeRestorationAdoption", @"The restoration request is malformed");
     return;
   }
   try {
-    const auto attachment = _runtime->attachmentIdentity();
-    if (nativeString(request.attachmentId()) != attachment.attachmentId ||
-        nativeString(request.expectedBackendInstanceId()) != attachment.backendInstanceId) {
-      rejectControl(reject, @"nativeRestorationAdoption", @"The restoration request targets a stale attachment");
-      return;
-    }
-    const auto authority = unified_ble::native_protocol::v1::NativeRestorationJournalAuthority{
-        .namespaceValue = nativeString(request.namespaceValue()),
-        .attachment = attachment,
-        .adoptionEpoch = nativeString(request.expectedEpoch()),
-        .authorizedClientId = nativeString(request.clientId()),
-        .authorizedHostSessionScope = nativeString(request.hostSessionScope()),
-        .nativeProtocol = {
-            .minimum = static_cast<std::uint32_t>(request.nativeProtocolMinimum()),
-            .maximum = static_cast<std::uint32_t>(request.nativeProtocolMaximum()),
-        },
-    };
-    _execution->appendRestorationRecords(authority);
     const auto receipt = _runtime->adopt({
       .namespaceValue = nativeString(request.namespaceValue()),
       .attachmentId = nativeString(request.attachmentId()),
@@ -295,11 +317,28 @@ RCT_EXPORT_MODULE(UnifiedBleProtocolControl)
       .clientId = nativeString(request.clientId()),
       .hostSessionScope = nativeString(request.hostSessionScope()),
     });
+    if (receipt.outcome == unified_ble::native_protocol::v1::NativeRestorationOutcome::adopted) {
+      [_radio consumeRestorationPeerIdentifiers];
+    }
+    NSMutableArray<NSDictionary*>* replayRecords =
+        [NSMutableArray arrayWithCapacity:receipt.records.size()];
+    const unified_ble::native_protocol::v1::NativeProtocolV1Codec codec;
+    for (const auto& entry : receipt.records) {
+      const auto encoded = codec.encode(entry.record);
+      NSMutableArray<NSNumber*>* bytes = [NSMutableArray arrayWithCapacity:encoded.size()];
+      for (const std::uint8_t byte : encoded) {
+        [bytes addObject:@(byte)];
+      }
+      [replayRecords addObject:@{@"encodedRecord": bytes}];
+    }
     resolve(@{
       @"receiptId": [NSString stringWithUTF8String:receipt.receiptId.c_str()],
       @"outcome": [NSString stringWithUTF8String:
           unified_ble::native_protocol::v1::restorationOutcomeName(receipt.outcome)],
+      @"boundClientId": [NSString stringWithUTF8String:receipt.boundClientId.c_str()],
+      @"adoptionEpoch": [NSString stringWithUTF8String:receipt.adoptionEpoch.c_str()],
       @"replayRecordCount": @(receipt.records.size()),
+      @"records": replayRecords,
     });
   } catch (const std::exception& error) {
     rejectControl(reject, @"nativeRestorationAdoption", [NSString stringWithUTF8String:error.what()]);
@@ -326,22 +365,12 @@ RCT_EXPORT_MODULE(UnifiedBleProtocolControl)
         attachment.backendGeneration(),
         attachment.adapterId(),
         attachment.adapterGeneration());
-    [_radio destroyWithCompletion:^(NSError *error) {
-      if (error != nil) {
-        rejectControl(reject, @"nativeProtocolClose", error.localizedDescription);
-        return;
-      }
-      try {
-        self->_radio.delegate = nil;
-        self->_radioDelegate.execution = nullptr;
-        self->_execution->close();
-        self->_runtime->close(nativeAttachmentValue);
-        self->_attachment = nil;
-        resolve(nil);
-      } catch (const std::exception& innerError) {
-        rejectControl(reject, @"nativeProtocolClose", [NSString stringWithUTF8String:innerError.what()]);
-      }
-    }];
+    _radio.delegate = nil;
+    _radioDelegate.execution = nullptr;
+    _execution->detachAttachment();
+    _runtime->close(nativeAttachmentValue);
+    _attachment = nil;
+    resolve(nil);
   } catch (const std::exception& error) {
     rejectControl(reject, @"nativeProtocolClose", [NSString stringWithUTF8String:error.what()]);
   }

@@ -392,10 +392,17 @@ export interface NativeRestorationAdoptionRequest {
   hostSessionScope: string
 }
 
+export interface NativeRestorationReplayRecord {
+  encodedRecord: number[]
+}
+
 export interface NativeRestorationAdoptionControlResult {
   receiptId: string
   outcome: NativeRestorationOutcome
+  boundClientId: string
+  adoptionEpoch: string
   replayRecordCount: number
+  records: NativeRestorationReplayRecord[]
 }
 
 export interface NativeCancellationControlResult {

@@ -27,10 +27,19 @@ export {
 export type { ReactNativeAppleBackendProviderOptions } from './backends/reactnative/react-native-apple-provider'
 export { createReactNativeBleManager } from './react-native-manager'
 export type { ReactNativeBleManagerOptions, ReactNativeBlePlatform } from './react-native-manager'
+export {
+  combineReactNativeFeatureRegistries,
+  createReactNativeRestorationFeatureRegistry,
+  ReactNativeRestorationActivation,
+  ReactNativeRestorationCoordinator
+} from './backends/reactnative/react-native-restoration'
+export type { ReactNativeRestorationBackendProvider } from './backends/reactnative/react-native-restoration'
 export type {
   NativeAttachmentIdentity,
   NativeProtocolHandshakeRequest,
   NativeProtocolHandshakeResult,
+  NativeRestorationAdoptionControlResult,
+  NativeRestorationReplayRecord,
   Spec as NativeUnifiedBleProtocolControl
 } from './NativeUnifiedBleProtocolControl'
 

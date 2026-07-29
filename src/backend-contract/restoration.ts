@@ -41,10 +41,10 @@ export interface AuthenticatedRestorationClient<Attachment extends string> {
 }
 export interface RestorationAdoptionResult<Attachment extends string> {
   readonly attachmentId: AttachmentId<Attachment>
-  readonly receiptId: string
+  readonly receiptId: string | null
   readonly namespace: string
-  readonly boundClientId: ClientId<Attachment, string>
-  readonly adoptionEpoch: GenerationId<'restoration-epoch', Attachment>
+  readonly boundClientId: ClientId<Attachment, string> | null
+  readonly adoptionEpoch: GenerationId<'restoration-epoch', Attachment> | null
   readonly outcome:
     | 'adopted'
     | 'already-consumed'
@@ -70,4 +70,9 @@ export interface RestorationCoordinator<Attachment extends string> {
     client: AuthenticatedRestorationClient<Attachment>,
     request: RestorationAdoptionRequest<Attachment>
   ): Promise<RestorationAdoptionResult<Attachment>>
+}
+/** Provider-owned restoration authority that one constructed manager can invoke. */
+export interface ManagerRestorationCapability<Attachment extends string> {
+  readonly client: AuthenticatedRestorationClient<Attachment>
+  readonly coordinator: RestorationCoordinator<Attachment>
 }

@@ -44,7 +44,9 @@
     "adoptRestoration",
     "destroy",
     "readRssi",
-    "requestMtu"
+    "requestMtu",
+    "readDescriptor",
+    "writeDescriptor"
   ],
   "resultKinds": [
     "accepted",
@@ -59,7 +61,9 @@
     "restoration",
     "destroyed",
     "rssi",
-    "mtu"
+    "mtu",
+    "descriptorRead",
+    "descriptorWrite"
   ],
   "eventKinds": [
     "adapterState",
@@ -253,7 +257,8 @@
         ["connectionPath", "record:connectionPath", false],
         ["databaseSnapshot", "record:databaseSnapshot", false],
         ["rssi", "int64", false],
-        ["negotiatedMtu", "uint64", false]
+        ["negotiatedMtu", "uint64", false],
+        ["descriptorPath", "record:descriptorPath", false]
       ]
     },
     {

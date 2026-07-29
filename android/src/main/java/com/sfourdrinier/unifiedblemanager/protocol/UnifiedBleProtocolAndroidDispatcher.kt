@@ -129,6 +129,8 @@ class UnifiedBleProtocolAndroidDispatcher(
         "discover" -> discover(command)
         "read" -> read(command)
         "write" -> write(command)
+        "readDescriptor" -> readDescriptor(command)
+        "writeDescriptor" -> writeDescriptor(command)
         "readRssi" -> readRssi(command)
         "requestMtu" -> requestMtu(command)
         "subscribe" -> subscribe(command, true)
@@ -267,6 +269,61 @@ class UnifiedBleProtocolAndroidDispatcher(
       result.fold(
         onSuccess = { emitSuccess(command, "write") },
         onFailure = { error -> emitFailure(command, "writeFailed", error.message ?: "Android GATT write failed") }
+      )
+    }
+  }
+
+  private fun readDescriptor(command: ProtocolWireRecord) {
+    val endpoint = descriptorEndpoint(command.requiredRecord(5))
+    radio.readDescriptorExact(
+      endpoint.deviceId,
+      endpoint.serviceUuid,
+      endpoint.serviceOccurrence,
+      endpoint.characteristicUuid,
+      endpoint.characteristicOccurrence,
+      endpoint.descriptorUuid,
+      endpoint.descriptorOccurrence
+    ) { result ->
+      result.fold(
+        onSuccess = { value ->
+          if (pendingCommands.remove(operationKey(command), command)) {
+            UnifiedBleProtocolJsiBinding.emitDescriptorRead(
+              nativeHandle,
+              commandEpoch(command),
+              commandNonce(command),
+              value ?: byteArrayOf()
+            )
+          }
+        },
+        onFailure = { error ->
+          emitFailure(command, "readDescriptorFailed", error.message ?: "Android GATT descriptor read failed")
+        }
+      )
+    }
+  }
+
+  private fun writeDescriptor(command: ProtocolWireRecord) {
+    val endpoint = descriptorEndpoint(command.requiredRecord(5))
+    val value = UnifiedBleProtocolJsiBinding.copyCommandBinary(
+      nativeHandle,
+      commandEpoch(command),
+      commandNonce(command)
+    )
+    radio.writeDescriptorExact(
+      endpoint.deviceId,
+      endpoint.serviceUuid,
+      endpoint.serviceOccurrence,
+      endpoint.characteristicUuid,
+      endpoint.characteristicOccurrence,
+      endpoint.descriptorUuid,
+      endpoint.descriptorOccurrence,
+      value
+    ) { result ->
+      result.fold(
+        onSuccess = { emitSuccess(command, "descriptorWrite", mapOf(15 to ProtocolWireValue.RecordValue(command.requiredRecord(5)))) },
+        onFailure = { error ->
+          emitFailure(command, "writeDescriptorFailed", error.message ?: "Android GATT descriptor write failed")
+        }
       )
     }
   }
@@ -586,6 +643,20 @@ class UnifiedBleProtocolAndroidDispatcher(
     )
   }
 
+  private fun descriptorEndpoint(path: ProtocolWireRecord): DescriptorEndpoint {
+    val characteristic = path.requiredRecord(1)
+    val endpoint = characteristicEndpoint(characteristic)
+    return DescriptorEndpoint(
+      endpoint.deviceId,
+      endpoint.serviceUuid,
+      endpoint.serviceOccurrence,
+      endpoint.characteristicUuid,
+      endpoint.characteristicOccurrence,
+      UUID.fromString(path.requiredString(2)),
+      path.requiredString(3).toInt()
+    )
+  }
+
   private fun commandEpoch(command: ProtocolWireRecord): Long = command.requiredRecord(2).requiredUnsigned(2)
   private fun commandNonce(command: ProtocolWireRecord): String = command.requiredRecord(2).requiredString(3)
   private fun operationKey(command: ProtocolWireRecord): String = "${commandEpoch(command)}:${commandNonce(command)}"
@@ -596,6 +667,8 @@ class UnifiedBleProtocolAndroidDispatcher(
     "discover" -> "database"
     "read" -> "read"
     "write" -> "write"
+    "readDescriptor" -> "descriptorRead"
+    "writeDescriptor" -> "descriptorWrite"
     "readRssi" -> "rssi"
     "requestMtu" -> "mtu"
     "subscribe" -> "subscribed"
@@ -610,6 +683,16 @@ class UnifiedBleProtocolAndroidDispatcher(
     val serviceOccurrence: Int,
     val characteristicUuid: UUID,
     val characteristicOccurrence: Int
+  )
+
+  private data class DescriptorEndpoint(
+    val deviceId: String,
+    val serviceUuid: UUID,
+    val serviceOccurrence: Int,
+    val characteristicUuid: UUID,
+    val characteristicOccurrence: Int,
+    val descriptorUuid: UUID,
+    val descriptorOccurrence: Int
   )
 
   private data class SubscriptionRoute(

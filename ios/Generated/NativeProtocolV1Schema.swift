@@ -48,6 +48,8 @@ public enum CommandKinds: UInt16, CaseIterable, Sendable {
   case destroy = 12
   case readRssi = 13
   case requestMtu = 14
+  case readDescriptor = 15
+  case writeDescriptor = 16
 }
 
 public enum ResultKinds: UInt16, CaseIterable, Sendable {
@@ -64,6 +66,8 @@ public enum ResultKinds: UInt16, CaseIterable, Sendable {
   case destroyed = 11
   case rssi = 12
   case mtu = 13
+  case descriptorRead = 14
+  case descriptorWrite = 15
 }
 
 public enum EventKinds: UInt16, CaseIterable, Sendable {
@@ -230,6 +234,7 @@ public let nativeProtocolFields: [FieldDescriptor] = [
     FieldDescriptor(record: .result, fieldID: 12, name: "databaseSnapshot", type: "record:databaseSnapshot", required: false),
     FieldDescriptor(record: .result, fieldID: 13, name: "rssi", type: "int64", required: false),
     FieldDescriptor(record: .result, fieldID: 14, name: "negotiatedMtu", type: "uint64", required: false),
+    FieldDescriptor(record: .result, fieldID: 15, name: "descriptorPath", type: "record:descriptorPath", required: false),
     FieldDescriptor(record: .advertisement, fieldID: 1, name: "peerId", type: "string", required: true),
     FieldDescriptor(record: .advertisement, fieldID: 2, name: "observedAt", type: "uint64", required: true),
     FieldDescriptor(record: .advertisement, fieldID: 3, name: "ingressOrdinal", type: "uint64", required: true),

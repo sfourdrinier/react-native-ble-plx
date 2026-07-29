@@ -11,6 +11,7 @@ import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.RuntimeExecutor;
+import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.module.annotations.ReactModule;
 import com.sfourdrinier.unifiedblemanager.NativeUnifiedBleProtocolControlSpec;
@@ -22,6 +23,7 @@ public final class UnifiedBleProtocolControlModule extends NativeUnifiedBleProto
   private static final int PROTOCOL_VERSION = 1;
   private static final int MAXIMUM_CONTROL_RECORD_BYTES = 262144;
   private static final int MAXIMUM_BINARY_PAYLOAD_BYTES = 524288;
+  private static final int MAXIMUM_RESTORATION_RECORDS = 1024;
   private static final double MAXIMUM_SAFE_INTEGER = 9007199254740991.0;
 
   static {
@@ -146,7 +148,7 @@ public final class UnifiedBleProtocolControlModule extends NativeUnifiedBleProto
       final String epoch = requiredString(request, "expectedEpoch");
       final String clientId = requiredString(request, "clientId");
       final String hostSessionScope = requiredString(request, "hostSessionScope");
-      final String[] adoption = nativeAdopt(
+      final NativeRestorationAdoption adoption = nativeAdopt(
           nativeHandle,
           namespaceValue,
           attachmentId,
@@ -157,9 +159,12 @@ public final class UnifiedBleProtocolControlModule extends NativeUnifiedBleProto
           clientId,
           hostSessionScope);
       final WritableMap result = Arguments.createMap();
-      result.putString("receiptId", adoption[0]);
-      result.putString("outcome", adoption[1]);
-      result.putInt("replayRecordCount", Integer.parseInt(adoption[2]));
+      result.putString("receiptId", adoption.receiptId);
+      result.putString("outcome", adoption.outcome);
+      result.putString("boundClientId", adoption.boundClientId);
+      result.putString("adoptionEpoch", adoption.adoptionEpoch);
+      result.putInt("replayRecordCount", adoption.records.length);
+      result.putArray("records", restorationRecords(adoption.records));
       promise.resolve(result);
     } catch (RuntimeException error) {
       Log.e(TAG, "adoptRestoration failed", error);
@@ -284,6 +289,30 @@ public final class UnifiedBleProtocolControlModule extends NativeUnifiedBleProto
     return ranges;
   }
 
+  private static WritableArray restorationRecords(byte[][] records) {
+    if (records == null || records.length > MAXIMUM_RESTORATION_RECORDS) {
+      throw new IllegalArgumentException("Native restoration replay record count is invalid");
+    }
+    int retainedBytes = 0;
+    final WritableArray restored = Arguments.createArray();
+    for (byte[] encodedRecord : records) {
+      if (encodedRecord == null ||
+          encodedRecord.length == 0 ||
+          encodedRecord.length > MAXIMUM_CONTROL_RECORD_BYTES - retainedBytes) {
+        throw new IllegalArgumentException("Native restoration replay bytes are invalid");
+      }
+      retainedBytes += encodedRecord.length;
+      final WritableArray bytes = Arguments.createArray();
+      for (byte value : encodedRecord) {
+        bytes.pushInt(Byte.toUnsignedInt(value));
+      }
+      final WritableMap record = Arguments.createMap();
+      record.putArray("encodedRecord", bytes);
+      restored.pushMap(record);
+    }
+    return restored;
+  }
+
   private static final class AttachmentIdentity {
     private final String attachmentId;
     private final String backendInstanceId;
@@ -327,6 +356,27 @@ public final class UnifiedBleProtocolControlModule extends NativeUnifiedBleProto
     }
   }
 
+  private static final class NativeRestorationAdoption {
+    private final String receiptId;
+    private final String outcome;
+    private final String boundClientId;
+    private final String adoptionEpoch;
+    private final byte[][] records;
+
+    private NativeRestorationAdoption(
+        String receiptId,
+        String outcome,
+        String boundClientId,
+        String adoptionEpoch,
+        byte[][] records) {
+      this.receiptId = receiptId;
+      this.outcome = outcome;
+      this.boundClientId = boundClientId;
+      this.adoptionEpoch = adoptionEpoch;
+      this.records = records;
+    }
+  }
+
   private static native long nativeCreate();
   private static native void nativeDestroy(long handle);
   private static native void nativeHandshake(
@@ -347,7 +397,7 @@ public final class UnifiedBleProtocolControlModule extends NativeUnifiedBleProto
       String adapterGeneration,
       long dispatchEpoch,
       String nonce);
-  private static native String[] nativeAdopt(
+  private static native NativeRestorationAdoption nativeAdopt(
       long handle,
       String namespaceValue,
       String attachmentId,

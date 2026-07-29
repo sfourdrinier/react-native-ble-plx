@@ -473,7 +473,7 @@ void dispatchCommand(
     return;
   }
   if (kind == "destroy") {
-    [radio destroyWithCompletion:^(NSError* error) {
+    [radio releaseProtocolClientWithCompletion:^(NSError* error) {
       if (error == nil) static_cast<void>(success(state, command));
       else fail(state, command, "destroyFailed", error);
     }];
@@ -665,15 +665,42 @@ void AppleNativeProtocolExecution::appendRestorationRecords(const protocol::Nati
   std::scoped_lock lock(state_->mutex);
   if (state_->restorationAppended) return;
   NSArray<NSString*>* peers = [radioFor(state_) restorationPeerIdentifiers];
-  std::uint64_t ordinal = 1U;
+  const auto adapterRecord = protocol::ProtocolRecord{.kind = protocol::RecordKind::restorationRecord, .fields = {
+      field(1U, std::uint64_t{1U}), field(2U, authority.namespaceValue), field(3U, reference(attachmentRecord(authority.attachment))),
+      field(4U, std::uint64_t{1U}), field(5U, authority.adoptionEpoch), field(6U, std::string("adapter"))}};
+  state_->runtime->appendRestorationRecord(authority, adapterRecord);
+  std::uint64_t ordinal = 2U;
   for (NSString* peer in peers) {
+    const auto peerId = nsString(peer, "restored peer");
+    const auto connectionPath = protocol::ProtocolRecord{
+        .kind = protocol::RecordKind::connectionPath,
+        .fields = {
+            field(1U, reference(attachmentRecord(authority.attachment))),
+            field(2U, peerId),
+            field(3U, std::string("restoration-connection-") + std::to_string(ordinal)),
+            field(4U, std::string("restoration-owner-") + std::to_string(ordinal)),
+            field(5U, std::string("restoration-generation-") + std::to_string(ordinal)),
+        },
+    };
     const auto record = protocol::ProtocolRecord{.kind = protocol::RecordKind::restorationRecord, .fields = {
         field(1U, std::uint64_t{1U}), field(2U, authority.namespaceValue), field(3U, reference(attachmentRecord(authority.attachment))),
-        field(4U, ordinal), field(5U, authority.adoptionEpoch), field(6U, std::string("connection")), field(7U, nsString(peer, "restored peer"))}};
+        field(4U, ordinal), field(5U, authority.adoptionEpoch), field(6U, std::string("connection")), field(7U, peerId),
+        field(8U, reference(connectionPath))}};
     state_->runtime->appendRestorationRecord(authority, record);
     ordinal += 1U;
   }
   state_->restorationAppended = true;
+}
+
+void AppleNativeProtocolExecution::detachAttachment() {
+  const auto state = state_;
+  if (!state || state->closed.load(std::memory_order_acquire)) return;
+  std::scoped_lock lock(state->mutex);
+  state->recordsAwaitingSink.clear();
+  state->eventSink.reset();
+  state->connections.clear();
+  state->restorationAppended = false;
+  state->nextIngressOrdinal.store(1U, std::memory_order_release);
 }
 
 void AppleNativeProtocolExecution::receiveAdapterState(void* snapshot) {

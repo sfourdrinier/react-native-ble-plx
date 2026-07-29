@@ -33,6 +33,7 @@ class AppleNativeProtocolExecution final {
       const std::shared_ptr<facebook::react::CallInvoker>& callInvoker);
   void cancel(const native_protocol::v1::NativeOperationIdentity& operation);
   void appendRestorationRecords(const native_protocol::v1::NativeRestorationJournalAuthority& authority);
+  void detachAttachment();
   void receiveAdapterState(void* snapshot);
   void receiveAdvertisement(void* advertisement);
   void receiveDisconnect(void* peerIdentifier, void* error);

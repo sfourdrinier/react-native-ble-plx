@@ -77,7 +77,8 @@ class InMemoryCoreBluetoothBoundary {
               readable: true,
               writableWithResponse: true,
               writableWithoutResponse: true,
-              notifiable: true
+              notifiable: true,
+              descriptors: []
             },
             {
               uuid: this.characteristicUuid,
@@ -85,7 +86,8 @@ class InMemoryCoreBluetoothBoundary {
               readable: true,
               writableWithResponse: true,
               writableWithoutResponse: true,
-              notifiable: true
+              notifiable: true,
+              descriptors: []
             }
           ]
         },
@@ -99,7 +101,8 @@ class InMemoryCoreBluetoothBoundary {
               readable: true,
               writableWithResponse: true,
               writableWithoutResponse: true,
-              notifiable: true
+              notifiable: true,
+              descriptors: []
             }
           ]
         }

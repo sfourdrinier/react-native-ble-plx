@@ -27,8 +27,8 @@
     "adapterStateSnapshot": 23
   },
   "enums": {
-    "commandKinds": {"scanStart": 1, "scanStop": 2, "connect": 3, "disconnect": 4, "discover": 5, "read": 6, "write": 7, "subscribe": 8, "unsubscribe": 9, "cancel": 10, "adoptRestoration": 11, "destroy": 12, "readRssi": 13, "requestMtu": 14},
-    "resultKinds": {"accepted": 1, "scanStarted": 2, "connected": 3, "database": 4, "read": 5, "write": 6, "subscribed": 7, "unsubscribed": 8, "cancelled": 9, "restoration": 10, "destroyed": 11, "rssi": 12, "mtu": 13},
+    "commandKinds": {"scanStart": 1, "scanStop": 2, "connect": 3, "disconnect": 4, "discover": 5, "read": 6, "write": 7, "subscribe": 8, "unsubscribe": 9, "cancel": 10, "adoptRestoration": 11, "destroy": 12, "readRssi": 13, "requestMtu": 14, "readDescriptor": 15, "writeDescriptor": 16},
+    "resultKinds": {"accepted": 1, "scanStarted": 2, "connected": 3, "database": 4, "read": 5, "write": 6, "subscribed": 7, "unsubscribed": 8, "cancelled": 9, "restoration": 10, "destroyed": 11, "rssi": 12, "mtu": 13, "descriptorRead": 14, "descriptorWrite": 15},
     "eventKinds": {"adapterState": 1, "advertisement": 2, "connectionLost": 3, "databaseChanged": 4, "notification": 5, "backendRestarted": 6, "restorationAvailable": 7, "diagnostic": 8},
     "terminalOutcomes": {"succeeded": 1, "failed": 2},
     "cancellationStates": {"cancellationRequested": 1, "alreadyTerminal": 2, "notCancellable": 3},
@@ -57,7 +57,7 @@
     "databaseSnapshot": {"databasePath": 1, "services": 2, "characteristics": 3, "descriptors": 4},
     "command": {"protocolVersion": 1, "correlation": 2, "kind": 3, "characteristicPath": 4, "descriptorPath": 5, "binary": 6, "subscriptionId": 7, "cancellationCorrelation": 8, "restorationRequest": 9, "connectionPath": 10, "databasePath": 11, "scanOptions": 12, "writeMode": 13, "requestedMtu": 14},
     "terminal": {"correlation": 1, "outcome": 2, "cause": 3},
-    "result": {"protocolVersion": 1, "kind": 2, "terminal": 3, "databasePath": 4, "characteristicPath": 5, "binary": 6, "subscriptionId": 7, "cancellationState": 8, "restoration": 9, "error": 10, "connectionPath": 11, "databaseSnapshot": 12, "rssi": 13, "negotiatedMtu": 14},
+    "result": {"protocolVersion": 1, "kind": 2, "terminal": 3, "databasePath": 4, "characteristicPath": 5, "binary": 6, "subscriptionId": 7, "cancellationState": 8, "restoration": 9, "error": 10, "connectionPath": 11, "databaseSnapshot": 12, "rssi": 13, "negotiatedMtu": 14, "descriptorPath": 15},
     "advertisement": {"peerId": 1, "observedAt": 2, "ingressOrdinal": 3, "source": 4, "localName": 5, "rssi": 6, "txPower": 7, "connectable": 8, "appearance": 9, "serviceUuids": 10, "solicitedServiceUuids": 11, "overflowServiceUuids": 12, "serviceData": 13, "manufacturerData": 14, "rawRecord": 15, "scanResponseRecord": 16, "fieldProvenance": 17},
     "event": {"protocolVersion": 1, "eventId": 2, "kind": 3, "attachment": 4, "ingressOrdinal": 5, "monotonicTimestamp": 6, "connectionPath": 7, "databasePath": 8, "characteristicPath": 9, "operationCorrelation": 10, "subscriptionId": 11, "advertisement": 12, "binary": 13, "error": 14, "adapterState": 15},
     "error": {"code": 1, "domain": 2, "operation": 3, "retryability": 4, "platformDomain": 5, "platformCode": 6, "safeMessage": 7, "androidGattStatus": 8, "coreBluetoothDomain": 9, "coreBluetoothCode": 10, "safeMetadata": 11},

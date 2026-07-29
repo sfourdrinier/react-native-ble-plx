@@ -877,13 +877,18 @@ void emitReadFromJava(
     jlong nativeHandle,
     jlong dispatchEpoch,
     jstring nonce,
-    jbyteArray value) {
+    jbyteArray value,
+    const char* commandKind,
+    const char* resultKind,
+    std::uint16_t commandPathField,
+    std::uint16_t resultPathField,
+    const char* binaryCorrelationPrefix) {
   const auto state = eventSinkState(nativeHandle);
   if (!state) {
     __android_log_print(
         ANDROID_LOG_ERROR,
         "UnifiedBleProtocol",
-        "read result dropped because no JSI state is registered handle=%lld",
+        "byte-read result dropped because no JSI state is registered handle=%lld",
         static_cast<long long>(nativeHandle));
     return;
   }
@@ -892,38 +897,38 @@ void emitReadFromJava(
     __android_log_print(
         ANDROID_LOG_ERROR,
         "UnifiedBleProtocol",
-        "read result dropped because the runtime is closed handle=%lld",
+        "byte-read result dropped because the runtime is closed handle=%lld",
         static_cast<long long>(nativeHandle));
     return;
   }
   std::optional<protocol::OwnedBinaryReference> outputReference;
   std::optional<protocol::ProtocolRecord> command;
   try {
-    const auto nativeNonce = stringFromJava(environment, nonce, "read nonce");
+    const auto nativeNonce = stringFromJava(environment, nonce, "byte-read nonce");
     if (dispatchEpoch < 0) {
       throw protocol::ProtocolException(
           protocol::ProtocolFailure::invalidCorrelation,
-          "Native Protocol v1 read dispatch epoch is negative");
+          "Native Protocol v1 byte-read dispatch epoch is negative");
     }
     command = activeRuntime->commandFor(static_cast<std::uint64_t>(dispatchEpoch), nativeNonce);
-    if (!command || requiredProtocolString(*command, 3U) != "read") {
+    if (!command || requiredProtocolString(*command, 3U) != commandKind) {
       throw protocol::ProtocolException(
           protocol::ProtocolFailure::alreadyTerminal,
-          "Native Protocol v1 read result has no pending read command");
+          "Native Protocol v1 byte-read result has no pending command");
     }
     const auto bytes = bytesFromJava(environment, value);
     outputReference = activeRuntime->retainNativeBytes(
-        nativeBinaryCorrelation("read", static_cast<std::uint64_t>(dispatchEpoch), nativeNonce),
+        nativeBinaryCorrelation(binaryCorrelationPrefix, static_cast<std::uint64_t>(dispatchEpoch), nativeNonce),
         bytes);
     const auto& correlation = requiredProtocolRecord(*command, 2U);
-    const auto& characteristic = requiredProtocolRecord(*command, 4U);
+    const auto& path = requiredProtocolRecord(*command, commandPathField);
     const auto result = protocol::ProtocolRecord{
         .kind = protocol::RecordKind::result,
         .fields = {
             protocolField(1U, std::uint64_t{1U}),
-            protocolField(2U, std::string("read")),
+            protocolField(2U, std::string(resultKind)),
             protocolField(3U, protocolRecordReference(terminalRecord(correlation, "succeeded"))),
-            protocolField(5U, protocolRecordReference(characteristic)),
+            protocolField(resultPathField, protocolRecordReference(path)),
             protocolField(6U, protocolRecordReference(binaryReferenceRecord(*outputReference))),
         },
     };
@@ -942,7 +947,7 @@ void emitReadFromJava(
         __android_log_print(
             ANDROID_LOG_ERROR,
             "UnifiedBleProtocol",
-            "read result binary release failed handle=%lld: %s",
+            "byte-read result binary release failed handle=%lld: %s",
             static_cast<long long>(nativeHandle),
             releaseError.what());
       }
@@ -950,7 +955,7 @@ void emitReadFromJava(
     __android_log_print(
         ANDROID_LOG_ERROR,
         "UnifiedBleProtocol",
-        "read result handling failed handle=%lld: %s",
+        "byte-read result handling failed handle=%lld: %s",
         static_cast<long long>(nativeHandle),
         error.what());
     if (command) {
@@ -959,11 +964,30 @@ void emitReadFromJava(
           state,
           activeRuntime,
           *command,
-          "read",
-          "readBinaryDeliveryFailed",
+          resultKind,
+          "byteReadBinaryDeliveryFailed",
           error.what());
     }
   }
+}
+
+void emitDescriptorReadFromJava(
+    JNIEnv* environment,
+    jlong nativeHandle,
+    jlong dispatchEpoch,
+    jstring nonce,
+    jbyteArray value) {
+  emitReadFromJava(
+      environment,
+      nativeHandle,
+      dispatchEpoch,
+      nonce,
+      value,
+      "readDescriptor",
+      "descriptorRead",
+      5U,
+      15U,
+      "descriptor-read");
 }
 
 void emitNotificationFromJava(
@@ -1201,10 +1225,12 @@ jbyteArray copyCommandBinaryToJava(
     }
     const auto nativeNonce = stringFromJava(environment, nonce, "write nonce");
     const auto command = activeRuntime->commandFor(static_cast<std::uint64_t>(dispatchEpoch), nativeNonce);
-    if (!command || requiredProtocolString(*command, 3U) != "write") {
+    if (!command ||
+        (requiredProtocolString(*command, 3U) != "write" &&
+         requiredProtocolString(*command, 3U) != "writeDescriptor")) {
       throw protocol::ProtocolException(
           protocol::ProtocolFailure::alreadyTerminal,
-          "Native Protocol v1 write command is no longer pending");
+          "Native Protocol v1 binary-write command is no longer pending");
     }
     return javaByteArray(environment, activeRuntime->consumeCommandBinary(*command));
   } catch (const std::exception& error) {
@@ -1312,7 +1338,28 @@ Java_com_sfourdrinier_unifiedblemanager_protocol_UnifiedBleProtocolJsiBinding_em
     jlong dispatchEpoch,
     jstring nonce,
     jbyteArray value) {
-  emitReadFromJava(environment, nativeHandle, dispatchEpoch, nonce, value);
+  emitReadFromJava(
+      environment,
+      nativeHandle,
+      dispatchEpoch,
+      nonce,
+      value,
+      "read",
+      "read",
+      4U,
+      5U,
+      "read");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_sfourdrinier_unifiedblemanager_protocol_UnifiedBleProtocolJsiBinding_emitDescriptorReadNative(
+    JNIEnv* environment,
+    jclass,
+    jlong nativeHandle,
+    jlong dispatchEpoch,
+    jstring nonce,
+    jbyteArray value) {
+  emitDescriptorReadFromJava(environment, nativeHandle, dispatchEpoch, nonce, value);
 }
 
 extern "C" JNIEXPORT void JNICALL

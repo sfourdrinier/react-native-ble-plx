@@ -47,7 +47,9 @@ enum class CommandKinds(val wireValue: Int) {
   ADOPT_RESTORATION(11),
   DESTROY(12),
   READ_RSSI(13),
-  REQUEST_MTU(14)
+  REQUEST_MTU(14),
+  READ_DESCRIPTOR(15),
+  WRITE_DESCRIPTOR(16)
 }
 
 enum class ResultKinds(val wireValue: Int) {
@@ -63,7 +65,9 @@ enum class ResultKinds(val wireValue: Int) {
   RESTORATION(10),
   DESTROYED(11),
   RSSI(12),
-  MTU(13)
+  MTU(13),
+  DESCRIPTOR_READ(14),
+  DESCRIPTOR_WRITE(15)
 }
 
 enum class EventKinds(val wireValue: Int) {
@@ -230,6 +234,7 @@ val NATIVE_PROTOCOL_FIELDS: List<FieldDescriptor> = listOf(
     FieldDescriptor(RecordKind.RESULT, 12, "databaseSnapshot", "record:databaseSnapshot", false),
     FieldDescriptor(RecordKind.RESULT, 13, "rssi", "int64", false),
     FieldDescriptor(RecordKind.RESULT, 14, "negotiatedMtu", "uint64", false),
+    FieldDescriptor(RecordKind.RESULT, 15, "descriptorPath", "record:descriptorPath", false),
     FieldDescriptor(RecordKind.ADVERTISEMENT, 1, "peerId", "string", true),
     FieldDescriptor(RecordKind.ADVERTISEMENT, 2, "observedAt", "uint64", true),
     FieldDescriptor(RecordKind.ADVERTISEMENT, 3, "ingressOrdinal", "uint64", true),

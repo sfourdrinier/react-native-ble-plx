@@ -193,6 +193,7 @@ describe('React Native Android canonical protocol vertical slice', () => {
       now: () => 20,
       clientId: 'canonical-react-native-client',
       managerId: 'canonical-react-native-manager',
+      hostSessionScope: 'canonical-host-session',
       createOwnerId: () => 'canonical-react-native-owner'
     })
 
@@ -202,8 +203,123 @@ describe('React Native Android canonical protocol vertical slice', () => {
       power: 'on',
       safeReason: null
     })
+    await expect(
+      manager.adoptRestoration({
+        namespace: 'com.example.restoration',
+        attachmentId: manager.attachmentId,
+        expectedBackendInstanceId: manager.identity.attachment.backendInstanceId,
+        expectedEpoch: opaqueId('canonical-restoration-epoch', 'restoration-epoch', 'react-native:android'),
+        expectedVersions: manager.identity.versions
+      })
+    ).rejects.toMatchObject({ normalized: { code: 'capability.unsupported' } })
     await expect(manager.destroy()).resolves.toEqual({ state: 'released', failures: [] })
     expect(control.closedAttachments).toHaveLength(1)
+  })
+
+  test.each([
+    {
+      name: 'Android',
+      createProvider: createReactNativeAndroidBackendProvider,
+      ownerId: 'deterministic-react-native-android-rich-advertisement'
+    },
+    {
+      name: 'Apple',
+      createProvider: createReactNativeAppleBackendProvider,
+      ownerId: 'deterministic-react-native-apple-rich-advertisement'
+    }
+  ])('$name provider preserves every native-protocol advertisement field as detached public bytes', async fixture => {
+    const control = new DeterministicAndroidControl()
+    const runtime = new DeterministicAndroidProtocolRuntime(control)
+    global.__unifiedBleNativeProtocolV1 = runtime
+    const provider = fixture.createProvider({
+      control,
+      now: () => 20,
+      createOwnerId: () => fixture.ownerId
+    })
+    const [adapter] = await provider.listAdapters()
+    const manager = await createBleManagerFromProvider(
+      {
+        provider,
+        selection: { selectedAdapterId: adapter.adapterId },
+        coreCompatibility: compatibility(),
+        manager: {
+          clientId: opaqueId(
+            'manager-client',
+            'client',
+            `react-native-${fixture.name.toLowerCase()}:rich-advertisement`
+          ),
+          managerId: opaqueId('manager', 'manager', `react-native-${fixture.name.toLowerCase()}:rich-advertisement`),
+          ownerMode: 'owning'
+        }
+      },
+      DEFAULT_BLE_MANAGER_OPTIONS
+    )
+    const rawRecord = new Uint8Array([1, 2, 3])
+    const scanResponseRecord = new Uint8Array([4, 5])
+    const serviceDataValue = new Uint8Array([6, 7])
+    const manufacturerDataValue = new Uint8Array([8, 9, 10])
+    const scan = await manager.scan(scanOptions())
+    runtime.emitAdvertisement(rawRecord, {
+      txPower: -12,
+      connectable: true,
+      appearance: 832,
+      solicitedServiceUuids: ['0000180f-0000-1000-8000-00805f9b34fb'],
+      overflowServiceUuids: ['00001812-0000-1000-8000-00805f9b34fb'],
+      serviceData: [{ serviceUuid: '0000180f-0000-1000-8000-00805f9b34fb', value: serviceDataValue }],
+      manufacturerData: [{ companyIdentifier: 76, value: manufacturerDataValue }],
+      scanResponseRecord
+    })
+    rawRecord[0] = 255
+    scanResponseRecord[0] = 255
+    serviceDataValue[0] = 255
+    manufacturerDataValue[0] = 255
+
+    const item = await scan.observations[Symbol.asyncIterator]().next()
+    if (item.done || item.value.kind !== 'value') {
+      throw new Error(`${fixture.name} provider did not emit a rich advertisement observation`)
+    }
+    const observation = item.value.value
+    expect(observation.txPower).toMatchObject({ state: 'present', value: -12, provenance: 'observed' })
+    expect(observation.connectable).toMatchObject({ state: 'present', value: true, provenance: 'observed' })
+    expect(observation.appearance).toMatchObject({ state: 'present', value: 832, provenance: 'observed' })
+    expect(observation.solicitedServiceUuids).toMatchObject({
+      state: 'present',
+      value: ['0000180f-0000-1000-8000-00805f9b34fb'],
+      provenance: 'observed'
+    })
+    expect(observation.overflowServiceUuids).toMatchObject({
+      state: 'present',
+      value: ['00001812-0000-1000-8000-00805f9b34fb'],
+      provenance: 'observed'
+    })
+    expect(observation.serviceData).toMatchObject({
+      state: 'present',
+      value: [{ serviceUuid: '0000180f-0000-1000-8000-00805f9b34fb', value: new Uint8Array([6, 7]) }],
+      provenance: 'observed'
+    })
+    expect(observation.manufacturerData).toMatchObject({
+      state: 'present',
+      value: [{ companyIdentifier: 76, value: new Uint8Array([8, 9, 10]) }],
+      provenance: 'observed'
+    })
+    expect(observation.rawRecord).toMatchObject({
+      state: 'present',
+      value: new Uint8Array([1, 2, 3]),
+      provenance: 'observed'
+    })
+    expect(observation.scanResponseRecord).toMatchObject({
+      state: 'present',
+      value: new Uint8Array([4, 5]),
+      provenance: 'observed'
+    })
+    expect(observation.rawRecord.value).not.toBe(rawRecord)
+    expect(observation.scanResponseRecord.value).not.toBe(scanResponseRecord)
+    expect(observation.serviceData.value[0].value).not.toBe(serviceDataValue)
+    expect(observation.manufacturerData.value[0].value).not.toBe(manufacturerDataValue)
+    expect(runtime.retainedPayloadCount()).toBe(0)
+
+    await scan.stop()
+    await expect(manager.destroy()).resolves.toEqual({ state: 'released', failures: [] })
   })
 
   test.each([
@@ -219,40 +335,43 @@ describe('React Native Android canonical protocol vertical slice', () => {
       displayName: 'Apple CoreBluetooth central adapter',
       ownerId: 'deterministic-react-native-apple-attachment-refresh'
     }
-  ])('$name provider refreshes the opened adapter state without changing the bound attachment identity', async fixture => {
-    const control = new DeterministicAndroidControl()
-    const runtime = new DeterministicAndroidProtocolRuntime(control)
-    global.__unifiedBleNativeProtocolV1 = runtime
-    const provider = fixture.createProvider({
-      control,
-      now: () => 20,
-      createOwnerId: () => fixture.ownerId
-    })
+  ])(
+    '$name provider refreshes the opened adapter state without changing the bound attachment identity',
+    async fixture => {
+      const control = new DeterministicAndroidControl()
+      const runtime = new DeterministicAndroidProtocolRuntime(control)
+      global.__unifiedBleNativeProtocolV1 = runtime
+      const provider = fixture.createProvider({
+        control,
+        now: () => 20,
+        createOwnerId: () => fixture.ownerId
+      })
 
-    const [adapter] = await provider.listAdapters()
-    const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
-    const handshake = control.handshakes[1]
-    if (handshake === undefined) {
-      throw new Error(`${fixture.name} provider did not open a backend attachment`)
-    }
-
-    expect(adapter).toMatchObject({
-      displayName: fixture.displayName,
-      state: { availability: 'available', authorization: 'granted', power: 'on', safeReason: null }
-    })
-    expect(backend.identity.attachment).toMatchObject({
-      attachmentId: handshake.attachmentId,
-      backendInstanceId: handshake.backendInstanceId,
-      backendGeneration: handshake.backendGeneration,
-      adapter: {
-        adapterId: handshake.adapterId,
-        adapterGeneration: handshake.adapterGeneration,
-        state: { availability: 'available', authorization: 'granted', power: 'on', safeReason: null }
+      const [adapter] = await provider.listAdapters()
+      const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
+      const handshake = control.handshakes[1]
+      if (handshake === undefined) {
+        throw new Error(`${fixture.name} provider did not open a backend attachment`)
       }
-    })
 
-    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
-  })
+      expect(adapter).toMatchObject({
+        displayName: fixture.displayName,
+        state: { availability: 'available', authorization: 'granted', power: 'on', safeReason: null }
+      })
+      expect(backend.identity.attachment).toMatchObject({
+        attachmentId: handshake.attachmentId,
+        backendInstanceId: handshake.backendInstanceId,
+        backendGeneration: handshake.backendGeneration,
+        adapter: {
+          adapterId: handshake.adapterId,
+          adapterGeneration: handshake.adapterGeneration,
+          state: { availability: 'available', authorization: 'granted', power: 'on', safeReason: null }
+        }
+      })
+
+      await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+    }
+  )
 
   test('releases raw scan bytes, terminalizes a failed scan, and permits reconnect after Android link loss', async () => {
     const control = new DeterministicAndroidControl()
@@ -515,8 +634,15 @@ class DeterministicAndroidControl {
     return Promise.resolve({ state: 'alreadyTerminal' })
   }
 
-  adoptRestoration() {
-    return Promise.resolve({ receiptId: 'unused', outcome: 'alreadyConsumed', replayRecordCount: 0 })
+  adoptRestoration(request) {
+    return Promise.resolve({
+      receiptId: '',
+      outcome: 'alreadyConsumed',
+      boundClientId: request.clientId,
+      adoptionEpoch: request.expectedEpoch,
+      replayRecordCount: 0,
+      records: []
+    })
   }
 
   closeAttachment(attachment) {
@@ -669,7 +795,7 @@ class DeterministicAndroidProtocolRuntime {
     throw new Error(`Unsupported deterministic command: ${kind}`)
   }
 
-  emitAdvertisement(rawRecord = null) {
+  emitAdvertisement(rawRecord = null, rich = {}) {
     const fields = [
       field(1, peerId),
       field(2, 20),
@@ -680,8 +806,52 @@ class DeterministicAndroidProtocolRuntime {
       field(10, [serviceUuid]),
       field(17, ['native:android-scan-result'])
     ]
+    if (typeof rich.txPower === 'number') {
+      fields.push(field(7, rich.txPower))
+    }
+    if (typeof rich.connectable === 'boolean') {
+      fields.push(field(8, rich.connectable))
+    }
+    if (typeof rich.appearance === 'number') {
+      fields.push(field(9, rich.appearance))
+    }
+    if (Array.isArray(rich.solicitedServiceUuids)) {
+      fields.push(field(11, rich.solicitedServiceUuids))
+    }
+    if (Array.isArray(rich.overflowServiceUuids)) {
+      fields.push(field(12, rich.overflowServiceUuids))
+    }
+    if (Array.isArray(rich.serviceData)) {
+      fields.push(
+        field(
+          13,
+          rich.serviceData.map((entry, index) =>
+            record('serviceDataEntry', [
+              field(1, entry.serviceUuid),
+              field(2, binaryReferenceRecord(this.retain(`advertisement-service-data-${index}`, entry.value)))
+            ])
+          )
+        )
+      )
+    }
+    if (Array.isArray(rich.manufacturerData)) {
+      fields.push(
+        field(
+          14,
+          rich.manufacturerData.map((entry, index) =>
+            record('manufacturerDataEntry', [
+              field(1, entry.companyIdentifier),
+              field(2, binaryReferenceRecord(this.retain(`advertisement-manufacturer-data-${index}`, entry.value)))
+            ])
+          )
+        )
+      )
+    }
     if (rawRecord !== null) {
       fields.push(field(15, binaryReferenceRecord(this.retain('advertisement-output', rawRecord))))
+    }
+    if (rich.scanResponseRecord instanceof Uint8Array) {
+      fields.push(field(16, binaryReferenceRecord(this.retain('advertisement-scan-response', rich.scanResponseRecord))))
     }
     this.emitEvent('advertisement', [field(12, record('advertisement', fields))])
   }

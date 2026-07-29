@@ -13,6 +13,7 @@ import { ReactNativeAndroidProtocolBoundary } from './rn-android-boundary'
  * The explicit capability declaration prevents the core from submitting that impossible command.
  */
 export class ReactNativeAppleProtocolBoundary extends ReactNativeAndroidProtocolBoundary {
+  override readonly descriptorOperationsAvailable = false
   readonly connectionControlCapabilities: ConnectionControlCapabilities = Object.freeze({
     rssi: 'available',
     requestMtu: 'unavailable'

@@ -177,7 +177,8 @@ async function discoverGattDatabase(radio, nativePeerId) {
         readable: characteristic.isReadable === true,
         writableWithResponse: characteristic.isWritableWithResponse === true,
         writableWithoutResponse: characteristic.isWritableWithoutResponse === true,
-        notifiable: characteristic.isNotifiable === true
+        notifiable: characteristic.isNotifiable === true,
+        descriptors: []
       })
     }
     services.push({ uuid, occurrence, characteristics })

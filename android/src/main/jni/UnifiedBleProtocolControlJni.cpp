@@ -1,6 +1,7 @@
 // android/src/main/jni/UnifiedBleProtocolControlJni.cpp
 
 #include "../../../../native/protocol/include/NativeProtocolControlRuntime.hpp"
+#include "../../../../native/protocol/include/NativeProtocolV1Codec.hpp"
 #include "UnifiedBleProtocolRuntimeHandle.hpp"
 
 #include <jni.h>
@@ -9,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace protocol = unified_ble::native_protocol::v1;
 
@@ -77,22 +79,79 @@ void throwJava(JNIEnv* environment, const std::exception& error) {
   }
 }
 
-jobjectArray stringArray(
+jobjectArray encodedRestorationRecords(
     JNIEnv* environment,
-    const std::array<std::string, 3>& values) {
-  const auto stringClass = environment->FindClass("java/lang/String");
-  if (stringClass == nullptr) {
+    const std::vector<protocol::RestorationJournalEntry>& records) {
+  const auto byteArrayClass = environment->FindClass("[B");
+  if (byteArrayClass == nullptr) {
     return nullptr;
   }
-  const auto result = environment->NewObjectArray(static_cast<jsize>(values.size()), stringClass, nullptr);
+  const auto result = environment->NewObjectArray(static_cast<jsize>(records.size()), byteArrayClass, nullptr);
   if (result == nullptr) {
+    environment->DeleteLocalRef(byteArrayClass);
     return nullptr;
   }
-  for (std::size_t index = 0U; index < values.size(); index += 1U) {
-    const auto item = environment->NewStringUTF(values[index].c_str());
-    environment->SetObjectArrayElement(result, index, item);
-    environment->DeleteLocalRef(item);
+  const protocol::NativeProtocolV1Codec codec;
+  for (std::size_t index = 0U; index < records.size(); index += 1U) {
+    const auto encoded = codec.encode(records[index].record);
+    const auto bytes = environment->NewByteArray(static_cast<jsize>(encoded.size()));
+    if (bytes == nullptr) {
+      environment->DeleteLocalRef(byteArrayClass);
+      return nullptr;
+    }
+    environment->SetByteArrayRegion(
+        bytes,
+        0,
+        static_cast<jsize>(encoded.size()),
+        reinterpret_cast<const jbyte*>(encoded.data()));
+    environment->SetObjectArrayElement(result, static_cast<jsize>(index), bytes);
+    environment->DeleteLocalRef(bytes);
   }
+  environment->DeleteLocalRef(byteArrayClass);
+  return result;
+}
+
+jobject restorationAdoption(JNIEnv* environment, const protocol::RestorationAdoptionReceipt& receipt) {
+  const auto adoptionClass = environment->FindClass(
+      "com/sfourdrinier/unifiedblemanager/protocol/UnifiedBleProtocolControlModule$NativeRestorationAdoption");
+  if (adoptionClass == nullptr) {
+    return nullptr;
+  }
+  const auto constructor = environment->GetMethodID(
+      adoptionClass,
+      "<init>",
+      "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[[B)V");
+  if (constructor == nullptr) {
+    environment->DeleteLocalRef(adoptionClass);
+    return nullptr;
+  }
+  const auto receiptId = environment->NewStringUTF(receipt.receiptId.c_str());
+  const auto outcome = environment->NewStringUTF(protocol::restorationOutcomeName(receipt.outcome));
+  const auto boundClientId = environment->NewStringUTF(receipt.boundClientId.c_str());
+  const auto adoptionEpoch = environment->NewStringUTF(receipt.adoptionEpoch.c_str());
+  const auto records = encodedRestorationRecords(environment, receipt.records);
+  if (receiptId == nullptr ||
+      outcome == nullptr ||
+      boundClientId == nullptr ||
+      adoptionEpoch == nullptr ||
+      records == nullptr) {
+    environment->DeleteLocalRef(adoptionClass);
+    return nullptr;
+  }
+  const auto result = environment->NewObject(
+      adoptionClass,
+      constructor,
+      receiptId,
+      outcome,
+      boundClientId,
+      adoptionEpoch,
+      records);
+  environment->DeleteLocalRef(receiptId);
+  environment->DeleteLocalRef(outcome);
+  environment->DeleteLocalRef(boundClientId);
+  environment->DeleteLocalRef(adoptionEpoch);
+  environment->DeleteLocalRef(records);
+  environment->DeleteLocalRef(adoptionClass);
   return result;
 }
 
@@ -199,7 +258,7 @@ Java_com_sfourdrinier_unifiedblemanager_protocol_UnifiedBleProtocolControlModule
   }
 }
 
-extern "C" JNIEXPORT jobjectArray JNICALL
+extern "C" JNIEXPORT jobject JNICALL
 Java_com_sfourdrinier_unifiedblemanager_protocol_UnifiedBleProtocolControlModule_nativeAdopt(
     JNIEnv* environment,
     jclass,
@@ -223,11 +282,7 @@ Java_com_sfourdrinier_unifiedblemanager_protocol_UnifiedBleProtocolControlModule
         .clientId = stringValue(environment, clientId),
         .hostSessionScope = stringValue(environment, hostSessionScope),
     });
-    return stringArray(environment, {
-        receipt.receiptId,
-        protocol::restorationOutcomeName(receipt.outcome),
-        std::to_string(receipt.records.size()),
-    });
+    return restorationAdoption(environment, receipt);
   } catch (const std::exception& error) {
     throwJava(environment, error);
     return nullptr;

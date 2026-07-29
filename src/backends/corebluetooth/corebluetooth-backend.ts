@@ -836,6 +836,17 @@ export class CoreBluetoothBackend implements BleCentralBackend<string, HostNeutr
           throw contractError('protocol.malformed', 'gatt', 'corebluetooth.gatt.snapshot.characteristic-occurrence')
         }
         characteristicOccurrences.add(characteristic.occurrence)
+        const descriptorOccurrences = new Set<number>()
+        for (const descriptor of characteristic.descriptors) {
+          if (
+            !Number.isInteger(descriptor.occurrence) ||
+            descriptor.occurrence < 0 ||
+            descriptorOccurrences.has(descriptor.occurrence)
+          ) {
+            throw contractError('protocol.malformed', 'gatt', 'corebluetooth.gatt.snapshot.descriptor-occurrence')
+          }
+          descriptorOccurrences.add(descriptor.occurrence)
+        }
       }
     }
   }

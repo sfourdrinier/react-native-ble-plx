@@ -64,6 +64,7 @@ export type {
   ServicePath
 } from './backend-contract/gatt'
 export type { ManagerState, OwnerMode, ResourceCounters } from './backend-contract/backend'
+export type { RestorationAdoptionRequest, RestorationAdoptionResult } from './backend-contract/restoration'
 export { MAXIMUM_REQUESTED_ATT_MTU, MINIMUM_ATT_MTU } from './backend-contract/connection-controls'
 export type {
   ConnectionControlCapabilities,

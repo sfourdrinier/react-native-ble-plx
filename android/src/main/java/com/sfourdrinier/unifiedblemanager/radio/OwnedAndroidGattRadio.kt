@@ -106,6 +106,8 @@ class OwnedAndroidGattRadio(private val context: Context) {
   private val exactWritePending = ConcurrentHashMap<BluetoothGattCharacteristic, ExactBytePending>()
   private val exactWriteValues = ConcurrentHashMap<BluetoothGattCharacteristic, ByteArray>()
   private val exactCccdPending = ConcurrentHashMap<BluetoothGattDescriptor, ExactUnitPending>()
+  private val exactDescriptorReadPending = ConcurrentHashMap<BluetoothGattDescriptor, ExactBytePending>()
+  private val exactDescriptorWritePending = ConcurrentHashMap<BluetoothGattDescriptor, ExactUnitPending>()
 
   /** Per-device connection lifecycle listeners (multi-device safe). */
   private val connectionListeners =
@@ -980,6 +982,117 @@ class OwnedAndroidGattRadio(private val context: Context) {
     }
   }
 
+  /** Reads one descriptor selected by its full duplicate-safe canonical path. */
+  fun readDescriptorExact(
+    deviceId: String,
+    serviceUuid: UUID,
+    serviceOccurrence: Int,
+    characteristicUuid: UUID,
+    characteristicOccurrence: Int,
+    descriptorUuid: UUID,
+    descriptorOccurrence: Int,
+    onResult: (Result<ByteArray?>) -> Unit
+  ) {
+    val descriptor = findDescriptor(
+      deviceId,
+      serviceUuid,
+      serviceOccurrence,
+      characteristicUuid,
+      characteristicOccurrence,
+      descriptorUuid,
+      descriptorOccurrence
+    )
+    enqueue(deviceId) { done ->
+      val gatt = gatts[deviceId.uppercase()]
+      if (gatt == null || descriptor == null) {
+        completeExactByteDirect(
+          onResult,
+          done,
+          Result.failure(IllegalStateException("exact descriptor not found"))
+        )
+        return@enqueue
+      }
+      val pending = ExactBytePending(deviceId.uppercase(), onResult, done)
+      if (exactDescriptorReadPending.putIfAbsent(descriptor, pending) != null) {
+        completeExactByteDirect(
+          onResult,
+          done,
+          Result.failure(IllegalStateException("exact descriptor read is already pending"))
+        )
+        return@enqueue
+      }
+      if (!gatt.readDescriptor(descriptor)) {
+        if (exactDescriptorReadPending.remove(descriptor, pending)) {
+          completeExactByte(pending, Result.failure(IllegalStateException("readDescriptor failed to start")))
+        }
+      }
+    }
+  }
+
+  /** Writes one descriptor selected by its full duplicate-safe canonical path. */
+  fun writeDescriptorExact(
+    deviceId: String,
+    serviceUuid: UUID,
+    serviceOccurrence: Int,
+    characteristicUuid: UUID,
+    characteristicOccurrence: Int,
+    descriptorUuid: UUID,
+    descriptorOccurrence: Int,
+    value: ByteArray,
+    onResult: (Result<Unit>) -> Unit
+  ) {
+    val descriptor = findDescriptor(
+      deviceId,
+      serviceUuid,
+      serviceOccurrence,
+      characteristicUuid,
+      characteristicOccurrence,
+      descriptorUuid,
+      descriptorOccurrence
+    )
+    enqueue(deviceId) { done ->
+      val gatt = gatts[deviceId.uppercase()]
+      if (gatt == null || descriptor == null) {
+        completeExactUnitDirect(
+          onResult,
+          done,
+          Result.failure(IllegalStateException("exact descriptor not found"))
+        )
+        return@enqueue
+      }
+      val pending = ExactUnitPending(deviceId.uppercase(), onResult, done)
+      if (exactDescriptorWritePending.putIfAbsent(descriptor, pending) != null) {
+        completeExactUnitDirect(
+          onResult,
+          done,
+          Result.failure(IllegalStateException("exact descriptor write is already pending"))
+        )
+        return@enqueue
+      }
+      if (Build.VERSION.SDK_INT >= 33) {
+        val status = gatt.writeDescriptor(descriptor, value)
+        if (status != BluetoothGatt.GATT_SUCCESS) {
+          if (exactDescriptorWritePending.remove(descriptor, pending)) {
+            completeExactUnit(
+              pending,
+              Result.failure(IllegalStateException("writeDescriptor failed to start status=$status"))
+            )
+          }
+        }
+      } else {
+        @Suppress("DEPRECATION")
+        descriptor.value = value.copyOf()
+        @Suppress("DEPRECATION")
+        val started = gatt.writeDescriptor(descriptor)
+        if (!started) {
+          if (exactDescriptorWritePending.remove(descriptor, pending)) {
+            completeExactUnit(pending, Result.failure(IllegalStateException("writeDescriptor failed to start")))
+          }
+        }
+      }
+    }
+  }
+
   /**
    * [BluetoothGatt.requestConnectionPriority] — returns false if not connected or call rejected.
    * Priority values match [BluetoothGatt.CONNECTION_PRIORITY_BALANCED]/HIGH/LOW_POWER (0/1/2).
@@ -1019,6 +1132,8 @@ class OwnedAndroidGattRadio(private val context: Context) {
     pendingDeviceKeys.addAll(exactReadPending.values.map { it.deviceKeyUpper })
     pendingDeviceKeys.addAll(exactWritePending.values.map { it.deviceKeyUpper })
     pendingDeviceKeys.addAll(exactCccdPending.values.map { it.deviceKeyUpper })
+    pendingDeviceKeys.addAll(exactDescriptorReadPending.values.map { it.deviceKeyUpper })
+    pendingDeviceKeys.addAll(exactDescriptorWritePending.values.map { it.deviceKeyUpper })
     pendingDeviceKeys.forEach { key -> failPendingForDevice(key, "radio destroyed") }
     // Force-close immediately on destroy — no need to wait for DISCONNECTED callbacks.
     gatts.keys.toList().forEach { key ->
@@ -1040,6 +1155,8 @@ class OwnedAndroidGattRadio(private val context: Context) {
     exactWritePending.clear()
     exactWriteValues.clear()
     exactCccdPending.clear()
+    exactDescriptorReadPending.clear()
+    exactDescriptorWritePending.clear()
     closeTimeouts.values.forEach { mainHandler.removeCallbacks(it) }
     closeTimeouts.clear()
     return OwnedRadioTeardownResult(failures)
@@ -1097,6 +1214,20 @@ class OwnedAndroidGattRadio(private val context: Context) {
           completeExactUnit(entry.value, failUnit)
         }
       }
+    exactDescriptorReadPending.entries
+      .filter { it.value.deviceKeyUpper == deviceKeyUpper }
+      .forEach { entry ->
+        if (exactDescriptorReadPending.remove(entry.key, entry.value)) {
+          completeExactByte(entry.value, failBytes)
+        }
+      }
+    exactDescriptorWritePending.entries
+      .filter { it.value.deviceKeyUpper == deviceKeyUpper }
+      .forEach { entry ->
+        if (exactDescriptorWritePending.remove(entry.key, entry.value)) {
+          completeExactUnit(entry.value, failUnit)
+        }
+      }
   }
 
   private fun findChar(
@@ -1127,14 +1258,31 @@ class OwnedAndroidGattRadio(private val context: Context) {
     characteristicOccurrence: Int
   ): BluetoothGattCharacteristic? {
     if (serviceOccurrence < 0 || characteristicOccurrence < 0) return null
-    val service =
-      services(deviceId)
-        .filter { candidate -> candidate.uuid == serviceUuid }
-        .getOrNull(serviceOccurrence)
-        ?: return null
-    return service.characteristics
-      .filter { candidate -> candidate.uuid == characteristicUuid }
-      .getOrNull(characteristicOccurrence)
+    val service = services(deviceId).getOrNull(serviceOccurrence) ?: return null
+    if (service.uuid != serviceUuid) return null
+    val characteristic = service.characteristics.getOrNull(characteristicOccurrence) ?: return null
+    return characteristic.takeIf { candidate -> candidate.uuid == characteristicUuid }
+  }
+
+  private fun findDescriptor(
+    deviceId: String,
+    serviceUuid: UUID,
+    serviceOccurrence: Int,
+    characteristicUuid: UUID,
+    characteristicOccurrence: Int,
+    descriptorUuid: UUID,
+    descriptorOccurrence: Int
+  ): BluetoothGattDescriptor? {
+    if (descriptorOccurrence < 0) return null
+    val characteristic = findChar(
+      deviceId,
+      serviceUuid,
+      serviceOccurrence,
+      characteristicUuid,
+      characteristicOccurrence
+    ) ?: return null
+    val descriptor = characteristic.descriptors.getOrNull(descriptorOccurrence) ?: return null
+    return descriptor.takeIf { candidate -> candidate.uuid == descriptorUuid }
   }
 
   private fun completeExactByte(
@@ -1267,6 +1415,17 @@ class OwnedAndroidGattRadio(private val context: Context) {
       descriptor: BluetoothGattDescriptor,
       status: Int
     ) {
+      exactDescriptorWritePending.remove(descriptor)?.let { pending ->
+        if (status == BluetoothGatt.GATT_SUCCESS) {
+          completeExactUnit(pending, Result.success(Unit))
+        } else {
+          completeExactUnit(
+            pending,
+            Result.failure(IllegalStateException("onDescriptorWrite status=$status"))
+          )
+        }
+        return
+      }
       exactCccdPending.remove(descriptor)?.let { pending ->
         if (status == BluetoothGatt.GATT_SUCCESS) {
           completeExactUnit(pending, Result.success(Unit))
@@ -1304,6 +1463,19 @@ class OwnedAndroidGattRadio(private val context: Context) {
       descriptor: BluetoothGattDescriptor,
       status: Int
     ) {
+      exactDescriptorReadPending.remove(descriptor)?.let { pending ->
+        @Suppress("DEPRECATION")
+        val value = descriptor.value?.copyOf()
+        if (status == BluetoothGatt.GATT_SUCCESS) {
+          completeExactByte(pending, Result.success(value))
+        } else {
+          completeExactByte(
+            pending,
+            Result.failure(IllegalStateException("onDescriptorRead status=$status"))
+          )
+        }
+        return
+      }
       val id = gatt.device.address.uppercase()
       val key = descPendingKeyFromGatt("descRead", id, descriptor) ?: return
       @Suppress("DEPRECATION")
@@ -1323,6 +1495,17 @@ class OwnedAndroidGattRadio(private val context: Context) {
       status: Int,
       value: ByteArray
     ) {
+      exactDescriptorReadPending.remove(descriptor)?.let { pending ->
+        if (status == BluetoothGatt.GATT_SUCCESS) {
+          completeExactByte(pending, Result.success(value.copyOf()))
+        } else {
+          completeExactByte(
+            pending,
+            Result.failure(IllegalStateException("onDescriptorRead status=$status"))
+          )
+        }
+        return
+      }
       val id = gatt.device.address.uppercase()
       val key = descPendingKeyFromGatt("descRead", id, descriptor) ?: return
       if (status == BluetoothGatt.GATT_SUCCESS) {

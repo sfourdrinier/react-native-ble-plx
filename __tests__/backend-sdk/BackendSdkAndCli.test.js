@@ -13,6 +13,20 @@ const { pathToFileURL } = require('url')
 
 const nativeVmModulesEnabled = process.execArgv.includes('--experimental-vm-modules')
 
+function createNativeVmJestArguments(jestCli, configPath, testPath) {
+  return [
+    '--experimental-vm-modules',
+    jestCli,
+    '--config',
+    configPath,
+    '--runInBand',
+    '--runTestsByPath',
+    testPath,
+    '-t',
+    'loads a ESM'
+  ]
+}
+
 function createDeterministicAuthorDefinition() {
   const factory = createDeterministicBackendTckFactory()
   return createBackendAuthorDefinition({
@@ -157,6 +171,15 @@ describe('external backend SDK and offline CLI', () => {
     })
   })
 
+  test('passes a native Windows test path through Jest exact-path mode', () => {
+    const nativeWindowsPath = 'C:\\actions\\react-native-ble-plx\\__tests__\\backend-sdk\\BackendSdkAndCli.test.js'
+    const argumentsList = createNativeVmJestArguments('jest', 'jest.config.js', nativeWindowsPath)
+    const runTestsByPathIndex = argumentsList.indexOf('--runTestsByPath')
+
+    expect(runTestsByPathIndex).toBeGreaterThan(-1)
+    expect(argumentsList[runTestsByPathIndex + 1]).toBe(nativeWindowsPath)
+  })
+
   const nativeEsmTest = nativeVmModulesEnabled ? test : test.skip
   nativeEsmTest.each([
     ['ESM absolute path', 'external-deterministic-backend.mjs'],
@@ -183,21 +206,13 @@ describe('external backend SDK and offline CLI', () => {
       return
     }
     const jestCli = require.resolve('jest/bin/jest')
+    const projectRoot = path.join(__dirname, '..', '..')
 
     expect(() =>
       execFileSync(
         process.execPath,
-        [
-          '--experimental-vm-modules',
-          jestCli,
-          '--config',
-          path.join(__dirname, '..', '..', 'jest.config.js'),
-          '--runInBand',
-          __filename,
-          '-t',
-          'loads a ESM'
-        ],
-        { cwd: path.join(__dirname, '..', '..'), stdio: 'pipe' }
+        createNativeVmJestArguments(jestCli, path.join(projectRoot, 'jest.config.js'), __filename),
+        { cwd: projectRoot, stdio: 'pipe' }
       )
     ).not.toThrow()
   })

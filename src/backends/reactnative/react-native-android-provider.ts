@@ -12,12 +12,7 @@ import type {
   ScannerBackend
 } from '../../backend-contract/backend'
 import { contractError } from '../../backend-contract/errors'
-import type {
-  AdapterSelection,
-  BackendProvider,
-  NativeBackendIdentity,
-  AttachmentRecord
-} from '../../backend-contract/identity'
+import type { AdapterSelection, NativeBackendIdentity, AttachmentRecord } from '../../backend-contract/identity'
 import type { NativeAttachmentIdentity, Spec as NativeProtocolControl } from '../../NativeUnifiedBleProtocolControl'
 import {
   negotiateVersion,
@@ -33,6 +28,13 @@ import { CoreBluetoothBackend, type DirectGattBackendIdentityOptions } from '../
 import { coreBluetoothCompatibility } from '../corebluetooth/corebluetooth-provider'
 import { ReactNativeAndroidProtocolBoundary } from '../../native-protocol/rn-android-boundary'
 import { createReactNativeConnectionControlFeatureRegistry } from './react-native-connection-control-features'
+import {
+  combineReactNativeFeatureRegistries,
+  createReactNativeRestorationFeatureRegistry,
+  ReactNativeRestorationCoordinator,
+  type ReactNativeRestorationActivation,
+  type ReactNativeRestorationBackendProvider
+} from './react-native-restoration'
 
 export const REACT_NATIVE_ANDROID_BACKEND_ID = 'unified-ble:react-native-android'
 export const REACT_NATIVE_ANDROID_PLATFORM_ID = 'unified-ble:android-gatt'
@@ -42,21 +44,6 @@ export const REACT_NATIVE_ANDROID_DEFAULT_ADAPTER_NATIVE_ID = 'android-default-a
 export const reactNativeAndroidCompatibility: NativeCompatibilityOffer = Object.freeze({
   ...coreBluetoothCompatibility,
   nativeProtocol: versionRange(version('native-protocol', 1), version('native-protocol', 1))
-})
-
-const androidDirectGattIdentity: DirectGattBackendIdentityOptions = Object.freeze({
-  registeredBackendId: REACT_NATIVE_ANDROID_BACKEND_ID,
-  registeredPlatformId: REACT_NATIVE_ANDROID_PLATFORM_ID,
-  implementationVersion: REACT_NATIVE_ANDROID_IMPLEMENTATION_VERSION,
-  attachmentScope: 'react-native-android',
-  backendInstancePrefix: 'react-native-android-backend',
-  adapterNativeId: REACT_NATIVE_ANDROID_DEFAULT_ADAPTER_NATIVE_ID,
-  adapterDisplayName: 'Android default BLE adapter',
-  limitations: Object.freeze([
-    'Android exposes the process-selected default Bluetooth adapter through the canonical JSI protocol boundary',
-    'Descriptor operations are unavailable because the Android native protocol does not publish descriptor callbacks'
-  ]),
-  features: createReactNativeConnectionControlFeatureRegistry('android', REACT_NATIVE_ANDROID_IMPLEMENTATION_VERSION)
 })
 
 let nextBoundaryOwner = 1
@@ -76,8 +63,9 @@ export interface ReactNativeAndroidBackendProviderOptions {
  */
 export function createReactNativeAndroidBackendProvider(
   options: ReactNativeAndroidBackendProviderOptions
-): BackendProvider<string, NativeBackendIdentity<string>> {
+): ReactNativeRestorationBackendProvider {
   const createOwnerId = options.createOwnerId ?? allocateBoundaryOwnerId
+  const restoration = new ReactNativeRestorationCoordinator(options.control, 'android')
   return Object.freeze({
     descriptor: Object.freeze({
       providerId: 'unified-ble:react-native-android-provider',
@@ -85,8 +73,9 @@ export function createReactNativeAndroidBackendProvider(
       loadability: 'loadable',
       compatibility: reactNativeAndroidCompatibility
     }),
+    restoration,
     listAdapters: async () => {
-      const backend = await createOpenedBackend(options.control, options.now, createOwnerId())
+      const backend = await createOpenedBackend(options.control, options.now, createOwnerId(), restoration, false)
       try {
         return Object.freeze([backend.identity.attachment.adapter])
       } finally {
@@ -103,7 +92,7 @@ export function createReactNativeAndroidBackendProvider(
       if (String(selection.selectedAdapterId) !== REACT_NATIVE_ANDROID_DEFAULT_ADAPTER_NATIVE_ID) {
         throw contractError('adapter.unavailable', 'adapter', 'react-native-android.provider.select-adapter')
       }
-      return createOpenedBackend(options.control, options.now, createOwnerId())
+      return createOpenedBackend(options.control, options.now, createOwnerId(), restoration, true)
     }
   })
 }
@@ -115,7 +104,13 @@ class ReactNativeAndroidBackend implements BleCentralBackend<string, NativeBacke
   readonly gatt: GattBackend<string>
   readonly features: CoreBluetoothBackend['features']
 
-  constructor(private readonly delegate: CoreBluetoothBackend) {
+  private destroyResult: Promise<import('../../backend-contract/errors').CleanupRecord> | null = null
+
+  constructor(
+    private readonly delegate: CoreBluetoothBackend,
+    readonly restoration: ReactNativeRestorationCoordinator,
+    private readonly restorationActivation: ReactNativeRestorationActivation | null
+  ) {
     this.adapter = delegate.adapter
     this.scanner = delegate.scanner
     this.connections = delegate.connections
@@ -158,7 +153,29 @@ class ReactNativeAndroidBackend implements BleCentralBackend<string, NativeBacke
     return this.delegate.resourceCounters()
   }
 
-  destroy() {
+  destroy(): Promise<import('../../backend-contract/errors').CleanupRecord> {
+    if (this.destroyResult === null) {
+      const destruction = this.destroyInternal()
+      this.destroyResult = destruction.then(
+        cleanup => {
+          if (cleanup.state === 'release-failed') {
+            this.destroyResult = null
+          }
+          return cleanup
+        },
+        error => {
+          this.destroyResult = null
+          throw error
+        }
+      )
+    }
+    return this.destroyResult
+  }
+
+  private async destroyInternal(): Promise<import('../../backend-contract/errors').CleanupRecord> {
+    if (this.restorationActivation !== null) {
+      await this.restoration.deactivate(this.restorationActivation)
+    }
     return this.delegate.destroy()
   }
 }
@@ -166,18 +183,23 @@ class ReactNativeAndroidBackend implements BleCentralBackend<string, NativeBacke
 async function createOpenedBackend(
   control: NativeProtocolControl,
   now: () => number,
-  ownerId: string
+  ownerId: string,
+  restoration: ReactNativeRestorationCoordinator,
+  activateRestoration: boolean
 ): Promise<ReactNativeAndroidBackend> {
   if (ownerId.length === 0) {
     throw contractError('argument.invalid', 'core', 'react-native-android.provider.owner-id')
   }
   const boundary = new ReactNativeAndroidProtocolBoundary(control, ownerId)
-  const directBackend = new CoreBluetoothBackend(boundary, now, 'native-mobile', androidDirectGattIdentity)
+  const directBackend = new CoreBluetoothBackend(boundary, now, 'native-mobile', androidDirectGattIdentity())
   boundary.bindAttachment(nativeAttachmentIdentity(directBackend.attachment()))
   try {
     await boundary.open()
     directBackend.refreshAttachmentState()
-    return new ReactNativeAndroidBackend(directBackend)
+    const activation = activateRestoration
+      ? restoration.activate(directBackend.identity.attachment, nativeVersions(directBackend.identity.versions))
+      : null
+    return new ReactNativeAndroidBackend(directBackend, restoration, activation)
   } catch (error) {
     try {
       const cleanup = await directBackend.destroy()
@@ -192,6 +214,25 @@ async function createOpenedBackend(
     }
     throw error
   }
+}
+
+function androidDirectGattIdentity(): DirectGattBackendIdentityOptions {
+  return Object.freeze({
+    registeredBackendId: REACT_NATIVE_ANDROID_BACKEND_ID,
+    registeredPlatformId: REACT_NATIVE_ANDROID_PLATFORM_ID,
+    implementationVersion: REACT_NATIVE_ANDROID_IMPLEMENTATION_VERSION,
+    attachmentScope: 'react-native-android',
+    backendInstancePrefix: 'react-native-android-backend',
+    adapterNativeId: REACT_NATIVE_ANDROID_DEFAULT_ADAPTER_NATIVE_ID,
+    adapterDisplayName: 'Android default BLE adapter',
+    limitations: Object.freeze([
+      'Android exposes the process-selected default Bluetooth adapter through the canonical JSI protocol boundary'
+    ]),
+    features: combineReactNativeFeatureRegistries(
+      createReactNativeConnectionControlFeatureRegistry('android', REACT_NATIVE_ANDROID_IMPLEMENTATION_VERSION),
+      createReactNativeRestorationFeatureRegistry('android', REACT_NATIVE_ANDROID_IMPLEMENTATION_VERSION)
+    )
+  })
 }
 
 function nativeAttachmentIdentity(attachment: AttachmentRecord<string>): NativeAttachmentIdentity {

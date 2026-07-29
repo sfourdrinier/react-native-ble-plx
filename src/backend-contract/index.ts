@@ -192,6 +192,7 @@ export type {
   RestorationAdoptionRequest,
   RestorationAdoptionResult,
   AuthenticatedRestorationClient,
+  ManagerRestorationCapability,
   ProviderRestorationAuthority,
   RestorationCoordinator,
   RestorationJournal,
