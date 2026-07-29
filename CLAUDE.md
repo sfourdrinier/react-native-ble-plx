@@ -29,13 +29,10 @@ This project uses **pnpm**, not npm or yarn. All package manager commands should
 - `pnpm bootstrap` - Install dependencies for all workspaces
 
 ### Publishing
-Follow the authoritative process in `RELEASE.md` (summarized). Two paths after the shared gate:
+Follow the authoritative process in `RELEASE.md` (summarized). The canonical package release path is:
 
-**Shared:** release branch → `pnpm verify:release` → PR → merge to `master`.
+release branch → `pnpm verify:release` → PR → merge to `master` → tag `vX.Y.Z` and push → approve `npm` environment if required → `publish.yml` publishes `unified-ble-manager` through OIDC with provenance and creates the GitHub Release from `CHANGELOG.md`.
 
-**Path A (preferred, CI):** tag `vX.Y.Z` and push → approve `npm` env if required → `publish.yml` does OIDC npm publish with provenance and creates the GitHub Release from `CHANGELOG.md`.
-
-**Path B (laptop):** tag, `npm publish --access public` from a clean checkout (no provenance), and `gh release create` yourself. Use `npm`, not `pnpm publish`.
 
 ## Architecture Overview
 
@@ -81,7 +78,7 @@ The plugin configures native projects for Expo managed workflow:
 - `withBLEBackgroundModes.ts` - Configures iOS background modes
 - `withBLERestorationPodfile.ts` - Adds optional iOS BLE state restoration subspec
 
-**Important**: CocoaPods / plugin identity on 4.0 is **`unified-ble-manager`** (Restoration: `unified-ble-manager/Restoration`). The npm shim `@sfourdrinier/react-native-ble-plx` re-exports only; prefer the canonical package name in Podfile and plugin config.
+**Important**: CocoaPods / plugin identity on 4.0 is **`unified-ble-manager`** (Restoration: `unified-ble-manager/Restoration`). Use the canonical package name in Podfile and plugin config.
 
 ### iOS State Restoration (Optional Feature)
 
@@ -122,7 +119,6 @@ When `iosEnableRestoration: true` in plugin config:
 
 ### Package Structure
 - Main package: **`unified-ble-manager`** (4.0 train; npm + CocoaPods + Android + Expo plugin)
-- npm shim only: `@sfourdrinier/react-native-ble-plx` under `packages/react-native-ble-plx-shim/`
 - TypeScript source in `src/`, compiled output in `lib/`
 - Native code in `android/` (Kotlin/Java) and `ios/` (owned Swift CoreBluetooth + ObjC++ bridge)
 - Config plugin in `plugin/` (TypeScript, compiled to `plugin/build/`)

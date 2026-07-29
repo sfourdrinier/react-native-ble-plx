@@ -14,7 +14,7 @@ This package is a maintained fork of [dotintent/react-native-ble-plx](https://gi
 - **Docs:** this repository (`docs/` + root `README.md`)
 - **Migration:** [MIGRATION_4.0.md](../MIGRATION_4.0.md)
 
-## Historical dual identity (transitional source)
+## Historical package lineage
 
 The following source-era package and configuration examples are historical characterization. They do not authorize a 4.0 package release or permanent shim:
 

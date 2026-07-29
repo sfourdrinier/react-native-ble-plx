@@ -1,9 +1,11 @@
 // native/electron/corebluetooth/src/addon.mm
 
+// native/electron/corebluetooth/src/addon.mm
+
 /**
- * Electron macOS CoreBluetooth full BlePort radio (GAP-E-MAC-PORT).
- * Scan → connect → discover → read/write bytes → notify.
- * ObjC++ + node-addon-api + CoreBluetooth.
+ * Electron macOS CoreBluetooth contract-v1 radio.
+ * Scan, connect, discover, read/write bytes, and notify.
+ * ObjC++ with node-addon-api and CoreBluetooth.
  */
 
 #import <Foundation/Foundation.h>
@@ -1217,15 +1219,10 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
             InstanceMethod("disconnect", &CoreBluetoothAddon::Disconnect),
             InstanceMethod("getConnectionState", &CoreBluetoothAddon::GetConnectionState),
             InstanceMethod("discoverServices", &CoreBluetoothAddon::DiscoverServices),
-            InstanceMethod("discoverCharacteristics", &CoreBluetoothAddon::DiscoverCharacteristics),
             InstanceMethod("discoverCharacteristicsAt", &CoreBluetoothAddon::DiscoverCharacteristicsAt),
-            InstanceMethod("readCharacteristic", &CoreBluetoothAddon::ReadCharacteristic),
             InstanceMethod("readCharacteristicAt", &CoreBluetoothAddon::ReadCharacteristicAt),
-            InstanceMethod("writeCharacteristic", &CoreBluetoothAddon::WriteCharacteristic),
             InstanceMethod("writeCharacteristicAt", &CoreBluetoothAddon::WriteCharacteristicAt),
-            InstanceMethod("startNotify", &CoreBluetoothAddon::StartNotify),
             InstanceMethod("startNotifyAt", &CoreBluetoothAddon::StartNotifyAt),
-            InstanceMethod("stopNotify", &CoreBluetoothAddon::StopNotify),
             InstanceMethod("stopNotifyAt", &CoreBluetoothAddon::StopNotifyAt),
             InstanceMethod("setDisconnectHandler", &CoreBluetoothAddon::SetDisconnectHandler),
             InstanceMethod("setAdapterStateHandler", &CoreBluetoothAddon::SetAdapterStateHandler),
@@ -1234,8 +1231,6 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
     auto *ctor = new Napi::FunctionReference();
     *ctor = Napi::Persistent(func);
     env.SetInstanceData(ctor);
-    exports.Set("CoreBluetoothAddon", func);
-    exports.Set("radioId", Napi::String::New(env, "corebluetooth-electron-v1"));
     exports.Set("createNativeRadio", Napi::Function::New(env, [](const Napi::CallbackInfo &info) {
       return info.Env().GetInstanceData<Napi::FunctionReference>()->New({});
     }));

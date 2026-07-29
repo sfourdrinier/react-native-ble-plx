@@ -11,7 +11,12 @@ const output = path.join(root, 'lib')
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 
 function run(command, args) {
-  const result = spawnSync(command, args, { cwd: root, stdio: 'inherit', shell: false })
+  const result = spawnSync(command, args, {
+    cwd: root,
+    stdio: 'inherit',
+    // Windows command shims (`pnpm.cmd`) must be launched through cmd.exe.
+    shell: process.platform === 'win32'
+  })
   if (result.error) {
     throw result.error
   }

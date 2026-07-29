@@ -1,7 +1,7 @@
 {
   "name": "unified-ble-manager",
-  "version": "4.0.0-alpha.9",
-  "description": "Unified Bluetooth Low Energy manager for React Native, Electron, Web, and desktop (4.0 train; successor lineage of @sfourdrinier/react-native-ble-plx)",
+  "version": "4.0.0-alpha.10",
+  "description": "Unified Bluetooth Low Energy manager for React Native, Electron, Web, and desktop (4.0 train)",
   "packageManager": "pnpm@10.14.0",
   "main": "lib/commonjs/index.js",
   "module": "lib/module/index.js",
@@ -56,7 +56,6 @@
     "docs:backend-sdk": "node scripts/docs/generate-backend-sdk-reference.js",
     "docs:check": "node scripts/docs/generate-backend-sdk-reference.js --check",
     "cli": "node bin/ubm.js",
-    "pack:shim": "node scripts/prepare-shim-pack.js --pack --output-dir ./.artifacts/shim",
     "docs": "pnpm prepack && documentation build lib/module/index.js -o docs --config documentation.yml -f html",
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"plugin/src/**/*.{ts,tsx}\" --max-warnings 0 && pnpm typecheck",
@@ -238,7 +237,7 @@
   "react-native-builder-bob": {
     "source": "src",
     "output": "lib",
-    "exclude": "{BleError.ts,BleManager.ts,BleModule.ts,Characteristic.ts,ConnectionManager.ts,Descriptor.ts,Device.ts,DeviceOperationQueue.ts,NativeBlePlx.ts,Service.ts,TypeDefinition.ts,Utils.ts,encoding.ts,longWrite.ts,permissions.ts,stringUtils.ts,supports.ts,unsupported.ts,**/{__tests__,__fixtures__,__mocks__,discovery,helpers,hosts,port}/**,profiles/{battery.ts,bloodPressure.ts,deviceInformation.ts,healthThermometer.ts,heartRate.ts,ieee11073.ts,index.ts,serviceHelpers.ts,types.ts}}",
+    "exclude": "{BleError.ts,BleManager.ts,BleModule.ts,Characteristic.ts,ConnectionManager.ts,Descriptor.ts,Device.ts,DeviceOperationQueue.ts,Service.ts,TypeDefinition.ts,Utils.ts,encoding.ts,longWrite.ts,permissions.ts,stringUtils.ts,supports.ts,unsupported.ts,**/{__tests__,__fixtures__,__mocks__,discovery,helpers,hosts,port}/**,profiles/{battery.ts,bloodPressure.ts,deviceInformation.ts,healthThermometer.ts,heartRate.ts,ieee11073.ts,index.ts,serviceHelpers.ts,types.ts}}",
     "targets": [
       [
         "commonjs",

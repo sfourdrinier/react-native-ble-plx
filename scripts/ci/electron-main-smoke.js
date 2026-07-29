@@ -1,18 +1,19 @@
 #!/usr/bin/env node
+// scripts/ci/electron-main-smoke.js
 /**
- * Headless Electron main-process host smoke (L3 wiring, not radio L4).
+ * Headless Electron main-process public-boundary smoke (L3 wiring, not radio L4).
  *
  * Run under the Electron binary (not plain Node) after `@electron/rebuild`
  * when a native addon is present.
  *
- * Always: FakeBlePort main-process construct (Linux L3 + macOS Fake path).
- * On darwin after rebuild: also `createCoreBluetoothBlePort({ requireNative: true })`
+ * Always: imports the public Electron-main boundary under the Electron runtime.
+ * On darwin after rebuild: also creates the public CoreBluetooth contract boundary
  * under the Electron ABI (R3-F012) so an unloadable rebuild fails CI.
  *
  *   npx --yes @electron/rebuild -f -w native/electron/corebluetooth   # macOS after node-gyp
  *   ./node_modules/.bin/electron scripts/ci/electron-main-smoke.js
  *
- * Residual: non-darwin L3 remains Fake-only (no OS native requireNative under Electron).
+ * Non-darwin runs prove public Electron-main loading only; no radio is claimed.
  */
 'use strict'
 
@@ -20,11 +21,11 @@ const path = require('path')
 
 const root = path.resolve(__dirname, '../..')
 
-function loadHost() {
+function loadElectronMain() {
   try {
-    return require(path.join(root, 'lib/commonjs/hosts/electron'))
+    return require(path.join(root, 'lib/commonjs/electron-main'))
   } catch (e) {
-    console.error('Could not load compiled electron host. Run `pnpm prepack` first.\n', e && e.message)
+    console.error('Could not load compiled Electron-main entrypoint. Run `pnpm prepack` first.\n', e && e.message)
     process.exit(1)
   }
 }
@@ -38,70 +39,38 @@ async function main() {
     )
   }
 
-  const {
-    BleManager,
-    FakeBlePort,
-    createCoreBluetoothBlePort,
-    isFullBlePort
-  } = loadHost()
-  if (typeof BleManager !== 'function') {
-    throw new Error('electron host BleManager is not a function under Electron')
-  }
-  if (typeof FakeBlePort !== 'function') {
-    throw new Error('electron host FakeBlePort is not a function under Electron')
+  const { createElectronMainCoreBluetoothBackendProvider, createNativeCoreBluetoothBoundary } = loadElectronMain()
+  if (typeof createElectronMainCoreBluetoothBackendProvider !== 'function') {
+    throw new Error('Electron-main CoreBluetooth provider factory is not a function under Electron')
   }
 
-  // Fake path — all platforms (Linux L3 wiring + macOS Fake residual).
-  const port = new FakeBlePort()
-  const manager = new BleManager({ port, backend: 'mock' })
-  const info = typeof manager.getHostInfo === 'function' ? manager.getHostInfo() : null
-  if (!info || typeof info !== 'object') {
-    throw new Error('getHostInfo() did not return an object under Electron main')
-  }
-
-  console.log('Electron main-process L3 Fake smoke ok', {
+  console.log('Electron main-process L3 public entrypoint smoke ok', {
     runtime: 'electron',
-    electron: process.versions.electron,
-    hostInfo: info
+    electron: process.versions.electron
   })
 
-  if (typeof manager.destroy === 'function') {
-    await Promise.resolve(manager.destroy())
-  }
-  if (typeof port.destroy === 'function') {
-    port.destroy()
-  }
-
-  // R3-F012: after @electron/rebuild on darwin, requireNative must load under Electron ABI.
+  // R3-F012: after @electron/rebuild on darwin, the direct boundary must load under Electron ABI.
   if (process.platform === 'darwin') {
-    if (typeof createCoreBluetoothBlePort !== 'function') {
-      throw new Error('createCoreBluetoothBlePort missing from electron host under Electron')
+    if (typeof createNativeCoreBluetoothBoundary !== 'function') {
+      throw new Error('createNativeCoreBluetoothBoundary missing from Electron-main entrypoint')
     }
-    const nativePort = createCoreBluetoothBlePort({ requireNative: true })
-    if (!nativePort || typeof nativePort.startScan !== 'function') {
-      throw new Error('CoreBluetooth requireNative under Electron did not return a BlePort')
+    const boundary = createNativeCoreBluetoothBoundary()
+    for (const method of [
+      'adapterSnapshot', 'startScan', 'stopScan', 'connect', 'disconnect',
+      'connectionState', 'discover', 'read', 'write', 'startNotify',
+      'stopNotify', 'onDisconnect', 'onAdapterState', 'destroy'
+    ]) {
+      if (typeof boundary[method] !== 'function') {
+        throw new Error(`CoreBluetooth contract boundary is missing ${method}`)
+      }
     }
-    const fullOk =
-      typeof isFullBlePort === 'function'
-        ? isFullBlePort(nativePort)
-        : typeof nativePort.connect === 'function' &&
-          typeof nativePort.discoverServices === 'function' &&
-          typeof nativePort.readCharacteristicBytes === 'function' &&
-          typeof nativePort.writeCharacteristicBytes === 'function' &&
-          typeof nativePort.monitorCharacteristic === 'function'
-    if (!fullOk) {
-      throw new Error('CoreBluetooth requireNative under Electron is not a full BlePort surface')
-    }
-    console.log('Electron main-process L3 CoreBluetooth requireNative ok', {
+    await boundary.destroy()
+    console.log('Electron main-process L3 CoreBluetooth public boundary ok', {
       runtime: 'electron',
-      electron: process.versions.electron,
-      portId: nativePort.id
+      electron: process.versions.electron
     })
-    if (typeof nativePort.destroy === 'function') {
-      nativePort.destroy()
-    }
   } else {
-    console.log('Electron main-process L3 CoreBluetooth requireNative skipped (non-darwin; Fake-only residual)')
+    console.log('Electron main-process L3 CoreBluetooth boundary skipped (non-darwin; no radio claim)')
   }
 
   // Electron keeps the event loop alive until explicitly exited.

@@ -66,6 +66,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.0
 
+      # node-gyp's current Node 20 toolchain is not compatible with macOS's
+      # preinstalled Python 3.14. Keep the native L2 gate intact on Python 3.12.
+      - name: Setup Python for macOS native builds
+        if: runner.os == 'macOS'
+        uses: actions/setup-python@v6.0.0
+        with:
+          python-version: '3.12'
+
       - name: Setup JS package
         uses: ./.github/actions/setup-js-package
         with:
@@ -95,8 +103,8 @@ jobs:
         if: runner.os == 'Linux'
         run: node example-electron/smoke.js
 
-      # R3-F075: full `pnpm test:package` above already covers BluezBlePort|ElectronNative|
-      # OwnedCore|DeviceQueueAndLongWrite|CompatRegression|CodemodBytesPath — no re-run.
+      # The full package suite above covers the public backend and package boundaries;
+      # the release workflow does not repeat individual suites here.
 
       # L2 needs compiled hosts (src/*.ts is not resolvable by plain Node). prepack is Linux-only above;
       # emit lib/ here before requireNative probes (R2-F005).
@@ -104,27 +112,39 @@ jobs:
         if: runner.os == 'macOS' || runner.os == 'Windows'
         run: pnpm prepack
 
-      # L2: compile CoreBluetooth Node-API addon, then requireNative must succeed (no soft-pass).
-      # Require compiled CJS only — never ./src/hosts/electron (TypeScript; Node cannot load it).
-      - name: Electron CoreBluetooth native L2 (node-gyp Node ABI + requireNative)
+      # L2: compile the CoreBluetooth Node-API addon, then load the public 4.0
+      # contract boundary directly. No legacy BlePort host participates in this gate.
+      - name: CoreBluetooth native boundary L2 (node-gyp Node ABI + public boundary)
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
           pnpm run build:electron:macos
           test -f native/electron/corebluetooth/build/Release/unified_ble_corebluetooth.node
           node -e "
-            const { createCoreBluetoothBlePort } = require('./lib/commonjs/hosts/electron');
-            const port = createCoreBluetoothBlePort({ requireNative: true });
-            if (!port || typeof port.startScan !== 'function') {
-              throw new Error('CoreBluetooth L2 requireNative did not return a BlePort');
+            const { createNativeCoreBluetoothBoundary } = require('./lib/commonjs/node-corebluetooth');
+            const boundary = createNativeCoreBluetoothBoundary();
+            const required = [
+              'adapterSnapshot', 'startScan', 'stopScan', 'connect', 'disconnect',
+              'connectionState', 'discover', 'read', 'write', 'startNotify',
+              'stopNotify', 'onDisconnect', 'onAdapterState', 'destroy'
+            ];
+            for (const method of required) {
+              if (typeof boundary[method] !== 'function') {
+                throw new Error('CoreBluetooth boundary method is missing: ' + method);
+              }
             }
-            console.log('Electron CoreBluetooth L2 ok:', port.id);
-            if (typeof port.destroy === 'function') port.destroy();
+            Promise.resolve(boundary.destroy()).then(() => {
+              console.log('CoreBluetooth public boundary L2 ok');
+            }, error => {
+              console.error('CoreBluetooth boundary destroy failed:', error);
+              process.exitCode = 1;
+            });
           "
 
       # L3: Node ABI ≠ Electron ABI. Rebuild for Electron, then headless main-process smoke (R2-F037).
-      # electron-main-smoke: Fake path always + CoreBluetooth requireNative under Electron on darwin (R3-F012).
-      # Not radio L4 — no BrowserWindow, no live Polar. Non-darwin L3 remains Fake-only residual.
+      # electron-main-smoke loads public Electron-main exports and the direct
+      # CoreBluetooth boundary under the Electron ABI on macOS (R3-F012).
+      # Not radio L4 — no BrowserWindow or live peripheral is involved.
       - name: Electron ABI rebuild + main-process smoke (L3, Node ABI ≠ Electron ABI)
         if: runner.os == 'macOS'
         run: |
@@ -174,12 +194,13 @@ jobs:
           node scripts/ci/check-host-exports.js
           npx --yes vite build --config example-web/vite.config.js --outDir /tmp/example-web-dist
 
-      # L3 wiring under Electron binary on Linux (Fake only; no BlueZ radio). Proves electron binary loads (R2-F037).
-      - name: Electron main-process Fake smoke under Electron binary (L3, Linux)
+      # L3 wiring under the Electron binary on Linux. This uses Electron's
+      # documented CI-safe no-sandbox mode and still executes the public smoke.
+      - name: Electron main-process public-boundary smoke under Electron binary (L3, Linux)
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
-          ./node_modules/.bin/electron scripts/ci/electron-main-smoke.js
+          ./node_modules/.bin/electron --no-sandbox scripts/ci/electron-main-smoke.js
 
       # BlueZ soft-probe: never silent success; skip explicitly when daemon/adapter absent (R2-F038 / GAP-CI-LIN).
       - name: BlueZ system soft-probe (L2/L3 soft; mock Jest remains L1)
@@ -202,8 +223,8 @@ jobs:
           fi
           node scripts/ci/bluez-soft-probe.js
 
-      # Real pack+install (not dry-run) — proves files allowlist + host/shim exports (R2-F039).
-      - name: Dual npm pack + install export smoke
+      # Real pack+install (not dry-run) — proves the canonical files allowlist and host exports (R2-F039).
+      - name: Canonical npm pack + install export smoke
         if: runner.os == 'Linux'
         run: node scripts/ci/pack-install-smoke.js
 

@@ -1,5 +1,7 @@
 // __tests__/PackageArtifactHonesty.test.js
 
+// __tests__/PackageArtifactHonesty.test.js
+
 const fs = require('fs')
 const path = require('path')
 
@@ -20,7 +22,6 @@ describe('package artifact honesty gate', () => {
     const buildSource = fs.readFileSync(buildScript, 'utf8')
     const verifierSource = fs.readFileSync(artifactVerifier, 'utf8')
     const tarballVerifierSource = fs.readFileSync(tarballVerifier, 'utf8')
-    const shimPackSource = fs.readFileSync(path.join(root, 'scripts', 'prepare-shim-pack.js'), 'utf8')
     const packInstallSmokeSource = fs.readFileSync(path.join(root, 'scripts', 'ci', 'pack-install-smoke.js'), 'utf8')
     expect(buildSource).toContain("['run', 'clean:plugin']")
     expect(buildSource).toContain("['run', 'build:plugin']")
@@ -35,9 +36,9 @@ describe('package artifact honesty gate', () => {
     expect(tarballVerifierSource).toContain('internalRuntimeSourceFiles')
     expect(tarballVerifierSource).toContain('expectedCodegenSourceEntries')
     expect(tarballVerifierSource).toContain('Packed React Native Codegen source set differs')
-    expect(tarballVerifierSource).toContain('canonicalDependency !== canonicalVersion')
-    expect(shimPackSource).toContain("process.platform === 'win32' ? 'npm.cmd' : 'npm'")
-    expect(shimPackSource).toContain('--pack-destination')
+    expect(tarballVerifierSource).toContain("Usage: node scripts/ci/verify-package-tarballs.js <canonical.tgz>")
+    expect(buildSource).toContain("process.platform === 'win32'")
+    expect(buildSource).toContain("shell: process.platform === 'win32'")
     expect(packInstallSmokeSource).toContain("process.platform === 'win32' ? 'npm.cmd' : 'npm'")
     expect(packInstallSmokeSource).toContain('--pack-destination')
     expect(packInstallSmokeSource).not.toContain('cleanupRootTarballs')
@@ -52,13 +53,7 @@ describe('package artifact honesty gate', () => {
     expect(packInstallSmokeSource).toContain('writeExternalCliBackendFixture')
     expect(packInstallSmokeSource).toContain('./external-deterministic-backend.cjs')
     expect(packInstallSmokeSource).toContain('identity.valid-all-axis-negotiation')
-    expect(packInstallSmokeSource).toContain('@sfourdrinier/react-native-ble-plx')
     expect(packInstallSmokeSource).toContain("require('unified-ble-manager/app.plugin.js')")
-    expect(packInstallSmokeSource).toContain("require('@sfourdrinier/react-native-ble-plx/app.plugin.js')")
-    expect(packInstallSmokeSource).toContain(
-      "assert.strictEqual(shimPlugin, canonicalPlugin, 'shim app.plugin.js resolves the canonical plugin instance')"
-    )
-    expect(packInstallSmokeSource).toContain("await import('@sfourdrinier/react-native-ble-plx')")
     expect(packInstallSmokeSource).toContain("require('unified-ble-manager/web')")
     expect(packInstallSmokeSource).toContain('ERR_PACKAGE_PATH_NOT_EXPORTED')
     expect(packInstallSmokeSource).toContain('unified-ble-manager/native-protocol/v1-codec')
@@ -68,8 +63,8 @@ describe('package artifact honesty gate', () => {
       "import { createNavigatorWebBluetoothProvider } from 'unified-ble-manager/web'"
     )
     expect(tarballVerifierSource).toContain('isRootArchiveEntryAllowed')
-    expect(tarballVerifierSource).toContain('assertExactShimArchiveEntries')
-    expect(tarballVerifierSource).toContain('assertExactShimManifest')
+    expect(tarballVerifierSource).not.toMatch(/shim|@sfourdrinier\/react-native-ble-plx/i)
+    expect(packInstallSmokeSource).not.toMatch(/shim|@sfourdrinier\/react-native-ble-plx/i)
     expect(tarballVerifierSource).toContain('docs/evidence/g0')
     expect(packageJson.files).toContain('!docs/evidence/g0/**')
     expect(packageJson.files).toContain('bin')

@@ -38,7 +38,7 @@ export interface NativeWinRtProviderOptions {
   readonly now: () => number
 }
 
-/** Loads only the package-controlled Windows Node-API artifact and never substitutes a test or legacy radio. */
+/** Loads only the package-controlled Windows Node-API artifact and never substitutes a test radio. */
 export function createNativeWinRtBoundary(): WinRtBoundary {
   if (process.platform !== 'win32') {
     throw contractError('capability.unavailable', 'platform', 'winrt.native-boundary.load', {

@@ -1,25 +1,24 @@
-# Publish dual 4.0 identity with npm Trusted Publishing (OIDC) and provenance:
-#   1. unified-ble-manager              (canonical product, repo root)
-#   2. @sfourdrinier/react-native-ble-plx (compat shim under packages/)
+# .github/workflows/publish.yml
+# Publish the canonical unified-ble-manager 4.0 package with npm Trusted
+# Publishing (OIDC) and provenance.
 #
 # Prerequisites (one-time):
 # 1. GitHub Environment named "npm" (optional: required reviewers).
-# 2. npm Trusted Publisher for BOTH packages:
+# 2. npm Trusted Publisher for unified-ble-manager:
 #    Organization/user: sfourdrinier
 #    Repository:        react-native-ble-plx
 #    Workflow filename: publish.yml
 #    Environment name:  npm
 #    Allowed actions:   npm publish
 #    https://www.npmjs.com/package/unified-ble-manager/access
-#    https://www.npmjs.com/package/@sfourdrinier/react-native-ble-plx/access
 #
 # Release flow: merge release PR → manually tag vX.Y.Z on master → push tag →
-# approve npm environment if required → this workflow publishes both packages
+# approve npm environment if required → this workflow publishes the package
 # with provenance, then creates the GitHub Release. Tags stay manual. See RELEASE.md.
 #
 # GA gates (Ubuntu): package/plugin/lint/prepack, electron Fake L1 smoke, host
 # export typeof BleManager, web vite, classic RN Android assemble, Expo CNG
-# prebuild+assemble, dual npm pack dry-run. Apple compile remains a pre-merge
+# prebuild+assemble, canonical npm pack dry-run. Apple compile remains a pre-merge
 # gate (ci:apple on the release PR / master path filter) — not re-run here.
 # Align with scripts/verify-release.sh (R2-F040).
 
@@ -36,7 +35,7 @@ permissions:
 
 jobs:
   publish:
-    name: Publish dual packages
+    name: Publish canonical package
     runs-on: ubuntu-latest
     environment: npm
     env:
@@ -147,38 +146,27 @@ jobs:
         working-directory: example-expo/android
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
 
-      # R3-F044: same dual pack+install export smoke as PR CI / verify-release
-      - name: Dual pack+install export smoke
+      # R3-F044: same canonical pack+install export smoke as PR CI / verify-release
+      - name: Canonical pack+install export smoke
         run: node scripts/ci/pack-install-smoke.js
 
-      - name: Inspect npm pack contents (canonical + shim)
+      - name: Inspect canonical npm pack contents
         run: |
           set -euo pipefail
           npm pack --dry-run
-          node scripts/prepare-shim-pack.js --pack --dry-run
 
-      - name: Guard — package versions must match git tag (root + shim)
+      - name: Guard — canonical package version must match git tag
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME#v}"
           ROOT_VER="$(node -p "require('./package.json').version")"
           ROOT_NAME="$(node -p "require('./package.json').name")"
-          SHIM_VER="$(node -p "require('./packages/react-native-ble-plx-shim/package.json').version")"
-          SHIM_NAME="$(node -p "require('./packages/react-native-ble-plx-shim/package.json').name")"
           if [ "$TAG" != "$ROOT_VER" ]; then
             echo "Tag v${TAG} does not match root package.json version ${ROOT_VER}"
             exit 1
           fi
-          if [ "$TAG" != "$SHIM_VER" ]; then
-            echo "Tag v${TAG} does not match shim package.json version ${SHIM_VER}"
-            exit 1
-          fi
           if [ "$ROOT_NAME" != "unified-ble-manager" ]; then
             echo "Root package name must be unified-ble-manager, got ${ROOT_NAME}"
-            exit 1
-          fi
-          if [ "$SHIM_NAME" != "@sfourdrinier/react-native-ble-plx" ]; then
-            echo "Shim package name must be @sfourdrinier/react-native-ble-plx, got ${SHIM_NAME}"
             exit 1
           fi
           if [[ "$ROOT_VER" == *-* ]]; then
@@ -186,7 +174,7 @@ jobs:
           else
             echo "NPM_DIST_TAG=latest" >> "$GITHUB_ENV"
           fi
-          echo "Publishing ${ROOT_NAME}@${ROOT_VER} + ${SHIM_NAME}@${SHIM_VER} from tag ${GITHUB_REF_NAME}"
+          echo "Publishing ${ROOT_NAME}@${ROOT_VER} from tag ${GITHUB_REF_NAME}"
 
       # Soft check so a re-run after npm success can still create the GitHub Release.
       - name: Check whether versions are already on npm
@@ -194,25 +182,17 @@ jobs:
         run: |
           set -euo pipefail
           VER="$(node -p "require('./package.json').version")"
-          ROOT_PUBLISHED=false
-          SHIM_PUBLISHED=false
+          PACKAGE_PUBLISHED=false
           if npm view "unified-ble-manager@${VER}" version >/dev/null 2>&1; then
-            ROOT_PUBLISHED=true
+            PACKAGE_PUBLISHED=true
             echo "unified-ble-manager@${VER} is already on npm"
           else
             echo "unified-ble-manager@${VER} is not on npm yet"
           fi
-          if npm view "@sfourdrinier/react-native-ble-plx@${VER}" version >/dev/null 2>&1; then
-            SHIM_PUBLISHED=true
-            echo "@sfourdrinier/react-native-ble-plx@${VER} is already on npm"
-          else
-            echo "@sfourdrinier/react-native-ble-plx@${VER} is not on npm yet"
-          fi
-          echo "root_published=${ROOT_PUBLISHED}" >> "$GITHUB_OUTPUT"
-          echo "shim_published=${SHIM_PUBLISHED}" >> "$GITHUB_OUTPUT"
-          if [ "$ROOT_PUBLISHED" = true ] && [ "$SHIM_PUBLISHED" = true ]; then
+          echo "package_published=${PACKAGE_PUBLISHED}" >> "$GITHUB_OUTPUT"
+          if [ "$PACKAGE_PUBLISHED" = true ]; then
             echo "already_published=true" >> "$GITHUB_OUTPUT"
-            echo "Both packages already on npm — will skip publish and continue to GitHub Release"
+            echo "Canonical package already on npm — will skip publish and continue to GitHub Release"
           else
             echo "already_published=false" >> "$GITHUB_OUTPUT"
           fi
@@ -220,28 +200,11 @@ jobs:
       # Do NOT set NODE_AUTH_TOKEN. npm exchanges the GitHub OIDC identity for
       # this publish command; a long-lived token would defeat that boundary.
       - name: Publish unified-ble-manager (OIDC + provenance)
-        if: steps.npm_status.outputs.root_published != 'true'
+        if: steps.npm_status.outputs.package_published != 'true'
         run: npm publish --provenance --access public --tag "${NPM_DIST_TAG}"
 
-      - name: Prepare and publish @sfourdrinier/react-native-ble-plx shim (OIDC + provenance)
-        if: steps.npm_status.outputs.shim_published != 'true'
-        run: |
-          set -euo pipefail
-          SHIM_DIR="$(node scripts/prepare-shim-pack.js --print-dir)"
-          node scripts/prepare-shim-pack.js --assert-packed "${SHIM_DIR}/package.json"
-          # Fail closed: never publish a shim that still depends via file:
-          DEP="$(node -e "const p=require(process.argv[1]); process.stdout.write(p.dependencies['unified-ble-manager'])" "${SHIM_DIR}/package.json")"
-          case "$DEP" in
-            file:*|link:*|workspace:*|./*|../*)
-              echo "Refusing to publish shim with non-semver dependency: ${DEP}"
-              exit 1
-              ;;
-          esac
-          (cd "${SHIM_DIR}" && npm publish --provenance --access public --tag "${NPM_DIST_TAG}")
-          echo "Published shim from ${SHIM_DIR} (dep unified-ble-manager@${DEP})"
-
       # Tags remain manual. After npm succeeds, create the GitHub Release from
-      # CHANGELOG.md notes so the Releases page matches both published packages.
+      # CHANGELOG.md notes so the Releases page matches the published package.
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -274,8 +237,6 @@ jobs:
             echo
             echo "- \`unified-ble-manager@${VER}\` — canonical product"
             echo "  - tarball: https://registry.npmjs.org/unified-ble-manager/-/unified-ble-manager-${VER}.tgz"
-            echo "- \`@sfourdrinier/react-native-ble-plx@${VER}\` — compatibility shim (depends on unified-ble-manager@${VER})"
-            echo "  - tarball: https://registry.npmjs.org/@sfourdrinier/react-native-ble-plx/-/react-native-ble-plx-${VER}.tgz"
           } > "${NOTES_FILE}"
 
           gh release create "${TAG}" \

@@ -34,7 +34,7 @@ export interface NativeCoreBluetoothProviderOptions {
   readonly now: () => number
 }
 
-/** Loads the macOS-only direct CoreBluetooth addon without selecting a legacy BlePort path. */
+/** Loads the macOS-only direct CoreBluetooth addon for the current backend boundary. */
 export function createNativeCoreBluetoothBoundary(): CoreBluetoothBoundary {
   if (process.platform !== 'darwin') {
     throw contractError('capability.unavailable', 'platform', 'corebluetooth.native-boundary.load', {

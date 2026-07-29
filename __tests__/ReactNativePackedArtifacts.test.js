@@ -13,13 +13,12 @@ describe('packed React Native host artifacts', () => {
 
     expect(packageJson.codegenConfig.jsSrcsDir).toBe('src')
     expect(packageJson.files).toContain('src')
-    expect(fs.existsSync(path.join(root, 'src', 'NativeBlePlx.ts'))).toBe(true)
     expect(fs.existsSync(path.join(root, 'src', 'NativeUnifiedBleProtocolControl.ts'))).toBe(true)
     expect(tarballVerifier).toContain('expectedCodegenSourceEntries')
     expect(tarballVerifier).toContain('Packed React Native Codegen source set differs')
   })
 
-  test('includes the generated TurboModule control required by Metro from the public host entrypoint', () => {
+  test('includes the generated protocol control required by Metro from the public host entrypoint', () => {
     const publicEntryPath = path.join(root, 'lib', 'module', 'react-native.js')
     const controlPath = path.join(root, 'lib', 'module', 'NativeUnifiedBleProtocolControl.js')
     const publicEntry = fs.readFileSync(publicEntryPath, 'utf8')

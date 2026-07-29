@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 // scripts/ci/pack-install-smoke.js
 /**
- * Real npm pack + install smoke for dual identity (R2-F039).
+ * Real npm pack + install smoke for the canonical package (R2-F039).
  *
- * After prepack: packs root + transitional shim, installs the canonical
- * tarball into a clean consumer, validates root/backend-sdk/testing/codecs/profiles/web/node-bluez runtime
+ * After prepack: packs the canonical tarball into a clean consumer, validates root/backend-sdk/testing/codecs/profiles/web/node-bluez runtime
  * imports, and compiles backend-authoring/TCK code with three resolvers.
  * Does not publish. Leaves monorepo source untouched.
  */
@@ -129,7 +128,6 @@ function writeExternalTypeScriptFixture(consumer, module, moduleResolution) {
     path.join(fixtureDirectory, 'backend-author.ts'),
     [
       "import { BleManager } from 'unified-ble-manager';",
-      "import { BleManager as ShimBleManager } from '@sfourdrinier/react-native-ble-plx';",
       "import { createFeatureRegistry, type BackendAuthorDefinition, type HostNeutralBackendIdentity } from 'unified-ble-manager/backend-sdk';",
       "import { runUnifiedBleCli } from 'unified-ble-manager/cli';",
       "import { createDeterministicBackendTckFactory, createDeterministicTestBackend, runBackendTck } from 'unified-ble-manager/testing';",
@@ -147,13 +145,12 @@ function writeExternalTypeScriptFixture(consumer, module, moduleResolution) {
       '  const factory = createDeterministicBackendTckFactory();',
       '  const fixture = createDeterministicTestBackend();',
       '  const featureRegistry = createFeatureRegistry([]);',
-      '  const shimManager: typeof BleManager = ShimBleManager;',
       "  const busKind: BluezBusKind = 'session';",
       '  const bluezProvider = createDbusNextBluezBackendProvider({ busKind, now: () => 0 });',
       '  const winRtOptions: NativeWinRtProviderOptions = { now: () => 0 };',
       '  const report = await runBackendTck(factory, []);',
       '  await fixture.backend.destroy();',
-      '  return { BleManager, ShimBleManager: shimManager, provider: factory.provider, backend: fixture.backend, featureRegistry, report, bluezProvider, createNativeWinRtBackendProvider, winRtOptions, createNavigatorWebBluetoothProvider, runUnifiedBleCli };',
+      '  return { BleManager, provider: factory.provider, backend: fixture.backend, featureRegistry, report, bluezProvider, createNativeWinRtBackendProvider, winRtOptions, createNavigatorWebBluetoothProvider, runUnifiedBleCli };',
       '}',
       ''
     ].join('\n')
@@ -240,9 +237,8 @@ function main() {
     console.log('pack-install-smoke temp:', tmp)
 
     const rootTgz = assertTarballIsAbsent(artifactDirectory, rootPackage.name, rootPackage.version)
-    const shimTgz = assertTarballIsAbsent(artifactDirectory, '@sfourdrinier/react-native-ble-plx', rootPackage.version)
 
-    // Pack both identities into one isolated artifact directory; never create or delete repo-root tarballs.
+    // Pack the canonical package into an isolated artifact directory; never create or delete repo-root tarballs.
     run(npmCommand(), ['pack', '--pack-destination', artifactDirectory, '--loglevel=warn'], {
       cwd: root,
       env: npmEnvironment
@@ -252,18 +248,9 @@ function main() {
     }
     console.log('canonical tarball:', rootTgz)
 
-    run(process.execPath, ['scripts/prepare-shim-pack.js', '--pack', '--output-dir', artifactDirectory], {
-      cwd: root,
-      env: npmEnvironment
-    })
-    if (!fs.existsSync(shimTgz)) {
-      throw new Error(`shim tarball not found after prepare-shim-pack --pack: ${shimTgz}`)
-    }
-    console.log('shim tarball:', shimTgz)
+    run(process.execPath, ['scripts/ci/verify-package-tarballs.js', rootTgz], { cwd: root })
 
-    run(process.execPath, ['scripts/ci/verify-package-tarballs.js', rootTgz, shimTgz], { cwd: root })
-
-    // Install both into isolated package (canonical first so shim can resolve).
+    // Install the packed canonical package into an isolated consumer.
     const consumer = path.join(tmp, 'consumer')
     fs.mkdirSync(consumer)
     fs.writeFileSync(
@@ -283,11 +270,10 @@ function main() {
       )
     )
 
-    // Install both tarballs together so shim's unified-ble-manager dep binds to the packed root.
     console.log('installing packed artifacts into isolated consumer')
     run(
       npmCommand(),
-      ['install', '--ignore-scripts', '--omit=optional', '--offline', '--loglevel=warn', rootTgz, shimTgz],
+      ['install', '--ignore-scripts', '--omit=optional', '--offline', '--loglevel=warn', rootTgz],
       {
         cwd: consumer,
         env: npmEnvironment
@@ -326,14 +312,8 @@ function main() {
       "for (const privateSpecifier of ['unified-ble-manager/NativeUnifiedBleProtocolControl', 'unified-ble-manager/native-protocol/v1-codec', 'unified-ble-manager/native-protocol/rn-apple-boundary', 'unified-ble-manager/native-protocol/rn-jsi-binary-runtime', 'unified-ble-manager/profiles/heartRate']) {",
       "  assert.throws(() => require(privateSpecifier), error => error && error.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED', `internal declaration-only path remains non-public: ${privateSpecifier}`);",
       '}',
-      "const shim = require('@sfourdrinier/react-native-ble-plx');",
-      "assert.strictEqual(shim, canonical, 'shim resolves the canonical module instance');",
-      "assert.deepStrictEqual(Object.keys(shim).sort(), Object.keys(canonical).sort(), 'shim CJS surface');",
-      "assert.strictEqual(shim.BleManager, canonical.BleManager, 'shim CJS BleManager identity');",
       "const canonicalPlugin = require('unified-ble-manager/app.plugin.js');",
-      "const shimPlugin = require('@sfourdrinier/react-native-ble-plx/app.plugin.js');",
       "assert.ok(canonicalPlugin !== null && (typeof canonicalPlugin === 'function' || typeof canonicalPlugin === 'object'), 'canonical app.plugin.js function/object');",
-      "assert.strictEqual(shimPlugin, canonicalPlugin, 'shim app.plugin.js resolves the canonical plugin instance');",
       "const backendSdk = require('unified-ble-manager/backend-sdk');",
       "assert.strictEqual(typeof backendSdk.runBackendTck, 'function', 'backend-sdk runBackendTck');",
       "assert.strictEqual(typeof backendSdk.createBackendAuthorDefinition, 'function', 'backend-sdk author definition');",
@@ -375,23 +355,17 @@ function main() {
       "assert.strictEqual(typeof electronMain.ElectronMainBleBinding, 'function', 'electron/main IPC binding');",
       "const electronRenderer = require('unified-ble-manager/electron/renderer');",
       "assert.strictEqual(typeof electronRenderer.ElectronRendererBleClient, 'function', 'electron/renderer IPC client');",
-      "console.log('pack+install CJS imports ok: root, shim, app.plugin.js, backend-sdk, cli, testing, codecs, profiles, web, react-native, node/bluez, node/winrt, electron/main, electron/renderer');"
+      "console.log('pack+install CJS imports ok: root, app.plugin.js, backend-sdk, cli, testing, codecs, profiles, web, react-native, node/bluez, node/winrt, electron/main, electron/renderer');"
     ].join('\n')
     run(process.execPath, ['-e', assertScript], { cwd: consumer })
 
     const esmAssertScript = [
       "import assert from 'node:assert/strict';",
-      "import { createRequire } from 'node:module';",
       "const canonical = await import('unified-ble-manager');",
       "assert.equal(typeof canonical.BleManager, 'function', 'canonical ESM BleManager');",
       "for (const privateSpecifier of ['unified-ble-manager/NativeUnifiedBleProtocolControl', 'unified-ble-manager/native-protocol/v1-codec', 'unified-ble-manager/native-protocol/rn-apple-boundary', 'unified-ble-manager/native-protocol/rn-jsi-binary-runtime', 'unified-ble-manager/profiles/heartRate']) {",
       "  await assert.rejects(import(privateSpecifier), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' }, `internal declaration-only path remains non-public: ${privateSpecifier}`);",
       '}',
-      "const shim = await import('@sfourdrinier/react-native-ble-plx');",
-      "const canonicalRequire = createRequire(import.meta.url)('unified-ble-manager');",
-      "assert.equal(shim.default, canonicalRequire, 'dynamic shim import wraps canonical CJS instance');",
-      "assert.equal(shim.default.BleManager, canonicalRequire.BleManager, 'shim ESM BleManager identity');",
-      "assert.deepEqual(Object.keys(shim.default).sort(), Object.keys(canonicalRequire).sort(), 'shim ESM surface');",
       "const backendSdk = await import('unified-ble-manager/backend-sdk');",
       "assert.equal(typeof backendSdk.runBackendTck, 'function', 'backend-sdk ESM TCK runner');",
       "assert.equal(typeof backendSdk.createBackendAuthorDefinition, 'function', 'backend-sdk ESM author definition');",
@@ -433,7 +407,7 @@ function main() {
       "assert.equal(typeof electronMain.ElectronMainBleBinding, 'function', 'electron/main IPC binding');",
       "const electronRenderer = await import('unified-ble-manager/electron/renderer');",
       "assert.equal(typeof electronRenderer.ElectronRendererBleClient, 'function', 'electron/renderer IPC client');",
-      "console.log('pack+install ESM imports ok: root, shim, backend-sdk, cli, testing, codecs, profiles, web, react-native, node/bluez, node/winrt, electron/main, electron/renderer');"
+      "console.log('pack+install ESM imports ok: root, backend-sdk, cli, testing, codecs, profiles, web, react-native, node/bluez, node/winrt, electron/main, electron/renderer');"
     ].join('\n')
     run(process.execPath, ['--input-type=module', '-e', esmAssertScript], { cwd: consumer })
 
@@ -493,7 +467,7 @@ function main() {
 
     compileExternalConsumerFixtures(consumer)
 
-    console.log('pack-install-smoke: OK (canonical+shim CJS/ESM, CLI, Web, BlueZ, Bundler, Node16, NodeNext)')
+    console.log('pack-install-smoke: OK (canonical CJS/ESM, CLI, Web, BlueZ, Bundler, Node16, NodeNext)')
   } catch (error) {
     primaryError = error
     throw error

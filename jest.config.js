@@ -12,23 +12,16 @@ module.exports = {
     '/__tests__/package-surface/fixtures/'
   ],
   preset: '@react-native/jest-preset',
-  setupFiles: ['<rootDir>/jest.setup.js'],
   transformIgnorePatterns: ['node_modules/(?!(.*react-native.*))/'],
   moduleNameMapper: {
     // Phase 0+: resolve package identity names to this repo during unit tests
     '^unified-ble-manager/web$': '<rootDir>/src/web.ts',
-    '^unified-ble-manager/electron$': '<rootDir>/src/hosts/electron.ts',
-    '^unified-ble-manager/node$': '<rootDir>/src/hosts/node.ts',
     '^unified-ble-manager/backend-sdk$': '<rootDir>/src/backend-sdk.ts',
     '^unified-ble-manager/cli$': '<rootDir>/src/cli.ts',
     '^unified-ble-manager/testing$': '<rootDir>/src/testing.ts',
     '^unified-ble-manager/node/winrt$': '<rootDir>/src/node-winrt.ts',
     '^unified-ble-manager/electron/main$': '<rootDir>/src/electron-main.ts',
     '^unified-ble-manager/electron/renderer$': '<rootDir>/src/electron-renderer.ts',
-    '^unified-ble-manager$': '<rootDir>/src/index.ts',
-    '^@sfourdrinier/react-native-ble-plx/web$': '<rootDir>/packages/react-native-ble-plx-shim/web.js',
-    '^@sfourdrinier/react-native-ble-plx/electron$': '<rootDir>/packages/react-native-ble-plx-shim/electron.js',
-    '^@sfourdrinier/react-native-ble-plx/node$': '<rootDir>/packages/react-native-ble-plx-shim/node.js',
-    '^@sfourdrinier/react-native-ble-plx$': '<rootDir>/packages/react-native-ble-plx-shim/index.js'
+    '^unified-ble-manager$': '<rootDir>/src/index.ts'
   }
 }

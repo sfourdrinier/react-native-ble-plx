@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.10] - 2026-07-29
+
+### Changed
+
+- Removed the retired 3.x manager, port, static capability matrix, Base64 path, scoped shim, and legacy examples so the published 4.0 package contains only the versioned unified contract and modern backends.
+- Made package/plugin/release CI canonical-only and repaired Linux Electron, Windows package-build, and macOS native-toolchain gates.
+
+### Fixed
+
+- CoreBluetooth adapter-loss diagnostics now rebuild the attachment snapshot before reporting cleanup failures.
+
 ## [4.0.0-alpha.9] - 2026-07-29
 
 ### Fixed
@@ -80,7 +91,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **4.0 train (branch `4.0`):** product identity scaffold as **`unified-ble-manager`** (`4.0.0-alpha.0`) with npm shim package path `@sfourdrinier/react-native-ble-plx` re-export; see `MIGRATION_4.0.md`.
+- **4.0 train (branch `4.0`):** clean-baseline product identity is **`unified-ble-manager`** (`4.0.0-alpha.0`); see `MIGRATION_4.0.md`.
 
 ## [3.9.2] - 2026-07-24
 

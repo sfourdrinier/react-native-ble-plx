@@ -1,5 +1,7 @@
 // __tests__/OwnedCore.structure.test.js
 
+// __tests__/OwnedCore.structure.test.js
+
 /**
  * STRUCTURE-ONLY proof level (R2-F113 / L0–L1):
  * Source-string / factory presence guards for the owned radio default path.
@@ -7,8 +9,6 @@
  * Do not count this suite as L4/L5 end-to-end proof that subscriptionType, FGS, or
  * restoration works at runtime — pair with platform instrumented tests when claiming GA depth.
  */
-// __tests__/OwnedCore.structure.test.js
-
 const fs = require('fs')
 const path = require('path')
 
@@ -170,12 +170,14 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
     expect(adapter).not.toContain('BleErrorCode.BluetoothInternalException')
   })
 
-  test('Electron macOS CoreBluetooth full BlePort native + wrap (GAP-E-MAC-PORT)', () => {
+  test('Electron macOS CoreBluetooth exposes the contract-v1 boundary only', () => {
     const index = fs.readFileSync(path.join(root, 'native/electron/corebluetooth/index.js'), 'utf8')
-    expect(index).toContain('createPort')
-    expect(index).toContain('wrapAsBlePort')
-    expect(index).toContain('readCharacteristicBytes')
-    expect(index).toContain('monitorCharacteristic')
+    expect(index).toContain('createContractBoundary')
+    expect(index).not.toContain('createPort')
+    expect(index).not.toContain('wrapAsBlePort')
+    expect(index).not.toContain('Base64')
+    expect(index).toContain('readCharacteristicAt')
+    expect(index).toContain('startNotifyAt')
     expect(index).toContain('unified_ble_corebluetooth')
     expect(fs.existsSync(path.join(root, 'native/electron/corebluetooth/binding.gyp'))).toBe(true)
     expect(fs.existsSync(path.join(root, 'native/electron/corebluetooth/src/addon.mm'))).toBe(true)
@@ -188,14 +190,8 @@ describe('Owned native core structure-only (4.0 L0–L1, not L4/L5 runtime)', ()
     expect(addon).toContain('setNotifyValue')
     expect(addon).toContain('napi.h')
     expect(addon).toContain('NODE_API_MODULE')
-    expect(fs.existsSync(path.join(root, 'example-electron/live-polar.js'))).toBe(true)
-    const live = fs.readFileSync(path.join(root, 'example-electron/live-polar.js'), 'utf8')
-    expect(live).toContain('createCoreBluetoothBlePort')
-    expect(live).toContain('requireNative: true')
-    expect(live).toContain('startHeartRate')
     const pkg = fs.readFileSync(path.join(root, 'package.json'), 'utf8')
     expect(pkg).toContain('build:electron:macos')
-    expect(pkg).toContain('example:electron:live')
   })
 
   test('Owned Android radio fails API33 write start when status != GATT_SUCCESS', () => {

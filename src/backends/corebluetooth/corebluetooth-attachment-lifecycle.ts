@@ -48,6 +48,7 @@ export class CoreBluetoothAttachmentLifecycle {
 
   updateAdapterState(state: CoreBluetoothAdapterSnapshot): void {
     this.adapterStateSnapshot = state
+    this.refreshAttachmentState()
   }
 
   refreshAttachmentState(): void {

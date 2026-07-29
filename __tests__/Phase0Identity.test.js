@@ -98,48 +98,6 @@ describe('Phase 0 product identity (unified-ble-manager)', () => {
     expect(pkg.name).toBe('unified-ble-manager')
   })
 
-  test('shim package is re-export only', () => {
-    const shimPkg = JSON.parse(
-      fs.readFileSync(path.join(root, 'packages/react-native-ble-plx-shim/package.json'), 'utf8')
-    )
-    expect(shimPkg.name).toBe('@sfourdrinier/react-native-ble-plx')
-    expect(shimPkg.version).toBe(pkg.version)
-    // Monorepo source keeps file: for local dev; pack/publish rewrites via prepare-shim-pack.js
-    expect(shimPkg.dependencies['unified-ble-manager']).toMatch(/file:|\.\./)
-    expect(shimPkg.exports['./web']).toBeUndefined()
-    expect(shimPkg.exports['./electron']).toBeUndefined()
-    expect(shimPkg.exports['./node']).toBeUndefined()
-    expect(shimPkg.exports['./app.plugin.js']).toBeDefined()
-    const shimIndex = fs.readFileSync(path.join(root, 'packages/react-native-ble-plx-shim/index.js'), 'utf8')
-    expect(shimIndex).toMatch(/require\(['"]unified-ble-manager['"]\)|require\(['"]\.\.\/\.\.['"]\)/)
-    // No native tree in shim
-    expect(fs.existsSync(path.join(root, 'packages/react-native-ble-plx-shim/android'))).toBe(false)
-    expect(fs.existsSync(path.join(root, 'packages/react-native-ble-plx-shim/ios'))).toBe(false)
-    // Publish helpers must exist so file: never ships on npm (temp-dir rewrite)
-    expect(fs.existsSync(path.join(root, 'scripts/prepare-shim-pack.js'))).toBe(true)
-    expect(fs.existsSync(path.join(root, 'scripts/prepare-shim-for-publish.js'))).toBe(true)
-  })
-
-  test('packed shim rewrites unified-ble-manager dep to exact semver (not file:)', () => {
-    const { spawnSync } = require('child_process')
-    const prepare = path.join(root, 'scripts/prepare-shim-pack.js')
-    const printed = spawnSync(process.execPath, [prepare, '--print-dir'], {
-      encoding: 'utf8',
-      cwd: root
-    })
-    expect(printed.status).toBe(0)
-    const dir = printed.stdout.trim()
-    const packedPkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
-    expect(packedPkg.name).toBe('@sfourdrinier/react-native-ble-plx')
-    expect(packedPkg.version).toBe(pkg.version)
-    expect(packedPkg.dependencies['unified-ble-manager']).toBe(pkg.version)
-    expect(packedPkg.dependencies['unified-ble-manager']).not.toMatch(/file:|\.\./)
-    const monorepoShim = JSON.parse(
-      fs.readFileSync(path.join(root, 'packages/react-native-ble-plx-shim/package.json'), 'utf8')
-    )
-    expect(monorepoShim.dependencies['unified-ble-manager']).toMatch(/file:|\.\./)
-  })
-
   test('MIGRATION_4.0.md records the clean-baseline migration boundary', () => {
     const mig = fs.readFileSync(path.join(root, 'MIGRATION_4.0.md'), 'utf8')
     expect(mig).toContain('no released 4.0 API instructions yet')

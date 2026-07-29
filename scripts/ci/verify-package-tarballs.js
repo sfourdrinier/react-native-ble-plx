@@ -9,7 +9,6 @@ const zlib = require('zlib')
 const root = path.resolve(__dirname, '../..')
 const sourceRoot = path.join(root, 'src')
 const pluginSourceRoot = path.join(root, 'plugin', 'src')
-const shimSourceRoot = path.join(root, 'packages', 'react-native-ble-plx-shim')
 
 /** Exact declaration-only source emitted by the React Native Codegen/type build. */
 const internalTypeOnlySourceFiles = Object.freeze([])
@@ -233,52 +232,6 @@ function assertExactObjectKeys(value, expectedKeys, label) {
   }
 }
 
-function assertExactShimManifest(packageJson, canonicalVersion) {
-  if (packageJson.name !== '@sfourdrinier/react-native-ble-plx') {
-    throw new Error(`Expected shim package name, received ${String(packageJson.name)}`)
-  }
-  if (packageJson.version !== canonicalVersion) {
-    throw new Error(
-      `Packed shim version must equal canonical version ${canonicalVersion}, received ${String(packageJson.version)}`
-    )
-  }
-  const canonicalDependency = packageJson.dependencies?.['unified-ble-manager']
-  if (typeof canonicalDependency !== 'string' || canonicalDependency !== canonicalVersion) {
-    throw new Error(
-      `Packed shim must depend on exact canonical version ${canonicalVersion}, received ${String(canonicalDependency)}`
-    )
-  }
-  for (const [field, expected] of [
-    ['main', 'index.js'],
-    ['types', 'index.d.ts'],
-    ['react-native', 'index.js']
-  ]) {
-    if (packageJson[field] !== expected) {
-      throw new Error(`Packed shim ${field} must equal ${expected}, received ${String(packageJson[field])}`)
-    }
-  }
-  assertExactObjectKeys(packageJson.exports, ['.', './app.plugin.js', './package.json'], 'Packed shim exports')
-  const rootExport = packageJson.exports['.']
-  assertExactObjectKeys(rootExport, ['types', 'react-native', 'default'], 'Packed shim root export')
-  for (const [condition, expected] of [
-    ['types', './index.d.ts'],
-    ['react-native', './index.js'],
-    ['default', './index.js']
-  ]) {
-    if (rootExport[condition] !== expected) {
-      throw new Error(
-        `Packed shim root export ${condition} must equal ${expected}, received ${String(rootExport[condition])}`
-      )
-    }
-  }
-  if (packageJson.exports['./app.plugin.js'] !== './app.plugin.js') {
-    throw new Error('Packed shim app.plugin.js export must equal ./app.plugin.js')
-  }
-  if (packageJson.exports['./package.json'] !== './package.json') {
-    throw new Error('Packed shim package.json export must equal ./package.json')
-  }
-}
-
 function isRootArchiveEntryAllowed(
   entryPath,
   expectedArtifacts,
@@ -378,7 +331,6 @@ function verifyRootTarball(tarballPath) {
     .sort((left, right) => left.localeCompare(right))
   const expectedCodegenSourceEntries = new Set(codegenSourceFiles.map(codegenSourceArchivePath))
   for (const requiredCodegenInput of [
-    'package/src/NativeBlePlx.ts',
     'package/src/NativeUnifiedBleProtocolControl.ts'
   ]) {
     if (!expectedCodegenSourceEntries.has(requiredCodegenInput)) {
@@ -537,67 +489,11 @@ function verifyRootTarball(tarballPath) {
   return packageJson.version
 }
 
-function verifyShimTarball(tarballPath, canonicalVersion) {
-  const files = readTarball(tarballPath)
-  assertExactShimArchiveEntries(files)
-  const packageJsonBuffer = files.get('package/package.json')
-  if (!packageJsonBuffer) {
-    throw new Error('Packed shim package is missing package.json')
-  }
-  const packageJson = JSON.parse(packageJsonBuffer.toString('utf8'))
-  assertExactShimManifest(packageJson, canonicalVersion)
-
-  const targets = [
-    { label: 'main', target: packageJson.main },
-    { label: 'types', target: packageJson.types }
-  ]
-  for (const [exportPath, target] of Object.entries(packageJson.exports ?? {})) {
-    collectTargets(target, `exports[${JSON.stringify(exportPath)}]`, targets)
-  }
-  for (const entry of targets) {
-    const entryPath = packagePath(entry.target, entry.label)
-    if (!files.has(entryPath)) {
-      throw new Error(`Packed shim entrypoint ${entry.label} does not resolve: ${entry.target}`)
-    }
-  }
-  for (const [entryPath, contents] of files) {
-    if (entryPath.includes('/node_modules/') || entryPath.includes('/.claude/') || entryPath.includes('/.codex/')) {
-      throw new Error(`Unintended shim package artifact: ${entryPath}`)
-    }
-    if (/\.(?:js|d\.ts|map|json)$/.test(entryPath)) {
-      assertNoPrivatePath(entryPath, contents)
-    }
-  }
-  console.log(`shim tarball verified: ${targets.length} current entrypoint targets`)
-}
-
-function expectedShimArchiveEntries() {
-  const expected = new Set(['package/package.json', 'package/index.js', 'package/index.d.ts', 'package/app.plugin.js'])
-  for (const optionalFile of ['README.md', 'LICENSE']) {
-    if (fs.existsSync(path.join(shimSourceRoot, optionalFile))) {
-      expected.add(`package/${optionalFile}`)
-    }
-  }
-  return expected
-}
-
-function assertExactShimArchiveEntries(files) {
-  const expected = expectedShimArchiveEntries()
-  const missing = [...expected].filter(entryPath => !files.has(entryPath)).sort()
-  const unexpected = [...files.keys()].filter(entryPath => !expected.has(entryPath)).sort()
-  if (missing.length > 0 || unexpected.length > 0) {
-    throw new Error(
-      `Packed shim archive differs from the exact allowlist. Missing: ${missing.join(', ') || 'none'}. Unexpected: ${unexpected.join(', ') || 'none'}.`
-    )
-  }
-}
-
 function main(argv) {
-  if (argv.length !== 2) {
-    throw new Error('Usage: node scripts/ci/verify-package-tarballs.js <canonical.tgz> <shim.tgz>')
+  if (argv.length !== 1) {
+    throw new Error('Usage: node scripts/ci/verify-package-tarballs.js <canonical.tgz>')
   }
-  const canonicalVersion = verifyRootTarball(path.resolve(argv[0]))
-  verifyShimTarball(path.resolve(argv[1]), canonicalVersion)
+  verifyRootTarball(path.resolve(argv[0]))
 }
 
 if (require.main === module) {
@@ -605,10 +501,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  assertExactShimArchiveEntries,
-  assertExactShimManifest,
-  expectedShimArchiveEntries,
   readTarball,
-  verifyRootTarball,
-  verifyShimTarball
+  verifyRootTarball
 }

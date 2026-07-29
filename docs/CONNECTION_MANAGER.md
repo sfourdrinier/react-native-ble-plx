@@ -20,7 +20,6 @@ Older fork versions briefly exposed separate helpers (`ConnectionQueue`, `Reconn
 
 ```ts
 import { BleManager, ConnectionManager } from 'unified-ble-manager'
-// Path B shim (optional): import from '@sfourdrinier/react-native-ble-plx'
 ```
 
 ## Basic connect with retry and timeout

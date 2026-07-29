@@ -115,14 +115,26 @@ describe('4.0 public package surface', () => {
     }
   })
 
-  test('contains no draft or duplicate manager authority in package source or exports', () => {
+  test('contains no draft, duplicate, or retired manager architecture in package source or exports', () => {
     const rootSource = fs.readFileSync(path.join(rootDirectory, 'src', 'index.ts'), 'utf8')
     const contractIndex = fs.readFileSync(path.join(rootDirectory, 'src', 'backend-contract', 'index.ts'), 'utf8')
     const implementationPlan = fs.readFileSync(
       path.join(rootDirectory, 'docs', 'UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md'),
       'utf8'
     )
-    const removedAuthorities = ['src/backend-contract/manager.ts']
+    const removedAuthorities = [
+      'src/backend-contract/manager.ts',
+      'src/BleManager.ts',
+      'src/Device.ts',
+      'src/Service.ts',
+      'src/Characteristic.ts',
+      'src/Descriptor.ts',
+      'src/DeviceOperationQueue.ts',
+      'src/TypeDefinition.ts',
+      'src/supports.ts',
+      'src/port/PortBleManager.ts',
+      'src/hosts/electron.ts'
+    ]
 
     for (const relativePath of removedAuthorities) {
       expect(fs.existsSync(path.join(rootDirectory, relativePath))).toBe(false)
@@ -139,6 +151,9 @@ describe('4.0 public package surface', () => {
     expect(implementationPlan).toContain('[`docs/evidence/g0`](evidence/g0)')
     expect(rootSource).not.toContain("from './BleManager'")
     expect(rootSource).not.toContain("from './port/")
+    expect(rootSource).not.toContain('PortBleManager')
+    expect(rootSource).not.toContain('BlePort')
+    expect(rootSource).not.toContain('supports(')
     expect(contractIndex).not.toContain("from './manager'")
     expect(Object.keys(packageJson.exports)).toEqual([
       '.',
@@ -166,7 +181,6 @@ describe('4.0 public package surface', () => {
     ])
     expect(packageJson.files).toContain('src')
     expect(packageJson.codegenConfig.jsSrcsDir).toBe('src')
-    expect(packageJson['react-native-builder-bob'].exclude).toContain('BleManager.ts')
   })
 
   test('publishes canonical React Native support only through the intended host entrypoint', () => {

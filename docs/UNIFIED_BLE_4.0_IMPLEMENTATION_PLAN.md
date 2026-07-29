@@ -158,7 +158,7 @@ build/install/launch/JSI probe. The JSI evidence receipt is
 The production contract/core/TCK/public-manager milestone was accepted on
 2026-07-26 after its consolidated zero-warning gate passed 60 suites and 940
 tests, package build and artifact verification, exact export checks, isolated
-canonical-plus-shim installation under CJS, ESM, Bundler, Node16, and NodeNext,
+canonical-package installation under CJS, ESM, Bundler, Node16, and NodeNext,
 and a final cold review returned zero actionable findings. The accepted
 production slice covers scan, connect, generation-consistent discovery, read,
 write, notification, destroy, cancellation, deadlines, overflow, ownership,
@@ -2498,7 +2498,7 @@ After `G4B` and public API conformance:
 - delete legacy native protocol methods;
 - delete Base64 BLE methods and dual-path types;
 - delete numeric native public handle registry;
-- delete 3.x shim/codemod/compatibility machinery unless separately approved as an external package;
+- confirm no 3.x shim, codemod, or compatibility machinery remains in the repository or packed artifact;
 - delete compatibility-focused docs and tests;
 - delete all Noble runtime/development dependencies and wrappers from first-party backend paths;
 - confirm there is one manager core and one active native protocol;

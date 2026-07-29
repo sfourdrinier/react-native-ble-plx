@@ -249,7 +249,7 @@ export function deterministicBackendIdentity(attachment: AttachmentRecord<string
     registeredPlatformId: 'unified-ble:test',
     attachment,
     versions: negotiateCoreVersions(compatibility, compatibility),
-    runtime: { hostKind: 'test', implementationVersion: '4.0.0-alpha.9', diagnostics: {} }
+    runtime: { hostKind: 'test', implementationVersion: '4.0.0-alpha.10', diagnostics: {} }
   }
 }
 

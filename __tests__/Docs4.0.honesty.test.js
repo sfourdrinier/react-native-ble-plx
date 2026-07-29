@@ -1,5 +1,7 @@
 // __tests__/Docs4.0.honesty.test.js
 
+// __tests__/Docs4.0.honesty.test.js
+
 /**
  * Guards the clean-baseline 4.0 documentation decision.
  * Transitional source facts are allowed only when the document labels them as
@@ -26,7 +28,6 @@ const architectureAuthorityDocuments = [
   'docs/WEB.md',
   'docs/TVOS.md',
   'docs/PERFORMANCE.md',
-  'packages/react-native-ble-plx-shim/README.md',
 ]
 
 const transitionalCharacterizationDocuments = [
@@ -34,9 +35,10 @@ const transitionalCharacterizationDocuments = [
   'docs/CONNECTION_MANAGER.md',
   'docs/DISCOVERY_AND_PROFILES.md',
   'docs/HELPERS.md',
-  'example-web/README.md',
-  'example-electron/README.md',
+  'example-web/README.md'
 ]
+
+const deterministicExampleDocuments = ['example-electron/README.md']
 
 const supersededAuthorityDocuments = [
   'ROADMAP.md',
@@ -140,6 +142,15 @@ describe('4.0 documentation honesty', () => {
     expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
     expect(document).toMatch(/transitional source characterization|transitional source behavior|legacy manager/i)
     expect(document).toContain('UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
+  })
+
+  test.each(deterministicExampleDocuments)('%s makes only deterministic package-surface claims', (relativePath) => {
+    const document = read(relativePath)
+
+    expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
+    expect(document).toMatch(/without\s+claiming live Electron-radio support/)
+    expect(document).toContain('not a substitute for device-lab validation')
+    expect(document).not.toMatch(/legacy manager|transitional source/i)
   })
 
   test.each(supersededAuthorityDocuments)('%s cannot compete with the clean-baseline authority', (relativePath) => {

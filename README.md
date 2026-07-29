@@ -195,7 +195,7 @@ Historical upstream origin (API concepts may lag this fork): [dotintent/react-na
 
 ## Configuration & Installation
 
-### Path A — canonical `unified-ble-manager` (recommended)
+### `unified-ble-manager`
 
 ```bash
 pnpm add unified-ble-manager
@@ -205,20 +205,10 @@ npm install unified-ble-manager
 npx expo install unified-ble-manager
 ```
 
-### Path B — compatibility shim (optional)
-
-If you must keep the old package name during a migration:
-
-```bash
-pnpm add @sfourdrinier/react-native-ble-plx
-```
-
-The shim re-exports `unified-ble-manager`. Prefer Path A for new apps. Full notes: [MIGRATION_4.0.md](MIGRATION_4.0.md).
-
 ### Expo SDK 57+
 
 > This package cannot be used in the "Expo Go" app because [it requires custom native code](https://docs.expo.io/workflow/customizing/).
-> First install the package (Path A above), then add the [config plugin](https://docs.expo.io/guides/config-plugins/) to the [`plugins`](https://docs.expo.io/versions/latest/config/app/#plugins) array of your `app.json` or `app.config.js`:
+> First install `unified-ble-manager`, then add the [config plugin](https://docs.expo.io/guides/config-plugins/) to the [`plugins`](https://docs.expo.io/versions/latest/config/app/#plugins) array of your `app.json` or `app.config.js`:
 
 ```json
 {

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Multi-host release gate for unified-ble-manager 4.0 (canonical + shim).
+# scripts/verify-release.sh
+# Multi-host release gate for the canonical unified-ble-manager 4.0 package.
 # Shared checklist with publish.yml (R2-F040):
 #   - package/plugin/lint/prepack
 #   - host export typeof BleManager (scripts/ci/check-host-exports.js)
@@ -9,7 +10,7 @@
 #   - classic RN Android assemble (required when Android SDK available;
 #     clear install hint when missing — same gate publish always runs on Ubuntu)
 #   - darwin: CoreBluetooth node-gyp L2 + lib requireNative
-#   - dual npm pack dry-run (root + shim semver rewrite)
+#   - canonical npm pack dry-run
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -62,22 +63,33 @@ npx --yes vite build --config example-web/vite.config.js --outDir /tmp/example-w
 echo "== Electron Fake multi-device demo smoke (L1) =="
 node example-electron/smoke.js
 
-# Darwin Electron CoreBluetooth L2 (node-gyp Node ABI + compiled host requireNative).
+# Darwin CoreBluetooth L2 (node-gyp Node ABI + public contract boundary).
 if [[ "$(uname -s)" == "Darwin" ]]; then
-  echo "== Electron CoreBluetooth native L2 (darwin: node-gyp + lib requireNative) =="
+  echo "== CoreBluetooth native boundary L2 (darwin: node-gyp + public boundary) =="
   pnpm run build:electron:macos
   test -f native/electron/corebluetooth/build/Release/unified_ble_corebluetooth.node
   node -e "
-    const { createCoreBluetoothBlePort } = require('./lib/commonjs/hosts/electron');
-    const port = createCoreBluetoothBlePort({ requireNative: true });
-    if (!port || typeof port.startScan !== 'function') {
-      throw new Error('CoreBluetooth L2 requireNative did not return a BlePort');
+    const { createNativeCoreBluetoothBoundary } = require('./lib/commonjs/node-corebluetooth');
+    const boundary = createNativeCoreBluetoothBoundary();
+    const required = [
+      'adapterSnapshot', 'startScan', 'stopScan', 'connect', 'disconnect',
+      'connectionState', 'discover', 'read', 'write', 'startNotify',
+      'stopNotify', 'onDisconnect', 'onAdapterState', 'destroy'
+    ];
+    for (const method of required) {
+      if (typeof boundary[method] !== 'function') {
+        throw new Error('CoreBluetooth boundary method is missing: ' + method);
+      }
     }
-    console.log('Electron CoreBluetooth L2 ok:', port.id);
-    if (typeof port.destroy === 'function') port.destroy();
+    Promise.resolve(boundary.destroy()).then(() => {
+      console.log('CoreBluetooth public boundary L2 ok');
+    }, error => {
+      console.error('CoreBluetooth boundary destroy failed:', error);
+      process.exitCode = 1;
+    });
   "
 else
-  echo "== Electron CoreBluetooth native L2 skipped (not darwin) =="
+  echo "== CoreBluetooth native boundary L2 skipped (not darwin) =="
 fi
 
 echo "== Expo CNG Android path =="
@@ -119,26 +131,11 @@ else
   exit 1
 fi
 
-echo "== dual pack+install export smoke (R3-F044) =="
+echo "== canonical pack+install export smoke (R3-F044) =="
 node scripts/ci/pack-install-smoke.js
 
 echo "== npm pack (canonical unified-ble-manager) =="
 npm pack --dry-run
-
-echo "== npm pack (shim @sfourdrinier/react-native-ble-plx with semver dep) =="
-node scripts/prepare-shim-pack.js --pack --dry-run
-
-# Guard monorepo shim still uses file: for local dev (publish rewrites only in temp dir).
-SHIM_DEP="$(node -p "require('./packages/react-native-ble-plx-shim/package.json').dependencies['unified-ble-manager']")"
-case "$SHIM_DEP" in
-  file:*|*".."*)
-    echo "monorepo shim keeps local dep: $SHIM_DEP"
-    ;;
-  *)
-    echo "unexpected monorepo shim dependency (expected file: for local dev): $SHIM_DEP" >&2
-    exit 1
-    ;;
-esac
 
 cleanup_generated_native_projects
 
@@ -147,4 +144,4 @@ if [[ -d "$ROOT_DIR/example-expo/android" || -d "$ROOT_DIR/example-expo/ios" ]];
   exit 1
 fi
 
-echo "verify-release: OK (unified-ble-manager dual-identity gate)"
+echo "verify-release: OK (unified-ble-manager canonical-package gate)"

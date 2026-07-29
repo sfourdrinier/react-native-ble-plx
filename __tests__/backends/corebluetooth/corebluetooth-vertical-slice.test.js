@@ -653,6 +653,63 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
     await backend.destroy()
   })
 
+  test('broadcasts a refreshed attachment snapshot when adapter-loss connection cleanup fails', async () => {
+    const { backend, boundary } = await backendFixture()
+    const events = backend.events()[Symbol.asyncIterator]()
+    const attachmentBeforeLoss = backend.attachment()
+    const peerId = await observedPeerId(backend)
+    await backend.connections.connect(
+      peerId,
+      opaqueId('loss-diagnostic', 'client', 'corebluetooth:loss-diagnostic'),
+      operation()
+    )
+    const nativeDisconnect = boundary.disconnect.bind(boundary)
+    let shouldFailDisconnect = true
+    boundary.disconnect = async () => {
+      if (shouldFailDisconnect) {
+        shouldFailDisconnect = false
+        throw new Error('The test connection cleanup failed')
+      }
+      await nativeDisconnect()
+    }
+    const lossState = {
+      availability: 'unavailable',
+      authorization: 'unavailable',
+      power: 'resetting',
+      safeReason: 'The test radio reset while disconnecting.'
+    }
+
+    emitAdapterState(boundary, lossState)
+    await flushAdapterLossCleanup()
+
+    expect(backend.attachment()).toMatchObject({
+      attachmentId: attachmentBeforeLoss.attachmentId,
+      adapter: { state: lossState }
+    })
+    await expect(events.next()).resolves.toMatchObject({
+      value: {
+        kind: 'value',
+        value: {
+          kind: 'adapter-state',
+          attachmentId: attachmentBeforeLoss.attachmentId,
+          attachment: { adapter: { state: lossState } }
+        }
+      }
+    })
+    await expect(events.next()).resolves.toMatchObject({
+      value: {
+        kind: 'value',
+        value: {
+          kind: 'diagnostic',
+          attachmentId: attachmentBeforeLoss.attachmentId,
+          attachment: { adapter: { state: lossState } }
+        }
+      }
+    })
+
+    await backend.destroy()
+  })
+
   test('retains failed adapter-loss notification cleanup for an observable retry before generation advance', async () => {
     const { backend, boundary } = await backendFixture()
     const events = backend.events()[Symbol.asyncIterator]()

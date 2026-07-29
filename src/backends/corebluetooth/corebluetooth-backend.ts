@@ -120,8 +120,7 @@ function allocateBackendInstance(): number {
 }
 /**
  * First-party CoreBluetooth backend for explicitly selected macOS Node or
- * Electron-main hosts. It uses only the typed direct addon boundary; the
- * transitional BlePort and Base64 facade are not in this execution path.
+ * Electron-main hosts. It uses only the typed direct addon boundary.
  */
 export class CoreBluetoothBackend implements BleCentralBackend<string, HostNeutralBackendIdentity<string>> {
   readonly features: FeatureRegistry

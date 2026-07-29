@@ -1,33 +1,14 @@
+// plugin/src/withBLERestorationPodfile.ts
+
 import { withPodfile, type ConfigPlugin } from '@expo/config-plugins'
 
-const toPodName = (pkgName: string) => {
-  if (!pkgName.includes('/')) return pkgName
-  const last = pkgName.split('/').pop()
-  return last || pkgName
-}
+const CANONICAL_PACKAGE_NAME = 'unified-ble-manager'
 
 /**
- * Autolinking dependency keys that may host the native podspec.
- * Canonical 4.0 package is `unified-ble-manager`; Path B may only install the
- * shim `@sfourdrinier/react-native-ble-plx` (which depends on the canonical
- * package). Search both identities so Restoration injection finds podspecPath.
+ * The canonical package owns the native podspec used for Restoration injection.
  */
-export function buildJsPackageCandidates(pkgName: string, podName: string): string[] {
-  const ordered = [
-    podName,
-    pkgName,
-    'unified-ble-manager',
-    '@sfourdrinier/react-native-ble-plx',
-    'react-native-ble-plx'
-  ]
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const name of ordered) {
-    if (!name || seen.has(name)) continue
-    seen.add(name)
-    out.push(name)
-  }
-  return out
+export function buildJsPackageCandidates(): string[] {
+  return [CANONICAL_PACKAGE_NAME]
 }
 
 const MARKER_START = '# >>> BLEPLX_RESTORATION_SUBSPEC'
@@ -109,15 +90,13 @@ function indentBlock(block: string, indent: string): string {
 
 /**
  * Inject opt-in `unified-ble-manager/Restoration` into a Podfile.
- * `pkgName` is usually the package name (`unified-ble-manager` on Path A; dual-identity
- * candidates still resolve Path B bare names via {@link buildJsPackageCandidates}).
  * Pure string transform — unit-tested without pod install.
  */
-export function injectRestorationPodLine(podfile: string, pkgName: string): string {
+export function injectRestorationPodLine(podfile: string): string {
   if (!podfile) return podfile
-  if (podfile.includes(MARKER_START) || podfile.includes(`${toPodName(pkgName)}/Restoration`)) return podfile
+  if (podfile.includes(MARKER_START) || podfile.includes(`${CANONICAL_PACKAGE_NAME}/Restoration`)) return podfile
 
-  const podName = toPodName(pkgName)
+  const podName = CANONICAL_PACKAGE_NAME
 
   // If someone already has an explicit pod line with a :path, reuse it
   const existingPath = extractExistingPath(podfile, podName)
@@ -140,7 +119,7 @@ export function injectRestorationPodLine(podfile: string, pkgName: string): stri
 
   const rubySnippet = buildRubySnippet({
     podName,
-    jsPackageCandidates: buildJsPackageCandidates(pkgName, podName)
+    jsPackageCandidates: buildJsPackageCandidates()
   })
 
   if (useMatch?.index != null) {
@@ -168,10 +147,10 @@ export function injectRestorationPodLine(podfile: string, pkgName: string): stri
  * Remove Restoration subspec opt-in from a Podfile (marker block and/or explicit pod lines).
  * Pure string transform — unit-tested without pod install. Idempotent when already absent.
  */
-export function removeRestorationPodLine(podfile: string, pkgName: string): string {
+export function removeRestorationPodLine(podfile: string): string {
   if (!podfile) return podfile
 
-  const podName = toPodName(pkgName)
+  const podName = CANONICAL_PACKAGE_NAME
   let result = podfile
 
   // Remove marked Ruby blocks (autolinking injection) by line scan so indent variants match.
@@ -194,8 +173,7 @@ export function removeRestorationPodLine(podfile: string, pkgName: string): stri
   }
   result = out.join('\n')
 
-  // Remove explicit Restoration pod lines (monorepo / manual).
-  // Do not remove the base `pod 'react-native-ble-plx', …` line.
+  // Remove an explicit canonical Restoration pod line without removing its base pod.
   const explicitRestorationLineRe = new RegExp(
     `^[ \\t]*pod\\s+['"]${podName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/Restoration['"][^\\n]*\\n?`,
     'gm'
@@ -222,14 +200,9 @@ export function clearBlePlxRestoreIdentifier(infoPlist: Record<string, unknown>)
   return next
 }
 
-export const withBLERestorationPodfile: ConfigPlugin<{ pkgName: string; enable: boolean }> = (
-  config,
-  { pkgName, enable }
-) =>
+export const withBLERestorationPodfile: ConfigPlugin<{ enable: boolean }> = (config, { enable }) =>
   withPodfile(config, modConfig => {
     const contents = modConfig.modResults.contents
-    modConfig.modResults.contents = enable
-      ? injectRestorationPodLine(contents, pkgName)
-      : removeRestorationPodLine(contents, pkgName)
+    modConfig.modResults.contents = enable ? injectRestorationPodLine(contents) : removeRestorationPodLine(contents)
     return modConfig
   })

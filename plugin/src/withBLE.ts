@@ -1,3 +1,5 @@
+// plugin/src/withBLE.ts
+
 import { AndroidConfig, type ConfigPlugin, createRunOncePlugin, withInfoPlist } from '@expo/config-plugins'
 
 // Path is ../../package.json because this file is compiled to plugin/build/withBLE.js
@@ -66,8 +68,8 @@ const withBLE: ConfigPlugin<
       return conf
     })
 
-    blePlxPluginDebugLog(debugEnabled, 'Calling withBLERestorationPodfile (enable) with pkgName:', pkg.name)
-    config = withBLERestorationPodfile(config, { pkgName: pkg.name, enable: true })
+    blePlxPluginDebugLog(debugEnabled, 'Calling withBLERestorationPodfile (enable) for unified-ble-manager')
+    config = withBLERestorationPodfile(config, { enable: true })
   } else {
     blePlxPluginDebugLog(
       debugEnabled,
@@ -81,7 +83,7 @@ const withBLE: ConfigPlugin<
       return conf
     })
 
-    config = withBLERestorationPodfile(config, { pkgName: pkg.name, enable: false })
+    config = withBLERestorationPodfile(config, { enable: false })
   }
 
   // Android
