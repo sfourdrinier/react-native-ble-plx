@@ -25,7 +25,7 @@ interface BrowserValueView {
 interface BrowserBluetoothDescriptor {
   readonly uuid: string
   readValue(): Promise<BrowserValueView>
-  writeValue(value: Uint8Array): Promise<void>
+  writeValue(value: ArrayBuffer): Promise<void>
 }
 
 interface BrowserBluetoothCharacteristicProperties {
@@ -46,8 +46,8 @@ interface BrowserBluetoothCharacteristic {
   readonly value?: BrowserValueView | null
   getDescriptors(): Promise<readonly BrowserBluetoothDescriptor[]>
   readValue(): Promise<BrowserValueView>
-  writeValueWithResponse(value: Uint8Array): Promise<void>
-  writeValueWithoutResponse(value: Uint8Array): Promise<void>
+  writeValueWithResponse(value: ArrayBuffer): Promise<void>
+  writeValueWithoutResponse(value: ArrayBuffer): Promise<void>
   startNotifications(): Promise<BrowserBluetoothCharacteristic>
   stopNotifications(): Promise<BrowserBluetoothCharacteristic>
   addEventListener(
@@ -80,17 +80,23 @@ interface BrowserBluetoothDevice {
   removeEventListener(type: 'gattserverdisconnected', listener: () => void): void
 }
 
+type BrowserBluetoothRequestOptions =
+  | {
+      readonly acceptAllDevices: true
+      readonly optionalServices?: string[]
+    }
+  | {
+      readonly filters: Array<{
+        readonly services?: string[]
+        readonly namePrefix?: string
+      }>
+      readonly optionalServices?: string[]
+    }
+
 interface BrowserBluetooth {
   getAvailability?(): Promise<boolean>
   getDevices?(): Promise<readonly BrowserBluetoothDevice[]>
-  requestDevice(options: {
-    readonly filters?: readonly {
-      readonly services?: readonly Uuid[]
-      readonly namePrefix?: string
-    }[]
-    readonly acceptAllDevices?: boolean
-    readonly optionalServices?: readonly Uuid[]
-  }): Promise<BrowserBluetoothDevice>
+  requestDevice(options?: BrowserBluetoothRequestOptions): Promise<BrowserBluetoothDevice>
 }
 
 export interface NavigatorWebBluetoothEnvironment {
@@ -135,17 +141,17 @@ export class NavigatorWebBluetoothBoundary implements WebBluetoothBoundary {
   async requestDevice(options: WebBluetoothRequestDeviceOptions): Promise<WebBluetoothDeviceSelection> {
     const bluetooth = this.requireBluetooth()
     const grantedServices = requestedServices(options)
-    const request = options.acceptAllDevices
+    const request: BrowserBluetoothRequestOptions = options.acceptAllDevices
       ? {
           acceptAllDevices: true,
-          optionalServices: options.optionalServices
+          optionalServices: [...options.optionalServices]
         }
       : {
           filters: options.filters.map(filter => ({
-            services: filter.services.length === 0 ? undefined : filter.services,
+            services: filter.services.length === 0 ? undefined : [...filter.services],
             namePrefix: filter.namePrefix === null ? undefined : filter.namePrefix
           })),
-          optionalServices: options.optionalServices
+          optionalServices: [...options.optionalServices]
         }
     const device = await bluetooth.requestDevice(request)
     this.grantedServicesByDevice.set(device.id, grantedServices)
@@ -289,11 +295,11 @@ class NavigatorCharacteristicBoundary implements WebBluetoothCharacteristicBound
   }
 
   async writeValueWithResponse(value: Uint8Array): Promise<void> {
-    await this.characteristic.writeValueWithResponse(new Uint8Array(value))
+    await this.characteristic.writeValueWithResponse(copyToArrayBuffer(value))
   }
 
   async writeValueWithoutResponse(value: Uint8Array): Promise<void> {
-    await this.characteristic.writeValueWithoutResponse(new Uint8Array(value))
+    await this.characteristic.writeValueWithoutResponse(copyToArrayBuffer(value))
   }
 
   async startNotifications(): Promise<void> {
@@ -337,7 +343,7 @@ class NavigatorDescriptorBoundary implements WebBluetoothDescriptorBoundary {
   }
 
   async writeValue(value: Uint8Array): Promise<void> {
-    await this.descriptor.writeValue(new Uint8Array(value))
+    await this.descriptor.writeValue(copyToArrayBuffer(value))
   }
 }
 
@@ -347,4 +353,10 @@ function requestedServices(options: WebBluetoothRequestDeviceOptions): readonly 
 
 function copyView(view: BrowserValueView): Uint8Array {
   return new Uint8Array(new Uint8Array(view.buffer, view.byteOffset, view.byteLength))
+}
+
+function copyToArrayBuffer(value: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(value.byteLength)
+  copy.set(value)
+  return copy.buffer
 }

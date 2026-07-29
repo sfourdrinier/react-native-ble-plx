@@ -2,6 +2,7 @@
 
 const { createWebBluetoothProvider } = require('../../src/web/web-bluetooth-backend')
 const { NavigatorWebBluetoothBoundary } = require('../../src/web/navigator-web-bluetooth-boundary')
+const { createWebBleManager } = require('../../src/web')
 const {
   attachBleBackend,
   createBleManager,
@@ -439,6 +440,28 @@ describe('WebBluetoothBackend', () => {
     expect(connection.peerId).toBe(selection.peerId)
     await connection.release()
     await expect(manager.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+  })
+
+  test('constructs a public web manager session that preserves chooser discovery', async () => {
+    const mock = createBoundary()
+    const provider = createWebBluetoothProvider(mock.boundary)
+    const session = await createWebBleManager({
+      provider,
+      clientId: 'web-public-client',
+      managerId: 'web-public-manager',
+      now: () => 10
+    })
+
+    await expect(session.manager.scan(scanOptions(null))).rejects.toMatchObject({
+      normalized: { code: 'capability.unsupported' }
+    })
+    const selection = await session.chooser.choose(chooserRequest(), noDeadline())
+    const connection = await session.manager.connect(selection.peerId, noDeadline())
+
+    expect(connection.peerId).toBe(selection.peerId)
+    expect(mock.requestDevice).toHaveBeenCalledTimes(1)
+    await connection.release()
+    await expect(session.manager.destroy()).resolves.toEqual({ state: 'released', failures: [] })
   })
 })
 

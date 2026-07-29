@@ -81,7 +81,7 @@ describe('BluezBackendProvider', () => {
     expect(attached.attachment.identity).toMatchObject({
       registeredBackendId: 'unified-ble:bluez-dbus',
       registeredPlatformId: 'unified-ble:linux-bluez',
-      runtime: { hostKind: 'node', implementationVersion: '4.0.0-alpha.2' }
+      runtime: { hostKind: 'node', implementationVersion: '4.0.0-alpha.5' }
     })
     expect(String(attached.attachment.identity.attachment.adapter.adapterId)).toBe('/org/bluez/hci0')
     expect(attached.attachment.identity.versions.backendContract.selected.value).toBe(1)

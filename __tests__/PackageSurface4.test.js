@@ -78,6 +78,8 @@ describe('4.0 public package surface', () => {
     expect(typeof bloodPressure.parseBloodPressureMeasurement).toBe('function')
     expect(typeof ieee11073.decodeIeee11073Float).toBe('function')
     expect(typeof web.createNavigatorWebBluetoothProvider).toBe('function')
+    expect(typeof web.createNavigatorWebBleManager).toBe('function')
+    expect(typeof web.createWebBleManager).toBe('function')
     expect(typeof reactNative.createReactNativeAndroidBackendProvider).toBe('function')
     expect(typeof reactNative.createReactNativeBleManager).toBe('function')
     expect(typeof reactNative.getNativeUnifiedBleProtocolControl).toBe('function')

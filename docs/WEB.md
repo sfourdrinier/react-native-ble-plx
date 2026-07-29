@@ -2,7 +2,7 @@
 
 # Web Bluetooth platform record
 
-**Status:** transitional implementation characterization; not a 4.0 integration guide
+**Status:** 4.0 alpha public API record; browser radio proof remains separate
 
 **Architecture and sequencing authority:** [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)
 
@@ -10,7 +10,13 @@ Web Bluetooth is a first-party 4.0 backend with browser chooser constraints repr
 
 Current WebBluetooth-port code, chooser examples, byte convenience calls, and services-reset test injection are characterization inputs. They must not be treated as a stable 4.0 API, a proof of radio fidelity, or a reason to preserve the port architecture or dual Base64/bytes public surface.
 
-The final guide will document chooser user-gesture requirements, service constraints, capability limitations, privacy/identity semantics, and evidence labels from the implementation rather than a hand-maintained host matrix.
+## Public construction
+
+`unified-ble-manager/web` exposes `createNavigatorWebBleManager(options)` for browser applications and `createWebBleManager(options)` for tests or applications that already own a `WebBluetoothProvider`. Both return one `WebBleManagerSession` containing the host-neutral manager and its matching typed chooser.
+
+Call `session.chooser.choose(...)` only from a transient user activation, then pass the selected peer to `session.manager.connect(...)`. The session owns the same backend for both operations, so no opaque IDs, private imports, adapter casts, or compatibility transport are needed. Destroy `session.manager` before replacing the session.
+
+Web Bluetooth does not implement continuous scanning. `session.manager.scan(...)` fails with the explicit `capability.unsupported` normalized error; applications must keep browser chooser UI rather than presenting a fake scan result. Background operation and process-level restoration are likewise explicitly unsupported. Normal GATT payloads remain bytes-only.
 
 ## Related records
 

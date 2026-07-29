@@ -1,7 +1,5 @@
 // __tests__/package-surface/fixtures/public-surface.ts
 
-// __tests__/package-surface/fixtures/public-surface.ts
-
 import {
   BleManager,
   capacity,
@@ -36,7 +34,17 @@ import {
   DeterministicVirtualClock
 } from 'unified-ble-manager/testing'
 import type { DeterministicBackendFixture } from 'unified-ble-manager/testing'
-import type { ChooserRequest, WebChooser } from 'unified-ble-manager/web'
+import {
+  createNavigatorWebBleManager,
+  createWebBleManager
+} from 'unified-ble-manager/web'
+import type {
+  ChooserRequest,
+  NavigatorWebBleManagerOptions,
+  WebBleManagerOptions,
+  WebChooser,
+  WebBluetoothTimerHandle
+} from 'unified-ble-manager/web'
 import { createDbusNextBluezBackendProvider } from 'unified-ble-manager/node/bluez'
 import type { BluezBusKind } from 'unified-ble-manager/node/bluez'
 import { createNativeWinRtBackendProvider } from 'unified-ble-manager/node/winrt'
@@ -69,7 +77,27 @@ declare const nativeAppleOptions: ReactNativeAppleBackendProviderOptions
 declare const nativeManagerOptions: ReactNativeBleManagerOptions
 declare const webChooser: WebChooser<string>
 declare const webChooserRequest: ChooserRequest
+declare const navigatorWebManagerOptions: NavigatorWebBleManagerOptions
+declare const webManagerOptions: WebBleManagerOptions
+declare const browserBluetooth: Bluetooth
+declare const browserTimer: WebBluetoothTimerHandle
 declare function observe<Value>(value: Value): void
+
+const browserNavigatorManagerOptions: NavigatorWebBleManagerOptions = {
+  environment: {
+    implementationVersion: '4.0.0',
+    browserEngine: 'test',
+    bluetooth: browserBluetooth,
+    isSecureContext: () => true,
+    hasTransientUserActivation: () => true,
+    now: () => 0,
+    setTimer: () => browserTimer,
+    clearTimer: () => undefined,
+    addPageLifecycleListener: () => () => undefined
+  },
+  clientId: 'browser-client',
+  managerId: 'browser-manager'
+}
 
 observe(BleManager)
 observe(DEFAULT_BLE_MANAGER_OPTIONS)
@@ -114,3 +142,6 @@ observe(createReactNativeBleManager(nativeManagerOptions))
 observe(getNativeUnifiedBleProtocolControl)
 observe(nativeWinRtOptions)
 observe(webChooser.choose(webChooserRequest, operation))
+observe(createNavigatorWebBleManager(navigatorWebManagerOptions))
+observe(createNavigatorWebBleManager(browserNavigatorManagerOptions))
+observe(createWebBleManager(webManagerOptions))

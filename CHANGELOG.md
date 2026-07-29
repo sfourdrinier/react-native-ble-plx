@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.5] - 2026-07-28
+
+### Fixed
+
+- **Web browser environment typing:** `/web` accepts native browser Bluetooth objects from current DOM libraries without a consumer cast.
+
+## [4.0.0-alpha.4] - 2026-07-28
+
+### Fixed
+
+- **Web browser request typing:** `/web` aligns chooser request options with browser Web Bluetooth values.
+
+## [4.0.0-alpha.3] - 2026-07-28
+
+### Added
+
+- **Web public manager construction:** `unified-ble-manager/web` now creates one typed browser manager session with its matching chooser capability, preserving Web Bluetooth's user-activated chooser semantics and explicit continuous-scan rejection.
+
 ## [4.0.0-alpha.2] - 2026-07-28
 
 ### Fixed

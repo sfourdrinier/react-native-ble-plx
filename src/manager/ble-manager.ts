@@ -79,6 +79,14 @@ export interface ProviderBleManagerConstruction<
   readonly manager: Omit<OwningManagerConstruction<Attachment, Identity>, 'attachedBackend'>
 }
 
+export interface BackendBleManagerConstruction<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>
+> {
+  readonly coreCompatibility: BackendCompatibilityOffer
+  readonly manager: Omit<OwningManagerConstruction<Attachment, Identity>, 'attachedBackend'>
+}
+
 /**
  * Host-neutral public manager. Construction is explicit and delegates all
  * shared policy to UnifiedBleCore; it neither detects a host nor creates a
@@ -270,12 +278,36 @@ export async function createBleManagerFromProvider<
   options: BleManagerOptions
 ): Promise<BleManager<Attachment, Identity>> {
   const backend = await construction.provider.create(construction.selection)
+  return createBleManagerFromBackend(
+    backend,
+    {
+      coreCompatibility: construction.coreCompatibility,
+      manager: construction.manager
+    },
+    options,
+    construction.selection.selectedAdapterId
+  )
+}
+
+/** Creates an owning manager for a host backend that has already been selected. */
+export async function createBleManagerFromBackend<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>
+>(
+  backend: BleCentralBackend<Attachment, Identity>,
+  construction: BackendBleManagerConstruction<Attachment, Identity>,
+  options: BleManagerOptions,
+  expectedAdapterId?: AdapterSelection<Attachment>['selectedAdapterId']
+): Promise<BleManager<Attachment, Identity>> {
   try {
-    if (construction.selection.selectedAdapterId !== backend.identity.attachment.adapter.adapterId) {
+    if (expectedAdapterId !== undefined && expectedAdapterId !== backend.identity.attachment.adapter.adapterId) {
       throw contractError('argument.invalid', 'adapter', 'ble-manager.create-from-provider.adapter-selection')
     }
     const attachedBackend = await attachBackend(backend, construction.coreCompatibility)
-    if (construction.selection.selectedAdapterId !== attachedBackend.attachment.attachment.adapter.adapterId) {
+    if (
+      expectedAdapterId !== undefined &&
+      expectedAdapterId !== attachedBackend.attachment.attachment.adapter.adapterId
+    ) {
       throw contractError('argument.invalid', 'adapter', 'ble-manager.create-from-provider.adapter-selection')
     }
     const authority = createManagerOwnershipAuthority(attachedBackend)
