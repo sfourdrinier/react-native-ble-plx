@@ -180,40 +180,34 @@ describe('external backend SDK and offline CLI', () => {
     expect(argumentsList[runTestsByPathIndex + 1]).toBe(nativeWindowsPath)
   })
 
-  const nativeEsmTest = nativeVmModulesEnabled ? test : test.skip
-  nativeEsmTest.each([
-    ['ESM absolute path', 'external-deterministic-backend.mjs'],
-    ['ESM file URL', 'external-deterministic-backend.mjs']
-  ])('loads a %s backend module with the real Node CLI loader', async (kind, fileName) => {
-    const modulePath = path.join(__dirname, 'fixtures', fileName)
-    const moduleSpecifier = kind.endsWith('file URL') ? pathToFileURL(modulePath).href : modulePath
+  test('loads ESM backend modules with the real Node CLI loader on every Jest runtime', async () => {
+    if (!nativeVmModulesEnabled) {
+      const jestCli = require.resolve('jest/bin/jest')
+      const projectRoot = path.join(__dirname, '..', '..')
 
-    const result = await runUnifiedBleCli(['doctor', '--backend', moduleSpecifier])
-
-    expect(result).toMatchObject({
-      ok: true,
-      command: 'doctor',
-      data: {
-        backendId: 'external:doctor-fixture',
-        providerId: 'external:doctor-provider',
-        hostKind: 'test'
-      }
-    })
-  })
-
-  test('runs ESM loader coverage with Node native VM modules when Jest transforms CommonJS source', () => {
-    if (nativeVmModulesEnabled) {
+      expect(() =>
+        execFileSync(
+          process.execPath,
+          createNativeVmJestArguments(jestCli, path.join(projectRoot, 'jest.config.js'), __filename),
+          { cwd: projectRoot, stdio: 'pipe' }
+        )
+      ).not.toThrow()
       return
     }
-    const jestCli = require.resolve('jest/bin/jest')
-    const projectRoot = path.join(__dirname, '..', '..')
 
-    expect(() =>
-      execFileSync(
-        process.execPath,
-        createNativeVmJestArguments(jestCli, path.join(projectRoot, 'jest.config.js'), __filename),
-        { cwd: projectRoot, stdio: 'pipe' }
-      )
-    ).not.toThrow()
+    const modulePath = path.join(__dirname, 'fixtures', 'external-deterministic-backend.mjs')
+    for (const moduleSpecifier of [modulePath, pathToFileURL(modulePath).href]) {
+      const result = await runUnifiedBleCli(['doctor', '--backend', moduleSpecifier])
+
+      expect(result).toMatchObject({
+        ok: true,
+        command: 'doctor',
+        data: {
+          backendId: 'external:doctor-fixture',
+          providerId: 'external:doctor-provider',
+          hostKind: 'test'
+        }
+      })
+    }
   })
 })
