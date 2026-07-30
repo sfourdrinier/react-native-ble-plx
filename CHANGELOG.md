@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.13] - 2026-07-30
+
+### Added
+
+- Added the reusable first-party backend conformance registry for Web Bluetooth, BlueZ, CoreBluetooth, WinRT, React Native Android, and React Native Apple.
+- Added complete descriptor operations, restoration adoption, and rich native advertisement metadata to the versioned Android and Apple binary protocol.
+- Added native protocol executable gates for Android and Apple plus Windows WinRT compilation and ABI loading.
+
+### Changed
+
+- Promoted the deterministic vertical slice into the production contract, unified manager/core, deterministic backend, TCK, backend SDK, CLI, profiles, and isolated host package surfaces.
+- Extended CoreBluetooth desktop descriptor behavior and hardened native cancellation, late-completion quarantine, cleanup retry, adapter-loss, and multi-client ownership semantics across first-party backends.
+- Made every default Jest ESM backend-loader proof executable instead of conditionally skipped.
+
+### Fixed
+
+- Fixed Android protocol decoding so the record kind is consumed exactly once before enum lookup.
+- Fixed Windows WinRT native compilation and lifecycle cleanup paths under the supported Node and Electron ABI matrix.
+
 ## [4.0.0-alpha.12] - 2026-07-29
 
 ### Changed
