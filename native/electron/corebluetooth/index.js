@@ -1,7 +1,5 @@
 // native/electron/corebluetooth/index.js
 
-// native/electron/corebluetooth/index.js
-
 /**
  * macOS CoreBluetooth contract-v1 boundary for Electron main.
  */
@@ -19,18 +17,11 @@ function tryLoadNative() {
       return require(file)
     }
   }
-  try {
-    // eslint-disable-next-line import/no-extraneous-dependencies, global-require
-    return require('bindings')('unified_ble_corebluetooth')
-  } catch (error) {
-    console.error('[tryLoadNative] Unable to load CoreBluetooth native addon:', error)
-    return null
-  }
+  return null
 }
 
 function toUint8Array(buf) {
   if (buf instanceof Uint8Array) return new Uint8Array(buf)
-  if (Buffer.isBuffer(buf)) return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
   return new Uint8Array(buf)
 }
 
@@ -41,7 +32,9 @@ function createContractBoundary() {
   }
   const native = tryLoadNative()
   if (!native || typeof native.createNativeRadio !== 'function') {
-    throw new Error('CoreBluetooth contract boundary requires a built direct native addon')
+    throw new Error(
+      'CoreBluetooth contract boundary requires the package-controlled native addon at native/electron/corebluetooth/build/{Release,Debug}'
+    )
   }
   const radio = native.createNativeRadio()
   const requiredMethods = [

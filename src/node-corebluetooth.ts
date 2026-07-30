@@ -1,6 +1,6 @@
 // src/node-corebluetooth.ts
 
-import { contractError } from './backend-contract/errors'
+import { BackendContractError, contractError } from './backend-contract/errors'
 import type { BackendProvider, HostNeutralBackendIdentity } from './backend-contract/identity'
 import type { CoreBluetoothBoundary } from './backends/corebluetooth/corebluetooth-boundary'
 import {
@@ -36,6 +36,15 @@ export interface NativeCoreBluetoothProviderOptions {
   readonly now: () => number
 }
 
+function nativeArtifactUnavailable(operation: string, code: string, safeMessage: string): BackendContractError {
+  return contractError('capability.unavailable', 'platform', operation, {
+    domain: 'corebluetooth',
+    code,
+    safeMessage,
+    metadata: Object.freeze({})
+  })
+}
+
 /** Loads the macOS-only direct CoreBluetooth addon for the current backend boundary. */
 export function createNativeCoreBluetoothBoundary(): CoreBluetoothBoundary {
   if (process.platform !== 'darwin') {
@@ -46,8 +55,31 @@ export function createNativeCoreBluetoothBoundary(): CoreBluetoothBoundary {
       metadata: Object.freeze({})
     })
   }
-  const nativeModule: CoreBluetoothNativeModule = require('../../native/electron/corebluetooth')
-  return nativeModule.createContractBoundary()
+  let nativeModule: CoreBluetoothNativeModule
+  try {
+    nativeModule = require('../../native/electron/corebluetooth')
+  } catch (error) {
+    if (error instanceof BackendContractError) {
+      throw error
+    }
+    throw nativeArtifactUnavailable(
+      'corebluetooth.native-boundary.load',
+      'native-artifact-unavailable',
+      'The packaged CoreBluetooth native artifact could not be loaded for this Node or Electron runtime'
+    )
+  }
+  try {
+    return nativeModule.createContractBoundary()
+  } catch (error) {
+    if (error instanceof BackendContractError) {
+      throw error
+    }
+    throw nativeArtifactUnavailable(
+      'corebluetooth.native-boundary.create',
+      'native-boundary-unavailable',
+      'The CoreBluetooth native boundary could not be created for this macOS process'
+    )
+  }
 }
 
 /** Creates the production Node CoreBluetooth provider for the selected default central adapter. */

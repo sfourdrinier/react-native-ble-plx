@@ -10,12 +10,22 @@
 'use strict'
 
 const fs = require('fs')
+const { createRequire } = require('module')
 const os = require('os')
 const path = require('path')
+const semver = require('semver')
 const { spawnSync } = require('child_process')
 
 const root = path.resolve(__dirname, '../..')
 const rootPackage = require(path.join(root, 'package.json'))
+const requiredPackedRuntimeDependencies = Object.freeze({
+  '@expo/config-plugins': '^57.0.6',
+  'node-addon-api': '^8.9.0',
+  'node-gyp': '^12.4.0'
+})
+const requiredPackedOptionalDependencies = Object.freeze({
+  'dbus-next': '^0.10.2'
+})
 
 function npmCommand() {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm'
@@ -93,31 +103,6 @@ function writeLocalPeerStubs(tmp) {
       'module.exports = { NativeEventEmitter, Platform, PermissionsAndroid, TurboModuleRegistry };',
       ''
     ].join('\n')
-  )
-}
-
-function linkHostExpoConfigPlugins(consumer) {
-  const sourcePackageJson = require.resolve('@expo/config-plugins/package.json')
-  const sourceDirectory = path.dirname(fs.realpathSync(sourcePackageJson))
-  const scopeDirectory = path.join(consumer, 'node_modules', '@expo')
-  const targetDirectory = path.join(scopeDirectory, 'config-plugins')
-  fs.mkdirSync(scopeDirectory, { recursive: true })
-  fs.symlinkSync(sourceDirectory, targetDirectory, process.platform === 'win32' ? 'junction' : 'dir')
-}
-
-function linkOptionalBluezDependency(consumer) {
-  const sourcePackageJson = require.resolve('dbus-next/package.json')
-  const dependencyManifest = require(sourcePackageJson)
-  if (dependencyManifest.name !== 'dbus-next' || dependencyManifest.version !== '0.10.2') {
-    throw new Error(
-      `Expected the real dbus-next@0.10.2 optional host dependency, received ${String(dependencyManifest.name)}@${String(dependencyManifest.version)}`
-    )
-  }
-  const sourceDirectory = path.dirname(fs.realpathSync(sourcePackageJson))
-  const targetDirectory = path.join(consumer, 'node_modules', 'dbus-next')
-  fs.symlinkSync(sourceDirectory, targetDirectory, process.platform === 'win32' ? 'junction' : 'dir')
-  console.log(
-    `consumer supplied real optional host dependency: ${dependencyManifest.name}@${dependencyManifest.version}`
   )
 }
 
@@ -221,6 +206,276 @@ function writeExternalCliBackendFixture(consumer) {
   return backendPath
 }
 
+function resolveInstalledConsumerModule(consumer, specifier) {
+  const consumerRequire = createRequire(path.join(consumer, 'package.json'))
+  return consumerRequire.resolve(specifier)
+}
+
+function installedPackageRoot(consumer) {
+  const packageJson = resolveInstalledConsumerModule(consumer, 'unified-ble-manager/package.json')
+  const packageRoot = path.dirname(fs.realpathSync(packageJson))
+  const installedModulesRoot = fs.realpathSync(path.join(consumer, 'node_modules'))
+  if (packageRoot !== installedModulesRoot && !packageRoot.startsWith(`${installedModulesRoot}${path.sep}`)) {
+    throw new Error(`Packed package resolved outside its isolated consumer: ${packageRoot}`)
+  }
+  return packageRoot
+}
+
+function assertInstalledDependencySatisfiesPackedManifest(
+  consumer,
+  packageRoot,
+  dependencyField,
+  dependencyName,
+  expectedRange
+) {
+  const packedManifest = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'))
+  const declaredRange = packedManifest[dependencyField]?.[dependencyName]
+  if (declaredRange !== expectedRange) {
+    throw new Error(
+      `Packed manifest ${dependencyField}.${dependencyName} must equal ${expectedRange}, received ${String(declaredRange)}`
+    )
+  }
+  const installedManifestPath = resolveInstalledConsumerModule(consumer, `${dependencyName}/package.json`)
+  const installedManifest = JSON.parse(fs.readFileSync(installedManifestPath, 'utf8'))
+  if (!semver.satisfies(installedManifest.version, declaredRange)) {
+    throw new Error(
+      `Installed ${dependencyName}@${installedManifest.version} does not satisfy packed manifest ${dependencyField}.${dependencyName}@${declaredRange}`
+    )
+  }
+}
+
+function verifyInstalledPublishedRuntimeDependencies(consumer) {
+  const packageRoot = installedPackageRoot(consumer)
+  for (const [dependencyName, expectedRange] of Object.entries(requiredPackedRuntimeDependencies)) {
+    assertInstalledDependencySatisfiesPackedManifest(
+      consumer,
+      packageRoot,
+      'dependencies',
+      dependencyName,
+      expectedRange
+    )
+  }
+  for (const [dependencyName, expectedRange] of Object.entries(requiredPackedOptionalDependencies)) {
+    assertInstalledDependencySatisfiesPackedManifest(
+      consumer,
+      packageRoot,
+      'optionalDependencies',
+      dependencyName,
+      expectedRange
+    )
+  }
+}
+
+function verifyInstalledNativeTooling(consumer) {
+  const assertScript = [
+    "const assert = require('assert');",
+    "const fs = require('fs');",
+    "const path = require('path');",
+    "const packageRoot = path.dirname(require.resolve('unified-ble-manager/package.json'));",
+    "const addonSourceRoot = path.join(packageRoot, 'native', 'electron', 'corebluetooth');",
+    "assert.ok(fs.existsSync(path.join(addonSourceRoot, 'binding.gyp')), 'packed consumer includes CoreBluetooth binding.gyp');",
+    "assert.ok(fs.existsSync(path.join(addonSourceRoot, 'src', 'addon.mm')), 'packed consumer includes CoreBluetooth addon source');",
+    "const loader = require(path.join(addonSourceRoot, 'index.js'));",
+    "assert.strictEqual(typeof loader.tryLoadNative, 'function', 'packed CoreBluetooth loader exposes direct addon lookup');",
+    "assert.strictEqual(typeof loader.createContractBoundary, 'function', 'packed CoreBluetooth loader exposes its boundary factory');",
+    "const coreBluetooth = require('unified-ble-manager/node/corebluetooth');",
+    "assert.strictEqual(typeof coreBluetooth.createNativeCoreBluetoothBoundary, 'function', 'node/corebluetooth boundary factory');",
+    "assert.strictEqual(typeof coreBluetooth.createNativeCoreBluetoothBackendProvider, 'function', 'node/corebluetooth provider factory');",
+    "console.log('pack+install native tooling assertions ok');"
+  ].join('\n')
+  run(process.execPath, ['-e', assertScript], { cwd: consumer })
+}
+
+function buildAndLoadInstalledCoreBluetoothAddon(consumer) {
+  if (process.platform !== 'darwin') {
+    console.log('packed CoreBluetooth native build skipped (macOS-only; source/tooling assertions completed)')
+    return
+  }
+  const packageRoot = installedPackageRoot(consumer)
+  const nodeGypCli = resolveInstalledConsumerModule(consumer, 'node-gyp/bin/node-gyp.js')
+  const addonDirectory = path.join(packageRoot, 'native', 'electron', 'corebluetooth')
+  const nodeGypOutput = run(process.execPath, [nodeGypCli, 'rebuild', '--release'], { cwd: addonDirectory })
+  const addonPath = path.join(addonDirectory, 'build', 'Release', 'unified_ble_corebluetooth.node')
+  if (!fs.existsSync(addonPath)) {
+    throw new Error(
+      `Installed CoreBluetooth node-gyp build did not produce ${addonPath}: ${nodeGypOutput}`
+    )
+  }
+  const boundaryScript = [
+    "const assert = require('assert');",
+    "const path = require('path');",
+    "const packageRoot = path.dirname(require.resolve('unified-ble-manager/package.json'));",
+    "const loader = require(path.join(packageRoot, 'native', 'electron', 'corebluetooth'));",
+    "const native = loader.tryLoadNative();",
+    "assert.strictEqual(typeof native?.createNativeRadio, 'function', `installed CoreBluetooth loader loads the node-gyp output; exports: ${Object.keys(native ?? {}).join(',')}`);",
+    "const { createNativeCoreBluetoothBoundary } = require('unified-ble-manager/node/corebluetooth');",
+    'const boundary = createNativeCoreBluetoothBoundary();',
+    "for (const method of ['adapterSnapshot', 'startScan', 'stopScan', 'connect', 'disconnect', 'connectionState', 'discover', 'read', 'write', 'startNotify', 'stopNotify', 'onDisconnect', 'onAdapterState', 'destroy']) {",
+    "  assert.strictEqual(typeof boundary[method], 'function', `installed CoreBluetooth boundary exposes ${method}`);",
+    '}',
+    "Promise.resolve(boundary.destroy()).then(() => console.log('packed CoreBluetooth Node-ABI boundary build/load ok'));"
+  ].join('\n')
+  run(process.execPath, ['-e', boundaryScript], { cwd: consumer })
+}
+
+function runInstalledElectronL1Scenario(consumer) {
+  const scenarioScript = [
+    "const assert = require('assert');",
+    "const { attachBleBackend, BleManager, createManagerOwnershipAuthority, DEFAULT_BLE_MANAGER_OPTIONS } = require('unified-ble-manager');",
+    "const { byteLimit, monotonicTimestamp, opaqueId, ownBytes, version, versionRange } = require('unified-ble-manager/backend-sdk');",
+    "const { createDeterministicTestBackend } = require('unified-ble-manager/testing');",
+    "const { ElectronMainBleBinding, ElectronMainBleRouter } = require('unified-ble-manager/electron/main');",
+    "const { ElectronRendererBleClient } = require('unified-ble-manager/electron/renderer');",
+    "for (const [name, value] of Object.entries({ attachBleBackend, BleManager, createManagerOwnershipAuthority, createDeterministicTestBackend, ElectronMainBleBinding, ElectronMainBleRouter, ElectronRendererBleClient })) { assert.strictEqual(typeof value, 'function', `packed Electron L1 public entrypoint ${name}`); }",
+    'const fixture = createDeterministicTestBackend();',
+    'const compatibility = Object.freeze({',
+    "  backendContract: versionRange(version('backend-contract', 1), version('backend-contract', 1)),",
+    "  capabilitySchema: versionRange(version('capability-schema', 1), version('capability-schema', 1)),",
+    "  eventSchema: versionRange(version('event-schema', 1), version('event-schema', 1)),",
+    "  traceFormat: versionRange(version('trace-format', 1), version('trace-format', 1))",
+    '});',
+    'const absentField = Object.freeze({ state: "absent", reason: "not-observed", provenance: "not-provided" });',
+    'function advertisement() {',
+    '  return Object.freeze({',
+    "    peerId: opaqueId('deterministic-peer', 'peer', 'deterministic'),",
+    '    observedAt: monotonicTimestamp(1),',
+    "    source: 'platform-raw',",
+    '    ingressOrdinal: 1,',
+    '    localName: absentField, rssi: absentField, txPower: absentField, connectable: absentField, appearance: absentField,',
+    '    serviceUuids: absentField, solicitedServiceUuids: absentField, overflowServiceUuids: absentField,',
+    '    serviceData: absentField, manufacturerData: absentField,',
+    "    rawRecord: Object.freeze({ state: 'present', value: ownBytes(new Uint8Array([1, 2, 3]), byteLimit(512 * 1024)), provenance: 'observed' }),",
+    '    scanResponseRecord: absentField',
+    '  });',
+    '}',
+    'async function settle(promise) {',
+    '  let settled = false;',
+    '  promise.then(() => { settled = true; }, () => { settled = true; });',
+    '  for (let attempt = 0; attempt < 100 && !settled; attempt += 1) { fixture.controller.clock.runUntilIdle(); await Promise.resolve(); }',
+    '  return promise;',
+    '}',
+    'async function flush() { for (let turn = 0; turn < 8; turn += 1) { await Promise.resolve(); } }',
+    '(async () => {',
+    '  const attachedBackend = await attachBleBackend(fixture.backend, compatibility);',
+    '  const authority = createManagerOwnershipAuthority(attachedBackend);',
+    '  const manager = await BleManager.create({',
+    '    attachedBackend,',
+    "    clientId: opaqueId('electron-l1-client', 'client', 'deterministic:electron-l1'),",
+    "    managerId: opaqueId('electron-l1-manager', 'manager', 'deterministic:electron-l1'),",
+    "    ownerMode: 'owning'",
+    '  }, authority, DEFAULT_BLE_MANAGER_OPTIONS);',
+    '  const listeners = new Set();',
+    '  const sender = {',
+    '    trusted: Object.freeze({',
+    "      authenticatedClientId: opaqueId('electron-l1-client', 'client', 'deterministic:electron-l1'),",
+    "      authenticatedWindowScope: 'electron-l1-window', authenticatedSessionScope: 'electron-l1-session'",
+    '    }),',
+    '    isDestroyed: () => false,',
+    '    once: (event, listener) => { assert.strictEqual(event, "destroyed", "packed Electron L1 renderer lifetime event"); void listener; },',
+    '    send: (channel, event) => {',
+    "      assert.strictEqual(channel, 'unified-ble-manager:v1', 'packed Electron L1 event channel');",
+    '      for (const listener of listeners) { listener(event); }',
+    '    }',
+    '  };',
+    '  const port = {',
+    '    handler: null,',
+    '    handle(channel, handler) { assert.strictEqual(channel, "unified-ble-manager:v1", "packed Electron L1 request channel"); this.handler = handler; },',
+    '    removeHandler(channel) { assert.strictEqual(channel, "unified-ble-manager:v1", "packed Electron L1 removes its request channel"); this.handler = null; }',
+    '  };',
+    '  let authenticatedDispatches = 0;',
+    '  let routedEnvelopeCount = 0;',
+    '  let acknowledgementCount = 0;',
+    '  const router = new ElectronMainBleRouter({',
+    '    manager, maximumMessageBytes: 64 * 1024, maximumOutstandingOperations: 16, maximumRetainedBytes: 512 * 1024,',
+    "    publish: async () => { throw new Error('ElectronMainBleBinding must install the authenticated event publisher'); }",
+    '  });',
+    '  const binding = new ElectronMainBleBinding({',
+    '    router, port,',
+    '    authenticate: event => { assert.strictEqual(event.sender, sender, "packed Electron L1 authenticates the real IPC sender"); authenticatedDispatches += 1; return event.sender.trusted; }',
+    '  });',
+    '  binding.install();',
+    '  const transport = {',
+    '    invoke: async request => {',
+    '      assert.strictEqual(typeof port.handler, "function", "packed Electron L1 has an installed IPC handler");',
+    '      if (request.kind === "route") {',
+    '        routedEnvelopeCount += 1;',
+    '        assert.strictEqual(request.envelope.renderer.clientId, sender.trusted.authenticatedClientId, "packed Electron L1 routes the authenticated renderer envelope");',
+    '      }',
+    '      return port.handler({ sender }, request);',
+    '    },',
+    '    subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },',
+    '    acknowledge: async eventId => {',
+    '      const response = await port.handler({ sender }, { kind: "event.ack", eventId });',
+    '      assert.strictEqual(response.kind, "event.ack", "packed Electron L1 acknowledges the main event envelope"); acknowledgementCount += 1;',
+    '    }',
+    '  };',
+    '  const client = new ElectronRendererBleClient(transport);',
+    '  let clientCleanup;',
+    '  let bindingCleanup;',
+    '  try {',
+    '    const bootstrap = await client.initialize();',
+    '    assert.strictEqual(bootstrap.renderer.clientId, sender.trusted.authenticatedClientId, "packed Electron L1 bootstrap is authenticated");',
+    '    const route = (command, payload, binaryPayload = null) => settle(client.request({ command, payload, binaryPayload, signal: null }));',
+    '    const scan = await route("scan.start", { serviceUuids: [], localNamePrefix: null, deadline: null });',
+    '    assert.strictEqual(typeof scan.payload.handle, "string", "packed Electron L1 allocated a scan handle");',
+    '    const observation = client.events[Symbol.asyncIterator]().next();',
+    '    fixture.controller.emitAdvertisement(advertisement());',
+    '    await flush();',
+    '    const observed = await observation;',
+    '    assert.strictEqual(observed.done, false, "packed Electron L1 scan stream remains live");',
+    '    assert.strictEqual(observed.value.kind, "value", "packed Electron L1 renderer stream forwards the scan event");',
+    '    assert.strictEqual(observed.value.value.item.kind, "value", "packed Electron L1 forwards the scan value through IPC");',
+    '    const connection = await route("connection.connect", { peerId: observed.value.value.item.value.peerId, deadline: null });',
+    '    assert.strictEqual(typeof connection.payload.handle, "string", "packed Electron L1 allocated a connection handle");',
+    '    const database = await route("gatt.discover", { connectionHandle: connection.payload.handle, deadline: null });',
+    '    assert.strictEqual(typeof database.payload.handle, "string", "packed Electron L1 allocated a database handle");',
+    '    assert.ok(database.payload.characteristics.length > 0, "packed Electron L1 discovered a characteristic");',
+    '    const characteristic = database.payload.characteristics[0];',
+    '    const read = await route("gatt.read", { databaseHandle: database.payload.handle, characteristicHandle: characteristic.handle, deadline: null });',
+    '    assert.ok(read.payload.value instanceof Uint8Array && read.payload.value.byteLength > 0, "packed Electron L1 reads characteristic bytes");',
+    '    const subscription = await route("gatt.subscribe", { databaseHandle: database.payload.handle, characteristicHandle: characteristic.handle, deadline: null });',
+    '    assert.strictEqual(typeof subscription.payload.handle, "string", "packed Electron L1 allocated a subscription handle");',
+    '    const notification = client.events[Symbol.asyncIterator]().next();',
+    '    fixture.controller.emitNotification({',
+    '      serviceUuid: characteristic.serviceUuid, serviceOccurrence: Number(characteristic.serviceOccurrence),',
+    '      characteristicUuid: characteristic.characteristicUuid, characteristicOccurrence: Number(characteristic.characteristicOccurrence)',
+    '    }, new Uint8Array([21]));',
+    '    await flush();',
+    '    const delivered = await notification;',
+    '    assert.strictEqual(delivered.done, false, "packed Electron L1 notification stream remains live");',
+    '    assert.strictEqual(delivered.value.kind, "value", "packed Electron L1 renderer stream forwards the notification event");',
+    '    assert.strictEqual(delivered.value.value.item.kind, "value", "packed Electron L1 forwards the notification through IPC");',
+    '    assert.strictEqual(delivered.value.value.item.value.value[0], 21, "packed Electron L1 preserves notification bytes");',
+    '    const unsubscribed = await route("gatt.unsubscribe", { subscriptionHandle: subscription.payload.handle });',
+    '    assert.strictEqual(unsubscribed.payload.state, "released", "packed Electron L1 releases the subscription");',
+    '    const stopped = await route("scan.stop", { scanHandle: scan.payload.handle });',
+    '    assert.strictEqual(stopped.payload.state, "released", "packed Electron L1 releases the scan");',
+    '    const disconnected = await route("connection.disconnect", { connectionHandle: connection.payload.handle });',
+    '    assert.strictEqual(disconnected.payload.state, "released", "packed Electron L1 releases the connection");',
+    '    await flush();',
+    '    assert.ok(routedEnvelopeCount >= 8, "packed Electron L1 routed every operation through authenticated IPC envelopes");',
+    '    assert.ok(acknowledgementCount >= 2, "packed Electron L1 acknowledged scan and notification events");',
+    '  } finally {',
+    '    try {',
+    '      clientCleanup = await settle(client.destroy());',
+    '    } finally {',
+    '      bindingCleanup = await settle(binding.destroy());',
+    '    }',
+    '  }',
+    "  assert.strictEqual(clientCleanup.state, 'released', 'packed Electron L1 renderer cleanup releases');",
+    "  assert.deepStrictEqual(clientCleanup.failures, [], 'packed Electron L1 renderer cleanup has no failures');",
+    "  assert.strictEqual(bindingCleanup.state, 'released', 'packed Electron L1 main cleanup releases');",
+    "  assert.deepStrictEqual(bindingCleanup.failures, [], 'packed Electron L1 main cleanup has no failures');",
+    '  assert.ok(authenticatedDispatches >= routedEnvelopeCount + acknowledgementCount + 2, "packed Electron L1 authenticates bootstrap, routes, acknowledgements, and release");',
+    '  for (const [resource, count] of Object.entries(fixture.backend.resourceCounters())) {',
+    "    assert.strictEqual(Number(count), 0, `packed Electron L1 scenario leaked ${resource}=${String(count)}`);",
+    '  }',
+    "  console.log('pack+install Electron L1 router/client scenario ok');",
+    '})().catch(error => { console.error(error); process.exitCode = 1; });'
+  ].join('\n')
+  run(process.execPath, ['-e', scenarioScript], { cwd: consumer })
+}
+
 function main() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ubm-pack-install-'))
   let primaryError = null
@@ -273,28 +528,24 @@ function main() {
     console.log('installing packed artifacts into isolated consumer')
     run(
       npmCommand(),
-      ['install', '--ignore-scripts', '--omit=optional', '--offline', '--loglevel=warn', rootTgz],
+      ['install', '--ignore-scripts', '--prefer-offline', '--loglevel=error', rootTgz],
       {
         cwd: consumer,
         env: npmEnvironment
       }
     )
-    linkHostExpoConfigPlugins(consumer)
     run(
       process.execPath,
       [
         '-e',
         [
           "const assert = require('assert');",
-          "assert.throws(() => require.resolve('dbus-next'), { code: 'MODULE_NOT_FOUND' }, 'dbus-next is absent before host provisioning');",
           "const canonical = require('unified-ble-manager');",
-          "assert.strictEqual(typeof canonical.BleManager, 'function', 'root import is neutral without dbus-next');"
+          "assert.strictEqual(typeof canonical.BleManager, 'function', 'root import is neutral with declared optional dependencies installed');"
         ].join('\n')
       ],
       { cwd: consumer }
     )
-    linkOptionalBluezDependency(consumer)
-
     // Assert every current canonical entrypoint from installed artifacts (not a monorepo mapper).
     const assertScript = [
       "const assert = require('assert');",
@@ -307,6 +558,12 @@ function main() {
       "const nativeProtocolControl = path.join(packageRoot, 'lib/module/NativeUnifiedBleProtocolControl.js');",
       "assert.ok(fs.existsSync(nativeProtocolControl), 'packed React Native host includes Metro-resolvable NativeUnifiedBleProtocolControl');",
       "assert.ok(fs.readFileSync(reactNativeModuleEntry, 'utf8').includes(\"require('./NativeUnifiedBleProtocolControl')\"), 'public React Native host keeps the generated control import');",
+      "const electronNativeBuildDependency = require('node-addon-api/package.json');",
+      "assert.strictEqual(electronNativeBuildDependency.name, 'node-addon-api', 'packed Electron native build dependency resolves');",
+      "const electronNativeBuildTool = require('node-gyp/package.json');",
+      "assert.strictEqual(electronNativeBuildTool.name, 'node-gyp', 'packed Electron native build tool resolves');",
+      "const expoConfigPlugins = require('@expo/config-plugins/package.json');",
+      "assert.strictEqual(expoConfigPlugins.name, '@expo/config-plugins', 'packed Expo config-plugin runtime resolves');",
       "const canonical = require('unified-ble-manager');",
       "assert.strictEqual(typeof canonical.BleManager, 'function', 'canonical BleManager');",
       "for (const privateSpecifier of ['unified-ble-manager/NativeUnifiedBleProtocolControl', 'unified-ble-manager/native-protocol/v1-codec', 'unified-ble-manager/native-protocol/rn-apple-boundary', 'unified-ble-manager/native-protocol/rn-jsi-binary-runtime', 'unified-ble-manager/profiles/heartRate']) {",
@@ -350,12 +607,14 @@ function main() {
       "assert.strictEqual(typeof bluez.createDbusNextBluezBackendProvider, 'function', 'node/bluez provider');",
       "const winrt = require('unified-ble-manager/node/winrt');",
       "assert.strictEqual(typeof winrt.createNativeWinRtBackendProvider, 'function', 'node/winrt provider');",
+      "const coreBluetooth = require('unified-ble-manager/node/corebluetooth');",
+      "assert.strictEqual(typeof coreBluetooth.createNativeCoreBluetoothBackendProvider, 'function', 'node/corebluetooth provider');",
       "const electronMain = require('unified-ble-manager/electron/main');",
       "assert.strictEqual(typeof electronMain.createElectronMainWinRtBackendProvider, 'function', 'electron/main WinRT provider');",
       "assert.strictEqual(typeof electronMain.ElectronMainBleBinding, 'function', 'electron/main IPC binding');",
       "const electronRenderer = require('unified-ble-manager/electron/renderer');",
       "assert.strictEqual(typeof electronRenderer.ElectronRendererBleClient, 'function', 'electron/renderer IPC client');",
-      "console.log('pack+install CJS imports ok: root, app.plugin.js, backend-sdk, cli, testing, codecs, profiles, web, react-native, node/bluez, node/winrt, electron/main, electron/renderer');"
+      "console.log('pack+install CJS imports ok: root, app.plugin.js, backend-sdk, cli, testing, codecs, profiles, web, react-native, node/bluez, node/corebluetooth, node/winrt, electron/main, electron/renderer');"
     ].join('\n')
     run(process.execPath, ['-e', assertScript], { cwd: consumer })
 
@@ -402,14 +661,20 @@ function main() {
       "assert.equal(typeof bluez.createDbusNextBluezBackendProvider, 'function', 'node/bluez ESM provider');",
       "const winrt = await import('unified-ble-manager/node/winrt');",
       "assert.equal(typeof winrt.createNativeWinRtBackendProvider, 'function', 'node/winrt ESM provider');",
+      "const coreBluetooth = await import('unified-ble-manager/node/corebluetooth');",
+      "assert.equal(typeof coreBluetooth.createNativeCoreBluetoothBackendProvider, 'function', 'node/corebluetooth ESM provider');",
       "const electronMain = await import('unified-ble-manager/electron/main');",
       "assert.equal(typeof electronMain.createElectronMainWinRtBackendProvider, 'function', 'electron/main WinRT ESM provider');",
       "assert.equal(typeof electronMain.ElectronMainBleBinding, 'function', 'electron/main IPC binding');",
       "const electronRenderer = await import('unified-ble-manager/electron/renderer');",
       "assert.equal(typeof electronRenderer.ElectronRendererBleClient, 'function', 'electron/renderer IPC client');",
-      "console.log('pack+install ESM imports ok: root, backend-sdk, cli, testing, codecs, profiles, web, react-native, node/bluez, node/winrt, electron/main, electron/renderer');"
+      "console.log('pack+install ESM imports ok: root, backend-sdk, cli, testing, codecs, profiles, web, react-native, node/bluez, node/corebluetooth, node/winrt, electron/main, electron/renderer');"
     ].join('\n')
     run(process.execPath, ['--input-type=module', '-e', esmAssertScript], { cwd: consumer })
+    verifyInstalledPublishedRuntimeDependencies(consumer)
+    verifyInstalledNativeTooling(consumer)
+    buildAndLoadInstalledCoreBluetoothAddon(consumer)
+    runInstalledElectronL1Scenario(consumer)
 
     const tracePath = path.join(consumer, 'redacted-trace.json')
     fs.writeFileSync(
@@ -467,7 +732,7 @@ function main() {
 
     compileExternalConsumerFixtures(consumer)
 
-    console.log('pack-install-smoke: OK (canonical CJS/ESM, CLI, Web, BlueZ, Bundler, Node16, NodeNext)')
+    console.log('pack-install-smoke: OK (canonical CJS/ESM, native build tooling, Electron L1, CLI, Web, BlueZ, Bundler, Node16, NodeNext)')
   } catch (error) {
     primaryError = error
     throw error

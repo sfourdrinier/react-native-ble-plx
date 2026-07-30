@@ -692,6 +692,11 @@ void AppleNativeProtocolExecution::appendRestorationRecords(const protocol::Nati
   state_->restorationAppended = true;
 }
 
+void AppleNativeProtocolExecution::rollbackRestorationBootstrap() noexcept {
+  std::scoped_lock lock(state_->mutex);
+  state_->restorationAppended = false;
+}
+
 void AppleNativeProtocolExecution::detachAttachment() {
   const auto state = state_;
   if (!state || state->closed.load(std::memory_order_acquire)) return;

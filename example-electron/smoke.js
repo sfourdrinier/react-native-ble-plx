@@ -1,12 +1,14 @@
 /**
- * Headless deterministic Electron L1 smoke (CI / package job).
+ * Headless deterministic public-manager smoke (CI / package job).
  *
  * This consumes only the published 4.0 package entrypoints. The deterministic
  * test boundary provides the Fake radio controls needed to prove the public
  * scan -> connect -> discover -> read -> notify -> destroy journey without
- * claiming a live Electron radio result.
+ * claiming a live Electron router/client or live-radio result. The packed
+ * consumer smoke owns the authenticated Electron router/client journey.
  *
- * L3 Electron-main ABI coverage lives in scripts/ci/electron-main-smoke.js.
+ * It also verifies that the Electron-main router is published. L3
+ * Electron-main ABI coverage lives in scripts/ci/electron-main-smoke.js.
  *
  *   pnpm prepack && node example-electron/smoke.js
  */
@@ -77,7 +79,7 @@ async function main() {
       throw new Error(`deterministic L1 scenario is unsupported: ${unsupported.explanation}`)
     }
 
-    console.log('Electron L1 deterministic scenario:', scenario.id)
+    console.log('Deterministic public-manager scenario:', scenario.id)
     const receipt = await fixture.execute(scenario)
     if (receipt.disposition !== 'passed' || !receipt.facts.includes(L1_SCENARIO_FACT)) {
       throw new Error(`deterministic L1 scenario returned an incomplete receipt: ${JSON.stringify(receipt)}`)
@@ -89,7 +91,7 @@ async function main() {
 
   assertReleased(cleanup, 'deterministic L1 fixture destroy')
   assertNoResourceLeaks(fixture.resourceCounters())
-  console.log('example-electron L1 smoke OK (published 4.0 entrypoints, deterministic boundary)')
+  console.log('example-electron public-manager smoke OK (published 4.0 entrypoints, deterministic boundary)')
 }
 
 main().catch(error => {

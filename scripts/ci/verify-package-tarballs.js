@@ -9,6 +9,10 @@ const zlib = require('zlib')
 const root = path.resolve(__dirname, '../..')
 const sourceRoot = path.join(root, 'src')
 const pluginSourceRoot = path.join(root, 'plugin', 'src')
+const {
+  assertNoForbiddenNobleManifestDependencies,
+  assertNoForbiddenNobleRuntimeReferences
+} = require('./forbidden-runtime-dependencies')
 
 /** Exact declaration-only source emitted by the React Native Codegen/type build. */
 const internalTypeOnlySourceFiles = Object.freeze([])
@@ -38,6 +42,33 @@ const publicProfileSourceFiles = Object.freeze([
   'profiles/identifiers.ts',
   'profiles/ieee-11073.ts',
   'profiles/standard-commands.ts'
+])
+
+/** Source inputs a consumer needs to build either packaged Electron Node-API addon. */
+const requiredElectronNativeSourceEntries = Object.freeze([
+  'package/native/electron/corebluetooth/binding.gyp',
+  'package/native/electron/corebluetooth/index.js',
+  'package/native/electron/corebluetooth/src/addon.mm',
+  'package/native/electron/corebluetooth/src/addon_stub.cc',
+  'package/native/electron/winrt/binding.gyp',
+  'package/native/electron/winrt/index.js',
+  'package/native/electron/winrt/src/addon.cpp',
+  'package/native/electron/winrt/src/winrt-boundary.inc'
+])
+
+const electronNativeLoaderDependencies = Object.freeze({
+  'node-addon-api': '^8.9.0',
+  'node-gyp': '^12.4.0'
+})
+
+const publishedRuntimeDependencies = Object.freeze({
+  '@expo/config-plugins': '^57.0.6',
+  ...electronNativeLoaderDependencies
+})
+
+const excludedHistoricalDocumentationEntries = Object.freeze([
+  'package/docs/README_V1.md',
+  'package/docs/MIGRATION_V1.md'
 ])
 
 function listFiles(directory) {
@@ -163,6 +194,7 @@ function isPublishedSourceFile(sourceFile) {
   const sourceRelative = path.relative(sourceRoot, sourceFile).split(path.sep).join('/')
   if (
     sourceRelative === 'index.ts' ||
+    sourceRelative === 'implementation-version.ts' ||
     sourceRelative === 'backend-sdk.ts' ||
     sourceRelative === 'backend-sdk-authoring.ts' ||
     sourceRelative === 'cli.ts' ||
@@ -232,12 +264,45 @@ function assertExactObjectKeys(value, expectedKeys, label) {
   }
 }
 
+function assertNoUndeclaredElectronNativeRuntimeLoaders(files) {
+  const loaderSpecifications = Object.freeze([
+    {
+      entryPath: 'package/native/electron/corebluetooth/index.js',
+      allowedRuntimeModules: new Set(['path', 'fs'])
+    },
+    {
+      entryPath: 'package/native/electron/winrt/index.js',
+      allowedRuntimeModules: new Set(['path'])
+    }
+  ])
+
+  for (const loader of loaderSpecifications) {
+    const contents = files.get(loader.entryPath)
+    if (contents === undefined) {
+      throw new Error(`Packed Electron native loader is missing: ${loader.entryPath}`)
+    }
+    const source = contents.toString('utf8')
+    const staticRequire = /require\(\s*['\"]([^'\"]+)['\"]\s*\)/g
+    for (const match of source.matchAll(staticRequire)) {
+      const runtimeModule = match[1]
+      if (!loader.allowedRuntimeModules.has(runtimeModule)) {
+        throw new Error(
+          `Packed Electron native loader ${loader.entryPath} has an undeclared runtime loader dependency: ${runtimeModule}`
+        )
+      }
+    }
+  }
+}
+
 function isRootArchiveEntryAllowed(
   entryPath,
   expectedArtifacts,
   expectedPluginArtifacts,
   expectedCodegenSourceEntries
 ) {
+  if (excludedHistoricalDocumentationEntries.includes(entryPath)) {
+    return false
+  }
   if (
     expectedArtifacts.has(entryPath) ||
     expectedPluginArtifacts.has(entryPath) ||
@@ -248,10 +313,12 @@ function isRootArchiveEntryAllowed(
   const allowedFiles = new Set([
     'package/package.json',
     'package/README.md',
+    'package/CHANGELOG.md',
     'package/LICENSE',
     'package/MIGRATION_4.0.md',
     'package/ROADMAP.md',
     'package/ROADMAP.4.0.md',
+    'package/RELEASE.md',
     'package/app.plugin.js',
     'package/bin/ubm.js'
   ])
@@ -278,6 +345,7 @@ function verifyRootTarball(tarballPath) {
   if (packageJson.name !== 'unified-ble-manager') {
     throw new Error(`Expected canonical package name unified-ble-manager, received ${String(packageJson.name)}`)
   }
+  assertNoForbiddenNobleManifestDependencies(packageJson, 'Packed canonical package manifest')
   assertExactObjectKeys(packageJson.bin, ['ubm'], 'Packed canonical bin')
   if (packageJson.bin.ubm !== 'bin/ubm.js') {
     throw new Error(`Packed canonical ubm entrypoint must equal bin/ubm.js, received ${String(packageJson.bin.ubm)}`)
@@ -293,6 +361,16 @@ function verifyRootTarball(tarballPath) {
   }
   if (packageJson.dependencies?.['dbus-next'] !== undefined) {
     throw new Error('Packed canonical dbus-next must remain an optional host dependency')
+  }
+  for (const [dependency, requiredVersion] of Object.entries(publishedRuntimeDependencies)) {
+    if (packageJson.dependencies?.[dependency] !== requiredVersion) {
+      throw new Error(
+        `Packed canonical runtime dependency ${dependency} must equal ${requiredVersion}, received ${String(packageJson.dependencies?.[dependency])}`
+      )
+    }
+    if (packageJson.devDependencies?.[dependency] !== undefined) {
+      throw new Error(`Packed canonical runtime dependency ${dependency} must not remain development-only`)
+    }
   }
   if (packageJson.codegenConfig?.jsSrcsDir !== 'src') {
     throw new Error('Packed canonical React Native Codegen must resolve its shipped src directory')
@@ -318,6 +396,12 @@ function verifyRootTarball(tarballPath) {
       throw new Error(`Packed canonical package is missing native protocol input: ${requiredInput}`)
     }
   }
+  for (const requiredInput of requiredElectronNativeSourceEntries) {
+    if (!files.has(requiredInput)) {
+      throw new Error(`Packed canonical package is missing Electron native build input: ${requiredInput}`)
+    }
+  }
+  assertNoUndeclaredElectronNativeRuntimeLoaders(files)
 
   const sourceFiles = listFiles(sourceRoot).filter(isPublishedSourceFile)
   if (sourceFiles.length === 0) {
@@ -460,6 +544,10 @@ function verifyRootTarball(tarballPath) {
       throw new Error(`Source-only TypeScript leaked into the packed artifact: ${entryPath}`)
     }
   }
+  assertNoForbiddenNobleRuntimeReferences(
+    [...files.entries()].map(([entryPath, contents]) => ({ path: entryPath, contents })),
+    'Packed canonical runtime source/artifacts'
+  )
 
   const targets = [
     { label: 'main', target: packageJson.main },

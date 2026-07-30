@@ -123,7 +123,7 @@ describe('canonical package modernization', () => {
     expect(exampleExpoPackage.dependencies).not.toHaveProperty('react-native-ble-plx')
     expect(expoLock).toMatch(/unified-ble-manager:\s*\n\s+specifier:\s+file:\.\./)
     expect(plugin).toContain('createRunOncePlugin(withBLE, pkg.name, pkg.version)')
-    expect(plugin).toContain('iosNativeProtocolRestorationIdentifier')
+    expect(plugin).toContain('iosNativeProtocolRestoration')
     expect(plugin).not.toContain('withBLERestorationPodfile')
     expect(plugin).not.toContain('@sfourdrinier/react-native-ble-plx')
   })

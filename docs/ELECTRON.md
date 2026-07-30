@@ -57,23 +57,41 @@ must not duplicate those policies.
 
 ## Verification and evidence
 
-The packed-artifact L1 smoke proves the public Electron entrypoints and the
-deterministic scan → connect → discover → read → notify → destroy scenario:
+The packed-artifact L1 smoke proves the installed public Electron main/router,
+authenticated IPC binding, and renderer client across the deterministic scan →
+connect → discover → read → notify → destroy journey:
 
 ```sh
 pnpm prepack
-node example-electron/smoke.js
+node scripts/ci/pack-install-smoke.js
 ```
 
-On macOS, build the CoreBluetooth addon for the installed Electron/Node ABI:
+`node example-electron/smoke.js` is a local published-entrypoint
+public-manager scenario only. It is useful as a fast deterministic check, but
+it does not substitute for the packed router/client boundary smoke.
+
+The package publishes CoreBluetooth source plus `node-gyp`, not a prebuilt
+addon. Build from the installed package source. On macOS, a host-Node build
+uses the current Node ABI:
 
 ```sh
-pnpm build:electron:macos
+pnpm --dir node_modules/unified-ble-manager exec node-gyp rebuild --release --directory native/electron/corebluetooth
 ```
 
-Windows and Linux have their own native/runtime requirements and are not
-implied by a macOS build. A build or deterministic smoke is not a live-radio
-support claim. Published evidence records state the exact backend, package
-digest, OS/runtime/ABI, hardware, scenario, limitations, and proof level.
+An Electron main process must use an Electron-targeted rebuild. Run this from
+the consumer project after installing its exact Electron dependency:
+
+```sh
+ELECTRON_VERSION="$(node -p \"require('electron/package.json').version\")"
+pnpm --dir node_modules/unified-ble-manager exec node-gyp rebuild --release --directory native/electron/corebluetooth --target="$ELECTRON_VERSION" --dist-url=https://electronjs.org/headers
+```
+
+The Node and Electron commands are not interchangeable: they produce addons
+for different ABIs. Rebuild after any target runtime, ABI, architecture, or
+package-version change. Windows and Linux have their own native/runtime
+requirements and are not implied by a macOS build. A build or deterministic
+smoke is not a live-radio support claim. Published evidence records state the
+exact backend, package digest, OS/runtime/ABI, hardware, scenario, limitations,
+and proof level.
 See [`PLATFORMS.md`](PLATFORMS.md) and the controlling
 [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).

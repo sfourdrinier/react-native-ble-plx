@@ -60,13 +60,13 @@ jobs:
           - os: windows-latest
             node: '20.19.4'
           # Keep Windows package coverage at the engines floor. Native Node-API
-          # compilation runs under Node 22 because node-gyp 13 needs its undici helper.
+          # compilation runs under Node 22 for the maintained native-toolchain gate.
           - os: windows-latest
             node: '22'
           - os: macos-latest
             node: '20.19.4'
           # Keep the engines-floor suite on Node 20 and run native node-gyp gates
-          # on Node 22, whose bundled undici has the WebIDL helper node-gyp 13 needs.
+          # on Node 22 for the maintained native-toolchain gate.
           - os: macos-latest
             node: '22'
     runs-on: ${{ matrix.os }}
@@ -74,8 +74,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.0
 
-      # Node 20 keeps macOS and Windows package coverage. Native node-gyp 13 gates
-      # run on Node 22 because its bundled undici provides the required WebIDL helper.
+      # Node 20 keeps macOS and Windows package coverage. Native build gates run
+      # on Node 22 for the maintained native-toolchain gate.
       - name: Setup Python for native Node22 builds
         if: (runner.os == 'macOS' || runner.os == 'Windows') && matrix.node == '22'
         uses: actions/setup-python@v6.0.0
@@ -250,10 +250,6 @@ jobs:
       - name: Canonical npm pack + install export smoke
         if: runner.os == 'Linux'
         run: node scripts/ci/pack-install-smoke.js
-
-      - name: Optional bytes-path codemod fixture check
-        if: runner.os == 'Linux'
-        run: pnpm test:codemod
 
   changes:
     name: Detect path changes

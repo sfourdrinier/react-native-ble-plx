@@ -44,6 +44,66 @@ describe('Apple Native Protocol v1 radio boundary', () => {
     expect(execution).toContain('runtime->settleResult(result)')
   })
 
+  test('requires the complete persisted five-field restoration identity before native append or adoption', () => {
+    const control = read('ios/UnifiedBleProtocolControl.mm')
+    const configuration = read('native/protocol/include/NativeRestorationConfiguration.hpp')
+
+    expect(configuration).toContain('hasCompleteNativeRestorationConfiguration')
+    for (const field of [
+      'restoreIdentifier',
+      'namespaceValue',
+      'epoch',
+      'clientId',
+      'hostSessionScope'
+    ]) {
+      expect(configuration).toContain(`!${field}.empty()`)
+    }
+    expect(control).toContain('NSString *_restorationRestoreIdentifier;')
+    expect(control).toContain('_restorationRestoreIdentifier = configuredInfoString(@"UnifiedBleProtocolRestoreIdentifier");')
+    expect(control).toContain('initWithRestoreIdentifierKey:(')
+    expect(control).toContain('? _restorationRestoreIdentifier')
+    expect(control).toContain(': nil)];')
+    expect(control).toContain('if (hasCompleteRestorationConfiguration(')
+    expect(control).toContain('!hasCompleteRestorationConfiguration(')
+  })
+
+  test('rolls back a failed restoration bootstrap before rejecting the handshake', () => {
+    const control = read('ios/UnifiedBleProtocolControl.mm')
+    const runtimeHeader = read('native/protocol/include/NativeProtocolControlRuntime.hpp')
+    const executionHeader = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.hpp')
+    const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
+
+    expect(control).toContain('_execution->rollbackRestorationBootstrap();')
+    expect(control).toContain('_runtime->rollbackRestorationBootstrap(attachment);')
+    expect(runtimeHeader).toContain(
+      'void rollbackRestorationBootstrap(const NativeAttachmentIdentity& attachment) noexcept;'
+    )
+    expect(executionHeader).toContain('void rollbackRestorationBootstrap() noexcept;')
+    expect(execution).toContain('void AppleNativeProtocolExecution::rollbackRestorationBootstrap()')
+    expect(control).not.toContain('catch (const std::exception& rollbackError)')
+    const executionRollback = control.indexOf('_execution->rollbackRestorationBootstrap();')
+    const runtimeRollback = control.indexOf('_runtime->rollbackRestorationBootstrap(attachment);')
+    const rejection = control.indexOf(
+      'rejectControl(reject, @"nativeProtocolHandshake", [NSString stringWithUTF8String:error.what()]);',
+      runtimeRollback
+    )
+    expect(executionRollback).toBeGreaterThan(control.indexOf('_execution->appendRestorationRecords({'))
+    expect(runtimeRollback).toBeGreaterThan(executionRollback)
+    expect(rejection).toBeGreaterThan(runtimeRollback)
+
+    const executionRollbackBody = execution.slice(
+      execution.indexOf('void AppleNativeProtocolExecution::rollbackRestorationBootstrap()'),
+      execution.indexOf('void AppleNativeProtocolExecution::detachAttachment()')
+    )
+    expect(executionRollbackBody).toContain('state_->restorationAppended = false;')
+
+    const handshakeBody = control.slice(
+      control.indexOf('- (void)handshake:'),
+      control.indexOf('- (void)installExecutionRuntime:')
+    )
+    expect(handshakeBody).not.toContain('consumeRestorationPeerIdentifiers')
+  })
+
   test('retains no read output after a late terminal result and routes the first pre-ack notification', () => {
     const runtime = read('native/protocol/src/NativeProtocolControlRuntime.cpp')
     const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')

@@ -1,6 +1,7 @@
 // src/backends/winrt/winrt-provider.ts
 
 import { BackendContractError, contractError } from '../../backend-contract/errors'
+import { UNIFIED_BLE_IMPLEMENTATION_VERSION } from '../../implementation-version'
 import type {
   AdapterDescriptor,
   AdapterSelection,
@@ -19,7 +20,7 @@ import type { WinRtAdapterRecord, WinRtBoundary } from './winrt-boundary'
 
 export const WINRT_BACKEND_ID = 'unified-ble:winrt'
 export const WINRT_PLATFORM_ID = 'unified-ble:windows-winrt'
-export const WINRT_IMPLEMENTATION_VERSION = '4.0.0-alpha.12'
+export const WINRT_IMPLEMENTATION_VERSION = UNIFIED_BLE_IMPLEMENTATION_VERSION
 
 export const winRtCompatibility: BackendCompatibilityOffer = Object.freeze({
   backendContract: versionRange(version('backend-contract', 1), version('backend-contract', 1)),

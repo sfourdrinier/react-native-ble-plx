@@ -210,21 +210,47 @@ describe('4.0 documentation honesty', () => {
     expect(roadmap).not.toMatch(/thin install\/import shim/i)
   })
 
-  test('migration and release docs refuse to invent a compatibility publication path', () => {
+  test('migration documents the current v4 package without inventing a compatibility path', () => {
     const migration = read('MIGRATION_4.0.md')
     const release = read('RELEASE.md')
 
-    expect(migration).toContain('no released 4.0 API instructions yet')
+    expect(migration).toContain('current public 4.0 package line')
+    expect(migration).toContain('unified-ble-manager@4.0.0-alpha.14')
+    expect(migration).toContain('stable `hostSessionScope`')
+    expect(migration).toContain('`Uint8Array`')
+    expect(migration).toContain('`AbortSignal`')
+    expect(migration).toContain('`await manager.destroy()`')
     expect(migration).toContain('not a source-compatible rename')
     expect(migration).toContain('Base64 only as an explicit codec helper')
     expect(migration).not.toMatch(/zero-change (JS )?API/i)
     expect(migration).not.toMatch(/optional bytes codemod/i)
-    expect(migration).not.toMatch(/install `?unified-ble-manager/i)
+    expect(migration).not.toContain('no released 4.0 API instructions yet')
 
     expect(release).toContain('does not define a 4.0 API')
     expect(release).toContain('does not authorize publishing 4.0')
     expect(release).toContain('no permanent scoped shim')
     expect(release).not.toMatch(/publishes the \*\*4\.0 dual identity\*\*/i)
+  })
+
+  test('public README provides only current alpha.14 construction and plugin guidance', () => {
+    const readme = read('README.md')
+    const changelog = read('CHANGELOG.md')
+
+    expect(readme).toContain('unified-ble-manager@4.0.0-alpha.14')
+    expect(readme).toContain('pnpm add unified-ble-manager@4.0.0-alpha.14')
+    expect(readme).toContain('createReactNativeBleManager')
+    expect(readme).toContain('stable `hostSessionScope`')
+    expect(readme).toContain('`Uint8Array`')
+    expect(readme).toContain('`AbortSignal`')
+    expect(readme).toContain('iosNativeProtocolRestoration')
+    expect(readme).not.toMatch(
+      /iosEnableRestoration|iosRestorationIdentifier|iosNativeProtocolRestorationIdentifier|androidEnableForegroundService/
+    )
+    expect(readme).not.toMatch(/new\s+BleManager\s*\(/)
+    expect(readme).not.toMatch(/npm install/)
+    expect(changelog).toContain('## [4.0.0-alpha.14] - 2026-07-30')
+    expect(changelog).toContain('node-addon-api')
+    expect(changelog).toContain('hostSessionScope')
   })
 
   test('platform pages make instantiated backend evidence, not static source behavior, authoritative', () => {

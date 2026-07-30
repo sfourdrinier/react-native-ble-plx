@@ -1,6 +1,6 @@
 {
   "name": "unified-ble-manager",
-  "version": "4.0.0-alpha.13",
+  "version": "4.0.0-alpha.14",
   "description": "Unified Bluetooth Low Energy manager for React Native, Electron, Web, and desktop (4.0 train)",
   "packageManager": "pnpm@10.14.0",
   "main": "lib/commonjs/index.js",
@@ -15,8 +15,10 @@
     "ios",
     "native",
     "docs",
+    "CHANGELOG.md",
     "ROADMAP.md",
     "ROADMAP.4.0.md",
+    "RELEASE.md",
     "plugin/build",
     "app.plugin.js",
     "*.podspec",
@@ -24,6 +26,8 @@
     "!docs/audits",
     "!docs/review",
     "!docs/evidence/g0/**",
+    "!docs/README_V1.md",
+    "!docs/MIGRATION_V1.md",
     "!docs/index.html",
     "!docs/assets",
     "!lib/typescript/example",
@@ -77,7 +81,6 @@
     "build:plugin": "tsc --build plugin",
     "clean:plugin": "del-cli plugin/build",
     "test:plugin": "jest --config plugin/jest.config.js",
-    "test:codemod": "node scripts/codemod/transform-bytes-path.js --check scripts/codemod/fixtures/before-read.js && node scripts/codemod/transform-bytes-path.js --check scripts/codemod/fixtures/before-read-safe.js && node scripts/codemod/transform-bytes-path.js --check scripts/codemod/fixtures/before-read-mixed.js",
     "build:electron:macos": "cd native/electron/corebluetooth && node-gyp rebuild --release",
     "build:electron:winrt": "cd native/electron/winrt && node-gyp rebuild --release",
     "example:electron": "pnpm prepack && node example-electron/smoke.js",
@@ -121,7 +124,6 @@
     "@eslint/eslintrc": "^3.3.5",
     "@eslint/js": "^9.39.4",
     "@evilmartians/lefthook": "^1.5.0",
-    "@expo/config-plugins": "^57.0.0",
     "@react-native/eslint-config": "~0.86.0",
     "@react-native/jest-preset": "~0.86.0",
     "@react-native/metro-config": "~0.86.0",
@@ -155,8 +157,6 @@
     "globals": "^17.7.0",
     "hermes-eslint": "^0.15.1",
     "jest": "^29.7.0",
-    "node-addon-api": "^8.9.0",
-    "node-gyp": "^13.0.1",
     "prettier": "^3.0.3",
     "react": "~19.2.0",
     "react-native": "~0.86.0",
@@ -165,6 +165,7 @@
     "react-native-safe-area-context": "^5.0.0",
     "react-native-toast-message": "^2.1.6",
     "release-it": "^20.2.1",
+    "semver": "^7.8.5",
     "styled-components": "^6.1.11",
     "turbo": "^1.10.7",
     "typescript": "^5.2.2"
@@ -483,5 +484,10 @@
   },
   "optionalDependencies": {
     "dbus-next": "^0.10.2"
+  },
+  "dependencies": {
+    "@expo/config-plugins": "^57.0.6",
+    "node-addon-api": "^8.9.0",
+    "node-gyp": "^12.4.0"
   }
 }

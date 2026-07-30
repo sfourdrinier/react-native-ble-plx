@@ -4,34 +4,66 @@
 
 ## 4.0 status
 
-There is no released 4.0 getting-started integration yet. `unified-ble-manager@4.0.0` is a clean-baseline package with zero consumers; current source examples and legacy API documentation are migration characterization, not installation or API instructions for 4.0.
+`unified-ble-manager@4.0.0-alpha.14` is the current 4.0 alpha package line.
+It is a clean API line: install the package, choose one explicit host entrypoint,
+and build the matching native integration before making a Bluetooth claim. It is
+not a source-compatible rename of the retired 3.x package.
 
 The architecture and implementation sequence are controlled by [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md). Product scope is in [`../ROADMAP.4.0.md`](../ROADMAP.4.0.md), and backend/platform proof is in [`GAPS.4.0.md`](GAPS.4.0.md).
 
-The future public quickstart will be published only after the public contract, host factories, typed capabilities, bytes-only data model, cancellation semantics, examples, packed-artifact tests, and support evidence are complete.
+## Install and select a host
 
-## Current source characterization
+```sh
+pnpm add unified-ble-manager@4.0.0-alpha.14
+```
 
-This repository currently contains inherited 3.x-style React Native, Web, Node, Electron, and Expo material. It may mention `BleManager`, `BlePort`, `PortBleManager`, Base64 values, byte convenience methods, static capability helpers, mock fallbacks, and package aliases. Those descriptions identify audit inputs and proven radio work to carry forward; they do not describe a stable 4.0 API or supported host matrix.
+The root import is host-neutral. Import the selected integration explicitly:
 
-For the current released 3.x line, use the release-specific documentation associated with that published version. Do not install an unreleased 4.0 package name or rely on this branch's transitional code as a migration target.
+- `unified-ble-manager/react-native`
+- `unified-ble-manager/web`
+- `unified-ble-manager/electron/main`
+- `unified-ble-manager/electron/renderer`
+- `unified-ble-manager/node/corebluetooth`
+- `unified-ble-manager/node/winrt`
+- `unified-ble-manager/node/bluez`
 
-## What the eventual 4.0 guide will cover
+React Native applications create one manager with
+`createReactNativeBleManager`, a generated control, a stable client/manager
+identity, and a stable `hostSessionScope`. Web applications create one matched
+manager/chooser session through `createNavigatorWebBleManager`. Electron main
+owns the radio and renderer code uses only the versioned IPC client.
 
-- selecting and constructing an explicit backend through an approved host subpath;
-- inspecting typed capabilities of the instantiated backend;
-- scanning or using a chooser through bounded event streams;
-- connecting, discovering, and operating through generation-bound handles;
-- using `Uint8Array` payloads and explicit codecs when an external Base64 format is needed;
-- passing `AbortSignal` and handling normalized errors;
-- deterministic cleanup and diagnostics;
-- host-specific evidence levels, permission/background limitations, and package requirements.
+All BLE payloads are `Uint8Array`; cancellable operations use `AbortSignal` and
+deadline options. Do not use a legacy constructor, Base64 manager surface,
+public transaction IDs, automatic radio selection, or a fallback backend.
 
-No example becomes a 4.0 tutorial until it runs from a clean checkout against the packed artifact and its claimed backend evidence level.
+## Native and Expo setup
+
+The React Native Expo plugin is configured as `unified-ble-manager` and cannot
+run in Expo Go. Its optional `iosNativeProtocolRestoration` object requires all
+five native identity values: identifier, namespace, epoch, client ID, and
+host-session scope. See [`EXPO_PLUGIN.md`](EXPO_PLUGIN.md) before configuring
+restoration.
+
+The CoreBluetooth package contains build sources and `node-gyp`, but no
+prebuilt addon. Build against the host Node ABI or, for Electron, run the
+Electron-targeted `node-gyp` command with `--target` and Electron headers from
+[`ELECTRON.md`](ELECTRON.md). A Node ABI addon cannot be loaded by Electron.
+
+## Verify the selected host
+
+Run the packed-artifact, platform-native, and physical-device checks appropriate
+to the selected backend. A deterministic scenario or successful native build
+proves package wiring only; it is not live-radio evidence. Inspect the typed
+capabilities of the instantiated backend and retain the evidence limits in the
+product's own release decision.
+
+For an end-to-end React Native manager construction and the supported Expo
+plugin object, use the canonical examples in [`../README.md`](../README.md).
 
 ## Related records
 
 - [`../MIGRATION_4.0.md`](../MIGRATION_4.0.md)
 - [`PLATFORMS.md`](PLATFORMS.md)
-- [`EXPO_PLUGIN.md`](EXPO_PLUGIN.md) — transitional configuration record
+- [`EXPO_PLUGIN.md`](EXPO_PLUGIN.md)
 - [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)

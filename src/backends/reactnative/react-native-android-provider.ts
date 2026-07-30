@@ -13,6 +13,7 @@ import type {
 } from '../../backend-contract/backend'
 import { contractError } from '../../backend-contract/errors'
 import type { AdapterSelection, NativeBackendIdentity, AttachmentRecord } from '../../backend-contract/identity'
+import { UNIFIED_BLE_IMPLEMENTATION_VERSION } from '../../implementation-version'
 import type { NativeAttachmentIdentity, Spec as NativeProtocolControl } from '../../NativeUnifiedBleProtocolControl'
 import {
   negotiateVersion,
@@ -38,7 +39,7 @@ import {
 
 export const REACT_NATIVE_ANDROID_BACKEND_ID = 'unified-ble:react-native-android'
 export const REACT_NATIVE_ANDROID_PLATFORM_ID = 'unified-ble:android-gatt'
-export const REACT_NATIVE_ANDROID_IMPLEMENTATION_VERSION = '4.0.0-alpha.12'
+export const REACT_NATIVE_ANDROID_IMPLEMENTATION_VERSION = UNIFIED_BLE_IMPLEMENTATION_VERSION
 export const REACT_NATIVE_ANDROID_DEFAULT_ADAPTER_NATIVE_ID = 'android-default-adapter'
 
 export const reactNativeAndroidCompatibility: NativeCompatibilityOffer = Object.freeze({

@@ -1,391 +1,104 @@
 <!-- README.md -->
 
-> **4.0 status:** `unified-ble-manager@4.0.0` is a new clean-baseline package with zero consumers, not a released compatibility upgrade. [`docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md) is the only architecture and sequencing authority. The APIs and host material below characterize the inherited 3.x-style source tree; they are not 4.0 installation instructions or promises. See [`ROADMAP.4.0.md`](ROADMAP.4.0.md), [`MIGRATION_4.0.md`](MIGRATION_4.0.md), and [`docs/GAPS.4.0.md`](docs/GAPS.4.0.md).
+# unified-ble-manager
 
-<h1 align="center">
-  <img
-    alt="react-native-ble-plx library logo"
-    src="docs/logo.png"
-    height="300"
-    style="margin-top: 20px; margin-bottom: 20px;"
-  />
-</h1>
+`unified-ble-manager@4.0.0-alpha.14` is the current public 4.0 package for
+explicit, bytes-first Bluetooth Low Energy management across React Native, Web,
+Electron, and Node hosts. It is a clean API line: applications must migrate to
+the v4 host factories and must not expect a legacy constructor, compatibility
+shim, Base64 manager surface, public transaction IDs, or a radio fallback.
 
-> **Fork Notice**: This library is forked from [dotintent/react-native-ble-plx](https://github.com/dotintent/react-native-ble-plx) for Expo SDK 57+ and React Native 0.86+. It is TypeScript-first, uses the RN 0.86 TurboModule/Fabric runtime, and is built for Expo CNG/dev-client apps.
->
-> **Looking for maintainers!** We're looking for volunteers to help maintain this fork. If you're interested, please open an issue or submit a PR.
+The controlling architecture and sequencing record is
+[`docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
+[`MIGRATION_4.0.md`](MIGRATION_4.0.md) is the complete v4 migration guide.
 
-> **Maintainers note**: This repo is managed with `pnpm` (not yarn/npm).
+## Requirements
 
-## About this library
+- React Native 0.86+ and Expo SDK 57+ for the React Native host
+- Node.js 20.19.4+, 22.13.0+, 24.3.0+, or 25+
+- Android min SDK 24 and iOS deployment target 16.4 for React Native native
+  projects
+- A physical-device or host-native validation path for any Bluetooth claim
 
-**Current source record:** the implementation below is inherited 3.x-style material under audit. It must not be read as the 4.0 package identity, API, native protocol, or compatibility promise. The released 4.0 artifact will use the contract and package topology accepted through the controlling plan.
+## Install
 
-It supports:
+Use pnpm:
 
-- Observing the device Bluetooth adapter state
-- Scanning BLE peripherals
-- Connecting to peripherals and discovering services/characteristics
-- Reading, writing, and monitoring characteristics (notifications/indications)
-- Current branch only: legacy Base64 APIs and byte convenience methods under audit for removal/replacement
-- Reading RSSI and negotiating MTU (iOS reports MTU; Android can request — see [PLATFORMS.md](docs/PLATFORMS.md))
-- Background mode on iOS (including optional state restoration)
-- Android background mode via foreground service
-- **Android bonding** via `createBond` / `removeBond` / `bondedDevices` (see [BONDING.md](docs/BONDING.md)); iOS bonding remains OS-driven when a characteristic requires encryption
-- Multi-host entries: React Native, [`/web`](docs/WEB.md), [`/electron`](docs/ELECTRON.md), `/node` — capability matrix in [PLATFORMS.md](docs/PLATFORMS.md)
-- [`ConnectionManager`](docs/CONNECTION_MANAGER.md) retry, timeout, auto-reconnect, and **`attemptConnectOnce`** (host-owned single attempt)
-- [`getRestoredState()`](docs/BACKGROUND.md) late iOS restore handoff plus constructor `restoreStateFunction`
-- Apple TV / tvOS as a BLE central (see [tvOS notes](docs/TVOS.md))
-
-It does NOT support:
-
-- Bluetooth Classic devices
-- Phone-as-peripheral (advertising / GATT server so other phones connect *to* this phone)
-- Programmatic enable/disable of the Android Bluetooth adapter (blocked for normal apps on Android 13+ / target SDK 33+; observe state and prompt the user in system UI)
-- Programmatic iOS bond create/remove (pairing is OS-managed; Android APIs above are the explicit surface)
-- Beacon ranging / iBeacon / Eddystone SDKs (you may still see advertising packets during a normal scan)
-
-## Table of Contents
-
-1. [Compatibility](#compatibility)
-2. [Current Branch Status](#current-branch-status)
-3. [Version History](#version-history)
-4. [Documentation & Support](#documentation--support)
-5. [Configuration & Installation](#configuration--installation)
-6. [iOS BLE State Restoration](#ios-ble-state-restoration-optional)
-7. [Android Background Mode](#android-background-mode)
-8. [Reliability Features](#reliability-features)
-9. [Troubleshooting](#troubleshooting)
-10. [Releasing](#releasing)
-11. [Grok workflows](#grok-workflows-roadmap-40-review)
-12. [Contributions](#contributions)
-
-## Compatibility
-
-> **Note**: This is a fork of `dotintent/react-native-ble-plx`. Any scoped-package or shim material in this repository is transitional source characterization only and is not a 4.0 compatibility commitment.
-
-**Minimum Requirements (4.0 / Expo SDK 57 floor):**
-- React Native **0.86.0+**
-- Expo SDK **57+**
-- Node.js **20.19.4+** (see `package.json` engines)
-- Xcode **16.1+** for plain RN iOS builds (RN 0.86 floor)
-- Xcode **26.4+** when using **Expo SDK 57** / `expo-modules-jsi` (Swift tools 6.2; CI uses **26.6**)
-- Android min SDK **24**, compile/target SDK **36**
-- iOS deployment target **16.4**
-- RN 0.86 TurboModules/Fabric runtime
-
-| React Native | Expo SDK | This Fork |
-| ------------ | -------- | --------- |
-| 0.86.0+      | 57+      | :white_check_mark: |
-| < 0.86       | < 57     | :x: Not supported |
-
-For older React Native versions, use the upstream [dotintent/react-native-ble-plx](https://github.com/dotintent/react-native-ble-plx) library.
-
-## Current Branch Status
-
-- **3.9.2** stable line: gated `ConnectionManager.attemptConnectOnce`, `BleManager.getRestoredState()`, reporting-only iOS restore (D5), **true opt-in** Restoration subspec (`iosEnableRestoration`, [#32](https://github.com/sfourdrinier/react-native-ble-plx/issues/32)), Apple CI composites; iOS podspec no longer uses `-fmodules`/`-fcxx-modules` (fmt link fix, [#31](https://github.com/sfourdrinier/react-native-ble-plx/issues/31)).
-- Requires RN 0.86 / Expo SDK 57 and uses the generated TurboModule spec (`NativeBlePlxSpec`).
-- Android registers through `BaseReactPackage` and depends on `react-android`.
-- The Expo example is CNG-first: `example-expo/android` and `example-expo/ios` are generated, not checked in.
-- The Expo config plugin handles BLE permissions, iOS background modes/restoration, Android foreground service metadata, and native debug flags.
-- Public reliability APIs are consolidated on `ConnectionManager`. Legacy `ConnectionQueue` and `ReconnectionManager` modules are removed (use `ConnectionManager` only).
-- Documentation and support are owned in this repository (`docs/` + GitHub Issues). Full restore recipes: [docs/BACKGROUND.md](docs/BACKGROUND.md).
-- Programmatic Android Bluetooth adapter toggling was removed because it is blocked for normal apps targeting Android 13+.
-
-## Version History
-
-**3.9.2 (This Fork)**
-
-- Fixes iOS link failures when React Native is built from source: removes `-fmodules` / `-fcxx-modules` from the podspec so clang no longer embeds strong `fmt` symbols into `BlePlx.o` ([#31](https://github.com/sfourdrinier/react-native-ble-plx/issues/31)).
-
-**3.9.1 (This Fork)**
-
-- Fixes iOS restoration **true opt-in**: CocoaPods no longer default-links the Restoration subspec; `iosEnableRestoration: false` leaves Restoration out of the binary, and the Expo plugin strips sticky Podfile/plist artifacts on disable ([#32](https://github.com/sfourdrinier/react-native-ble-plx/issues/32)).
-
-**3.9.0 (This Fork)**
-
-- Adds `ConnectionManager.attemptConnectOnce` for host-owned reconnect policy (single attempt; mutually exclusive with auto-reconnect).
-- Adds `BleManager.getRestoredState()` for late iOS restore handoff (buffered first payload alongside `restoreStateFunction`).
-- **Breaking for apps that relied on silent adapter reconnect:** iOS Restoration adapter reports restore only (D5) — no `connectToDevice` inside the adapter. Hosts reconnect via `getRestoredState` + gated/auto recipes in `docs/BACKGROUND.md`.
-
-**3.8.4 (This Fork)**
-
-- Publishes from GitHub Actions with npm Trusted Publishing (OIDC) and provenance attestations (tag `vX.Y.Z` triggers CI publish).
-
-**3.8.3 (This Fork)**
-
-- Publishes the roadmap referenced by the README and fork documentation.
-- Aligns the CocoaPods source tag with the `v3.8.3` GitHub release tag.
-
-**3.8.2 (This Fork)**
-
-- Fixes the React Native 0.86 TurboModule bridge so non-enumerable native BLE methods, including `createClient`, remain callable at runtime.
-
-**3.8.0 (This Fork)**
-
-- Modernized for Expo SDK 57 and React Native 0.86.
-- Uses the generated RN 0.86 TurboModule spec.
-- Moves the Expo example to CNG: generated native projects are not checked in.
-- Updates Android defaults to min SDK 24 and compile/target SDK 36.
-- Updates iOS deployment target to 16.4.
-- Removes obsolete programmatic Android Bluetooth adapter toggle APIs.
-- Removes legacy `ConnectionQueue` and `ReconnectionManager` package exports; use `ConnectionManager`.
-
-**3.7.7 (This Fork)**
-
-- Added the unified `ConnectionManager` with retry logic, timeout support, and automatic reconnection.
-- Fixed promise coalescing when multiple callers connect to the same device.
-- Fixed auto-reconnect cleanup, repeated disconnect storms, and cancel/retry races.
-- Fixed Android foreground service null-intent restart handling.
-- Added production-grade error normalization and connection cleanup improvements.
-
-**3.7.6 (This Fork)**
-
-- Refactored iOS BLE restoration to work standalone without external dependencies.
-- Removed the external BleRestoration pod dependency and added a bundled fallback registry.
-- Improved the Expo config plugin to use autolinking config.
-
-**3.7.0 (This Fork)**
-
-- Added Android foreground service support for background BLE operations.
-- Added early reliability helpers for retry and automatic reconnection.
-- Added `BackgroundModeOptions` and `ReconnectionOptions` types.
-- Added the Expo config plugin `androidEnableForegroundService` option.
-
-**3.5.x (This Fork)**
-
-- Converted the fork from Flow to TypeScript.
-- Updated the fork for React Native 0.81.4 and Expo SDK 54.
-- Added optional iOS BLE state restoration support.
-- Fixed TypeScript errors from the Flow-to-TypeScript conversion.
-- Dropped support for React Native versions older than 0.81 and Expo SDK versions older than 54.
-
-**3.2.0 (Upstream)**
-
-- Added Android instance checks before native method calls.
-- Added Android 14 documentation.
-- Changed selected native calls to promises so errors can be reported to JS.
-- Fixed cleanup behavior after the BLE instance is destroyed.
-
-See [CHANGELOG.md](CHANGELOG.md) and [CHANGELOG-pre-3.0.0.md](CHANGELOG-pre-3.0.0.md) for full release history.
-
-## Documentation & Support
-
-This fork is independently maintained. **Documentation and support live in this repository.**
-
-| Doc | Description |
-| --- | ----------- |
-| [Getting started](docs/GETTING_STARTED.md) | BLE basics with this library |
-| [Helpers](docs/HELPERS.md) | Cross-host recipes: wait / find / connect+discover / first notify / try-read |
-| [Fork notes](docs/FORK.md) | What changed vs upstream, floors, and roadmap posture |
-| [Roadmap](ROADMAP.md) | Long-term strategy: reliability, features, native ownership, multiplatform |
-| [Roadmap 4.0](ROADMAP.4.0.md) | Ambitious 4.x charter (alpha, Electron, Web, desktop backends) |
-| [Grok workflows](#grok-workflows-roadmap-40-review) | In-repo multi-agent E2E review (bugs, edge cases, tests, DRY) |
-| [ConnectionManager](docs/CONNECTION_MANAGER.md) | Retry, timeout, auto-reconnect, `attemptConnectOnce` |
-| [Background / iOS restore](docs/BACKGROUND.md) | `getRestoredState`, D5 host reconnect recipes |
-| [Expo config plugin](docs/EXPO_PLUGIN.md) | Plugin options and CNG notes |
-| [tvOS / Apple TV](docs/TVOS.md) | Apple TV support and limits |
-| [Tutorials](docs/TUTORIALS.md) | Extra usage patterns |
-| [Release process](RELEASE.md) | How releases are verified and published |
-| [Changelog](CHANGELOG.md) | Release notes (3.9.x migration and history) |
-
-**Support:** open an issue on [sfourdrinier/react-native-ble-plx](https://github.com/sfourdrinier/react-native-ble-plx/issues).
-
-Historical upstream origin (API concepts may lag this fork): [dotintent/react-native-ble-plx](https://github.com/dotintent/react-native-ble-plx).
-
-## Configuration & Installation
-
-### `unified-ble-manager`
-
-```bash
-pnpm add unified-ble-manager
-# or
-npm install unified-ble-manager
-# or
-npx expo install unified-ble-manager
+```sh
+pnpm add unified-ble-manager@4.0.0-alpha.14
 ```
 
-### Expo SDK 57+
+The neutral root entrypoint does not select a platform or radio. Import the
+explicit host subpath that owns the integration:
 
-> This package cannot be used in the "Expo Go" app because [it requires custom native code](https://docs.expo.io/workflow/customizing/).
-> First install `unified-ble-manager`, then add the [config plugin](https://docs.expo.io/guides/config-plugins/) to the [`plugins`](https://docs.expo.io/versions/latest/config/app/#plugins) array of your `app.json` or `app.config.js`:
+- `unified-ble-manager/react-native`
+- `unified-ble-manager/web`
+- `unified-ble-manager/electron/main`
+- `unified-ble-manager/electron/renderer`
+- `unified-ble-manager/node/corebluetooth`
+- `unified-ble-manager/node/winrt`
+- `unified-ble-manager/node/bluez`
 
-```json
-{
-  "expo": {
-    "plugins": ["unified-ble-manager"]
-  }
-}
-```
+## React Native construction
 
-Then build with native modules (e.g. `npx expo prebuild`) and install on a device with `npx expo run:android` / `npx expo run:ios`.
-
-You can find more details in the ["Adding custom native code"](https://docs.expo.io/workflow/customizing/) guide and [docs/EXPO_PLUGIN.md](docs/EXPO_PLUGIN.md).
-
-The `example-expo` app uses Expo Continuous Native Generation (CNG): its `android/` and `ios/` projects are intentionally not checked in. Regenerate native projects from `app.json` with `npx expo prebuild --clean` or use `npx expo run:android` / `npx expo run:ios`, which prebuild as needed.
-
-## API
-
-The plugin provides props for extra customization. Every time you change the props or plugins, you'll need to rebuild (and `prebuild`) the native app. If no extra properties are added, defaults will be used.
-
-- `debug` (_boolean_): Enable debug logging for the Expo config plugin. You can also set `BLEPLX_PLUGIN_DEBUG=1` (or `true`/`yes`) in your environment to enable logs without changing config. Default `false`.
-- When enabled, this also stamps a runtime-native flag (`BlePlxDebugLogging`) into iOS `Info.plist` and Android `AndroidManifest.xml` metadata so native debug logs can be gated consistently across platforms.
-- `isBackgroundEnabled` (_boolean_): Enable background BLE support on Android. Adds `<uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>` to the `AndroidManifest.xml`. Default `false`.
-- `neverForLocation` (_boolean_): Set to true only if you can strongly assert that your app never derives physical location from Bluetooth scan results. The location permission will be still required on older Android devices. Note, that some BLE beacons are filtered from the scan results. Android SDK 31+. Default `false`. _WARNING: This parameter is experimental and BLE might not work. Make sure to test before releasing to production._
-- `modes` (_string[]_): Adds iOS `UIBackgroundModes` to the `Info.plist`. Options are: `peripheral`, and `central`. Defaults to undefined.
-- `bluetoothAlwaysPermission` (_string | false_): Sets the iOS `NSBluetoothAlwaysUsageDescription` permission message to the `Info.plist`. Setting `false` will skip adding the permission. Defaults to `Allow $(PRODUCT_NAME) to connect to bluetooth devices`.
-- `iosEnableRestoration` (_boolean_): **True opt-in** for the iOS BLE state restoration subspec (disabled by default; root CocoaPods pod does not default-link subspecs — [#32](https://github.com/sfourdrinier/react-native-ble-plx/issues/32)). When true, injects `unified-ble-manager/Restoration` and writes `BlePlxRestoreIdentifier`. When false, removes those artifacts.
-- `iosRestorationIdentifier` (_string_): Custom CBCentralManager restoration identifier. Written to `Info.plist` as `BlePlxRestoreIdentifier` and passed to `BleManager` for state restoration. Defaults to `com.reactnativebleplx.restore`.
-- `androidEnableForegroundService` (_boolean_): Enable Android foreground service for background BLE operations. Adds necessary permissions (`FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`) and service declaration to `AndroidManifest.xml`. Default `false`.
-
-Expo SDK 57 targets modern iOS versions. The plugin writes `NSBluetoothAlwaysUsageDescription` and does not add the removed `NSBluetoothPeripheralUsageDescription` key.
-
-#### Example
-
-```json
-{
-  "expo": {
-    "plugins": [
-      [
-        "unified-ble-manager",
-        {
-          "isBackgroundEnabled": true,
-          "modes": ["peripheral", "central"],
-          "bluetoothAlwaysPermission": "Allow $(PRODUCT_NAME) to connect to bluetooth devices",
-          "iosEnableRestoration": true,
-          "iosRestorationIdentifier": "com.example.myapp.bleplx",
-          "androidEnableForegroundService": true
-        }
-      ]
-    ]
-  }
-}
-```
-
-### iOS (Manual Setup)
-
-1. Install the package: `pnpm add unified-ble-manager` (or `npm install --save unified-ble-manager`)
-1. Enter `ios` folder and run `pod update`
-1. Add `NSBluetoothAlwaysUsageDescription` in `info.plist` file. (it is a requirement since iOS 13)
-1. If you want to support background mode:
-   - In your application target go to `Capabilities` tab and enable `Uses Bluetooth LE Accessories` in
-     `Background Modes` section.
-   - Pass `restoreStateIdentifier` (and optionally `restoreStateFunction`) to `BleManager`. Prefer **`await manager.getRestoredState()`** for session layers that start after construction — see [docs/BACKGROUND.md](docs/BACKGROUND.md).
-
-#### Optional: iOS BLE State Restoration (Restoration subspec)
-
-- Opt-in via the config plugin: set `iosEnableRestoration: true` and optionally `iosRestorationIdentifier` to a stable string.
-- The plugin writes `BlePlxRestoreIdentifier` into `Info.plist` and injects the `unified-ble-manager/Restoration` subspec into your Podfile.
-- In JS, pass the same identifier to `BleManager`. The adapter **reports** restore only; your app reconnects:
+Create one owning manager for the selected native platform. Keep it in
+application-owned lifecycle state and destroy it before replacing the host
+session or shutting the app down.
 
 ```ts
-const manager = new BleManager({
-  restoreStateIdentifier: 'com.example.myapp.bleplx',
-  // optional constructor callback (can race app boot):
-  restoreStateFunction: (restoredState) => {
-    console.log('restore callback', restoredState?.connectedPeripherals?.length ?? null)
-  },
+import { Platform } from 'react-native'
+import {
+  createReactNativeBleManager,
+  getNativeUnifiedBleProtocolControl
+} from 'unified-ble-manager/react-native'
+
+const manager = await createReactNativeBleManager({
+  platform: Platform.OS === 'ios' ? 'apple' : 'android',
+  control: getNativeUnifiedBleProtocolControl(),
+  now: () => performance.now(),
+  clientId: 'signed-in-user-ble-client',
+  managerId: 'main-mobile-ble-manager',
+  hostSessionScope: 'com.example.app.mobile-ble'
 })
 
-// Later (session / hub init) — preferred handoff:
-const restored = await manager.getRestoredState()
-// then attemptConnectOnce or enableAutoReconnect — docs/BACKGROUND.md
+try {
+  // Create scans, connections, databases, and subscriptions from this manager.
+} finally {
+  await manager.destroy()
+}
 ```
 
-- The Restoration subspec exposes a Swift adapter (`BlePlxRestorationAdapter`) that registers with a host restoration registry when present. It does **not** call `connectToDevice` (D5).
+`hostSessionScope` is a stable host-owned security scope. Do not derive it from
+a render, request, or operation counter: it binds the authenticated native
+restoration adopter to the app host identity, and an empty scope is rejected.
+The manager's asynchronous `destroy()` returns cleanup evidence and must be
+awaited.
 
-### Android (Manual Setup)
+## Bytes and cancellation
 
-1. Install the package: `pnpm add unified-ble-manager` (or `npm install --save unified-ble-manager`)
-1. In top level `build.gradle` make sure that min SDK version is at least 24:
+All public BLE values are `Uint8Array`. Writes accept
+`Readonly<Uint8Array>`; Base64 is available only from the explicit
+`unified-ble-manager/codecs` helpers when an external protocol requires text.
 
-   ```groovy
-   buildscript {
-       ext {
-           ...
-           minSdkVersion = 24
-           ...
-   ```
+Pass an `AbortSignal` to every cancellable operation. The library owns opaque
+backend operation correlation; applications must not invent transaction IDs.
 
-1. In `build.gradle` make sure to add jitpack repository to known repositories:
+```ts
+const abortController = new AbortController()
 
-   ```groovy
-   allprojects {
-       repositories {
-         ...
-         maven { url 'https://www.jitpack.io' }
-       }
-   }
-   ```
+await database.write(characteristicPath, new Uint8Array([0x01]), {
+  mode: 'with-response',
+  signal: abortController.signal,
+  deadline: null
+})
 
-1. In `AndroidManifest.xml`, add Bluetooth permissions and update `<uses-sdk/>`:
+abortController.abort()
+```
 
-   ```xml
-   <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+## Expo plugin
 
-      ...
-
-      <!-- Android >= 12 -->
-      <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-      <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-      <!-- Android < 12 -->
-      <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
-      <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-      <!-- common -->
-      <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-
-      <!-- Add this line if your application always requires BLE. More info can be found on:
-          https://developer.android.com/guide/topics/connectivity/bluetooth-le.html#permissions
-        -->
-      <uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
-
-       ...
-   ```
-
-1. (Optional) In SDK 31+ You can remove `ACCESS_FINE_LOCATION` (or mark it as `android:maxSdkVersion="30"` ) from `AndroidManifest.xml` and add `neverForLocation` flag into `BLUETOOTH_SCAN` permissions which says that you will not use location based on scanning eg:
-
-   ```xml
-    <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Android >= 12 -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <!-- Android < 12 -->
-    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
-
-       ...
-   ```
-
-   With `neverForLocation` flag active, you no longer need to ask for `ACCESS_FINE_LOCATION` in your app
-
-## iOS BLE State Restoration (Optional)
-
-This fork includes **optional** support for iOS BLE state restoration so the OS can wake your app and **report** which peripherals were restored after a background termination. **Reconnect policy is host-owned** (3.9+ / D5): the Restoration adapter does **not** call `connectToDevice`.
-
-Full lifecycle, semantics matrix, and recipes: **[docs/BACKGROUND.md](./docs/BACKGROUND.md)**.
-
-### Why Use State Restoration?
-
-| Scenario | Without Restoration | With Restoration (3.9+) |
-|----------|---------------------|-------------------------|
-| App killed by iOS while connected | Connection lost | OS reports restored peripheral ids; **your app** reconnects if needed |
-| Phone rebooted while wearing sensor | Must open app and reconnect | Same: handoff via `getRestoredState()` / restore callback |
-| Long recording session (hours) | Risk of silent death | Session layer can resume streams after handoff |
-
-### How It Works
-
-1. User connects to a BLE device and starts streaming data
-2. User switches to another app or locks the phone
-3. iOS terminates your app to free memory (not a crash)
-4. Later, the BLE device or system wakes the app with restoration state
-5. Native adapter stores the manager + restore payload (reporting only)
-6. JS: `restoreStateFunction` and/or **`await manager.getRestoredState()`**
-7. **Your code** reconnects if needed (`ConnectionManager.attemptConnectOnce` or explicit auto — see BACKGROUND.md)
-
-Restored ids ≠ ready for GATT: always check `isDeviceConnected` (or reconnect) before discover/monitor.
-
-### Enabling Restoration (Expo)
+Add the package plugin to your Expo config, then regenerate and build the native
+project. It cannot run in Expo Go because the package contains native code.
 
 ```json
 {
@@ -396,8 +109,15 @@ Restored ids ≠ ready for GATT: always check `isDeviceConnected` (or reconnect)
         {
           "isBackgroundEnabled": true,
           "modes": ["central"],
-          "iosEnableRestoration": true,
-          "iosRestorationIdentifier": "com.yourapp.bleplx"
+          "neverForLocation": false,
+          "bluetoothAlwaysPermission": "Allow $(PRODUCT_NAME) to connect to Bluetooth devices",
+          "iosNativeProtocolRestoration": {
+            "identifier": "com.example.app.ble",
+            "namespace": "com.example.app.ble",
+            "epoch": "2026-07-30",
+            "clientId": "signed-in-user-ble-client",
+            "hostSessionScope": "com.example.app.mobile-ble"
+          }
         }
       ]
     ]
@@ -405,471 +125,104 @@ Restored ids ≠ ready for GATT: always check `isDeviceConnected` (or reconnect)
 }
 ```
 
-Then in JavaScript (identifier must match the plugin):
+The supported plugin options are `debug`, `isBackgroundEnabled`,
+`neverForLocation`, `modes`, `bluetoothAlwaysPermission`, and
+`iosNativeProtocolRestoration`. The restoration option is all-or-nothing: its
+five non-empty values configure the CoreBluetooth identifier plus the native
+namespace, epoch, client ID, and host-session scope. The plugin rejects
+unknown option names, type coercion, unsupported modes, duplicate modes, and
+partial restoration objects before it changes a native project.
 
-```typescript
-import { BleManager } from 'unified-ble-manager'
+`isBackgroundEnabled` adds the required Android BLE hardware feature; it does
+not create a foreground service or change manager lifetime. The native protocol
+restoration object writes the complete native identity. It does not create a
+second CoreBluetooth central, restore a connection, reconnect a peripheral, or
+define product restoration policy. Any restoration adoption remains
+manager-owned and must use the same stable `clientId` and stable `hostSessionScope`
+above.
 
-const manager = new BleManager({
-  restoreStateIdentifier: 'com.yourapp.bleplx',
-  restoreStateFunction: restoredState => {
-    // Optional constructor-time callback — may fire before your session layer exists
-    console.log('restore callback', restoredState?.connectedPeripherals?.map(d => d.id))
-  }
-})
+See [`docs/EXPO_PLUGIN.md`](docs/EXPO_PLUGIN.md) for the exact option behavior.
 
-// Prefer late handoff for session/hub init:
-const restored = await manager.getRestoredState()
-// then host policy: attemptConnectOnce / enableAutoReconnect — see docs/BACKGROUND.md
+## Web, Electron, and Node hosts
+
+Web applications create one matched manager/chooser session with
+`createNavigatorWebBleManager` from `unified-ble-manager/web`. Invoke the
+chooser only from a transient user activation, use the selected peer with that
+session's manager, and destroy `session.manager` when the session ends. Web
+Bluetooth does not provide continuous scanning, background execution, or
+process-level restoration.
+
+Electron creates and owns its radio only in the main process through
+`unified-ble-manager/electron/main`; renderers use the narrow, versioned IPC
+client from `unified-ble-manager/electron/renderer`. Select the trusted host
+backend in the main process with
+`createElectronMainCoreBluetoothBackendProvider` on macOS or
+`createElectronMainWinRtBackendProvider` on Windows. The renderer never selects
+the radio or loads a native addon.
+
+Node hosts select `node/corebluetooth`, `node/winrt`, or `node/bluez`
+explicitly. BlueZ remains an optional host dependency and is not loaded by the
+neutral root package.
+
+## Electron native addons
+
+The published package includes the CoreBluetooth and WinRT Node-API build
+sources and declares `node-addon-api` plus `node-gyp` as production dependencies,
+so a packed consumer has the required native build input and tool. The loaders
+use only the direct package-controlled Release or Debug addon locations; they
+fail closed when an artifact is missing or incompatible. They never substitute a
+different loader, Web Bluetooth, Noble, or a simulated radio.
+
+The package publishes the Node-API sources and the `node-gyp` build tool, not a
+prebuilt `.node` file. Build the addon from the installed package for the ABI
+that will load it. For host Node on macOS:
+
+```sh
+pnpm --dir node_modules/unified-ble-manager exec node-gyp rebuild --release --directory native/electron/corebluetooth
 ```
 
-### Enabling Restoration (Manual / Non-Expo)
+For Electron, use the exact target Electron release and its headers; a Node ABI
+build is not Electron-compatible:
 
-1. Add the Restoration subspec to your Podfile:
-   ```ruby
-   pod 'unified-ble-manager/Restoration', :path => '../node_modules/unified-ble-manager'
-   ```
-
-2. Add to your `Info.plist`:
-   ```xml
-   <key>BlePlxRestoreIdentifier</key>
-   <string>com.yourapp.bleplx</string>
-   ```
-
-3. Enable background modes in Xcode: `Capabilities` → `Background Modes` → `Uses Bluetooth LE accessories`
-
-### Not Using Restoration?
-
-**No action needed on 3.9.1+** if you leave `iosEnableRestoration` false (default) and do not add a manual `…/Restoration` pod:
-
-- The `Restoration` subspec is **not** linked by default (`default_subspecs = :none` — fixed in [#32](https://github.com/sfourdrinier/react-native-ble-plx/issues/32) / 3.9.1)
-- Native code uses runtime reflection — if restoration classes aren't present, registration is a no-op
-- Without a restore identifier, `getRestoredState()` resolves `null` immediately
-
-**Upgrading from 3.9.0:** if you depended on Restoration without setting the flag (it was accidentally always linked), set `iosEnableRestoration: true` + matching `restoreStateIdentifier` and rebuild native iOS — see CHANGELOG Migration 3.9.0 → 3.9.1.
-
-### Multi-Adapter Support (Advanced)
-
-For apps using multiple BLE SDKs (e.g., Polar SDK + generic BLE-PLX), you can provide your own `BleRestorationRegistry` implementation with device-to-adapter routing. The optional **Restoration subspec** uses reflection to find registries when opted in (`iosEnableRestoration: true` / `unified-ble-manager/Restoration`):
-
-1. **Bundled early-wake**: With Restoration subspec + `BlePlxRestoreIdentifier` in Info.plist, `BlePlxBundledRestorationRegistry` creates a `CBCentralManager` early and forwards `willRestoreState` → `dispatchRestoration` → `handleRestored` (standalone D5 report path). Without that plist key, early central is not created — use Owned `createClient` restore + synthetic cold-start `RestoreStateEvent` null (see [docs/BACKGROUND.md](docs/BACKGROUND.md)).
-2. **Custom registry**: If you provide a class named `BleRestorationRegistry`, it takes priority when the subspec is present
-
-```swift
-// Your custom BleRestorationRegistry implementation
-@objc(BleRestorationRegistry)
-public final class BleRestorationRegistry: NSObject {
-  @objc public static let shared = BleRestorationRegistry()
-
-  @objc(registerAdapter:)
-  public func registerAdapter(_ cls: AnyClass) { /* ... */ }
-
-  @objc(registerDevice:forAdapter:)
-  public func registerDevice(_ deviceId: String, for cls: AnyClass) { /* ... */ }
-}
+```sh
+ELECTRON_VERSION="$(node -p \"require('electron/package.json').version\")"
+pnpm --dir node_modules/unified-ble-manager exec node-gyp rebuild --release --directory native/electron/corebluetooth --target="$ELECTRON_VERSION" --dist-url=https://electronjs.org/headers
 ```
 
-When iOS restores the app, each device can be **routed** to the appropriate SDK registry. **Reconnect still belongs to each SDK’s host policy** (this library does not reconnect under you).
+Windows WinRT requires its matching Windows toolchain and Electron/Node ABI
+build. Rebuild whenever the target runtime, ABI, architecture, or package
+version changes.
 
-## Android Background Mode
+See [`docs/ELECTRON.md`](docs/ELECTRON.md) for the IPC boundary and
+host-integration requirements. A native build or deterministic smoke check is
+not live-radio validation.
 
-### ⚠️ Android 12+ Requirements (CRITICAL)
+## Verification
 
-**If you're targeting Android 12 (API 31) or higher, you MUST follow these requirements:**
-
-#### 1. Required Permissions in `AndroidManifest.xml`
-
-```xml
-<!-- Android 14+ (API 34+) - Required for foreground service type -->
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-<uses-permission
-  android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"
-  tools:targetApi="upside_down_cake" />
-
-<!-- Android 12+ (API 31+) - Required for BLE -->
-<uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-
-<!-- Android < 12 -->
-<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
-<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-
-<!-- Location (required for BLE scanning on all versions) -->
-<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+```sh
+pnpm test:package
+pnpm test:plugin
+pnpm lint
+pnpm prepack
+node scripts/ci/pack-install-smoke.js
 ```
 
-#### 2. Call `enableBackgroundMode()` While App is in Foreground
-
-**Android 12+ restricts starting foreground services from background.** You must call `enableBackgroundMode()` while your app is visible to the user:
-
-```typescript
-// ✅ CORRECT: Call while app is in foreground
-const handleStartRecording = async () => {
-  // User just tapped "Start Recording" button - app is in foreground
-  await bleManager.enableBackgroundMode({
-    notificationTitle: 'Recording Session Active',
-    notificationText: 'Syncing sensor data...'
-  });
-
-  // Now you can safely background the app and BLE will continue
-  await connectAndStartRecording();
-};
-
-// ❌ WRONG: Calling from background task/timer
-setTimeout(async () => {
-  // App may be backgrounded - this will throw on Android 12+
-  await bleManager.enableBackgroundMode({ /* ... */ });
-}, 60000);
-```
-
-**Error if violated:** `IllegalStateException: Cannot start foreground service from background on Android 12+`
-
-#### 3. Service Type Declaration (Expo Plugin Handles This)
-
-If using the Expo config plugin with `androidEnableForegroundService: true`, the service type is configured automatically. For manual setup, ensure your service has:
-
-```xml
-<service
-  android:name="com.sfourdrinier.unifiedblemanager.BlePlxForegroundService"
-  android:enabled="true"
-  android:exported="false"
-  android:foregroundServiceType="connectedDevice"
-  tools:targetApi="q" />
-```
-
-### Platform Compatibility
-
-| Android Version | Min SDK | Target SDK | Requirements |
-|----------------|---------|------------|--------------|
-| Android 14+ (API 34+) | 24 | 36 | `FOREGROUND_SERVICE_CONNECTED_DEVICE` permission + service type |
-| Android 12-13 (API 31-33) | 24 | 31+ | Foreground state check required |
-| Android 8-11 (API 26-30) | 24 | 26+ | Standard foreground service |
-| Android < 8 (API < 26) | 24 | - | No foreground service needed |
-
----
-
-### Basic Usage
-
-Android requires a foreground service to keep BLE operations alive when the app is in the background. This fork adds built-in support for this.
-
-### Enabling via Expo Config Plugin
-
-```json
-{
-  "expo": {
-    "plugins": [
-      [
-        "unified-ble-manager",
-        {
-          "isBackgroundEnabled": true,
-          "androidEnableForegroundService": true
-        }
-      ]
-    ]
-  }
-}
-```
-
-### Using in JavaScript
-
-```typescript
-import { BleManager } from 'unified-ble-manager';
-
-const manager = new BleManager();
-
-// Enable background mode before starting BLE operations
-await manager.enableBackgroundMode({
-  notificationTitle: 'Connected to Heart Rate Monitor',
-  notificationText: 'Syncing health data...'
-});
-
-// ... perform BLE operations ...
-
-// Update the notification while running
-await manager.updateBackgroundNotification({
-  notificationTitle: 'Syncing Data',
-  notificationText: 'Progress: 75%'
-});
-
-// Check if background mode is active
-const isEnabled = await manager.isBackgroundModeEnabled();
-
-// Disable when done
-await manager.disableBackgroundMode();
-```
-
-### Platform Behavior & iOS/Android Parity
-
-| Feature | iOS | Android | Notes |
-|---------|-----|---------|-------|
-| **Background BLE Operations** | ✅ Built-in via UIBackgroundModes | ✅ Foreground Service | Both platforms fully supported |
-| **Configuration** | Info.plist + Expo plugin | Manifest permissions + Expo plugin | Platform-specific setup |
-| **`enableBackgroundMode()` API** | ✅ No-op (graceful) | ✅ Required | Same API, platform-appropriate behavior |
-| **`disableBackgroundMode()` API** | ✅ No-op (graceful) | ✅ Stops service | Same API, platform-appropriate behavior |
-| **`updateBackgroundNotification()` API** | ✅ No-op (graceful) | ✅ Updates notification | iOS doesn't show notification |
-| **`isBackgroundModeEnabled()` API** | ✅ Reads `UIBackgroundModes` for `bluetooth-central` | ✅ Returns true/false | Honest plist check on iOS (R2-F110) |
-| **Connection Management** | ✅ ConnectionManager | ✅ ConnectionManager | **100% API parity** |
-| **Auto-reconnection** | ✅ Full support | ✅ Full support | **100% feature parity** |
-| **Retry Logic** | ✅ Full support | ✅ Full support | **100% feature parity** |
-| **Timeout Support** | ✅ Full support | ✅ Full support | **100% feature parity** |
-
-**Cross-Platform Code Example:**
-```typescript
-// This exact code works on BOTH iOS and Android
-await bleManager.enableBackgroundMode({
-  notificationTitle: 'Recording Active',  // Shown on Android, ignored on iOS
-  notificationText: 'Syncing sensor data'  // Shown on Android, ignored on iOS
-});
-
-// ConnectionManager has 100% API parity between platforms
-const connectionManager = new ConnectionManager(bleManager);
-await connectionManager.connect(deviceId, {
-  maxRetries: 5,
-  timeoutMs: 15000
-});
-```
-
-> **✅ Platform Parity Guarantee**: All ConnectionManager features, retry logic, auto-reconnection, and timeout support work identically on iOS and Android. Only background mode setup differs due to platform requirements.
-
-## Reliability Features
-
-### ConnectionManager (Recommended)
-
-**Unified connection management** with retry logic, timeout support, automatic reconnection, and host-owned gated attempts — all in one manager. Full guide: [docs/CONNECTION_MANAGER.md](docs/CONNECTION_MANAGER.md).
-
-```typescript
-import { BleManager, ConnectionManager } from 'unified-ble-manager';
-
-const bleManager = new BleManager();
-const connectionManager = new ConnectionManager(bleManager);
-
-// Connect with retry logic and timeout
-const device = await connectionManager.connect('AA:BB:CC:DD:EE:FF', {
-  maxRetries: 5,
-  initialDelayMs: 1000,
-  timeoutMs: 15000,  // Connection timeout
-  backoffMultiplier: 2
-});
-
-// Host-owned single attempt (3.9+): no multi-retry / no auto re-arm for this call
-// await connectionManager.attemptConnectOnce(deviceId, { timeoutMs: 15000 });
-
-// Enable auto-reconnect for a device
-connectionManager.enableAutoReconnect('AA:BB:CC:DD:EE:FF', {
-  maxRetries: 10,
-  initialDelayMs: 2000,
-  timeoutMs: 15000
-}, {
-  onConnect: (device) => console.log('Connected!', device.id),
-  onDisconnect: (deviceId, error) => console.log('Disconnected', deviceId),
-  onConnectFailed: (deviceId, error) => console.log('Failed', deviceId, error)
-});
-
-// Set global callbacks for all devices
-connectionManager.setGlobalCallbacks({
-  onConnect: (device) => console.log('Any device connected:', device.id),
-  onDisconnect: (deviceId) => console.log('Any device disconnected:', deviceId),
-  onConnecting: (deviceId, attempt, max) => {
-    console.log(`Connecting ${deviceId}: attempt ${attempt}/${max}`);
-  }
-});
-
-// Check status
-console.log('Is connecting:', connectionManager.isConnecting('AA:BB:CC:DD:EE:FF'));
-console.log('Auto-reconnect enabled:', connectionManager.isAutoReconnectEnabled('AA:BB:CC:DD:EE:FF'));
-console.log('Active connections:', connectionManager.activeCount);
-
-// Cancel a connection
-connectionManager.cancel('AA:BB:CC:DD:EE:FF');
-
-// Disable auto-reconnect
-connectionManager.disableAutoReconnect('AA:BB:CC:DD:EE:FF');
-```
-
-**Key Features:**
-- ✅ Single state machine per device (no competing retry engines)
-- ✅ Concurrent connections to different devices
-- ✅ Configurable connection timeout (prevents hangs)
-- ✅ Exponential backoff retry logic
-- ✅ Automatic reconnection on unexpected disconnects (after a successful link)
-- ✅ **`attemptConnectOnce`** for host-owned reconnect policy (3.9+)
-- ✅ Comprehensive event callbacks (onConnect, onDisconnect, onConnecting, onConnectFailed)
-- ✅ Clean cancellation and lifecycle management
-
----
-
-### Migration Guide: Use ConnectionManager
-
-Older versions exposed separate queue and reconnection helpers. Modern versions expose one supported reliability API: `ConnectionManager`.
-
-```typescript
-import { BleManager, ConnectionManager } from 'unified-ble-manager';
-
-const bleManager = new BleManager();
-const connectionManager = new ConnectionManager(bleManager);
-
-// Connect with retry AND enable auto-reconnect in one step
-connectionManager.enableAutoReconnect(deviceId, {
-  maxRetries: 10,
-  initialDelayMs: 2000,
-  timeoutMs: 15000
-}, {
-  onConnect: (device) => console.log('Connected'),  // Fires on initial connect AND reconnects
-  onDisconnect: (deviceId, error) => console.log('Disconnected'),
-  onConnectFailed: (deviceId, error) => console.log('Failed')
-});
-
-// Initial connection (auto-reconnect handles future disconnects)
-const device = await connectionManager.connect(deviceId, {
-  maxRetries: 5,
-  timeoutMs: 15000
-});
-```
-
-### Combining Features for Reliable Background Sync
-
-Use `ConnectionManager` with background mode for reliable, long-running connections:
-
-```typescript
-import {
-  BleManager,
-  ConnectionManager
-} from 'unified-ble-manager';
-
-const bleManager = new BleManager();
-const connectionManager = new ConnectionManager(bleManager);
-
-async function startReliableSync(deviceId: string) {
-  // 1. Enable background mode (Android)
-  await bleManager.enableBackgroundMode({
-    notificationTitle: 'Syncing Data',
-    notificationText: 'Connected to device'
-  });
-
-  // 2. Connect with retry logic and auto-reconnect
-  connectionManager.enableAutoReconnect(deviceId, {
-    maxRetries: 10,
-    initialDelayMs: 2000,
-    timeoutMs: 15000
-  }, {
-    onConnect: async (device) => {
-      // Start or resume data sync when connected
-      await startDataSync(device);
-    },
-    onDisconnect: (deviceId, error) => {
-      console.log('Device disconnected, will auto-reconnect:', deviceId);
-    },
-    onConnectFailed: (deviceId, error) => {
-      console.error('Failed to reconnect after all retries:', deviceId, error);
-    }
-  });
-
-  // 3. Initial connection
-  const device = await connectionManager.connect(deviceId, {
-    maxRetries: 5,
-    initialDelayMs: 1000,
-    timeoutMs: 15000
-  });
-
-  // Auto-reconnect is now active and will handle disconnects automatically
-}
-
-```
-
-## Troubleshooting
-
-## Releasing
-
-Read [RELEASE.md](RELEASE.md) before preparing or publishing a release. It is the authoritative procedure for this fork: shared release gate, preferred CI publish (OIDC + provenance + GitHub Release), and optional laptop npm/`gh release` path.
-
-Keep `RELEASE.md` updated whenever the release gate, package contents, or publishing process changes.
-
-## Grok workflows (ROADMAP 4.0 review)
-
-This repo ships **project Grok Build workflows** under [`.grok/workflows/`](.grok/workflows/) so maintainers can run the same multi-agent reviews from any checkout (not only personal `~/.grok/workflows/`).
-
-### `roadmap-4-e2e-review`
-
-End-to-end review grounded in **[ROADMAP.4.0.md](ROADMAP.4.0.md)** and **[docs/GAPS.4.0.md](docs/GAPS.4.0.md)**. It hunts **bugs, edge cases, test gaps, DRY opportunities, compat risks, docs drift, security/perf nits**, across:
-
-| Surface lanes (parallel) | Also covered |
-| ------------------------ | ------------ |
-| TS core (`BleManager`, ports, queues, `supports`) | Dual Base64 / bytes path |
-| Discovery + SIG profiles | Examples: shared UI, web, Electron, Expo |
-| Android + iOS owned native | Electron CoreBluetooth N-API + main-process rule |
-| Web host | CI / package / plugin floors |
-| Tests + docs/GAPS honesty | Security / performance |
-
-**Findings are real only — not a quota.** Each of 12 lanes may report **at most 10** issues (anti-flood **ceiling**). Agents must **not pad** to 10; `[]` means the lane looked clean. If many lanes hit 10, that can mean **under-reporting** (overflow) — re-run those lanes after fixes.
-
-**Default `max_verify` is 120** so *every* filed finding (critical → nit) can get an adversarial skeptic when budget allows — not “only the top 8 highs.” Fail-closed.  
-**Budget for full pass:** ~**160** agents (1 ground + 12 lanes + up to 120 verifyifiers + 1 report).
-
-#### How to run (Grok Build / TUI)
-
-```text
-# Full tree — skeptic-verify every filed finding (recommended)
-/workflow roadmap-4-e2e-review {"focus":"all","max_verify":120}
-
-# Focus one surface (after a cap-full lane warning)
-/workflow roadmap-4-e2e-review {"focus":"android","max_verify":40}
-```
-
-Pass **`agent_budget: 160`** for full verify-all. Watch **`/workflows`**. Report: `roadmap-4-e2e-review.md`.
-
-**Loop:** fix confirmed findings → re-run review until raw count drops and few/no lanes hit the 10-cap.
-
-#### Args
-
-| Arg | Default | Meaning |
-| --- | ------- | ------- |
-| `focus` | `"all"` | `"all"`, a lane id, or a path fragment |
-| `max_verify` | `120` | Max findings to skeptic-verify (1–120). Default = verify **all filed** findings when ≤120 |
-| `since` | _(omit)_ | Git ref/commit for optional `git_diff_since` context |
-
-#### When to use
-
-- Before a **4.0** milestone or large multi-host / native / profile change
-- After merging parallel workstreams that may leave DRY or test holes
-- Anytime you want a structured, charter-aligned bug hunt with proposed fixes
-
-Script source of truth: [`.grok/workflows/roadmap-4-e2e-review.rhai`](.grok/workflows/roadmap-4-e2e-review.rhai).
-
-### `roadmap-4-fix-findings`
-
-Applies and **verifies** open items from the E2E review backlog ([`docs/review/findings-4.0.json`](docs/review/findings-4.0.json), tracker [`docs/FIX_TRACKER.4.0.md`](docs/FIX_TRACKER.4.0.md)).
-
-| Phase | Agents | Mode |
-| ----- | ------ | ---- |
-| Ingest / plan | 1 | read-only — cluster by non-overlapping path areas |
-| Fix | ≤10 parallel | **read-write** — one fixer per area (android, ios, src-core, …) |
-| Verify | ≤10 parallel | **execute** — inspect diffs + narrow `pnpm`/jest; **fail-closed** |
-| Track | 1 | read-write — update tracker + run report |
-
-**Design budget: 64 agents** (full backlog ≈ 1 plan + ≤12 fix + ≤12 verify + 1 track ≈ **26**). Always launch with **`agent_budget: 64`**.
-
-```text
-# Fix ALL open findings (default)
-/workflow roadmap-4-fix-findings {"severities":"all","max_batches":12,"max_findings":120}
-
-# Specific IDs after a partial run
-/workflow roadmap-4-fix-findings {"only_ids":"F001,F002,F005","max_batches":3}
-```
-
-Watch **`/workflows`**. Report: scratch `roadmap-4-fix-findings.md`. Re-run until the tracker is green.
-
-#### Args
-
-| Arg | Default | Meaning |
-| --- | ------- | ------- |
-| `findings_path` | `docs/review/findings-4.0.json` | Backlog JSON (`id`, `severity`, `file`, `issue`, `proposed_fix`, `status`) |
-| `severities` | `"all"` | `"all"` or comma list: `critical,high,medium,low,nit` |
-| `max_batches` | `12` | Parallel fix areas (1–12) |
-| `max_findings` | `120` | Cap findings attempted this run (1–120; full backlog) |
-| `only_ids` | _(omit)_ | Comma list e.g. `F001,F019` |
-
-Script: [`.grok/workflows/roadmap-4-fix-findings.rhai`](.grok/workflows/roadmap-4-fix-findings.rhai).
-
-## Contributions
-
-- Special thanks to @EvanBacon for supporting the expo config plugin.
+The packed-consumer smoke verifies the published artifact, public host
+entrypoints, TypeScript consumer imports, Electron native build dependency
+closure, and the authenticated Electron router/client deterministic L1 journey.
+It does not replace physical-device validation.
+
+## Historical material
+
+Historical pre-4.0 release notes remain in [`CHANGELOG.md`](CHANGELOG.md) and
+older source records remain in the repository for audit only. They are not
+installation, plugin, native, lifecycle, or migration instructions for the
+current package.
+
+## Contributing
+
+Use pnpm and run the verification commands above before proposing a change. Do
+not add compatibility shims, deprecated APIs, alternate native loaders, or
+silent platform fallbacks. See [`MIGRATION_4.0.md`](MIGRATION_4.0.md),
+[`ROADMAP.4.0.md`](ROADMAP.4.0.md), and
+[`docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).

@@ -2,6 +2,7 @@
 
 import { contractError } from '../../backend-contract/errors'
 import type { AdapterDescriptor, BackendProvider, HostNeutralBackendIdentity } from '../../backend-contract/identity'
+import { UNIFIED_BLE_IMPLEMENTATION_VERSION } from '../../implementation-version'
 import {
   monotonicTimestamp,
   opaqueId,
@@ -20,7 +21,7 @@ import { BluezObjectStore } from './bluez-object-store'
 
 export const BLUEZ_BACKEND_ID = 'unified-ble:bluez-dbus'
 export const BLUEZ_PLATFORM_ID = 'unified-ble:linux-bluez'
-export const BLUEZ_IMPLEMENTATION_VERSION = '4.0.0-alpha.12'
+export const BLUEZ_IMPLEMENTATION_VERSION = UNIFIED_BLE_IMPLEMENTATION_VERSION
 
 export const bluezCompatibility: BackendCompatibilityOffer = Object.freeze({
   backendContract: versionRange(version('backend-contract', 1), version('backend-contract', 1)),

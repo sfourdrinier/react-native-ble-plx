@@ -61,6 +61,7 @@ class NativeProtocolControlRuntime final {
   bool releaseBinary(const OwnedBinaryReference& reference);
   std::size_t retainedBinaryBytes() const;
   std::size_t retainedBinaryPayloads() const;
+  void rollbackRestorationBootstrap(const NativeAttachmentIdentity& attachment) noexcept;
   void close(const NativeAttachmentIdentity& attachment);
   bool open() const;
 

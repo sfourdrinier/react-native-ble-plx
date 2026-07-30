@@ -2,6 +2,7 @@
 
 #include "../include/NativeProtocolV1Codec.hpp"
 #include "../include/NativeProtocolControlRuntime.hpp"
+#include "../include/NativeRestorationConfiguration.hpp"
 #include "../include/NativeProtocolV1Registry.hpp"
 #include "../include/OwnedBinaryPayloadStore.hpp"
 
@@ -510,6 +511,121 @@ void testCancellationAndRestorationExactlyOnce() {
   });
 }
 
+void testNativeRestorationConfigurationRequiresEveryIdentityField() {
+  const auto configured = [](const std::string& restoreIdentifier,
+                             const std::string& namespaceValue,
+                             const std::string& epoch,
+                             const std::string& clientId,
+                             const std::string& hostSessionScope) {
+    return protocol::hasCompleteNativeRestorationConfiguration(
+        restoreIdentifier, namespaceValue, epoch, clientId, hostSessionScope);
+  };
+
+  assert(configured(
+      "com.example.ble",
+      "com.example.restoration",
+      "restoration-epoch-1",
+      "client-1",
+      "host-session-1"));
+  assert(!configured(
+      "",
+      "com.example.restoration",
+      "restoration-epoch-1",
+      "client-1",
+      "host-session-1"));
+  assert(!configured("com.example.ble", "", "restoration-epoch-1", "client-1", "host-session-1"));
+  assert(!configured("com.example.ble", "com.example.restoration", "", "client-1", "host-session-1"));
+  assert(!configured(
+      "com.example.ble",
+      "com.example.restoration",
+      "restoration-epoch-1",
+      "",
+      "host-session-1"));
+  assert(!configured(
+      "com.example.ble",
+      "com.example.restoration",
+      "restoration-epoch-1",
+      "client-1",
+      ""));
+}
+
+void testRestorationBootstrapRollbackSupportsHandshakeRetry() {
+  const protocol::NativeAttachmentIdentity identity{
+      .attachmentId = "attachment-rollback",
+      .backendInstanceId = "backend-rollback",
+      .backendGeneration = "backend-generation-rollback",
+      .adapterId = "adapter-rollback",
+      .adapterGeneration = "adapter-generation-rollback",
+  };
+  const protocol::NativeRestorationJournalAuthority authority{
+      .namespaceValue = "approved.restoration.rollback",
+      .attachment = identity,
+      .adoptionEpoch = "restoration-epoch-rollback",
+      .authorizedClientId = "client-rollback",
+      .authorizedHostSessionScope = "host-session-rollback",
+      .nativeProtocol = {.minimum = 1U, .maximum = 1U},
+  };
+  protocol::NativeProtocolControlRuntime runtime;
+  const auto handshake = [&] {
+    static_cast<void>(runtime.handshake(
+        identity,
+        "owner-rollback",
+        {1U, 1U},
+        {1U, 1U},
+        {1U, 1U},
+        {1U, 1U},
+        {1U, 1U},
+        {1U, 1U}));
+  };
+
+  handshake();
+  auto firstRecord = restorationRecord();
+  const auto rollbackAttachment = std::make_shared<protocol::ProtocolRecord>(protocol::ProtocolRecord{
+      .kind = protocol::RecordKind::attachment,
+      .fields = {
+          field(1U, identity.attachmentId),
+          field(2U, identity.backendInstanceId),
+          field(3U, identity.backendGeneration),
+          field(4U, identity.adapterId),
+          field(5U, identity.adapterGeneration),
+      },
+  });
+  firstRecord.fields[1U] = field(2U, authority.namespaceValue);
+  firstRecord.fields[2U] = field(3U, rollbackAttachment);
+  firstRecord.fields[4U] = field(5U, authority.adoptionEpoch);
+  firstRecord.fields[7U] = field(8U, connection(rollbackAttachment));
+  runtime.appendRestorationRecord(authority, firstRecord);
+  expectFailure(protocol::ProtocolFailure::stalePath, [&] {
+    runtime.appendRestorationRecord(authority, firstRecord);
+  });
+  assert(runtime.open());
+
+  runtime.rollbackRestorationBootstrap(identity);
+  runtime.rollbackRestorationBootstrap(identity);
+  assert(!runtime.open());
+  assert(runtime.retainedBinaryPayloads() == 0U);
+  assert(runtime.retainedBinaryBytes() == 0U);
+
+  handshake();
+  runtime.appendRestorationRecord(authority, std::move(firstRecord));
+  const auto receipt = runtime.adopt({
+      .namespaceValue = authority.namespaceValue,
+      .attachmentId = identity.attachmentId,
+      .expectedBackendInstanceId = identity.backendInstanceId,
+      .expectedEpoch = authority.adoptionEpoch,
+      .nativeProtocolMinimum = 1U,
+      .nativeProtocolMaximum = 1U,
+      .clientId = authority.authorizedClientId,
+      .hostSessionScope = authority.authorizedHostSessionScope,
+  });
+  assert(receipt.outcome == protocol::NativeRestorationOutcome::adopted);
+  assert(receipt.records.size() == 1U);
+  runtime.close(identity);
+  assert(!runtime.open());
+  assert(runtime.retainedBinaryPayloads() == 0U);
+  assert(runtime.retainedBinaryBytes() == 0U);
+}
+
 void testOperationCapacityRejectsBeforeCommandBinaryCopyAndCallerRelease() {
   const protocol::NativeAttachmentIdentity identity{
       .attachmentId = "attachment-1",
@@ -718,6 +834,8 @@ int main() {
   testBinaryOwnership();
   testTypedAdapterStateEvent();
   testCancellationAndRestorationExactlyOnce();
+  testNativeRestorationConfigurationRequiresEveryIdentityField();
+  testRestorationBootstrapRollbackSupportsHandshakeRetry();
   testOperationCapacityRejectsBeforeCommandBinaryCopyAndCallerRelease();
   testRejectedAndroidDispatchReleasesRegisteredCommandBinary();
   testPendingSubscriptionRoutingAndLateOutputRelease();

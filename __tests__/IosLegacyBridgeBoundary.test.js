@@ -69,10 +69,11 @@ describe('iOS Native Protocol 4.0 source boundary', () => {
     expect(podspec).not.toMatch(/BlePlx(?:TurboModule|RuntimeDispatch|Restoration|RadioQueue|DebugLogging)/)
     expect(podspec).not.toContain('MultiplatformBleAdapter')
     expect(podspec).not.toContain('subspec "Restoration"')
-    expect(expoPlugin).toContain('iosNativeProtocolRestorationIdentifier')
+    expect(expoPlugin).toContain('iosNativeProtocolRestoration')
     expect(expoPlugin).toContain('UnifiedBleProtocolRestoreIdentifier')
     expect(expoPlugin).not.toContain('withBLERestorationPodfile')
     expect(expoPlugin).not.toContain('iosEnableRestoration')
+    expect(expoPlugin).not.toContain('iosNativeProtocolRestorationIdentifier')
     expect(packageJson.codegenConfig.ios.modulesProvider).toEqual({
       UnifiedBleProtocolControl: 'UnifiedBleProtocolControl'
     })

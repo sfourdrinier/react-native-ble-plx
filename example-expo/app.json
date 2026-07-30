@@ -22,8 +22,7 @@
         "unified-ble-manager",
         {
           "isBackgroundEnabled": true,
-          "modes": ["central"],
-          "iosNativeProtocolRestorationIdentifier": "com.sfourdrinier.bleplxexample.restore"
+          "modes": ["central"]
         }
       ]
     ],

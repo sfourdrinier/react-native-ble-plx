@@ -1,6 +1,7 @@
 // src/testing/deterministic/deterministic-test-backend-lifecycle-helpers.ts
 
 import { BackendContractError, contractError } from '../../backend-contract/errors'
+import { UNIFIED_BLE_IMPLEMENTATION_VERSION } from '../../implementation-version'
 import type { CleanupRecord } from '../../backend-contract/errors'
 import type { ResourceCounters } from '../../backend-contract/backend'
 import { resourceCount } from '../../backend-contract/primitives'
@@ -249,7 +250,7 @@ export function deterministicBackendIdentity(attachment: AttachmentRecord<string
     registeredPlatformId: 'unified-ble:test',
     attachment,
     versions: negotiateCoreVersions(compatibility, compatibility),
-    runtime: { hostKind: 'test', implementationVersion: '4.0.0-alpha.12', diagnostics: {} }
+    runtime: { hostKind: 'test', implementationVersion: UNIFIED_BLE_IMPLEMENTATION_VERSION, diagnostics: {} }
   }
 }
 

@@ -3,6 +3,7 @@
 #include "../include/NativeProtocolControlRuntime.hpp"
 
 #include <algorithm>
+#include <exception>
 #include <limits>
 #include <utility>
 
@@ -509,6 +510,17 @@ std::size_t NativeProtocolControlRuntime::retainedBinaryPayloads() const {
     return 0U;
   }
   return binaryTransport_->retainedPayloads();
+}
+
+void NativeProtocolControlRuntime::rollbackRestorationBootstrap(
+    const NativeAttachmentIdentity& attachment) noexcept {
+  if (!operations_) {
+    return;
+  }
+  if (!sameAttachment(attachment_, attachment)) {
+    std::terminate();
+  }
+  close(attachment);
 }
 
 void NativeProtocolControlRuntime::close(const NativeAttachmentIdentity& attachment) {

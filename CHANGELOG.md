@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.14] - 2026-07-30
+
+### Changed
+
+- Made `node-addon-api` and `node-gyp` production dependencies and verified that packed consumers receive the CoreBluetooth Node-API sources and build tooling.
+- Removed the CoreBluetooth addon's undeclared fallback loader; both Electron native loaders now use only package-controlled addon paths and fail closed.
+- Replaced stale public installation, plugin, native, construction, lifecycle, byte, and cancellation guidance with the current v4 host-factory contract, including stable `hostSessionScope` ownership.
+- Replaced the partial Expo restoration identifier with a complete, validated native restoration identity object; the plugin rejects partial, retired, and type-coerced configuration without aliases.
+
 ## [4.0.0-alpha.13] - 2026-07-30
 
 ### Added

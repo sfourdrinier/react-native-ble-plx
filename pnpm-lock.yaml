@@ -10,6 +10,16 @@ overrides:
 importers:
 
   .:
+    dependencies:
+      '@expo/config-plugins':
+        specifier: ^57.0.6
+        version: 57.0.6(typescript@5.8.3)
+      node-addon-api:
+        specifier: ^8.9.0
+        version: 8.9.0
+      node-gyp:
+        specifier: ^12.4.0
+        version: 12.4.0
     devDependencies:
       '@babel/cli':
         specifier: ^7.25.9
@@ -32,9 +42,6 @@ importers:
       '@evilmartians/lefthook':
         specifier: ^1.5.0
         version: 1.12.2
-      '@expo/config-plugins':
-        specifier: ^57.0.0
-        version: 57.0.3(typescript@5.8.3)
       '@react-native/eslint-config':
         specifier: ~0.86.0
         version: 0.86.0(eslint@9.39.4(jiti@2.7.0))(jest@29.7.0(@types/node@24.13.3)(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.8.3)))(prettier@3.6.2)(typescript@5.8.3)
@@ -134,12 +141,6 @@ importers:
       jest:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@24.13.3)(ts-node@10.9.2(@types/node@24.13.3)(typescript@5.8.3))
-      node-addon-api:
-        specifier: ^8.9.0
-        version: 8.9.0
-      node-gyp:
-        specifier: ^13.0.1
-        version: 13.0.1
       prettier:
         specifier: ^3.0.3
         version: 3.6.2
@@ -164,6 +165,9 @@ importers:
       release-it:
         specifier: ^20.2.1
         version: 20.2.1(@types/node@24.13.3)
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       styled-components:
         specifier: ^6.1.11
         version: 6.1.19(react-dom@19.1.0(react@19.2.3))(react@19.2.3)
@@ -1703,14 +1707,17 @@ packages:
   '@expo/config-plugins@54.0.2':
     resolution: {integrity: sha512-jD4qxFcURQUVsUFGMcbo63a/AnviK8WUGard+yrdQE3ZrB/aurn68SlApjirQQLEizhjI5Ar2ufqflOBlNpyPg==}
 
-  '@expo/config-plugins@57.0.3':
-    resolution: {integrity: sha512-J3P2T7FoOE9P3TuLcJXwt8jISKRxo7UntTzbJ/Qc5F7QXenNntk/4t1XndVkLucYjpnHArPd9xzDXuxxKEHVbQ==}
+  '@expo/config-plugins@57.0.6':
+    resolution: {integrity: sha512-7CmKrS5Rnu8aSZyNlxH2qzA7Ls1HEa4EQvEVOAkHDKPr1e4Cg/nz7I7dUl09QDTVjMvkKYDH4Th0DuAsgqASaw==}
 
   '@expo/config-types@54.0.8':
     resolution: {integrity: sha512-lyIn/x/Yz0SgHL7IGWtgTLg6TJWC9vL7489++0hzCHZ4iGjVcfZmPTUfiragZ3HycFFj899qN0jlhl49IHa94A==}
 
   '@expo/config-types@57.0.1':
     resolution: {integrity: sha512-fo7d/Ym28uwGzdTV2leEvpsb9t+7i8YHjy471m31+cmDt4BRd/l7e94JHyrXAq4SWOBVus16S0JLqm89SRCCdw==}
+
+  '@expo/config-types@57.0.2':
+    resolution: {integrity: sha512-ewW08OonrcRIsRKIlFvvcmmafE5zemb1ocu3HkNwtVPyRtj2w42pZCAkMIROYpcVBaPnc3mDT9UZDzwXWC3i6g==}
 
   '@expo/config@12.0.10':
     resolution: {integrity: sha512-lJMof5Nqakq1DxGYlghYB/ogSBjmv4Fxn1ovyDmcjlRsQdFCXgu06gEUogkhPtc9wBt9WlTTfqENln5HHyLW6w==}
@@ -1762,6 +1769,9 @@ packages:
   '@expo/json-file@11.0.0':
     resolution: {integrity: sha512-pHJCETqFL5x5BzNV6cEPwjwuECgGmnl0bNmfHIJ6LM1tlh2eVXi5HEdit3zby/JO/B8Otk5cgcqtJXgvvUat3A==}
 
+  '@expo/json-file@11.0.1':
+    resolution: {integrity: sha512-zxHWj4MKKMAL29ZQSY/Fssx4Thluk40JmuGNaeS078wy/NhlFhnVi+rHHunulE3xJAJ0CM73m8VK2+GkF9eRwQ==}
+
   '@expo/local-build-cache-provider@57.0.2':
     resolution: {integrity: sha512-/8/FoYrEBJZPG4wR8kO6REI4VRCPAStD+7wS/Ds6XXddxhmyMP3pvUJz/c3icyAoqpbqeZZkR6E1ptT5Gi5iXg==}
 
@@ -1804,6 +1814,9 @@ packages:
   '@expo/plist@0.8.0':
     resolution: {integrity: sha512-24JlUJI4PwHN4PLydlzFEzCdiqybfaV5t04QBkOg8em3AjvHKbMgBGlKreiuOoc0rNa3DZ21ZqL+xLGMBLQNKQ==}
 
+  '@expo/plist@0.8.1':
+    resolution: {integrity: sha512-3gTReGIUm0oRaMClsAJYxBnVPCl6fVpsl8HS+DTVxDhW4GyVyxg9E/Znm3BvcHtUJ51RJJI14pC1wvrNilCRHw==}
+
   '@expo/prebuild-config@57.0.5':
     resolution: {integrity: sha512-KnKx6Iu4jppbNVtt9yTrN10OVoPZlOYYyLZuarY70u6fgUO9lYKDa06Hxv+PmIwcnygfj2CSBBl5ewBqS2bxtw==}
 
@@ -1811,6 +1824,14 @@ packages:
     resolution: {integrity: sha512-uXen5/4x7j60I5slShgZr5QEtJDBK8homFiNLDnDrNrxZhrRHXASo0H6JArs3/1PDzw1wahzhGWg2WKuYyZd0A==}
     peerDependencies:
       typescript: ^5.0.0 || ^5.0.0-0 || ^6.0.0
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
+  '@expo/require-utils@57.0.4':
+    resolution: {integrity: sha512-e7xbg/9BTQcsZE/oErafZXtI7kh5IgfasLJ97J5sFSzX2cA74pDvdlhW1KHVSaDkQyQv6h1LSLhsY7dEeOk7hw==}
+    peerDependencies:
+      typescript: ^5.0.0 || ^5.0.0-0 || ^6.0.0 || ^7.0.0
     peerDependenciesMeta:
       typescript:
         optional: true
@@ -2668,9 +2689,9 @@ packages:
   abbrev@1.1.1:
     resolution: {integrity: sha512-nne9/IiQ/hzIhY6pdDnbBtz7DjPTKrY00P/zvPSm5pOFkl6xuGrGnXn/VtTNNfNtAfZ9/1RtehkszU9qcTii0Q==}
 
-  abbrev@5.0.0:
-    resolution: {integrity: sha512-/XrFJgzQQQHpti1raDJC6m4ws6aNktmjBlhk8Fdlk7LwCEuDoieEJJY9OFHjfiFJFFRM2tK+Ky/IsfbbmlMu1w==}
-    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
+  abbrev@4.0.0:
+    resolution: {integrity: sha512-a1wflyaL0tHtJSmLSOVybYhy22vRih4eduhhrkcjgrWGnRfrZtovJ2FRjxuTtkkj47O/baf0R86QU5OuYpz8fA==}
+    engines: {node: ^20.17.0 || >=22.9.0}
 
   abort-controller@3.0.0:
     resolution: {integrity: sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==}
@@ -6261,9 +6282,9 @@ packages:
     resolution: {integrity: sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ==}
     engines: {node: '>= 6.13.0'}
 
-  node-gyp@13.0.1:
-    resolution: {integrity: sha512-piOr0S10qy5THB+q5BdqkoOx65XL/tjTMUAit3vciPNp+snTOBnGunWH1Rz7XZUxf2T9uFrfT/Ty4+aC3yPeyg==}
-    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
+  node-gyp@12.4.0:
+    resolution: {integrity: sha512-OMcPNvqTCFUnNaBlmdgq+lfNqY7gTiSmNRDjY3uAXRyudeKZEZxu3CLtjMQrx4zZxCX2b/mpNqTtwuCJgXhHkw==}
+    engines: {node: ^20.17.0 || >=22.9.0}
     hasBin: true
 
   node-gyp@7.1.2:
@@ -6278,14 +6299,14 @@ packages:
     resolution: {integrity: sha512-J6l92tKHX6w8Jy5nO1Vuc01NoIiRGi/d6qBKVxh+IQ8Cr3b6HbVNfKiF8ZpFKufTwpwxMmce2W3iQZ861ZRyTg==}
     engines: {node: '>=18'}
 
-  nopt@10.0.1:
-    resolution: {integrity: sha512-df3sBr/6ax9hSGuC3CspvLlbnX8cP5L5nZwXF8cGN8l0zSWR6BvzmQ6jPUKjvo6+/xdpkNvEcucBNUdBeeV13g==}
-    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
-    hasBin: true
-
   nopt@5.0.0:
     resolution: {integrity: sha512-Tbj67rffqceeLpcRXrT7vKAN8CwfPeIBgM7E6iBkmKLV7bEMwpGgYLGv0jACUsECaa/vuxP0IjEont6umdMgtQ==}
     engines: {node: '>=6'}
+    hasBin: true
+
+  nopt@9.0.0:
+    resolution: {integrity: sha512-Zhq3a+yFKrYwSBluL4H9XP3m3y5uvQkB/09CwDruCiRmR/UJYnn9W4R48ry0uGC70aeTPKLynBtscP9efFFcPw==}
+    engines: {node: ^20.17.0 || >=22.9.0}
     hasBin: true
 
   normalize-package-data@2.5.0:
@@ -6731,9 +6752,9 @@ packages:
     resolution: {integrity: sha512-g8+OnU/L2v+wyiVK+D5fA34J7EH8jZ8DDlvwhRCMxmMj7UCBvxiO1mGeN+36JXIKF4zevU4kRBd8lVgG9vLelA==}
     engines: {node: ^14.17.0 || ^16.13.0 || >=18.0.0}
 
-  proc-log@7.0.0:
-    resolution: {integrity: sha512-FYgfaA69XZ93zaXLoMNQ+ViDXGGBgR8aLh03txzcFhV+9xOXx7+8DLCULrKKpR9+GsH9ZfHm82aSUPpozX0Ztg==}
-    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
+  proc-log@6.1.0:
+    resolution: {integrity: sha512-iG+GYldRf2BQ0UDUAd6JQ/RwzaQy6mXmsk/IzlYyal4A4SNFw54MeH4/tLkF4I5WoWG9SQwuqWzS99jaFQHBuQ==}
+    engines: {node: ^20.17.0 || >=22.9.0}
 
   process-nextick-args@1.0.7:
     resolution: {integrity: sha512-yN0WQmuCX63LP/TMvAg31nvT6m4vDqJEiiv2CAZqWOGNWutc9DfDk1NPYYmKUFmaVM2UwDowH4u5AHWYP/jxKw==}
@@ -8085,13 +8106,13 @@ packages:
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
+  undici@6.28.0:
+    resolution: {integrity: sha512-LIY910g9TI13YS95lrMFrs8Rm/u/irgHeTWoKCoteeJ04CUJ92eEfj0rVn+7VKMPBpUPiUoBKfhNyLI23EE/KA==}
+    engines: {node: '>=18.17'}
+
   undici@7.28.0:
     resolution: {integrity: sha512-cRZYrTDwWznlnRiPjggAGxZXanty6M8RV1ff8Wm4LWXBp7/IG8v5DnOm74DtUBp9OONpK75YlPnIjQqX0dBDtA==}
     engines: {node: '>=20.18.1'}
-
-  undici@8.9.0:
-    resolution: {integrity: sha512-aWZpUj7XoGonMClx4gdDRfgBjqeA+F473aDmROQQbM9n6PRfK/u1q/a0X4wMTgcHfT8H6fpbt98PFuDUwFg2YA==}
-    engines: {node: '>=22.19.0'}
 
   unherit@1.1.3:
     resolution: {integrity: sha512-Ft16BJcnapDKp0+J/rqFC3Rrk6Y/Ng4nzsC028k2jdDII/rdZ7Wd3pPT/6+vIIxRagwRc9K0IUX0Ra4fKvw+WQ==}
@@ -8405,11 +8426,6 @@ packages:
   which@6.0.1:
     resolution: {integrity: sha512-oGLe46MIrCRqX7ytPUf66EAYvdeMIZYn3WaocqqKZAxrBpkqHfL/qvTyJ/bTk5+AqHCjXmrv3CEWgy368zhRUg==}
     engines: {node: ^20.17.0 || >=22.9.0}
-    hasBin: true
-
-  which@7.0.0:
-    resolution: {integrity: sha512-RancgH2dmbLdHl6LRhEqvklWMgl/Hdnun0Y90KhBOLkMefg8Qa7/Zel8Sm+8HEcP6DEjzsWzpkuBQEZok58isA==}
-    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
     hasBin: true
 
   wide-align@1.1.5:
@@ -10809,7 +10825,7 @@ snapshots:
     dependencies:
       '@expo/code-signing-certificates': 0.0.6
       '@expo/config': 57.0.3(typescript@5.8.3)
-      '@expo/config-plugins': 57.0.3(typescript@5.8.3)
+      '@expo/config-plugins': 57.0.6(typescript@5.8.3)
       '@expo/devcert': 1.2.1
       '@expo/env': 2.4.1
       '@expo/image-utils': 0.11.1(typescript@5.8.3)
@@ -10904,12 +10920,12 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@expo/config-plugins@57.0.3(typescript@5.8.3)':
+  '@expo/config-plugins@57.0.6(typescript@5.8.3)':
     dependencies:
-      '@expo/config-types': 57.0.1
-      '@expo/json-file': 11.0.0
-      '@expo/plist': 0.8.0
-      '@expo/require-utils': 57.0.1(typescript@5.8.3)
+      '@expo/config-types': 57.0.2
+      '@expo/json-file': 11.0.1
+      '@expo/plist': 0.8.1
+      '@expo/require-utils': 57.0.4(typescript@5.8.3)
       '@expo/sdk-runtime-versions': 1.0.0
       chalk: 4.1.2
       debug: 4.4.3
@@ -10926,6 +10942,8 @@ snapshots:
   '@expo/config-types@54.0.8': {}
 
   '@expo/config-types@57.0.1': {}
+
+  '@expo/config-types@57.0.2': {}
 
   '@expo/config@12.0.10':
     dependencies:
@@ -10947,7 +10965,7 @@ snapshots:
 
   '@expo/config@57.0.3(typescript@5.8.3)':
     dependencies:
-      '@expo/config-plugins': 57.0.3(typescript@5.8.3)
+      '@expo/config-plugins': 57.0.6(typescript@5.8.3)
       '@expo/config-types': 57.0.1
       '@expo/json-file': 11.0.0
       '@expo/require-utils': 57.0.1(typescript@5.8.3)
@@ -11022,7 +11040,7 @@ snapshots:
 
   '@expo/inline-modules@0.1.2(typescript@5.8.3)':
     dependencies:
-      '@expo/config-plugins': 57.0.3(typescript@5.8.3)
+      '@expo/config-plugins': 57.0.6(typescript@5.8.3)
     transitivePeerDependencies:
       - supports-color
       - typescript
@@ -11033,6 +11051,11 @@ snapshots:
       json5: 2.2.3
 
   '@expo/json-file@11.0.0':
+    dependencies:
+      '@babel/code-frame': 7.29.7
+      json5: 2.2.3
+
+  '@expo/json-file@11.0.1':
     dependencies:
       '@babel/code-frame': 7.29.7
       json5: 2.2.3
@@ -11148,10 +11171,16 @@ snapshots:
       base64-js: 1.5.1
       xmlbuilder: 15.1.1
 
+  '@expo/plist@0.8.1':
+    dependencies:
+      '@xmldom/xmldom': 0.8.10
+      base64-js: 1.5.1
+      xmlbuilder: 15.1.1
+
   '@expo/prebuild-config@57.0.5(typescript@5.8.3)':
     dependencies:
       '@expo/config': 57.0.3(typescript@5.8.3)
-      '@expo/config-plugins': 57.0.3(typescript@5.8.3)
+      '@expo/config-plugins': 57.0.6(typescript@5.8.3)
       '@expo/config-types': 57.0.1
       '@expo/image-utils': 0.11.1(typescript@5.8.3)
       '@expo/json-file': 11.0.0
@@ -11165,6 +11194,16 @@ snapshots:
       - typescript
 
   '@expo/require-utils@57.0.1(typescript@5.8.3)':
+    dependencies:
+      '@babel/code-frame': 7.29.7
+      '@babel/core': 7.29.7
+      '@babel/plugin-transform-modules-commonjs': 7.29.7(@babel/core@7.29.7)
+    optionalDependencies:
+      typescript: 5.8.3
+    transitivePeerDependencies:
+      - supports-color
+
+  '@expo/require-utils@57.0.4(typescript@5.8.3)':
     dependencies:
       '@babel/code-frame': 7.29.7
       '@babel/core': 7.29.7
@@ -12399,7 +12438,7 @@ snapshots:
   abbrev@1.1.1:
     optional: true
 
-  abbrev@5.0.0: {}
+  abbrev@4.0.0: {}
 
   abort-controller@3.0.0:
     dependencies:
@@ -14527,7 +14566,7 @@ snapshots:
       '@babel/runtime': 7.27.6
       '@expo/cli': 57.0.6(@expo/dom-webview@57.0.0)(expo-constants@57.0.3(expo@57.0.4)(react-native@0.86.0(@babel/core@7.28.0)(@react-native/jest-preset@0.86.0(@babel/core@7.28.0)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.28.0))(@types/react@19.2.6)(react@19.2.3)))(expo-font@57.0.0(expo@57.0.4)(react-native@0.86.0(@babel/core@7.28.0)(@react-native/jest-preset@0.86.0(@babel/core@7.28.0)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.28.0))(@types/react@19.2.6)(react@19.2.3))(react@19.2.3))(expo@57.0.4)(react-dom@19.1.0(react@19.2.3))(react-native@0.86.0(@babel/core@7.28.0)(@react-native/jest-preset@0.86.0(@babel/core@7.28.0)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.28.0))(@types/react@19.2.6)(react@19.2.3))(react@19.2.3)(typescript@5.8.3)
       '@expo/config': 57.0.3(typescript@5.8.3)
-      '@expo/config-plugins': 57.0.3(typescript@5.8.3)
+      '@expo/config-plugins': 57.0.6(typescript@5.8.3)
       '@expo/devtools': 57.0.0(react-native@0.86.0(@babel/core@7.28.0)(@react-native/jest-preset@0.86.0(@babel/core@7.28.0)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.28.0))(@types/react@19.2.6)(react@19.2.3))(react@19.2.3)
       '@expo/fingerprint': 0.20.3
       '@expo/local-build-cache-provider': 57.0.2(typescript@5.8.3)
@@ -16797,18 +16836,18 @@ snapshots:
 
   node-forge@1.4.0: {}
 
-  node-gyp@13.0.1:
+  node-gyp@12.4.0:
     dependencies:
       env-paths: 2.2.1
       exponential-backoff: 3.1.2
       graceful-fs: 4.2.11
-      nopt: 10.0.1
-      proc-log: 7.0.0
+      nopt: 9.0.0
+      proc-log: 6.1.0
       semver: 7.8.5
       tar: 7.5.22
       tinyglobby: 0.2.17
-      undici: 8.9.0
-      which: 7.0.0
+      undici: 6.28.0
+      which: 6.0.1
 
   node-gyp@7.1.2:
     dependencies:
@@ -16828,14 +16867,14 @@ snapshots:
 
   node-releases@2.0.50: {}
 
-  nopt@10.0.1:
-    dependencies:
-      abbrev: 5.0.0
-
   nopt@5.0.0:
     dependencies:
       abbrev: 1.1.1
     optional: true
+
+  nopt@9.0.0:
+    dependencies:
+      abbrev: 4.0.0
 
   normalize-package-data@2.5.0:
     dependencies:
@@ -17308,7 +17347,7 @@ snapshots:
 
   proc-log@4.2.0: {}
 
-  proc-log@7.0.0: {}
+  proc-log@6.1.0: {}
 
   process-nextick-args@1.0.7: {}
 
@@ -18884,9 +18923,9 @@ snapshots:
 
   undici-types@7.18.2: {}
 
-  undici@7.28.0: {}
+  undici@6.28.0: {}
 
-  undici@8.9.0: {}
+  undici@7.28.0: {}
 
   unherit@1.1.3:
     dependencies:
@@ -19272,10 +19311,6 @@ snapshots:
       isexe: 2.0.0
 
   which@6.0.1:
-    dependencies:
-      isexe: 4.0.0
-
-  which@7.0.0:
     dependencies:
       isexe: 4.0.0
 

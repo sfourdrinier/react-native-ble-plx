@@ -2,6 +2,7 @@
 
 const { runBackendTck, findTckScenario } = require('../../../src/tck')
 const { createDeterministicBackendTckFactory } = require('../../../src/tck/deterministic/deterministic-tck-factory')
+const { UNIFIED_BLE_IMPLEMENTATION_VERSION } = require('../../../src/implementation-version')
 
 const executableScenarioIds = [
   'identity.provider-loadability-and-adapter-availability',
@@ -57,7 +58,7 @@ function featureRegistration(overrides = {}) {
     evidence: {
       receiptId: 'deterministic-receipt',
       evidenceLevel: 'deterministic',
-      implementationVersion: '4.0.0-alpha.12',
+      implementationVersion: UNIFIED_BLE_IMPLEMENTATION_VERSION,
       sourceDigest: 'test-digest',
       scenarioIds: ['restoration.provider-journal-adoption-and-rejection'],
       limitations: [deterministicLimitation]
@@ -137,7 +138,7 @@ describe('deterministic production TCK binding', () => {
               evidence: {
                 receiptId: 'deterministic-receipt',
                 evidenceLevel: 'deterministic',
-                implementationVersion: '4.0.0-alpha.12',
+                implementationVersion: UNIFIED_BLE_IMPLEMENTATION_VERSION,
                 sourceDigest: 'test-digest',
                 scenarioIds: ['restoration.provider-journal-adoption-and-rejection'],
                 limitations: []

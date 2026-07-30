@@ -1,6 +1,7 @@
 // __tests__/backends/bluez/bluez-backend.test.js
 
 const { attachBackend } = require('../../../src/backend-contract/backend')
+const { UNIFIED_BLE_IMPLEMENTATION_VERSION } = require('../../../src/implementation-version')
 const { version, versionRange } = require('../../../src/backend-contract/primitives')
 const { createBluezBackendProvider } = require('../../../src/backends/bluez/bluez-backend-provider')
 const {
@@ -81,7 +82,7 @@ describe('BluezBackendProvider', () => {
     expect(attached.attachment.identity).toMatchObject({
       registeredBackendId: 'unified-ble:bluez-dbus',
       registeredPlatformId: 'unified-ble:linux-bluez',
-      runtime: { hostKind: 'node', implementationVersion: '4.0.0-alpha.12' }
+      runtime: { hostKind: 'node', implementationVersion: UNIFIED_BLE_IMPLEMENTATION_VERSION }
     })
     expect(String(attached.attachment.identity.attachment.adapter.adapterId)).toBe('/org/bluez/hci0')
     expect(attached.attachment.identity.versions.backendContract.selected.value).toBe(1)

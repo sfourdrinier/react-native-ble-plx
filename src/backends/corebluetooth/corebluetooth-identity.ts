@@ -3,10 +3,11 @@
 // src/backends/corebluetooth/corebluetooth-identity.ts
 
 import { createFeatureRegistry, type FeatureRegistry } from '../../backend-contract/capabilities'
+import { UNIFIED_BLE_IMPLEMENTATION_VERSION } from '../../implementation-version'
 
 export const COREBLUETOOTH_BACKEND_ID = 'unified-ble:corebluetooth'
 export const COREBLUETOOTH_PLATFORM_ID = 'unified-ble:macos-corebluetooth'
-export const COREBLUETOOTH_IMPLEMENTATION_VERSION = '4.0.0-alpha.12'
+export const COREBLUETOOTH_IMPLEMENTATION_VERSION = UNIFIED_BLE_IMPLEMENTATION_VERSION
 
 /** Identity metadata for a direct-GATT boundary that shares this backend core. */
 export interface DirectGattBackendIdentityOptions {

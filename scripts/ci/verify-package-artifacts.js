@@ -11,6 +11,10 @@ const outputRoot = path.join(root, 'lib')
 const pluginSourceRoot = path.join(root, 'plugin', 'src')
 const pluginOutputRoot = path.join(root, 'plugin', 'build')
 const packageJson = require(path.join(root, 'package.json'))
+const {
+  assertNoForbiddenNobleManifestDependencies,
+  assertNoForbiddenNobleRuntimeReferences
+} = require('./forbidden-runtime-dependencies')
 
 /** Exact declaration-only source emitted by the React Native Codegen/type build. */
 const internalTypeOnlySourceFiles = Object.freeze([])
@@ -138,6 +142,7 @@ function isPublishedSourceFile(sourceFile) {
   const sourceRelative = path.relative(sourceRoot, sourceFile).split(path.sep).join('/')
   if (
     sourceRelative === 'index.ts' ||
+    sourceRelative === 'implementation-version.ts' ||
     sourceRelative === 'backend-sdk.ts' ||
     sourceRelative === 'backend-sdk-authoring.ts' ||
     sourceRelative === 'cli.ts' ||
@@ -181,6 +186,7 @@ function assertNoPrivatePath(filePath) {
 
 function main() {
   assertCliEntrypoint()
+  assertNoForbiddenNobleManifestDependencies(packageJson, 'package.json')
   const sourceFiles = listFiles(sourceRoot)
     .filter(isPublishedSourceFile)
     .sort((left, right) => left.localeCompare(right))
@@ -328,6 +334,19 @@ function main() {
   for (const artifactPath of actualPluginArtifacts) {
     assertNoPrivatePath(path.join(pluginOutputRoot, artifactPath))
   }
+
+  const runtimeFiles = [
+    ...listFiles(sourceRoot),
+    ...listFiles(outputRoot),
+    ...listFiles(pluginOutputRoot),
+    ...listFiles(path.join(root, 'bin')),
+    ...listFiles(path.join(root, 'native', 'electron')),
+    path.join(root, 'app.plugin.js')
+  ].map(filePath => ({
+    path: relativeToRoot(filePath),
+    contents: fs.readFileSync(filePath, 'utf8')
+  }))
+  assertNoForbiddenNobleRuntimeReferences(runtimeFiles, 'published package runtime source/artifacts')
 
   const entryTargets = [
     { label: 'main', path: packageJson.main },

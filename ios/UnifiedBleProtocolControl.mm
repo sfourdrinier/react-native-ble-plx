@@ -12,6 +12,7 @@
 
 #include <cmath>
 #include "../native/protocol/include/NativeProtocolControlRuntime.hpp"
+#include "../native/protocol/include/NativeRestorationConfiguration.hpp"
 #include "NativeProtocol/UnifiedBleProtocolAppleExecution.hpp"
 
 #ifdef RCT_NEW_ARCH_ENABLED
@@ -75,6 +76,20 @@ std::string nativeString(NSString *value) {
   return value == nil ? std::string{} : std::string(value.UTF8String);
 }
 
+bool hasCompleteRestorationConfiguration(
+    NSString *restoreIdentifier,
+    NSString *namespaceValue,
+    NSString *epoch,
+    NSString *clientId,
+    NSString *hostSessionScope) {
+  return unified_ble::native_protocol::v1::hasCompleteNativeRestorationConfiguration(
+      nativeString(restoreIdentifier),
+      nativeString(namespaceValue),
+      nativeString(epoch),
+      nativeString(clientId),
+      nativeString(hostSessionScope));
+}
+
 unified_ble::native_protocol::v1::NativeAttachmentIdentity nativeAttachment(
     NSString *attachmentId,
     NSString *backendInstanceId,
@@ -110,6 +125,7 @@ void rejectControl(RCTPromiseRejectBlock reject, NSString *code, NSString *messa
   std::shared_ptr<unified_ble::native_protocol::v1::NativeProtocolControlRuntime> _runtime;
   std::shared_ptr<unified_ble::apple_protocol::AppleNativeProtocolExecution> _execution;
   NSDictionary *_attachment;
+  NSString *_restorationRestoreIdentifier;
   NSString *_restorationNamespace;
   NSString *_restorationEpoch;
   NSString *_restorationClientId;
@@ -125,12 +141,21 @@ RCT_EXPORT_MODULE(UnifiedBleProtocolControl)
   self = [super init];
   if (self != nil) {
     _runtime = std::make_shared<unified_ble::native_protocol::v1::NativeProtocolControlRuntime>();
-    NSString *restoreIdentifier = configuredInfoString(@"UnifiedBleProtocolRestoreIdentifier");
+    _restorationRestoreIdentifier = configuredInfoString(@"UnifiedBleProtocolRestoreIdentifier");
     _restorationNamespace = configuredInfoString(@"UnifiedBleProtocolRestorationNamespace");
     _restorationEpoch = configuredInfoString(@"UnifiedBleProtocolRestorationEpoch");
     _restorationClientId = configuredInfoString(@"UnifiedBleProtocolRestorationClientId");
     _restorationHostSessionScope = configuredInfoString(@"UnifiedBleProtocolRestorationHostSessionScope");
-    _radio = [[OwnedCoreBluetoothProtocolRadio alloc] initWithRestoreIdentifierKey:restoreIdentifier];
+    _radio = [[OwnedCoreBluetoothProtocolRadio alloc]
+        initWithRestoreIdentifierKey:(
+            hasCompleteRestorationConfiguration(
+                _restorationRestoreIdentifier,
+                _restorationNamespace,
+                _restorationEpoch,
+                _restorationClientId,
+                _restorationHostSessionScope)
+                ? _restorationRestoreIdentifier
+                : nil)];
     _execution = std::make_shared<unified_ble::apple_protocol::AppleNativeProtocolExecution>(
         _runtime,
         (__bridge void *)_radio);
@@ -178,20 +203,21 @@ RCT_EXPORT_MODULE(UnifiedBleProtocolControl)
     rejectControl(reject, @"nativeProtocolHandshake", @"The handshake request is malformed or incompatible");
     return;
   }
-  try {
-    const auto range = [](JS::NativeUnifiedBleProtocolControl::NativeProtocolVersionRange value) {
-      return unified_ble::native_protocol::v1::VersionRange{
-        .minimum = static_cast<std::uint32_t>(value.minimum()),
-        .maximum = static_cast<std::uint32_t>(value.maximum()),
-      };
+  const auto attachment = nativeAttachment(
+      request.attachmentId(),
+      request.backendInstanceId(),
+      request.backendGeneration(),
+      request.adapterId(),
+      request.adapterGeneration());
+  const auto range = [](JS::NativeUnifiedBleProtocolControl::NativeProtocolVersionRange value) {
+    return unified_ble::native_protocol::v1::VersionRange{
+      .minimum = static_cast<std::uint32_t>(value.minimum()),
+      .maximum = static_cast<std::uint32_t>(value.maximum()),
     };
+  };
+  try {
     static_cast<void>(_runtime->handshake(
-        nativeAttachment(
-            request.attachmentId(),
-            request.backendInstanceId(),
-            request.backendGeneration(),
-            request.adapterId(),
-            request.adapterGeneration()),
+        attachment,
         nativeString(request.ownerId()),
         range(request.nativeProtocol()),
         range(request.abi()),
@@ -199,16 +225,17 @@ RCT_EXPORT_MODULE(UnifiedBleProtocolControl)
         range(request.capabilitySchema()),
         range(request.eventSchema()),
         range(request.traceFormat())));
-    if (_restorationNamespace != nil &&
-        _restorationEpoch != nil &&
-        _restorationClientId != nil &&
-        _restorationHostSessionScope != nil) {
-      const auto attachment = nativeAttachment(
-          request.attachmentId(),
-          request.backendInstanceId(),
-          request.backendGeneration(),
-          request.adapterId(),
-          request.adapterGeneration());
+  } catch (const std::exception& error) {
+    rejectControl(reject, @"nativeProtocolHandshake", [NSString stringWithUTF8String:error.what()]);
+    return;
+  }
+  if (hasCompleteRestorationConfiguration(
+          _restorationRestoreIdentifier,
+          _restorationNamespace,
+          _restorationEpoch,
+          _restorationClientId,
+          _restorationHostSessionScope)) {
+    try {
       _execution->appendRestorationRecords({
           .namespaceValue = nativeString(_restorationNamespace),
           .attachment = attachment,
@@ -217,10 +244,12 @@ RCT_EXPORT_MODULE(UnifiedBleProtocolControl)
           .authorizedHostSessionScope = nativeString(_restorationHostSessionScope),
           .nativeProtocol = {.minimum = 1U, .maximum = 1U},
       });
+    } catch (const std::exception& error) {
+      _execution->rollbackRestorationBootstrap();
+      _runtime->rollbackRestorationBootstrap(attachment);
+      rejectControl(reject, @"nativeProtocolHandshake", [NSString stringWithUTF8String:error.what()]);
+      return;
     }
-  } catch (const std::exception& error) {
-    rejectControl(reject, @"nativeProtocolHandshake", [NSString stringWithUTF8String:error.what()]);
-    return;
   }
   _attachment = [requestedAttachment copy];
   _radio.delegate = _radioDelegate;
@@ -299,10 +328,12 @@ RCT_EXPORT_MODULE(UnifiedBleProtocolControl)
       !validString(request.expectedEpoch()) ||
       !validString(request.clientId()) ||
       !validString(request.hostSessionScope()) ||
-      _restorationNamespace == nil ||
-      _restorationEpoch == nil ||
-      _restorationClientId == nil ||
-      _restorationHostSessionScope == nil) {
+      !hasCompleteRestorationConfiguration(
+          _restorationRestoreIdentifier,
+          _restorationNamespace,
+          _restorationEpoch,
+          _restorationClientId,
+          _restorationHostSessionScope)) {
     rejectControl(reject, @"nativeRestorationAdoption", @"The restoration request is malformed");
     return;
   }
