@@ -99,7 +99,7 @@ describe('Phase 0 product identity (unified-ble-manager)', () => {
   test('MIGRATION_4.0.md records the clean-baseline migration boundary', () => {
     const mig = fs.readFileSync(path.join(root, 'MIGRATION_4.0.md'), 'utf8')
     expect(mig).toContain('current public 4.0 package line')
-    expect(mig).toContain('unified-ble-manager@4.0.0-alpha.20')
+    expect(mig).toContain('unified-ble-manager@4.0.0-alpha.21')
     expect(mig).toContain('not a source-compatible rename')
     expect(mig).toMatch(/Base64/)
     expect(mig).toContain('unified-ble-manager')

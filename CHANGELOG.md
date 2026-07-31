@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.21] - 2026-07-31
+
+### Added
+
+- Added official portable consumer-handle contracts for manager lifetime,
+  connections, discovered GATT databases, and subscriptions. These contracts
+  use package-copy-safe DTOs so consumers can pass live Unified BLE sessions
+  across workspace and peer-dependency boundaries without casts or
+  compatibility facades.
+- Added cross-declaration compiler coverage proving portable handles remain
+  assignable across distinct package copies in Base, Bundler, Node16, and
+  NodeNext module-resolution modes.
+
+### Changed
+
+- Concrete public manager/GATT classes now implement the portable handle
+  contracts and validate portable paths and operation controls at their own
+  attachment boundary before dispatch.
+
 ## [4.0.0-alpha.20] - 2026-07-31
 
 ### Changed

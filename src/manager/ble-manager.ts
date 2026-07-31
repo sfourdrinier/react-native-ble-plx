@@ -11,28 +11,36 @@ import type {
 } from '../backend-contract'
 import type { AdvertisementObservation, ScanOptions } from '../backend-contract/advertisement'
 import type { CleanupRecord } from '../backend-contract/errors'
-import type { CharacteristicPath, DescriptorPath, GattDatabase, NotificationValue } from '../backend-contract/gatt'
+import type { CharacteristicPath, DescriptorPath, GattDatabaseSnapshot } from '../backend-contract/gatt'
 import type { AdapterSelection } from '../backend-contract/identity'
+import type { CapabilityDescriptor, FeatureId } from '../backend-contract/capabilities'
 import type {
-  LongWritePolicy,
-  LongWriteReceipt,
   PublicOperationOptions,
   SubscriptionOptions,
   WriteMode,
-  WritePolicy,
-  WriteReceipt
+  WritePolicy
 } from '../backend-contract/operations'
-import type { CapabilityDescriptor, FeatureId } from '../backend-contract/capabilities'
-import type { AttachmentId, BackendCompatibilityOffer, OwnedBytes, PeerId } from '../backend-contract/primitives'
-import type { MtuNegotiation, RssiMeasurement } from '../backend-contract/connection-controls'
+import type { AttachmentId, BackendCompatibilityOffer, PeerId } from '../backend-contract/primitives'
+import { capacity, deadline } from '../backend-contract/primitives'
 import type { AttachedBackend, BleCentralBackend, OwningManagerConstruction } from '../backend-contract/backend'
 import type { BoundedAsyncStream } from '../backend-contract/streams'
-import type { ConnectionLifecycleEvent } from '../backend-contract/connection-lifecycle'
 import type { RestorationAdoptionRequest, RestorationAdoptionResult } from '../backend-contract/restoration'
 import { DEFAULT_CORE_MAXIMUM_VALUE_BYTES, UnifiedBleCore } from '../core/unified-ble-core'
 import type { CoreDeadlineHandle, CoreScanSession, UnifiedBleCoreOptions } from '../core/unified-ble-core'
 import { CoreConnection, CoreGattDatabase } from '../core/core-gatt-handles'
 import { CoreSubscription } from '../core/subscription-registry'
+import {
+  type BleConnectionHandle,
+  type BleManagerLifetime,
+  type DeadlineHandle,
+  type DiscoveredGattDatabaseHandle,
+  type PortableCurrentCharacteristicPath,
+  type PortableCurrentDescriptorPath,
+  type PortableOperationOptions,
+  type PortableSubscriptionOptions,
+  type PortableWritePolicy,
+  type SubscriptionHandle
+} from './consumer-handles'
 import {
   assertOwnershipRoleTransitionCapability,
   issueManagerOwnershipAuthority,
@@ -99,7 +107,9 @@ export interface BackendBleManagerConstruction<
  * shared policy to UnifiedBleCore; it neither detects a host nor creates a
  * singleton or physical adapter owner on import.
  */
-export class BleManager<Attachment extends string, Identity extends BackendIdentity<Attachment>> {
+export class BleManager<Attachment extends string, Identity extends BackendIdentity<Attachment>>
+  implements BleManagerLifetime
+{
   private resourceReleaseResult: Promise<CleanupRecord> | null = null
   private destroyResult: Promise<CleanupRecord> | null = null
   private ownershipMode: OwnerMode
@@ -238,8 +248,8 @@ export class BleManager<Attachment extends string, Identity extends BackendIdent
     return this.core.monotonicNow()
   }
 
-  scheduleDeadline(deadline: number, action: () => void): CoreDeadlineHandle {
-    return this.core.scheduleDeadline(deadline, action)
+  scheduleDeadline(deadlineAt: number, action: () => void): CoreDeadlineHandle {
+    return this.core.scheduleDeadline(deadlineAt, action)
   }
 
   localResourceCounters() {
@@ -450,6 +460,106 @@ function retryableCleanup(cleanup: Promise<CleanupRecord>, onIncomplete: () => v
   )
 }
 
+function toPublicOperationOptions(options: PortableOperationOptions): PublicOperationOptions {
+  return {
+    signal: options.signal,
+    deadline: options.deadline === null ? null : deadline(options.deadline)
+  }
+}
+
+function toPublicWritePolicy(options: PortableWritePolicy): WritePolicy {
+  return { ...toPublicOperationOptions(options), mode: options.mode }
+}
+
+function toPublicSubscriptionOptions(options: PortableSubscriptionOptions): SubscriptionOptions {
+  return {
+    ...toPublicOperationOptions(options),
+    delivery: {
+      itemCapacity: capacity(options.delivery.itemCapacity),
+      byteCapacity: capacity(options.delivery.byteCapacity),
+      reservedControlCapacity: capacity(options.delivery.reservedControlCapacity),
+      overflowPolicy: options.delivery.overflowPolicy
+    }
+  }
+}
+
+function attachmentMatches(
+  current: CurrentCharacteristicPath<string>['attachment'],
+  portable: PortableCurrentCharacteristicPath['attachment']
+): boolean {
+  return (
+    current.attachmentId === portable.attachmentId &&
+    current.backendInstanceId === portable.backendInstanceId &&
+    current.backendGeneration === portable.backendGeneration &&
+    current.adapter.adapterId === portable.adapter.adapterId &&
+    current.adapter.displayName === portable.adapter.displayName &&
+    current.adapter.adapterGeneration === portable.adapter.adapterGeneration &&
+    current.adapter.state.availability === portable.adapter.state.availability &&
+    current.adapter.state.authorization === portable.adapter.state.authorization &&
+    current.adapter.state.power === portable.adapter.state.power &&
+    current.adapter.state.backendGeneration === portable.adapter.state.backendGeneration &&
+    current.adapter.state.updatedAt === portable.adapter.state.updatedAt &&
+    current.adapter.state.safeReason === portable.adapter.state.safeReason &&
+    current.adapter.limitations.length === portable.adapter.limitations.length &&
+    current.adapter.limitations.every((limitation, index) => limitation === portable.adapter.limitations[index])
+  )
+}
+
+function characteristicPathMatches<Attachment extends string>(
+  current: CurrentCharacteristicPath<Attachment>,
+  portable: PortableCurrentCharacteristicPath
+): boolean {
+  return (
+    attachmentMatches(current.attachment, portable.attachment) &&
+    current.attachmentId === portable.attachmentId &&
+    current.peerId === portable.peerId &&
+    current.connectionId === portable.connectionId &&
+    current.ownerLeaseId === portable.ownerLeaseId &&
+    current.connectionGeneration === portable.connectionGeneration &&
+    current.databaseId === portable.databaseId &&
+    current.databaseGeneration === portable.databaseGeneration &&
+    current.serviceUuid === portable.serviceUuid &&
+    current.serviceOccurrence === portable.serviceOccurrence &&
+    current.characteristicUuid === portable.characteristicUuid &&
+    current.characteristicOccurrence === portable.characteristicOccurrence &&
+    current.validity === portable.validity
+  )
+}
+
+function characteristicAddressMatches<Attachment extends string>(
+  current: CurrentCharacteristicPath<Attachment>,
+  portable: PortableCurrentCharacteristicPath
+): boolean {
+  return (
+    current.serviceUuid === portable.serviceUuid &&
+    current.serviceOccurrence === portable.serviceOccurrence &&
+    current.characteristicUuid === portable.characteristicUuid &&
+    current.characteristicOccurrence === portable.characteristicOccurrence
+  )
+}
+
+function descriptorPathMatches<Attachment extends string>(
+  current: CurrentDescriptorPath<Attachment>,
+  portable: PortableCurrentDescriptorPath
+): boolean {
+  return (
+    characteristicPathMatches(current, portable) &&
+    current.descriptorUuid === portable.descriptorUuid &&
+    current.descriptorOccurrence === portable.descriptorOccurrence
+  )
+}
+
+function descriptorAddressMatches<Attachment extends string>(
+  current: CurrentDescriptorPath<Attachment>,
+  portable: PortableCurrentDescriptorPath
+): boolean {
+  return (
+    characteristicAddressMatches(current, portable) &&
+    current.descriptorUuid === portable.descriptorUuid &&
+    current.descriptorOccurrence === portable.descriptorOccurrence
+  )
+}
+
 export class ScanSession<Attachment extends string> {
   constructor(private readonly session: CoreScanSession<Attachment>) {}
 
@@ -474,7 +584,9 @@ export class ScanSession<Attachment extends string> {
   }
 }
 
-export class Connection<Attachment extends string, Identity extends BackendIdentity<Attachment>> {
+export class Connection<Attachment extends string, Identity extends BackendIdentity<Attachment>>
+  implements BleConnectionHandle
+{
   constructor(private readonly connection: CoreConnection<Attachment, Identity>) {}
 
   get peerId(): PeerId<Attachment> {
@@ -489,12 +601,13 @@ export class Connection<Attachment extends string, Identity extends BackendIdent
     return this.connection.resource.connectionGeneration
   }
 
-  get events(): BoundedAsyncStream<ConnectionLifecycleEvent<Attachment>> {
+  get events() {
     return this.connection.events
   }
 
-  async discover(options: PublicOperationOptions): Promise<DiscoveredGattDatabase<Attachment, Identity>> {
-    return new DiscoveredGattDatabase(await this.connection.discover(options))
+  async discover(options: PortableOperationOptions): Promise<DiscoveredGattDatabase<Attachment, Identity>> {
+    const database = await this.connection.discover(toPublicOperationOptions(options))
+    return new DiscoveredGattDatabase(database, await database.snapshot())
   }
 
   release(): Promise<CleanupRecord> {
@@ -505,17 +618,22 @@ export class Connection<Attachment extends string, Identity extends BackendIdent
     return this.connection.disconnect()
   }
 
-  readRssi(options: PublicOperationOptions): Promise<RssiMeasurement<Attachment, string>> {
-    return this.connection.readRssi(options)
+  readRssi(options: PortableOperationOptions) {
+    return this.connection.readRssi(toPublicOperationOptions(options))
   }
 
-  requestMtu(requestedMtu: number, options: PublicOperationOptions): Promise<MtuNegotiation<Attachment, string>> {
-    return this.connection.requestMtu(requestedMtu, options)
+  requestMtu(requestedMtu: number, options: PortableOperationOptions) {
+    return this.connection.requestMtu(requestedMtu, toPublicOperationOptions(options))
   }
 }
 
-export class DiscoveredGattDatabase<Attachment extends string, Identity extends BackendIdentity<Attachment>> {
-  constructor(private readonly database: CoreGattDatabase<Attachment, Identity>) {}
+export class DiscoveredGattDatabase<Attachment extends string, Identity extends BackendIdentity<Attachment>>
+  implements DiscoveredGattDatabaseHandle
+{
+  constructor(
+    private readonly database: CoreGattDatabase<Attachment, Identity>,
+    private readonly discoverySnapshot: GattDatabaseSnapshot<Attachment, string, string>
+  ) {}
 
   get path() {
     return this.database.path
@@ -525,73 +643,90 @@ export class DiscoveredGattDatabase<Attachment extends string, Identity extends 
     return this.database.monotonicNow()
   }
 
-  scheduleDeadline(deadline: number, action: () => void): CoreDeadlineHandle {
-    return this.database.scheduleDeadline(deadline, action)
+  scheduleDeadline(deadlineAt: number, action: () => void): DeadlineHandle {
+    return this.database.scheduleDeadline(deadlineAt, action)
   }
 
-  snapshot(): ReturnType<GattDatabase<Attachment, string, string>['snapshot']> {
+  snapshot() {
     return this.database.snapshot()
   }
 
-  read(path: CurrentCharacteristicPath<Attachment>, options: PublicOperationOptions): Promise<OwnedBytes> {
-    return this.database.read(path, options)
+  async read(path: PortableCurrentCharacteristicPath, options: PortableOperationOptions) {
+    return this.database.read(this.resolveCharacteristicPath(path), toPublicOperationOptions(options))
   }
 
-  write(
-    path: CurrentCharacteristicPath<Attachment>,
+  async write(path: PortableCurrentCharacteristicPath, bytes: Readonly<Uint8Array>, options: PortableWritePolicy) {
+    return this.database.write(this.resolveCharacteristicPath(path), bytes, toPublicWritePolicy(options))
+  }
+
+  async maximumWriteLength(path: PortableCurrentCharacteristicPath, mode: WriteMode) {
+    return this.database.maximumWriteLength(this.resolveCharacteristicPath(path), mode)
+  }
+
+  async writeLong(path: PortableCurrentCharacteristicPath, bytes: Readonly<Uint8Array>, options: PortableWritePolicy) {
+    return this.database.writeLong(this.resolveCharacteristicPath(path), bytes, toPublicWritePolicy(options))
+  }
+
+  async readDescriptor(path: PortableCurrentDescriptorPath, options: PortableOperationOptions) {
+    return this.database.readDescriptor(this.resolveDescriptorPath(path), toPublicOperationOptions(options))
+  }
+
+  async writeDescriptor(
+    path: PortableCurrentDescriptorPath,
     bytes: Readonly<Uint8Array>,
-    options: WritePolicy
-  ): Promise<WriteReceipt<Attachment, string>> {
-    return this.database.write(path, bytes, options)
-  }
-
-  maximumWriteLength(
-    path: CurrentCharacteristicPath<Attachment>,
-    mode: WriteMode
-  ): Promise<import('../backend-contract/gatt').MaximumWriteLengthObservation<Attachment>> {
-    return this.database.maximumWriteLength(path, mode)
-  }
-
-  writeLong(
-    path: CurrentCharacteristicPath<Attachment>,
-    bytes: Readonly<Uint8Array>,
-    options: LongWritePolicy
-  ): Promise<LongWriteReceipt<Attachment, string>> {
-    return this.database.writeLong(path, bytes, options)
-  }
-
-  readDescriptor(path: CurrentDescriptorPath<Attachment>, options: PublicOperationOptions): Promise<OwnedBytes> {
-    return this.database.readDescriptor(path, options)
-  }
-
-  writeDescriptor(
-    path: CurrentDescriptorPath<Attachment>,
-    bytes: Readonly<Uint8Array>,
-    options: WritePolicy
-  ): Promise<WriteReceipt<Attachment, string>> {
-    return this.database.writeDescriptor(path, bytes, options)
+    options: PortableWritePolicy
+  ) {
+    return this.database.writeDescriptor(this.resolveDescriptorPath(path), bytes, toPublicWritePolicy(options))
   }
 
   async subscribe(
-    path: CurrentCharacteristicPath<Attachment>,
-    options: SubscriptionOptions
+    path: PortableCurrentCharacteristicPath,
+    options: PortableSubscriptionOptions
   ): Promise<Subscription<Attachment, Identity>> {
-    return new Subscription(await this.database.subscribe(path, options))
+    return new Subscription(
+      await this.database.subscribe(this.resolveCharacteristicPath(path), toPublicSubscriptionOptions(options))
+    )
+  }
+
+  private resolveCharacteristicPath(path: PortableCurrentCharacteristicPath): CurrentCharacteristicPath<Attachment> {
+    const characteristic = this.discoverySnapshot.characteristics.find(candidate =>
+      characteristicAddressMatches(candidate.path, path)
+    )
+    if (characteristic === undefined) {
+      throw contractError('gatt.not-found', 'gatt', 'discovered-gatt.resolve-characteristic-path')
+    }
+    if (!characteristicPathMatches(characteristic.path, path)) {
+      throw contractError('gatt.stale-handle', 'gatt', 'discovered-gatt.resolve-characteristic-path')
+    }
+    return characteristic.path
+  }
+
+  private resolveDescriptorPath(path: PortableCurrentDescriptorPath): CurrentDescriptorPath<Attachment> {
+    const descriptor = this.discoverySnapshot.descriptors.find(candidate => descriptorAddressMatches(candidate.path, path))
+    if (descriptor === undefined) {
+      throw contractError('gatt.not-found', 'gatt', 'discovered-gatt.resolve-descriptor-path')
+    }
+    if (!descriptorPathMatches(descriptor.path, path)) {
+      throw contractError('gatt.stale-handle', 'gatt', 'discovered-gatt.resolve-descriptor-path')
+    }
+    return descriptor.path
   }
 }
 
-export class Subscription<Attachment extends string, Identity extends BackendIdentity<Attachment>> {
+export class Subscription<Attachment extends string, Identity extends BackendIdentity<Attachment>>
+  implements SubscriptionHandle
+{
   constructor(private readonly subscription: CoreSubscription<Attachment, Identity>) {}
 
   get subscriptionId() {
     return this.subscription.subscriptionId
   }
 
-  get path(): CurrentCharacteristicPath<Attachment> {
+  get path() {
     return this.subscription.path
   }
 
-  get values(): BoundedAsyncStream<NotificationValue> {
+  get values() {
     return this.subscription.values
   }
 

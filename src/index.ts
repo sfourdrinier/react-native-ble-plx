@@ -26,11 +26,36 @@ export {
   withConnection
 } from './manager'
 export type {
+  BleConnectionHandle,
+  BleManagerLifetime,
   BleManagerOptions,
   CollectNotificationsOptions,
   ConnectedGattDatabase,
+  DeadlineHandle,
+  DiscoveredGattDatabaseHandle,
+  PortableAttachmentRecord,
+  PortableBoundedAsyncStream,
+  PortableBoundedAsyncStreamIterator,
+  PortableCleanupFailure,
+  PortableCleanupRecord,
+  PortableConnectionLifecycleEvent,
+  PortableConnectionPath,
+  PortableCurrentCharacteristicPath,
+  PortableCurrentDescriptorPath,
+  PortableDatabasePath,
+  PortableGattDatabaseSnapshot,
+  PortableLongWriteChunkProgress,
+  PortableLongWriteReceipt,
+  PortableMaximumWriteLengthObservation,
+  PortableNotificationValue,
+  PortableOperationOptions,
+  PortableOperationTerminalRecord,
+  PortableSubscriptionOptions,
+  PortableWritePolicy,
+  PortableWriteReceipt,
   ProviderBleManagerConstruction,
-  ScanUntilOptions
+  ScanUntilOptions,
+  SubscriptionHandle
 } from './manager'
 
 export { BackendContractError } from './backend-contract/errors'

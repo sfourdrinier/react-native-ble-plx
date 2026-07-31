@@ -13,6 +13,33 @@ export {
   Subscription
 } from './ble-manager'
 export type { BleManagerOptions, ProviderBleManagerConstruction } from './ble-manager'
+export type {
+  BleConnectionHandle,
+  BleManagerLifetime,
+  DeadlineHandle,
+  DiscoveredGattDatabaseHandle,
+  PortableAttachmentRecord,
+  PortableBoundedAsyncStream,
+  PortableBoundedAsyncStreamIterator,
+  PortableCleanupFailure,
+  PortableCleanupRecord,
+  PortableConnectionLifecycleEvent,
+  PortableConnectionPath,
+  PortableCurrentCharacteristicPath,
+  PortableCurrentDescriptorPath,
+  PortableDatabasePath,
+  PortableGattDatabaseSnapshot,
+  PortableLongWriteChunkProgress,
+  PortableLongWriteReceipt,
+  PortableMaximumWriteLengthObservation,
+  PortableNotificationValue,
+  PortableOperationOptions,
+  PortableOperationTerminalRecord,
+  PortableSubscriptionOptions,
+  PortableWritePolicy,
+  PortableWriteReceipt,
+  SubscriptionHandle
+} from './consumer-handles'
 export {
   collectNotifications,
   connectAndDiscover,
