@@ -21,7 +21,7 @@ describe('production implementation version', () => {
     const versionLiteral = `'${packageJson.version}'`
     const filesWithPackageVersionLiteral = sourceFiles(path.join(root, 'src'))
       .filter(file => fs.readFileSync(file, 'utf8').includes(versionLiteral))
-      .map(file => path.relative(root, file))
+      .map(file => path.relative(root, file).split(path.sep).join('/'))
 
     expect(filesWithPackageVersionLiteral).toEqual(['src/implementation-version.ts'])
   })
