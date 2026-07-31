@@ -12,7 +12,7 @@ options are exactly the schema implemented in `plugin/src/withBLE.ts`:
 
 The plugin configuration is part of the Experimental 4.0 alpha package. The
 release workflow validates Expo SDK 57 CNG prebuild and Android assembly, but no
-current evidence record binds alpha.24 to a physical device, permission,
+current evidence record binds alpha.25 to a physical device, permission,
 background, or restoration scenario. Configuration and compilation therefore do
 not make a live-radio or restoration support claim.
 

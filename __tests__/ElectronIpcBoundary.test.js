@@ -693,6 +693,34 @@ describe('Electron v4 IPC boundary', () => {
     await current.binding.destroy()
   })
 
+  test('preserves a replacement-document lease when Electron reuses the outgoing frame identity', async () => {
+    const current = createMainFixture()
+    const sender = createSender(
+      'client-reused-frame-document',
+      'window-reused-frame-document',
+      'session-reused-frame-document'
+    )
+    const outgoing = await bootstrap(current, sender)
+
+    sender.startNavigation({ url: 'app://bundle/replacement' })
+    const replacementResponse = await current.port.handler(
+      { sender, senderFrame: { url: 'app://bundle/replacement' } },
+      { kind: 'bootstrap' }
+    )
+    expect(replacementResponse.kind).toBe('bootstrap')
+    const replacement = replacementResponse.bootstrap
+    sender.commitNavigation(sender.mainFrame)
+    await flushAsyncWork()
+
+    expect(current.router.resources.has(String(outgoing.rendererLease.leaseId))).toBe(false)
+    expect(current.router.resources.has(String(replacement.rendererLease.leaseId))).toBe(true)
+    await expectIpcFailure(current.port.handler({ sender }, routeRequest(current, replacement, 1)), {
+      code: 'ownership.denied',
+      operation: 'electron-main-router.scan-ownership'
+    })
+    await current.binding.destroy()
+  })
+
   test.each([
     ['provisional cancellation', 'did-fail-provisional-load'],
     ['load failure', 'did-fail-load']

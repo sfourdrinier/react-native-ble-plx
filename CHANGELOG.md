@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.25] - 2026-07-31
+
+### Fixed
+
+- Preserved a newly bootstrapped Electron renderer lease when a replacement
+  document reuses the outgoing document's process and routing identifiers. The
+  main binding now uses the authenticated sender-frame URL together with the
+  navigation epoch, preventing a committed Next.js document from losing its
+  first BLE operation while still retiring bootstraps from the outgoing page.
+
 ## [4.0.0-alpha.24] - 2026-07-31
 
 ### Changed

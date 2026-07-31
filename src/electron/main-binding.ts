@@ -56,6 +56,7 @@ export interface ElectronMainIpcEvent<Sender extends ElectronMainIpcSender> {
   readonly frameId: number
   readonly processId: number
   readonly sender: Sender
+  readonly senderFrame?: { readonly url: string } | null
 }
 
 /** Narrow structural IPC-main contract. It deliberately avoids an Electron runtime dependency. */
@@ -375,10 +376,12 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
     this.assertBootstrapSender(event.sender, trusted)
     const navigationState = this.navigationState(event.sender)
     const navigationEpochAtAdmission = navigationState.epoch
-    const replacementWasPendingForAdmittedFrame =
+    const admittedFromPendingReplacementSourceFrame =
       navigationState.pendingReplacement &&
       navigationState.sourceFrame?.processId === event.processId &&
       navigationState.sourceFrame.routingId === event.frameId
+    const admittedByPendingReplacementDocument =
+      navigationState.pendingReplacement && navigationState.lastStartDetails?.url === event.senderFrame?.url
     const response = await this.options.router.dispatch(trusted, { kind: 'bootstrap' })
     if (response.kind !== 'bootstrap') {
       throw contractError('lifecycle.invariant-violation', 'ipc', 'electron-main-binding.bootstrap-response')
@@ -390,7 +393,8 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
       this.retireRenderer(rendererLeaseId, renderer, true, 'destroyed')
     }
     let replacementNavigationStarted =
-      replacementWasPendingForAdmittedFrame || navigationState.epoch !== navigationEpochAtAdmission
+      !admittedByPendingReplacementDocument &&
+      (admittedFromPendingReplacementSourceFrame || navigationState.epoch !== navigationEpochAtAdmission)
     const navigationStartListener: ElectronNavigationStartListener = details => {
       if (details.isMainFrame && !details.isSameDocument) {
         if (navigationState.lastStartDetails !== details) {
