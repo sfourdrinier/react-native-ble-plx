@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.20] - 2026-07-31
+
+### Changed
+
+- Accepted the standard DOM `navigator.bluetooth` surface directly, removing
+  the need for consumer casts or adapter objects at the Web Bluetooth boundary.
+- Bounded Apple pre-JavaScript restoration ingress to 64 records and 256 KiB,
+  with sticky fail-closed overflow, counter-bearing diagnostics, attachment
+  generation quarantine, and serialized JSI sink lifetime.
+- Preserved validated WinRT HRESULT and GATT-status metadata across direct and
+  database-backed GATT operations and retryable CCCD-disable cleanup.
+
+### Fixed
+
+- Preserved both the primary native-boundary failure and an attachment-close
+  failure while retaining exact retryable cleanup ownership.
+- Prevented queued Apple callbacks from crossing detach, close, overflow, or
+  replacement-attachment generations.
+
 ## [4.0.0-alpha.19] - 2026-07-31
 
 ### Added

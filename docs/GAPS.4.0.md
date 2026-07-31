@@ -14,7 +14,7 @@ This file tracks platform code, CI, package, lab, and live-radio evidence. It do
 
 The pre-4.0 source tree contains a transitional `BleManager`, `BlePort`, `PortBleManager`, Base64 bridge, byte convenience methods, static capability helpers, Noble-era code, and host examples. Any statement below about that source is current-state characterization and migration input. It is not proof that a clean-baseline 4.0 replacement exists.
 
-`unified-ble-manager@4.0.0-alpha.19` is published as an Experimental package,
+`unified-ble-manager@4.0.0-alpha.20` is published as an Experimental package,
 but no current record in `evidence/v1/records/` binds that artifact to a passed
 physical-radio backend scenario. The records below are historical L0 context and
 must not be read as Preview-or-higher evidence for the published alpha.
