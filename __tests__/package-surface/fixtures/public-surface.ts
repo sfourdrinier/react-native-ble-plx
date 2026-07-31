@@ -65,7 +65,10 @@ import type { BluezBusKind } from 'unified-ble-manager/node/bluez'
 import { createNativeWinRtBackendProvider } from 'unified-ble-manager/node/winrt'
 import type { NativeWinRtProviderOptions } from 'unified-ble-manager/node/winrt'
 import { createElectronMainWinRtBackendProvider } from 'unified-ble-manager/electron/main'
-import { ElectronRendererBleClient } from 'unified-ble-manager/electron/renderer'
+import {
+  assertElectronAdvertisementObservation,
+  ElectronRendererBleClient
+} from 'unified-ble-manager/electron/renderer'
 import {
   createReactNativeAndroidBackendProvider,
   createReactNativeAppleBackendProvider,
@@ -170,6 +173,7 @@ observe(createDbusNextBluezBackendProvider({ busKind: bluezBusKind, now: () => 0
 observe(createNativeWinRtBackendProvider)
 observe(createElectronMainWinRtBackendProvider)
 observe(ElectronRendererBleClient)
+observe(assertElectronAdvertisementObservation)
 observe(createReactNativeAndroidBackendProvider(nativeAndroidOptions))
 observe(createReactNativeAppleBackendProvider(nativeAppleOptions))
 observe(createReactNativeBleManager(nativeManagerOptions))
