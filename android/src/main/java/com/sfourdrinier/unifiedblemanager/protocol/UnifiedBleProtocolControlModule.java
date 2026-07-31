@@ -137,8 +137,7 @@ public final class UnifiedBleProtocolControlModule extends NativeUnifiedBleProto
     Log.w(TAG, "adoptRestoration is unavailable because Android has no native BLE restoration journal");
     promise.reject(
         "unsupportedRestoration",
-        "Android does not provide a native BLE restoration journal",
-        null);
+        "Android does not provide a native BLE restoration journal");
   }
 
   @Override
