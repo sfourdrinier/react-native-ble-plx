@@ -8,8 +8,8 @@ This page is an evidence index, not a static 4.0 capability matrix. In 4.0, an a
 
 ## Current alpha maturity
 
-`unified-ble-manager@4.0.0-alpha.17` is an **Experimental** package release.
-No current evidence record binds the published alpha.15 artifact to a passed
+`unified-ble-manager@4.0.0-alpha.18` is an **Experimental** package release.
+No current evidence record binds the published alpha.18 artifact to a passed
 physical-radio backend scenario. Consequently, no backend below is currently
 Preview, Live Preview, Supported, or Reliability-qualified. This is not a
 static 4.0 capability matrix: the table says what public surface and automated

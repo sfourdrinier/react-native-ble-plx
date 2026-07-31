@@ -45,17 +45,17 @@ function versions() {
 function rendererLease(value) {
   return {
     leaseId: opaqueId(`renderer-lease-${value}`, 'renderer-lease', `electron:${value}`),
-    generation: opaqueId(
-      `renderer-lease-generation-${value}`,
-      'renderer-lease-generation',
-      `electron:${value}`
-    )
+    generation: opaqueId(`renderer-lease-generation-${value}`, 'renderer-lease-generation', `electron:${value}`)
   }
 }
 
 function createSender(client, windowScope, sessionScope) {
   const destroyedListeners = []
+  const navigationListeners = []
+  const renderProcessGoneListeners = []
+  const mainFrame = Object.freeze({ processId: 10, routingId: 20 })
   return {
+    mainFrame,
     sent: [],
     trusted: {
       authenticatedClientId: opaqueId(client, 'client', `electron:${client}`),
@@ -68,13 +68,26 @@ function createSender(client, windowScope, sessionScope) {
         destroyedListeners.push(listener)
       }
     },
-    removeListener(event, listener) {
-      if (event !== 'destroyed') {
-        return
+    on(event, listener) {
+      if (event === 'did-start-navigation') {
+        navigationListeners.push(listener)
+      } else if (event === 'render-process-gone') {
+        renderProcessGoneListeners.push(listener)
       }
-      const index = destroyedListeners.indexOf(listener)
+    },
+    removeListener(event, listener) {
+      const listeners =
+        event === 'destroyed'
+          ? destroyedListeners
+          : event === 'did-start-navigation'
+            ? navigationListeners
+            : event === 'render-process-gone'
+              ? renderProcessGoneListeners
+              : null
+      if (listeners === null) return
+      const index = listeners.indexOf(listener)
       if (index >= 0) {
-        destroyedListeners.splice(index, 1)
+        listeners.splice(index, 1)
       }
     },
     send(channel, event) {
@@ -82,6 +95,22 @@ function createSender(client, windowScope, sessionScope) {
     },
     destroyedListenerCount() {
       return destroyedListeners.length
+    },
+    navigationListenerCount() {
+      return navigationListeners.length
+    },
+    renderProcessGoneListenerCount() {
+      return renderProcessGoneListeners.length
+    },
+    navigate(details) {
+      for (const listener of [...navigationListeners]) {
+        listener(details)
+      }
+    },
+    renderProcessGone() {
+      for (const listener of [...renderProcessGoneListeners]) {
+        listener()
+      }
     },
     destroy() {
       const listeners = destroyedListeners.splice(0, destroyedListeners.length)
@@ -222,19 +251,30 @@ function createMainFixture(managerOverrides = {}) {
   })
   const port = {
     handler: null,
+    rawHandler: null,
     handle(channel, handler) {
       expect(channel).toBe('unified-ble-manager:v1')
-      this.handler = handler
+      this.rawHandler = handler
+      this.handler = (event, request) =>
+        handler(
+          {
+            ...event,
+            frameId: event.frameId ?? event.sender.mainFrame.routingId,
+            processId: event.processId ?? event.sender.mainFrame.processId
+          },
+          request
+        )
     },
     removeHandler: jest.fn()
   }
+  const authenticate = jest.fn(event => event.sender.trusted)
   const binding = new ElectronMainBleBinding({
     router,
     port,
-    authenticate: event => event.sender.trusted
+    authenticate
   })
   binding.install()
-  return { binding, currentAttachment, manager, port, router, versions: manager.identity.versions }
+  return { authenticate, binding, currentAttachment, manager, port, router, versions: manager.identity.versions }
 }
 
 function routeRequest(current, bootstrapValue, ordinal) {
@@ -283,6 +323,73 @@ async function flushAsyncWork() {
 }
 
 describe('Electron v4 IPC boundary', () => {
+  test('rejects malformed host frame identity before authentication, validation, or routing', async () => {
+    const current = createMainFixture()
+    const sender = createSender('client-malformed-frame', 'window-malformed-frame', 'session-malformed-frame')
+    const validateRequest = jest.spyOn(current.router, 'validateRequest')
+    const dispatch = jest.spyOn(current.router, 'dispatch')
+
+    await expect(current.port.rawHandler({ sender }, { kind: 'bootstrap' })).rejects.toMatchObject({
+      normalized: { code: 'protocol.malformed', operation: 'electron-main-binding.frame-identity' }
+    })
+
+    expect(current.authenticate).not.toHaveBeenCalled()
+    expect(validateRequest).not.toHaveBeenCalled()
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(current.router.resources).toHaveProperty('size', 0)
+    await current.binding.destroy()
+  })
+
+  test('rejects a null host main-frame identity as a malformed request', async () => {
+    const current = createMainFixture()
+    const sender = createSender('client-null-frame', 'window-null-frame', 'session-null-frame')
+    sender.mainFrame = null
+    const validateRequest = jest.spyOn(current.router, 'validateRequest')
+    const dispatch = jest.spyOn(current.router, 'dispatch')
+
+    await expect(
+      current.port.rawHandler({ sender, frameId: 20, processId: 10 }, { kind: 'bootstrap' })
+    ).rejects.toMatchObject({
+      normalized: {
+        code: 'protocol.malformed',
+        operation: 'electron-main-binding.frame-identity'
+      }
+    })
+
+    expect(current.authenticate).not.toHaveBeenCalled()
+    expect(validateRequest).not.toHaveBeenCalled()
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(current.router.resources).toHaveProperty('size', 0)
+    await current.binding.destroy()
+  })
+
+  test('rejects every request kind from a child frame before allocating or routing ownership', async () => {
+    const current = createMainFixture()
+    const sender = createSender('client-child-frame', 'window-child-frame', 'session-child-frame')
+    const dispatch = jest.spyOn(current.router, 'dispatch')
+    const childEvent = { sender, frameId: sender.mainFrame.routingId + 1, processId: sender.mainFrame.processId }
+
+    await expect(current.port.handler(childEvent, { kind: 'bootstrap' })).rejects.toMatchObject({
+      normalized: { code: 'ownership.denied', operation: 'electron-main-binding.main-frame' }
+    })
+    expect(dispatch).not.toHaveBeenCalled()
+
+    const renderer = await bootstrap(current, sender)
+    const requests = [
+      routeRequest(current, renderer, 1),
+      { kind: 'release', rendererLease: renderer.rendererLease },
+      { kind: 'event.ack', rendererLease: renderer.rendererLease, eventId: 'child-frame-event' }
+    ]
+    for (const request of requests) {
+      await expect(current.port.handler(childEvent, request)).rejects.toMatchObject({
+        normalized: { code: 'ownership.denied', operation: 'electron-main-binding.main-frame' }
+      })
+    }
+    expect(dispatch).toHaveBeenCalledTimes(1)
+    expect(current.router.resources).toHaveProperty('size', 1)
+    await current.binding.destroy()
+  })
+
   test('binds two authenticated renderers and rejects a cross-client opaque-handle route', async () => {
     const current = createMainFixture()
     const senderA = createSender('client-a', 'window-a', 'session-a')
@@ -294,7 +401,9 @@ describe('Electron v4 IPC boundary', () => {
     expect(bootstrapB.kind).toBe('bootstrap')
     await expect(
       current.port.handler({ sender: senderB }, routeRequest(current, bootstrapA.bootstrap, 1))
-    ).rejects.toMatchObject({ normalized: { code: 'ownership.denied', operation: 'electron-main-binding.sender-binding' } })
+    ).rejects.toMatchObject({
+      normalized: { code: 'ownership.denied', operation: 'electron-main-binding.sender-binding' }
+    })
 
     senderA.destroy()
     await Promise.resolve()
@@ -324,10 +433,7 @@ describe('Electron v4 IPC boundary', () => {
     })
     expect(current.router.resources).toHaveProperty('size', 2)
     await expect(
-      current.port.handler(
-        { sender },
-        { kind: 'release', rendererLease: firstBootstrap.rendererLease }
-      )
+      current.port.handler({ sender }, { kind: 'release', rendererLease: firstBootstrap.rendererLease })
     ).resolves.toEqual({ kind: 'release', cleanup: released() })
     expect(current.router.resources.has(String(firstBootstrap.rendererLease.leaseId))).toBe(false)
     expect(current.router.resources.has(String(successorBootstrap.rendererLease.leaseId))).toBe(true)
@@ -346,10 +452,7 @@ describe('Electron v4 IPC boundary', () => {
     expect(scanResponse).toMatchObject({ kind: 'route', payload: { handle: expect.any(String) } })
 
     await expect(
-      current.port.handler(
-        { sender },
-        { kind: 'release', rendererLease: firstBootstrap.rendererLease }
-      )
+      current.port.handler({ sender }, { kind: 'release', rendererLease: firstBootstrap.rendererLease })
     ).resolves.toEqual({ kind: 'release', cleanup: released() })
     expect(
       current.router.resources
@@ -365,6 +468,206 @@ describe('Electron v4 IPC boundary', () => {
     expect(scanStop).toHaveBeenCalledTimes(1)
     expect(current.router.resources).toHaveProperty('size', 0)
     expect(current.binding.renderers).toHaveProperty('size', 0)
+    await current.binding.destroy()
+  })
+
+  test('releases every old-document lease before admitting a bootstrap after main-frame navigation', async () => {
+    const scanStream = createControlledStream()
+    const scanStop = jest.fn(async () => {
+      scanStream.close()
+      return released()
+    })
+    const current = createMainFixture({
+      scan: jest.fn(async () => ({ observations: scanStream, stop: scanStop }))
+    })
+    const sender = createSender('client-reload', 'window-reload', 'session-reload')
+    const firstBootstrap = await bootstrap(current, sender)
+    await bootstrap(current, sender)
+    await current.port.handler(
+      { sender },
+      commandRequest(current, firstBootstrap, 1, 'scan.start', {
+        serviceUuids: [],
+        manufacturerData: [],
+        localNamePrefix: null,
+        deadline: null
+      })
+    )
+
+    sender.navigate({ isMainFrame: false, isSameDocument: false })
+    sender.navigate({ isMainFrame: true, isSameDocument: true })
+    expect(current.router.resources).toHaveProperty('size', 2)
+
+    sender.navigate({ isMainFrame: true, isSameDocument: false })
+    const replacementBootstrap = await bootstrap(current, sender)
+
+    expect(scanStop).toHaveBeenCalledTimes(1)
+    expect(current.router.resources).toHaveProperty('size', 1)
+    expect(current.router.resources.has(String(replacementBootstrap.rendererLease.leaseId))).toBe(true)
+    expect(sender.destroyedListenerCount()).toBe(1)
+    expect(sender.navigationListenerCount()).toBe(1)
+    expect(sender.renderProcessGoneListenerCount()).toBe(1)
+    await current.binding.destroy()
+  })
+
+  test('drains a retired old-identity lease before admitting changed trust on the same WebContents', async () => {
+    const scanStream = createControlledStream()
+    const stopResult = deferred()
+    const current = createMainFixture({
+      scan: jest.fn(async () => ({
+        observations: scanStream,
+        stop: jest.fn(async () => {
+          const cleanup = await stopResult.promise
+          scanStream.close()
+          return cleanup
+        })
+      }))
+    })
+    const sender = createSender('client-old-trust', 'window-shared', 'session-old')
+    const oldRenderer = await bootstrap(current, sender)
+    await current.port.handler(
+      { sender },
+      commandRequest(current, oldRenderer, 1, 'scan.start', {
+        serviceUuids: [],
+        manufacturerData: [],
+        localNamePrefix: null,
+        deadline: null
+      })
+    )
+
+    sender.navigate({ isMainFrame: true, isSameDocument: false })
+    sender.trusted = {
+      authenticatedClientId: opaqueId('client-new-trust', 'client', 'electron:client-new-trust'),
+      authenticatedWindowScope: 'window-shared',
+      authenticatedSessionScope: 'session-new'
+    }
+    let replacementSettled = false
+    const replacement = bootstrap(current, sender).finally(() => {
+      replacementSettled = true
+    })
+    await flushAsyncWork()
+    expect(replacementSettled).toBe(false)
+
+    stopResult.resolve(released())
+    const newRenderer = await replacement
+
+    expect(newRenderer.renderer.clientId).toBe(sender.trusted.authenticatedClientId)
+    expect(current.router.resources).toHaveProperty('size', 1)
+    await current.binding.destroy()
+  })
+
+  test('rejects changed trust on an active WebContents document', async () => {
+    const current = createMainFixture()
+    const sender = createSender('client-active-old', 'window-active', 'session-active-old')
+    await bootstrap(current, sender)
+    sender.trusted = {
+      authenticatedClientId: opaqueId('client-active-new', 'client', 'electron:client-active-new'),
+      authenticatedWindowScope: 'window-active',
+      authenticatedSessionScope: 'session-active-new'
+    }
+
+    await expect(bootstrap(current, sender)).rejects.toMatchObject({
+      normalized: {
+        code: 'ownership.denied',
+        operation: 'electron-main-binding.sender-binding'
+      }
+    })
+    expect(current.router.resources).toHaveProperty('size', 1)
+    await current.binding.destroy()
+  })
+
+  test('does not attach a replacement renderer when destroy races retired-lease cleanup', async () => {
+    const scanStream = createControlledStream()
+    const stopResult = deferred()
+    const current = createMainFixture({
+      scan: jest.fn(async () => ({
+        observations: scanStream,
+        stop: jest.fn(async () => {
+          const cleanup = await stopResult.promise
+          scanStream.close()
+          return cleanup
+        })
+      }))
+    })
+    const sender = createSender('client-destroy-race', 'window-destroy-race', 'session-destroy-race')
+    const oldRenderer = await bootstrap(current, sender)
+    await current.port.handler(
+      { sender },
+      commandRequest(current, oldRenderer, 1, 'scan.start', {
+        serviceUuids: [],
+        manufacturerData: [],
+        localNamePrefix: null,
+        deadline: null
+      })
+    )
+
+    sender.navigate({ isMainFrame: true, isSameDocument: false })
+    const replacement = bootstrap(current, sender)
+    const destruction = current.binding.destroy()
+    stopResult.resolve(released())
+
+    await expect(replacement).rejects.toMatchObject({
+      normalized: {
+        code: 'lifecycle.invalid-state',
+        operation: 'electron-main-binding.lifecycle'
+      }
+    })
+    await expect(destruction).resolves.toEqual(released())
+    expect(current.router.resources).toHaveProperty('size', 0)
+    expect(current.binding.renderers).toHaveProperty('size', 0)
+    expect(sender.destroyedListenerCount()).toBe(0)
+    expect(sender.navigationListenerCount()).toBe(0)
+    expect(sender.renderProcessGoneListenerCount()).toBe(0)
+  })
+
+  test('cancels a scheduled renderer-release retry when router teardown owns final cleanup', async () => {
+    jest.useFakeTimers()
+    try {
+      const current = createMainFixture()
+      const sender = createSender('client-retry-teardown', 'window-retry-teardown', 'session-retry-teardown')
+      const renderer = await bootstrap(current, sender)
+      const releaseFailure = failed('renderer-release')
+      const releaseRenderer = jest.spyOn(current.router, 'releaseRenderer').mockResolvedValue(releaseFailure)
+      jest.spyOn(current.router, 'destroy').mockResolvedValue(released())
+
+      sender.navigate({ isMainFrame: true, isSameDocument: false })
+      await flushAsyncWork()
+      expect(releaseRenderer).toHaveBeenCalledTimes(1)
+      expect(jest.getTimerCount()).toBe(1)
+
+      await expect(current.binding.destroy()).resolves.toEqual(releaseFailure)
+      expect(current.binding.renderers).toHaveProperty('size', 0)
+      expect(jest.getTimerCount()).toBe(0)
+      jest.advanceTimersByTime(200)
+      await flushAsyncWork()
+      expect(releaseRenderer).toHaveBeenCalledTimes(2)
+      expect(current.router.resources.has(String(renderer.rendererLease.leaseId))).toBe(true)
+      expectConsoleError('[ElectronMainBleBinding] Renderer lifetime cleanup reported failures:', {
+        rendererLeaseId: String(renderer.rendererLease.leaseId),
+        cleanup: releaseFailure
+      })
+      expectConsoleError('[ElectronMainBleBinding] Renderer lifetime cleanup reported failures:', {
+        rendererLeaseId: String(renderer.rendererLease.leaseId),
+        cleanup: releaseFailure
+      })
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('releases every renderer lease when the renderer process exits without destroying WebContents', async () => {
+    const current = createMainFixture()
+    const sender = createSender('client-renderer-gone', 'window-renderer-gone', 'session-renderer-gone')
+    await bootstrap(current, sender)
+    await bootstrap(current, sender)
+
+    sender.renderProcessGone()
+    await flushAsyncWork()
+
+    expect(current.router.resources).toHaveProperty('size', 0)
+    expect(current.binding.renderers).toHaveProperty('size', 0)
+    expect(sender.destroyedListenerCount()).toBe(0)
+    expect(sender.navigationListenerCount()).toBe(0)
+    expect(sender.renderProcessGoneListenerCount()).toBe(0)
     await current.binding.destroy()
   })
 
@@ -444,9 +747,7 @@ describe('Electron v4 IPC boundary', () => {
       streamId: 'scan-9',
       terminal: true
     })
-    await expect(
-      current.port.handler({ sender }, routeRequest(current, renderer, 20))
-    ).rejects.toMatchObject({
+    await expect(current.port.handler({ sender }, routeRequest(current, renderer, 20))).rejects.toMatchObject({
       normalized: { code: 'ownership.denied', operation: 'electron-main-arbiter.renderer-registration' }
     })
 
@@ -519,7 +820,12 @@ describe('Electron v4 IPC boundary', () => {
     const renderer = await bootstrap(current, sender)
     const scan = await current.port.handler(
       { sender },
-      commandRequest(current, renderer, 1, 'scan.start', { serviceUuids: [], manufacturerData: [], localNamePrefix: null, deadline: null })
+      commandRequest(current, renderer, 1, 'scan.start', {
+        serviceUuids: [],
+        manufacturerData: [],
+        localNamePrefix: null,
+        deadline: null
+      })
     )
     const present = (value, provenance = 'observed') => ({ state: 'present', value, provenance })
     const unavailable = reason => ({ state: 'unavailable', reason, provenance: 'not-provided' })
@@ -725,7 +1031,12 @@ describe('Electron v4 IPC boundary', () => {
     const renderer = await bootstrap(current, sender)
     const scanResponse = await current.port.handler(
       { sender },
-      commandRequest(current, renderer, 1, 'scan.start', { serviceUuids: [], manufacturerData: [], localNamePrefix: null, deadline: null })
+      commandRequest(current, renderer, 1, 'scan.start', {
+        serviceUuids: [],
+        manufacturerData: [],
+        localNamePrefix: null,
+        deadline: null
+      })
     )
     const nativeScanFailure = new Error('native scan source failed')
     scanStream.fail(nativeScanFailure)
@@ -897,7 +1208,12 @@ describe('Electron v4 IPC boundary', () => {
     const renderer = await bootstrap(current, sender)
     const scanResponse = await current.port.handler(
       { sender },
-      commandRequest(current, renderer, 1, 'scan.start', { serviceUuids: [], manufacturerData: [], localNamePrefix: null, deadline: null })
+      commandRequest(current, renderer, 1, 'scan.start', {
+        serviceUuids: [],
+        manufacturerData: [],
+        localNamePrefix: null,
+        deadline: null
+      })
     )
     await expect(
       current.port.handler(
@@ -905,16 +1221,16 @@ describe('Electron v4 IPC boundary', () => {
         commandRequest(current, renderer, 2, 'scan.stop', { scanHandle: scanResponse.payload.handle })
       )
     ).resolves.toMatchObject({ kind: 'route', payload: { state: 'release-failed' } })
-    expect(current.router.resources.get(String(renderer.rendererLease.leaseId)).scans.has(scanResponse.payload.handle)).toBe(
-      true
-    )
+    expect(
+      current.router.resources.get(String(renderer.rendererLease.leaseId)).scans.has(scanResponse.payload.handle)
+    ).toBe(true)
     await current.port.handler(
       { sender },
       commandRequest(current, renderer, 3, 'scan.stop', { scanHandle: scanResponse.payload.handle })
     )
-    expect(current.router.resources.get(String(renderer.rendererLease.leaseId)).scans.has(scanResponse.payload.handle)).toBe(
-      false
-    )
+    expect(
+      current.router.resources.get(String(renderer.rendererLease.leaseId)).scans.has(scanResponse.payload.handle)
+    ).toBe(false)
 
     const connectionResponse = await current.port.handler(
       { sender },
@@ -1074,10 +1390,7 @@ describe('Electron v4 IPC boundary', () => {
 
     releaseResult.resolve({ kind: 'release', cleanup: failed('renderer') })
     await expect(destruction).resolves.toEqual(failed('renderer'))
-    expect(transport.acknowledge).toHaveBeenCalledWith(
-      bootstrapValue.rendererLease,
-      'event-during-release'
-    )
+    expect(transport.acknowledge).toHaveBeenCalledWith(bootstrapValue.rendererLease, 'event-during-release')
     const iterator = client.events[Symbol.asyncIterator]()
     await expect(iterator.next()).resolves.toMatchObject({
       done: false,

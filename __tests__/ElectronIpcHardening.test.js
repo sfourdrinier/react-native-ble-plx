@@ -12,6 +12,21 @@ function negotiated(axis) {
   return { axis, selected, localRange: range, remoteRange: range }
 }
 
+function electronSender(fields) {
+  return {
+    ...fields,
+    mainFrame: Object.freeze({ processId: 30, routingId: 40 })
+  }
+}
+
+function mainFrameEvent(sender) {
+  return {
+    sender,
+    frameId: sender.mainFrame.routingId,
+    processId: sender.mainFrame.processId
+  }
+}
+
 function createAuthority() {
   const backendGeneration = opaqueId('hardening-generation', 'backend-generation', 'hardening')
   const attachment = {
@@ -228,7 +243,13 @@ describe('Electron IPC hardening', () => {
   test('counts renderer lease identity in outbound event backlog admission', async () => {
     let publish
     const lease = rendererLease('event-byte-accounting')
-    const sender = { trusted: trusted('event-byte-accounting'), send: jest.fn() }
+    const sender = electronSender({
+      trusted: trusted('event-byte-accounting'),
+      send: jest.fn(),
+      once: jest.fn(),
+      on: jest.fn(),
+      removeListener: jest.fn()
+    })
     const router = {
       setEventPublisher(listener) {
         publish = listener
@@ -252,7 +273,7 @@ describe('Electron IPC hardening', () => {
     const port = { handle(_channel, handler) { this.handler = handler }, removeHandler: jest.fn() }
     const binding = new ElectronMainBleBinding({ router, port, authenticate: event => event.sender.trusted })
     binding.install()
-    await port.handler({ sender }, { kind: 'bootstrap' })
+    await port.handler(mainFrameEvent(sender), { kind: 'bootstrap' })
 
     const eventBase = {
       rendererLease: lease,
@@ -597,11 +618,25 @@ describe('Electron IPC hardening', () => {
       destroy: jest.fn(async () => released())
     }
     const port = { handle(_channel, handler) { this.handler = handler }, removeHandler: jest.fn() }
-    const senderA = { trusted: trusted('bound-client'), sent: [], send(_channel, event) { this.sent.push(event) } }
-    const senderB = { trusted: senderA.trusted, sent: [], send(_channel, event) { this.sent.push(event) } }
+    const senderA = electronSender({
+      trusted: trusted('bound-client'),
+      sent: [],
+      send(_channel, event) { this.sent.push(event) },
+      once: jest.fn(),
+      on: jest.fn(),
+      removeListener: jest.fn()
+    })
+    const senderB = electronSender({
+      trusted: senderA.trusted,
+      sent: [],
+      send(_channel, event) { this.sent.push(event) },
+      once: jest.fn(),
+      on: jest.fn(),
+      removeListener: jest.fn()
+    })
     const binding = new ElectronMainBleBinding({ router, port, authenticate: event => event.sender.trusted })
     binding.install()
-    await port.handler({ sender: senderA }, { kind: 'bootstrap' })
+    await port.handler(mainFrameEvent(senderA), { kind: 'bootstrap' })
     await publish(String(lease.leaseId), {
       rendererLease: lease,
       eventId: 'event-bound',
@@ -609,16 +644,16 @@ describe('Electron IPC hardening', () => {
       item: { kind: 'value' }
     })
     await expect(
-      port.handler({ sender: senderB }, { kind: 'event.ack', rendererLease: lease, eventId: 'event-bound' })
+      port.handler(mainFrameEvent(senderB), { kind: 'event.ack', rendererLease: lease, eventId: 'event-bound' })
     ).rejects.toMatchObject({ normalized: { code: 'ownership.denied' } })
-    await expect(port.handler({ sender: senderB }, { kind: 'bootstrap' })).rejects.toMatchObject({
+    await expect(port.handler(mainFrameEvent(senderB), { kind: 'bootstrap' })).rejects.toMatchObject({
       normalized: { code: 'ownership.denied' }
     })
     await expect(
-      port.handler({ sender: senderA }, { kind: 'event.ack', rendererLease: lease, eventId: 'event-bound' })
+      port.handler(mainFrameEvent(senderA), { kind: 'event.ack', rendererLease: lease, eventId: 'event-bound' })
     ).resolves.toEqual({ kind: 'event.ack' })
     await expect(
-      port.handler({ sender: senderA }, { kind: 'event.ack', rendererLease: lease, eventId: 'event-bound' })
+      port.handler(mainFrameEvent(senderA), { kind: 'event.ack', rendererLease: lease, eventId: 'event-bound' })
     ).resolves.toEqual({ kind: 'event.ack' })
     await binding.destroy()
   })
@@ -718,13 +753,15 @@ describe('Electron IPC hardening', () => {
     try {
       let destroyedListener
       const lease = rendererLease('destroyed-retry-client')
-      const sender = {
+      const sender = electronSender({
         trusted: trusted('destroyed-retry-client'),
         send: jest.fn(),
         once(_event, listener) {
           destroyedListener = listener
-        }
-      }
+        },
+        on: jest.fn(),
+        removeListener: jest.fn()
+      })
       const router = {
         setEventPublisher: jest.fn(),
         validateRequest: jest.fn(),
@@ -752,7 +789,7 @@ describe('Electron IPC hardening', () => {
       const port = { handle(_channel, handler) { this.handler = handler }, removeHandler: jest.fn() }
       const binding = new ElectronMainBleBinding({ router, port, authenticate: event => event.sender.trusted })
       binding.install()
-      await port.handler({ sender }, { kind: 'bootstrap' })
+      await port.handler(mainFrameEvent(sender), { kind: 'bootstrap' })
       destroyedListener()
       await flushAsyncWork()
       expect(router.releaseRenderer).toHaveBeenCalledTimes(1)

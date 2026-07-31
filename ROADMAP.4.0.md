@@ -44,7 +44,7 @@ Applications and vendor libraries own device choice, vendor protocols, product r
 
 ## Published alpha and support claims
 
-`unified-ble-manager@4.0.0-alpha.17` is published under npm's `next` dist-tag
+`unified-ble-manager@4.0.0-alpha.18` is published under npm's `next` dist-tag
 with GitHub Actions trusted publishing, npm SLSA provenance, and a GitHub
 prerelease. Its host-neutral root and explicit public subpaths are the current
 alpha package contract; users must pin an exact alpha version rather than infer
@@ -52,7 +52,7 @@ an API from transitional source files or examples. The alpha has no 3.x
 compatibility layer.
 
 The current package release is Experimental. There is no current evidence record
-linking alpha.15's package artifact to a passed physical-radio backend scenario,
+linking alpha.18's package artifact to a passed physical-radio backend scenario,
 so it makes no Preview-or-higher platform claim. Hardware evidence is required
 only for the corresponding support label; it does not erase package or
 deterministic proof.

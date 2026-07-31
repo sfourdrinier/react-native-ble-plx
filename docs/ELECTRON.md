@@ -19,10 +19,10 @@ There is no Noble dependency, renderer Web Bluetooth fallback, legacy
 `BlePort`, `PortBleManager`, or mock-radio production fallback in these
 entrypoints.
 
-The published `4.0.0-alpha.17` Electron surface is Experimental. The release
+The published `4.0.0-alpha.18` Electron surface is Experimental. The release
 workflow's packed Electron smoke is deterministic L1 package/IPC proof, not an
 Electron host, adapter, or peripheral support claim. No current evidence record
-binds alpha.17 to a physical Electron radio journey.
+binds alpha.18 to a physical Electron radio journey.
 
 ## Main-process backend selection
 
@@ -52,6 +52,12 @@ Install one `ElectronMainBleBinding` on `ipcMain` with:
   and client identity solely from `WebContents`/session facts;
 - a preload transport that implements the structural
   `ElectronRendererIpcTransport` contract and exposes no generic IPC channel.
+
+The IPC port must pass the full authenticated invoke-event frame identity to
+the binding. The binding admits only the `WebContents.mainFrame`, releases all
+leases on main-frame cross-document navigation or renderer-process exit, and
+waits for that cleanup before a replacement document can bootstrap. Child
+frames cannot bootstrap, route, release, or acknowledge BLE ownership.
 
 The renderer creates `ElectronRendererBleClient` from that preload transport,
 calls `initialize()` before issuing requests, and calls `destroy()` during its

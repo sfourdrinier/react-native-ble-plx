@@ -21,14 +21,37 @@ const destroyedRendererRetryDelayMilliseconds = 100
 
 /** Structural Electron main-process sender contract; importing Electron remains the host application's decision. */
 export interface ElectronMainIpcSender {
+  readonly mainFrame: ElectronMainFrameIdentity
   send(channel: string, event: ElectronBleIpcEvent): void
   isDestroyed?(): boolean
-  once?(event: 'destroyed', listener: () => void): void
-  removeListener?(event: 'destroyed', listener: () => void): void
+  once(event: 'destroyed', listener: () => void): void
+  on: {
+    (event: 'did-start-navigation', listener: ElectronMainNavigationListener): void
+    (event: 'render-process-gone', listener: () => void): void
+  }
+  removeListener: {
+    (event: 'destroyed', listener: () => void): void
+    (event: 'did-start-navigation', listener: ElectronMainNavigationListener): void
+    (event: 'render-process-gone', listener: () => void): void
+  }
 }
+
+interface ElectronMainFrameIdentity {
+  readonly processId: number
+  readonly routingId: number
+}
+
+interface ElectronMainNavigationDetails {
+  readonly isMainFrame: boolean
+  readonly isSameDocument: boolean
+}
+
+type ElectronMainNavigationListener = (details: ElectronMainNavigationDetails) => void
 
 /** Structural invoke event contract accepted from `ipcMain.handle`. */
 export interface ElectronMainIpcEvent<Sender extends ElectronMainIpcSender> {
+  readonly frameId: number
+  readonly processId: number
   readonly sender: Sender
 }
 
@@ -68,6 +91,8 @@ interface BoundRenderer<Sender extends ElectronMainIpcSender> {
   retryHandle: ReturnType<typeof setTimeout> | null
   releaseResult: Promise<CleanupRecord> | null
   destroyedListener: (() => void) | null
+  navigationListener: ElectronMainNavigationListener | null
+  renderProcessGoneListener: (() => void) | null
 }
 
 interface PendingOutboundEvent {
@@ -84,12 +109,15 @@ interface PendingOutboundEvent {
 export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
   private readonly renderers = new Map<string, BoundRenderer<Sender>>()
   private installed = false
+  private lifecycle: 'active' | 'destroying' | 'release-required' | 'destroyed' = 'active'
+  private destroyResult: Promise<CleanupRecord> | null = null
 
   constructor(private readonly options: ElectronMainBleBindingOptions<Sender>) {
     options.router.setEventPublisher((clientId, event) => this.publish(clientId, event))
   }
 
   install(): void {
+    this.assertActiveLifecycle()
     if (this.installed) {
       return
     }
@@ -105,12 +133,38 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
     this.installed = false
   }
 
-  async destroy(): Promise<CleanupRecord> {
+  destroy(): Promise<CleanupRecord> {
+    if (this.destroyResult !== null) {
+      return this.destroyResult
+    }
+    if (this.lifecycle === 'destroyed') {
+      return Promise.resolve({ state: 'released', failures: [] })
+    }
+    this.lifecycle = 'destroying'
+    const destroyResult = this.destroyBinding().then(
+      cleanup => {
+        this.lifecycle = cleanup.state === 'released' ? 'destroyed' : 'release-required'
+        if (cleanup.state === 'release-failed') {
+          this.destroyResult = null
+        }
+        return cleanup
+      },
+      error => {
+        this.lifecycle = 'release-required'
+        this.destroyResult = null
+        throw error
+      }
+    )
+    this.destroyResult = destroyResult
+    return destroyResult
+  }
+
+  private async destroyBinding(): Promise<CleanupRecord> {
     this.uninstall()
     const releaseRecords: CleanupRecord[] = []
     const attachedRenderers = [...this.renderers]
     for (const [rendererLeaseId, renderer] of attachedRenderers) {
-      this.removeDestroyedListener(renderer)
+      this.removeLifetimeListeners(renderer)
       try {
         releaseRecords.push(await this.releaseRenderer(rendererLeaseId, renderer))
       } catch (error) {
@@ -142,7 +196,9 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
       }
     }
     if (routerCleanup.state === 'released') {
-      this.renderers.clear()
+      for (const rendererLeaseId of [...this.renderers.keys()]) {
+        this.completeRendererRelease(rendererLeaseId)
+      }
     }
     const failures = [...routerCleanup.failures]
     for (const cleanup of releaseRecords) {
@@ -155,9 +211,13 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
     event: ElectronMainIpcEvent<Sender>,
     request: ElectronBleIpcRequest<string, string, string>
   ): Promise<ElectronBleIpcResponse<string, string>> {
+    this.assertActiveLifecycle()
+    this.assertMainFrame(event)
     const trusted = this.options.authenticate(event)
     this.options.router.validateRequest(request)
     if (request.kind === 'bootstrap') {
+      await this.releaseRetiredSenderRenderers(event.sender)
+      this.assertActiveLifecycle()
       this.assertBootstrapSender(event.sender, trusted)
     } else {
       const rendererLease = rendererLeaseForRequest(request)
@@ -176,21 +236,28 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
     }
     const response = await this.options.router.dispatch(trusted, request)
     if (response.kind === 'bootstrap') {
+      this.assertActiveLifecycle()
       const renderer = createBoundRenderer(event.sender, trusted, response.bootstrap.rendererLease)
       const rendererLeaseId = String(response.bootstrap.rendererLease.leaseId)
       this.renderers.set(rendererLeaseId, renderer)
       const destroyedListener = () => {
-        renderer.destroyed = true
-        renderer.releaseRequired = true
-        this.releaseRendererAuthoritatively(rendererLeaseId, renderer).catch(error => {
-          console.error('[ElectronMainBleBinding] Destroyed renderer release orchestration rejected:', {
-            rendererLeaseId,
-            error
-          })
-        })
+        this.retireRenderer(rendererLeaseId, renderer, true, 'destroyed')
+      }
+      const navigationListener: ElectronMainNavigationListener = details => {
+        if (!details.isMainFrame || details.isSameDocument) {
+          return
+        }
+        this.retireRenderer(rendererLeaseId, renderer, false, 'navigation')
+      }
+      const renderProcessGoneListener = () => {
+        this.retireRenderer(rendererLeaseId, renderer, true, 'render-process-gone')
       }
       renderer.destroyedListener = destroyedListener
-      event.sender.once?.('destroyed', destroyedListener)
+      renderer.navigationListener = navigationListener
+      renderer.renderProcessGoneListener = renderProcessGoneListener
+      event.sender.once('destroyed', destroyedListener)
+      event.sender.on('did-start-navigation', navigationListener)
+      event.sender.on('render-process-gone', renderProcessGoneListener)
     }
     if (response.kind === 'release' && response.cleanup.state === 'released') {
       if (request.kind !== 'release') {
@@ -201,12 +268,69 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
     return response
   }
 
+  private assertMainFrame(event: ElectronMainIpcEvent<Sender>): void {
+    if (event === null || event === undefined || event.sender === null || event.sender === undefined) {
+      throw contractError('protocol.malformed', 'ipc', 'electron-main-binding.frame-identity')
+    }
+    const mainFrame = event.sender.mainFrame
+    if (
+      mainFrame === null ||
+      mainFrame === undefined ||
+      !Number.isInteger(mainFrame.routingId) ||
+      !Number.isInteger(mainFrame.processId) ||
+      !Number.isInteger(event.frameId) ||
+      !Number.isInteger(event.processId)
+    ) {
+      throw contractError('protocol.malformed', 'ipc', 'electron-main-binding.frame-identity')
+    }
+    if (event.frameId !== mainFrame.routingId || event.processId !== mainFrame.processId) {
+      throw contractError('ownership.denied', 'ipc', 'electron-main-binding.main-frame')
+    }
+  }
+
   private assertBootstrapSender(sender: Sender, trusted: TrustedIpcSender<string, string>): void {
     for (const renderer of this.renderers.values()) {
-      if (trustedSendersEqual(renderer.trusted, trusted) && renderer.sender !== sender) {
+      const sameSender = renderer.sender === sender
+      const sameTrustedIdentity = trustedSendersEqual(renderer.trusted, trusted)
+      if ((sameSender && !sameTrustedIdentity) || (!sameSender && sameTrustedIdentity)) {
         throw contractError('ownership.denied', 'ipc', 'electron-main-binding.sender-binding')
       }
     }
+  }
+
+  private async releaseRetiredSenderRenderers(sender: Sender): Promise<void> {
+    for (const [rendererLeaseId, renderer] of [...this.renderers]) {
+      if (renderer.sender !== sender || (!renderer.destroyed && !renderer.releaseRequired)) {
+        continue
+      }
+      await this.releaseRendererAuthoritatively(rendererLeaseId, renderer)
+      if (this.renderers.get(rendererLeaseId) === renderer) {
+        throw contractError('lifecycle.invalid-state', 'ipc', 'electron-main-binding.renderer-release-required')
+      }
+    }
+  }
+
+  private assertActiveLifecycle(): void {
+    if (this.lifecycle !== 'active') {
+      throw contractError('lifecycle.invalid-state', 'ipc', 'electron-main-binding.lifecycle')
+    }
+  }
+
+  private retireRenderer(
+    rendererLeaseId: string,
+    renderer: BoundRenderer<Sender>,
+    destroyed: boolean,
+    reason: 'destroyed' | 'navigation' | 'render-process-gone'
+  ): void {
+    renderer.destroyed ||= destroyed
+    renderer.releaseRequired = true
+    this.releaseRendererAuthoritatively(rendererLeaseId, renderer).catch(error => {
+      console.error('[ElectronMainBleBinding] Renderer lifetime release orchestration rejected:', {
+        rendererLeaseId,
+        reason,
+        error
+      })
+    })
   }
 
   private async publish(rendererLeaseId: string, event: ElectronBleIpcEvent): Promise<ElectronEventDelivery> {
@@ -429,7 +553,7 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
     renderer.terminalEventCount = 0
     renderer.terminalBytes = 0
     renderer.terminalStreams.clear()
-    this.removeDestroyedListener(renderer)
+    this.removeLifetimeListeners(renderer)
     if (renderer.retryHandle !== null) {
       clearTimeout(renderer.retryHandle)
       renderer.retryHandle = null
@@ -437,12 +561,19 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
     this.renderers.delete(rendererLeaseId)
   }
 
-  private removeDestroyedListener(renderer: BoundRenderer<Sender>): void {
-    if (renderer.destroyedListener === null) {
-      return
+  private removeLifetimeListeners(renderer: BoundRenderer<Sender>): void {
+    if (renderer.destroyedListener !== null) {
+      renderer.sender.removeListener('destroyed', renderer.destroyedListener)
+      renderer.destroyedListener = null
     }
-    renderer.sender.removeListener?.('destroyed', renderer.destroyedListener)
-    renderer.destroyedListener = null
+    if (renderer.navigationListener !== null) {
+      renderer.sender.removeListener('did-start-navigation', renderer.navigationListener)
+      renderer.navigationListener = null
+    }
+    if (renderer.renderProcessGoneListener !== null) {
+      renderer.sender.removeListener('render-process-gone', renderer.renderProcessGoneListener)
+      renderer.renderProcessGoneListener = null
+    }
   }
 }
 
@@ -467,7 +598,9 @@ function createBoundRenderer<Sender extends ElectronMainIpcSender>(
     terminalBytes: 0,
     retryHandle: null,
     releaseResult: null,
-    destroyedListener: null
+    destroyedListener: null,
+    navigationListener: null,
+    renderProcessGoneListener: null
   }
 }
 

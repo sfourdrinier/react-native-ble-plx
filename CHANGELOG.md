@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.18] - 2026-07-31
+
+### Fixed
+
+- Released every Electron renderer lease on main-frame document navigation and
+  renderer-process exit, awaited retired ownership before replacement
+  bootstrap, and preserved same-document and child-frame navigation.
+- Rejected Electron BLE bootstrap, route, release, and event acknowledgement
+  IPC from child frames before authentication or resource allocation.
+
 ## [4.0.0-alpha.17] - 2026-07-30
 
 ### Added
