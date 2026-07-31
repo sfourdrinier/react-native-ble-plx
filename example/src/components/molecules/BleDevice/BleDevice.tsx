@@ -23,7 +23,7 @@ export function BleDevice({ peer, onPress }: BleDeviceProps) {
       />
       <DeviceProperty name="RSSI" value={peer.rssi === null ? 'unavailable' : peer.rssi.toString()} />
       <DeviceProperty name="observed at" value={peer.seenAt.toString()} />
-      <DeviceProperty name="advertisement source" value={advertisement.source} />
+      <DeviceProperty name="advertisement source" value={advertisement.provenance} />
       <DeviceProperty name="ingress ordinal" value={advertisement.ingressOrdinal.toString()} />
       <DeviceProperty name="TX power" value={formatField(advertisement.txPower, value => value.toString())} />
       <DeviceProperty name="service UUIDs" value={formatField(advertisement.serviceUuids, values => values.join(', '))} />

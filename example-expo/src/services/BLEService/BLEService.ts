@@ -455,7 +455,7 @@ function peerFromObservation(observation: AdvertisementObservation<string>): Exa
     label: observation.localName.state === 'present' ? observation.localName.value : null,
     rssi: observation.rssi.state === 'present' ? observation.rssi.value : null,
     isConnectable: observation.connectable.state === 'present' ? observation.connectable.value : null,
-    seenAt: observation.observedAt,
+    seenAt: observation.receivedAtMonotonicMs,
     advertisement: observation
   })
 }
