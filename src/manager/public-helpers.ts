@@ -6,7 +6,12 @@ import type { BackendIdentity } from '../backend-contract/identity'
 import type { CharacteristicPath, NotificationValue } from '../backend-contract/gatt'
 import type { PublicOperationOptions, SubscriptionOptions } from '../backend-contract/operations'
 import type { OwnedBytes, PeerId } from '../backend-contract/primitives'
-import type { BoundedAsyncStream, StreamItem, StreamTerminalNotice } from '../backend-contract/streams'
+import type {
+  BoundedAsyncStream,
+  BoundedAsyncStreamIterator,
+  StreamItem,
+  StreamTerminalNotice
+} from '../backend-contract/streams'
 import { BleManager, Connection, DiscoveredGattDatabase } from './ble-manager'
 
 type CurrentCharacteristicPath<Attachment extends string> = CharacteristicPath<
@@ -154,7 +159,7 @@ export async function withConnection<Attachment extends string, Identity extends
 }
 
 async function nextMatchingObservation<Attachment extends string>(
-  iterator: AsyncIterator<StreamItem<AdvertisementObservation<Attachment>>>,
+  iterator: BoundedAsyncStreamIterator<AdvertisementObservation<Attachment>>,
   options: ScanUntilOptions<Attachment>,
   clock: DeadlineClock
 ): Promise<AdvertisementObservation<Attachment>> {
@@ -173,7 +178,7 @@ async function nextMatchingObservation<Attachment extends string>(
 }
 
 async function collectSubscriptionValues(
-  iterator: AsyncIterator<StreamItem<NotificationValue>>,
+  iterator: BoundedAsyncStreamIterator<NotificationValue>,
   options: CollectNotificationsOptions,
   clock: DeadlineClock
 ): Promise<readonly OwnedBytes[]> {
@@ -186,7 +191,7 @@ async function collectSubscriptionValues(
 }
 
 async function nextStreamItem<Value>(
-  iterator: AsyncIterator<StreamItem<Value>>,
+  iterator: BoundedAsyncStreamIterator<Value>,
   options: PublicOperationOptions,
   operation: string,
   clock: DeadlineClock
@@ -270,7 +275,7 @@ function requireStreamItem<Value>(result: IteratorResult<StreamItem<Value>>, ope
 
 async function withStreamIterator<Value, Result>(
   stream: BoundedAsyncStream<Value>,
-  operation: (iterator: AsyncIterator<StreamItem<Value>>) => Promise<Result>
+  operation: (iterator: BoundedAsyncStreamIterator<Value>) => Promise<Result>
 ): Promise<Result> {
   const iterator = stream[Symbol.asyncIterator]()
   const outcome = await capture(() => operation(iterator))
@@ -290,10 +295,8 @@ async function withStreamIterator<Value, Result>(
   return outcome.value
 }
 
-async function closeIterator<Value>(iterator: AsyncIterator<Value>): Promise<void> {
-  if (iterator.return !== undefined) {
-    await iterator.return()
-  }
+async function closeIterator<Value>(iterator: BoundedAsyncStreamIterator<Value>): Promise<void> {
+  await iterator.return()
 }
 
 function notificationValue(

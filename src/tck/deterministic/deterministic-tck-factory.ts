@@ -10,7 +10,7 @@ import {
   type DeterministicBackendOptions,
   type DeterministicTestBackend
 } from '../../testing/deterministic/deterministic-test-backend'
-import type { BackendTckFactory } from '../contracts'
+import type { BackendTckFactory, TckFeatureSuite, TckScenarioId } from '../contracts'
 import { createDeterministicTckScenarioController } from './deterministic-tck-controller'
 
 const deterministicCompatibility: BackendCompatibilityOffer = {
@@ -23,6 +23,25 @@ const deterministicCompatibility: BackendCompatibilityOffer = {
 export interface DeterministicTckFactoryOptions {
   readonly backend?: DeterministicBackendOptions
 }
+
+const maximumWriteLengthScenarioIds: readonly TckScenarioId[] = Object.freeze(['gatt.maximum-write-length-boundaries'])
+const longWriteScenarioIds: readonly TckScenarioId[] = Object.freeze([
+  'gatt.maximum-write-length-boundaries',
+  'gatt.long-write-partial-failure',
+  'gatt.long-write-cancellation',
+  'gatt.long-write-disconnect'
+])
+
+export const deterministicTckFeatureSuites: readonly TckFeatureSuite[] = Object.freeze([
+  Object.freeze({
+    suiteId: 'tck.feature.gatt.maximum-write-length',
+    scenarioIds: maximumWriteLengthScenarioIds
+  }),
+  Object.freeze({
+    suiteId: 'tck.feature.gatt.long-write',
+    scenarioIds: longWriteScenarioIds
+  })
+])
 
 /** Binds the production deterministic backend to the public production TCK. */
 export function createDeterministicBackendTckFactory(
@@ -37,6 +56,7 @@ export function createDeterministicBackendTckFactory(
     staleSelection: {
       selectedAdapterId: opaqueId('stale-deterministic-adapter', 'adapter', 'deterministic')
     },
+    defaultFeatureSuites: deterministicTckFeatureSuites,
     create: async _context => {
       const fixture = createDeterministicTestBackend(options.backend)
       return {

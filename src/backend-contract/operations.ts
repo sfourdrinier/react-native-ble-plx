@@ -22,9 +22,18 @@ export interface WritePolicy extends PublicOperationOptions {
 export interface OperationOptions<Attachment extends string, Operation extends string> extends PublicOperationOptions {
   readonly correlation: OperationCorrelation<Attachment, Operation>
 }
-export interface OperationTerminalRecord<Attachment extends string, _Operation extends string> {
-  readonly correlation: OperationCorrelation<Attachment, string>
-  readonly outcome: 'succeeded' | 'failed'
+export type OperationTerminalOutcome =
+  | 'succeeded'
+  | 'failed'
+  | 'aborted'
+  | 'timed-out'
+  | 'disconnected'
+  | 'reset'
+  | 'adapter-unavailable'
+  | 'destroyed'
+export interface OperationTerminalRecord<Attachment extends string, Operation extends string> {
+  readonly correlation: OperationCorrelation<Attachment, Operation>
+  readonly outcome: OperationTerminalOutcome
   readonly cause: BleErrorCode | null
 }
 export interface CancellationAcknowledgement<Attachment extends string> {
@@ -81,6 +90,57 @@ export interface WriteReceipt<Attachment extends string, _Operation extends stri
   readonly terminal: OperationTerminalRecord<Attachment, string>
   readonly commitState: 'confirmed' | 'unknown'
 }
+
+/** Policy for the portable core-emulated sequential chunked write operation. */
+export type LongWritePolicy = WritePolicy
+
+/** One chunk state in an immutable long-write receipt. */
+export interface LongWriteChunkProgress {
+  readonly index: number
+  readonly byteOffset: number
+  readonly byteLength: number
+  readonly state: 'confirmed' | 'uncertain' | 'not-started'
+}
+
+/**
+ * A receipt whose terminal occurred before a maximum-write-length observation
+ * established a chunk plan. Its zero chunk values are explicit non-claims.
+ */
+export interface LongWriteNotPlannedReceipt<Attachment extends string, Operation extends string> {
+  readonly terminal: OperationTerminalRecord<Attachment, Operation>
+  readonly planState: 'not-planned'
+  readonly commitState: 'not-started'
+  readonly totalBytes: number
+  readonly chunkSize: 0
+  readonly totalChunks: 0
+  readonly chunks: readonly LongWriteChunkProgress[]
+  readonly completedChunks: 0
+  readonly committedBytes: 0
+  readonly failedChunkIndex: null
+}
+
+/** A receipt whose maximum-write-length observation produced an exact chunk plan. */
+export interface LongWritePlannedReceipt<Attachment extends string, Operation extends string> {
+  readonly terminal: OperationTerminalRecord<Attachment, Operation>
+  readonly planState: 'planned'
+  readonly commitState: 'confirmed' | 'unknown'
+  readonly totalBytes: number
+  readonly chunkSize: number
+  readonly totalChunks: number
+  readonly chunks: readonly LongWriteChunkProgress[]
+  readonly completedChunks: number
+  readonly committedBytes: number
+  readonly failedChunkIndex: number | null
+}
+
+/**
+ * Stable terminal receipt for a chunked write. It resolves for all operation
+ * terminals so callers can decide how to recover from a partially committed
+ * value without relying on an exception's incidental shape.
+ */
+export type LongWriteReceipt<Attachment extends string, Operation extends string> =
+  | LongWriteNotPlannedReceipt<Attachment, Operation>
+  | LongWritePlannedReceipt<Attachment, Operation>
 export interface SubscriptionOptions extends PublicOperationOptions {
   readonly delivery: {
     readonly itemCapacity: Capacity

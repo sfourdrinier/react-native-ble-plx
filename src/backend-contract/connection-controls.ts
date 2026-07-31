@@ -16,15 +16,15 @@ export interface ConnectionControlCapabilities {
   readonly requestMtu: ConnectionControlSupport
 }
 
-export interface RssiMeasurement<Attachment extends string, Operation extends string> {
+export interface RssiMeasurement<Attachment extends string, _Operation extends string> {
   readonly rssi: number
-  readonly terminal: OperationTerminalRecord<Attachment, Operation>
+  readonly terminal: OperationTerminalRecord<Attachment, string>
 }
 
-export interface MtuNegotiation<Attachment extends string, Operation extends string> {
+export interface MtuNegotiation<Attachment extends string, _Operation extends string> {
   readonly requestedMtu: number
   readonly negotiatedMtu: number
-  readonly terminal: OperationTerminalRecord<Attachment, Operation>
+  readonly terminal: OperationTerminalRecord<Attachment, string>
 }
 
 export interface ReadRssiRequest<Attachment extends string, Operation extends string> {

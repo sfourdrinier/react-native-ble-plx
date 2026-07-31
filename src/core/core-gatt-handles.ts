@@ -18,8 +18,11 @@ import type {
 } from '../backend-contract/gatt'
 import type { BackendIdentity } from '../backend-contract/identity'
 import type {
+  LongWritePolicy,
+  LongWriteReceipt,
   PublicOperationOptions,
   SubscriptionOptions,
+  WriteMode,
   WritePolicy,
   WriteReceipt
 } from '../backend-contract/operations'
@@ -394,6 +397,21 @@ export class CoreGattDatabase<Attachment extends string, Identity extends Backen
     options: WritePolicy
   ): Promise<WriteReceipt<Attachment, string>> {
     return this.core.write(this, path, bytes, options)
+  }
+
+  maximumWriteLength(
+    path: CurrentCharacteristicPath<Attachment>,
+    mode: WriteMode
+  ): Promise<import('../backend-contract/gatt').MaximumWriteLengthObservation<Attachment>> {
+    return this.core.maximumWriteLength(this, path, mode)
+  }
+
+  writeLong(
+    path: CurrentCharacteristicPath<Attachment>,
+    bytes: Readonly<Uint8Array>,
+    options: LongWritePolicy
+  ): Promise<LongWriteReceipt<Attachment, string>> {
+    return this.core.writeLong(this, path, bytes, options)
   }
 
   readDescriptor(path: CurrentDescriptorPath<Attachment>, options: PublicOperationOptions): Promise<OwnedBytes> {

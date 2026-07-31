@@ -172,10 +172,7 @@ export interface GattBackend<Attachment extends string> {
   >(
     path: CharacteristicPath<Attachment, Connection, Database, Service, Characteristic, 'current'>,
     request: SubscribeRequest<Attachment, Operation>
-  ): BackendOperationDispatch<
-    Attachment,
-    BackendSubscription<Attachment, Connection, Database, Service, Characteristic>
-  >
+  ): BackendOperationDispatch<Attachment, BackendSubscription<Attachment, string, string, string, string>>
   unsubscribe<
     Connection extends string,
     Database extends string,
@@ -185,7 +182,7 @@ export interface GattBackend<Attachment extends string> {
   >(
     subscription: BackendSubscription<Attachment, Connection, Database, Service, Characteristic>,
     operation: OperationOptions<Attachment, Operation>
-  ): BackendOperationDispatch<Attachment, OperationTerminalRecord<Attachment, Operation>>
+  ): BackendOperationDispatch<Attachment, OperationTerminalRecord<Attachment, string>>
 }
 export interface BackendSubscription<
   Attachment extends string,

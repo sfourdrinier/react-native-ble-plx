@@ -18,6 +18,7 @@ const {
 
 const SERVICE_UUID = '0000180d-0000-1000-8000-00805f9b34fb'
 const CHARACTERISTIC_UUID = '00002a37-0000-1000-8000-00805f9b34fb'
+const DESCRIPTOR_UUID = '00002902-0000-1000-8000-00805f9b34fb'
 const BLUEZ_ADAPTER_PATH = '/org/bluez/hci0'
 const REACT_NATIVE_PEER_ID = 'C0FFEE000001'
 
@@ -117,7 +118,7 @@ describe('first-party deterministic backend TCK registry', () => {
         prepare: () => {
           global.__unifiedBleNativeProtocolV1 = appleRuntime
         },
-        exclusions: ['connection:request-att-mtu', 'gatt:descriptor-operations']
+        exclusions: ['connection:request-att-mtu']
       }
     ]
 
@@ -309,6 +310,7 @@ class DeterministicReactNativeProtocolRuntime {
     this.nextEvent = 1
     this.subscriptionId = null
     this.connection = null
+    this.descriptorValue = new Uint8Array([8, 7])
     this.emitInitialSubscriptionNotification = emitInitialSubscriptionNotification
   }
 
@@ -361,8 +363,24 @@ class DeterministicReactNativeProtocolRuntime {
         field(6, binaryReferenceRecord(this.retain('first-party-registry-read', new Uint8Array([0, 1]))))
       ])
     }
+    if (kind === 'readDescriptor') {
+      const descriptorPath = requiredRecord(command, 5)
+      return this.emitResult(command, 'descriptorRead', [
+        field(15, descriptorPath),
+        field(6, binaryReferenceRecord(this.retain('first-party-registry-descriptor-read', this.descriptorValue)))
+      ])
+    }
     if (kind === 'readRssi') return this.emitResult(command, 'rssi', [field(13, -47)])
     if (kind === 'requestMtu') return this.emitResult(command, 'mtu', [field(14, requiredNumber(command, 14))])
+    if (kind === 'writeDescriptor') {
+      const descriptorPath = requiredRecord(command, 5)
+      const reference = binaryReferenceFromRecord(requiredRecord(command, 6))
+      this.descriptorValue = this.copy(reference)
+      if (!this.release(reference)) {
+        throw new Error('The deterministic descriptor write input was not retained')
+      }
+      return this.emitResult(command, 'descriptorWrite', [field(15, descriptorPath)])
+    }
     if (kind === 'subscribe') {
       this.subscriptionId = requiredString(command, 7)
       if (this.emitInitialSubscriptionNotification) {
@@ -565,6 +583,7 @@ class DeterministicWinRtBoundary {
 function databaseSnapshot(database) {
   const service = record('servicePath', [field(1, database), field(2, SERVICE_UUID), field(3, '0')])
   const characteristic = record('characteristicPath', [field(1, service), field(2, CHARACTERISTIC_UUID), field(3, '0')])
+  const descriptor = record('descriptorPath', [field(1, characteristic), field(2, DESCRIPTOR_UUID), field(3, '0')])
   return record('databaseSnapshot', [
     field(1, database),
     field(2, [service]),
@@ -577,7 +596,7 @@ function databaseSnapshot(database) {
         field(5, true)
       ])
     ]),
-    field(4, [])
+    field(4, [descriptor])
   ])
 }
 
@@ -589,6 +608,16 @@ function binaryReferenceRecord(reference) {
     field(4, reference.ownership),
     field(5, reference.operationCorrelation)
   ])
+}
+
+function binaryReferenceFromRecord(value) {
+  return {
+    ownerToken: requiredString(value, 1),
+    byteOffset: requiredNumber(value, 2),
+    byteLength: requiredNumber(value, 3),
+    ownership: requiredString(value, 4),
+    operationCorrelation: requiredString(value, 5)
+  }
 }
 
 function record(kind, fields) {

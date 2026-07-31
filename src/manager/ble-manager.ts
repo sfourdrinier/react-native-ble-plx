@@ -14,11 +14,15 @@ import type { CleanupRecord } from '../backend-contract/errors'
 import type { CharacteristicPath, DescriptorPath, GattDatabase, NotificationValue } from '../backend-contract/gatt'
 import type { AdapterSelection } from '../backend-contract/identity'
 import type {
+  LongWritePolicy,
+  LongWriteReceipt,
   PublicOperationOptions,
   SubscriptionOptions,
+  WriteMode,
   WritePolicy,
   WriteReceipt
 } from '../backend-contract/operations'
+import type { CapabilityDescriptor, FeatureId } from '../backend-contract/capabilities'
 import type { AttachmentId, BackendCompatibilityOffer, OwnedBytes, PeerId } from '../backend-contract/primitives'
 import type { MtuNegotiation, RssiMeasurement } from '../backend-contract/connection-controls'
 import type { AttachedBackend, BleCentralBackend, OwningManagerConstruction } from '../backend-contract/backend'
@@ -142,7 +146,28 @@ export class BleManager<Attachment extends string, Identity extends BackendIdent
   }
 
   get features() {
-    return this.core.backend.features
+    return this.core.features
+  }
+
+  /** True only where the instantiated backend/core registry exposes an invocable feature implementation. */
+  supports(id: FeatureId): boolean {
+    const descriptor = this.capability(id)
+    return descriptor !== null && (descriptor.state === 'supported' || descriptor.state === 'limited')
+  }
+
+  /** Returns one immutable capability descriptor, or null when no registration exists. */
+  capability(id: FeatureId): CapabilityDescriptor | null {
+    for (const descriptor of this.features.descriptors) {
+      if (descriptor.id === id) {
+        return descriptor
+      }
+    }
+    return null
+  }
+
+  /** Returns the immutable capability projection derived from negotiated registrations. */
+  capabilities(): readonly CapabilityDescriptor[] {
+    return this.features.descriptors
   }
 
   /** Explicitly consumes the active provider's bounded native restoration journal. */
@@ -518,6 +543,21 @@ export class DiscoveredGattDatabase<Attachment extends string, Identity extends 
     options: WritePolicy
   ): Promise<WriteReceipt<Attachment, string>> {
     return this.database.write(path, bytes, options)
+  }
+
+  maximumWriteLength(
+    path: CurrentCharacteristicPath<Attachment>,
+    mode: WriteMode
+  ): Promise<import('../backend-contract/gatt').MaximumWriteLengthObservation<Attachment>> {
+    return this.database.maximumWriteLength(path, mode)
+  }
+
+  writeLong(
+    path: CurrentCharacteristicPath<Attachment>,
+    bytes: Readonly<Uint8Array>,
+    options: LongWritePolicy
+  ): Promise<LongWriteReceipt<Attachment, string>> {
+    return this.database.writeLong(path, bytes, options)
   }
 
   readDescriptor(path: CurrentDescriptorPath<Attachment>, options: PublicOperationOptions): Promise<OwnedBytes> {

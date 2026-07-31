@@ -38,7 +38,12 @@ import { CoreTraceRecorder } from './trace-recorder'
 import { CoreLifecycleObserver } from './core-lifecycle-observer'
 import { CoreConnection, CoreGattDatabase } from './core-gatt-handles'
 import { readCoreAdapterState } from './core-adapter-state'
-import { readCoreCharacteristic, writeCoreCharacteristic } from './core-characteristic-operations'
+import {
+  readCoreCharacteristic,
+  writeCoreCharacteristic,
+  writeCoreLongCharacteristic
+} from './core-characteristic-operations'
+import { createCoreFeatureRegistry, observeMaximumWriteLength, planLongWrite } from './core-capabilities'
 import { createCoreConnectionControls, type CoreConnectionControls } from './core-connection-controls'
 import { readCoreDescriptor, writeCoreDescriptor } from './core-descriptor-operations'
 import { discoverCoreGattDatabase } from './core-discovery'
@@ -104,6 +109,7 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
   private readonly aggregateQuota: AggregateStreamQuota
   private readonly operationCoordinator: CoreOperationCoordinator<Attachment>
   private readonly connectionControls: CoreConnectionControls<Attachment, Identity>
+  private readonly featureRegistry
   private readonly scans = new Map<string, TrackedScan<Attachment>>()
   private readonly connections = new Map<string, CoreConnection<Attachment, Identity>>()
   private readonly connectionReleases = new Map<string, Promise<CleanupRecord>>()
@@ -120,6 +126,7 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
     readonly construction: ManagerConstruction<Attachment, Identity>,
     readonly options: UnifiedBleCoreOptions
   ) {
+    this.featureRegistry = createCoreFeatureRegistry(construction.attachedBackend.backend.features)
     this.trace = new CoreTraceRecorder(options.traceMaximumRecords, options.traceMaximumBytes)
     this.lifecycleObserver = new CoreLifecycleObserver(this.trace, options.now)
     this.aggregateQuota = new AggregateStreamQuota(options.maximumAggregateRetainedBytes)
@@ -182,6 +189,10 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
     return this.construction.attachedBackend.backend
   }
 
+  get features() {
+    return this.featureRegistry
+  }
+
   traces(): readonly import('./trace-recorder').CoreTraceRecord[] {
     return this.trace.snapshot()
   }
@@ -202,6 +213,55 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
   async adapterState(): Promise<AdapterStateSnapshot<Attachment>> {
     this.assertReady('adapter-state')
     return readCoreAdapterState(this.backend)
+  }
+
+  async maximumWriteLength(
+    database: CoreGattDatabase<Attachment, Identity>,
+    path: CurrentCharacteristicPath<Attachment>,
+    mode: WritePolicy['mode']
+  ): Promise<import('../backend-contract/gatt').MaximumWriteLengthObservation<Attachment>> {
+    this.assertReady('maximum-write-length')
+    database.assertPath(path)
+    const observation = await observeMaximumWriteLength(this.features, path, mode)
+    database.assertPath(path)
+    return observation
+  }
+
+  async writeLong(
+    database: CoreGattDatabase<Attachment, Identity>,
+    path: CurrentCharacteristicPath<Attachment>,
+    bytes: Readonly<Uint8Array>,
+    options: import('../backend-contract/operations').LongWritePolicy
+  ): Promise<import('../backend-contract/operations').LongWriteReceipt<Attachment, string>> {
+    this.assertReady('write-long')
+    database.assertPath(path)
+    return writeCoreLongCharacteristic(
+      this.backend,
+      this.operationCoordinator,
+      this.options.maximumValueBytes,
+      database,
+      path,
+      bytes,
+      options,
+      async () => {
+        database.assertPath(path)
+        const observation = await observeMaximumWriteLength(this.features, path, options.mode)
+        database.assertPath(path)
+        const plan = await planLongWrite(
+          this.features,
+          String(path.connectionId),
+          String(path.connectionGeneration),
+          options.mode,
+          bytes.byteLength,
+          observation.maximumWriteLength
+        )
+        database.assertPath(path)
+        return Object.freeze({
+          maximumWriteLength: observation.maximumWriteLength,
+          totalChunks: plan.totalChunks
+        })
+      }
+    )
   }
 
   async scan(options: ScanOptions<Attachment, string>): Promise<CoreScanSession<Attachment>> {

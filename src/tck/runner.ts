@@ -3,7 +3,6 @@
 import { validateFeatureRegistration, type FeatureState } from '../backend-contract/capabilities'
 import type { BleCentralBackend } from '../backend-contract/backend'
 import type { BackendIdentity } from '../backend-contract/identity'
-import type { SerializableRecord, SerializableValue } from '../backend-contract/primitives'
 import { snapshotSerializableRecord } from '../backend-contract/serializable'
 import type {
   BackendTckFactory,
@@ -45,7 +44,15 @@ export async function runBackendTck<
   const selectedBaseScenarios = snapshotRunOptions(options)
   const identity = await verifyFactoryRuntimeIdentity(factory)
   const receipts = await runBaseSuites(factory, identity, selectedBaseScenarios, options.proofScope)
-  const featureRun = await runRegisteredFeatureSuites(factory, identity, featureSuites, receipts, options.proofScope)
+  const selectedFeatureSuites =
+    featureSuites.length === 0 ? (factory.defaultFeatureSuites ?? featureSuites) : featureSuites
+  const featureRun = await runRegisteredFeatureSuites(
+    factory,
+    identity,
+    selectedFeatureSuites,
+    receipts,
+    options.proofScope
+  )
   return Object.freeze({
     backendId: identity.registeredBackendId,
     identity,
@@ -500,45 +507,6 @@ function limitationsEqual(left: TckFeatureBinding['limitations'], right: TckFeat
         limitation.affectedGuarantee === right[index]?.affectedGuarantee
     )
   )
-}
-
-function serializableRecordsEqual(left: SerializableRecord, right: SerializableRecord): boolean {
-  const leftKeys = Object.keys(left).sort()
-  const rightKeys = Object.keys(right).sort()
-  return (
-    stringArraysEqual(leftKeys, rightKeys) &&
-    leftKeys.every(key => serializableValuesEqual(left[key] ?? null, right[key] ?? null))
-  )
-}
-
-function serializableValuesEqual(left: SerializableValue, right: SerializableValue): boolean {
-  if (left instanceof Uint8Array || right instanceof Uint8Array) {
-    return (
-      left instanceof Uint8Array &&
-      right instanceof Uint8Array &&
-      left.byteLength === right.byteLength &&
-      left.every((byte, index) => byte === right[index])
-    )
-  }
-  if (isSerializableArray(left) || isSerializableArray(right)) {
-    return (
-      isSerializableArray(left) &&
-      isSerializableArray(right) &&
-      left.length === right.length &&
-      left.every((value, index) => {
-        const rightValue = right[index]
-        return rightValue !== undefined && serializableValuesEqual(value, rightValue)
-      })
-    )
-  }
-  if (left !== null && right !== null && typeof left === 'object' && typeof right === 'object') {
-    return serializableRecordsEqual(left, right)
-  }
-  return left === right
-}
-
-function isSerializableArray(value: SerializableValue): value is readonly SerializableValue[] {
-  return Array.isArray(value)
 }
 
 /** Creates one fixture per scenario and always releases it once created. */

@@ -15,6 +15,7 @@ const deterministicTckActions: readonly TckControllerAction[] = Object.freeze([
   'advance-time',
   'force-disconnect',
   'trigger-services-changed',
+  'inject-att-error',
   'inject-unsubscribe-failure',
   'set-adapter-state'
 ])
@@ -63,6 +64,15 @@ export function createDeterministicTckScenarioController(fixture: DeterministicB
       }
       if (action === 'trigger-services-changed') {
         fixture.controller.triggerServicesChanged(peerId(action, input))
+        return
+      }
+      if (action === 'inject-att-error') {
+        const operation = stringField(action, input, 'operation')
+        const code = stringField(action, input, 'code')
+        if (operation !== 'write' || code !== 'gatt.write-failed') {
+          throw malformedInput(action, 'supports only the write / gatt.write-failed deterministic boundary')
+        }
+        fixture.controller.injectAttError(operation, code)
         return
       }
       if (action === 'inject-unsubscribe-failure') {

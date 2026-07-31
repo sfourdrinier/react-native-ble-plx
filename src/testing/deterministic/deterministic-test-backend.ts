@@ -1,6 +1,13 @@
 // src/testing/deterministic/deterministic-test-backend.ts
+// src/testing/deterministic/deterministic-test-backend.ts
+
 import type { AdvertisementObservation, OwnerScanOptions } from '../../backend-contract/advertisement'
-import { contractError, type CleanupFailure, type CleanupRecord } from '../../backend-contract/errors'
+import {
+  contractError,
+  type BleErrorCode,
+  type CleanupFailure,
+  type CleanupRecord
+} from '../../backend-contract/errors'
 import type {
   BackendConnection,
   BleCentralBackend,
@@ -52,7 +59,7 @@ import {
   takePeripheralFailure
 } from './deterministic-test-backend-handles'
 import type { ConnectionRecord, PhysicalSubscription } from './deterministic-test-backend-handles'
-import type { VirtualCharacteristicAddress } from './virtual-peripheral'
+import type { VirtualCharacteristicAddress, VirtualPeripheralOperation } from './virtual-peripheral'
 import { createDeterministicGattBackend } from './deterministic-test-backend-gatt'
 import type { DeterministicBackendFixture } from './deterministic-test-backend-controller'
 import {
@@ -148,6 +155,11 @@ export class DeterministicTestBackend
         }
       }
     }
+  }
+
+  injectAttError(operation: VirtualPeripheralOperation, code: BleErrorCode): void {
+    this.assertUsable('inject-att-error')
+    this.peripheral.injectFailure(operation, code)
   }
 
   forceDisconnect(peerId: PeerId<string>): ConnectionPath<string, string> {
@@ -300,10 +312,10 @@ export class DeterministicTestBackend
     return lease
   }
 
-  async discover<Connection extends string, Database extends string>(
+  async discover<Connection extends string>(
     connection: BackendConnection<string, Connection>,
     optionsValue: PublicOperationOptions
-  ): Promise<GattDatabase<string, Connection, Database>> {
+  ): Promise<GattDatabase<string, string, string>> {
     const record = this.requireCurrentConnection(connection, 'gatt.discover')
     assertDeterministicOperationAdmission(optionsValue, this.clock, 'gatt.discover')
     const existing = record.discovery
@@ -398,6 +410,9 @@ export class DeterministicTestBackend
       () => {
         try {
           this.requireDatabase(path, 'gatt.write')
+          if (retained.byteLength > this.currentMaximumWriteLength) {
+            throw contractError('gatt.write-failed', 'gatt', 'gatt.write.maximum-write-length')
+          }
           takePeripheralFailure(this.peripheral, 'write', 'gatt.write-failed')
           const address = characteristicAddress(path)
           if (this.peripheral.supportsCharacteristicWrite(address, request.mode) === false) {
@@ -765,9 +780,7 @@ export class DeterministicTestBackend
   >(
     path: CharacteristicPath<string, Connection, Database, Service, Characteristic, 'current'>,
     request: SubscribeRequest<string, Operation>
-  ): Promise<
-    import('../../backend-contract/backend').BackendSubscription<string, Connection, Database, Service, Characteristic>
-  > {
+  ): Promise<import('../../backend-contract/backend').BackendSubscription<string, string, string, string, string>> {
     const database = this.requireDatabase(path, 'gatt.subscribe')
     const subscription = await this.subscribe(
       database,
@@ -803,7 +816,7 @@ export class DeterministicTestBackend
       Characteristic
     >,
     operation: OperationOptions<string, Operation>
-  ): Promise<OperationTerminalRecord<string, Operation>> {
+  ): Promise<OperationTerminalRecord<string, string>> {
     const managed = this.subscriptionsById.get(String(subscription.subscriptionId))
     if (managed === undefined || !characteristicPathsEqual(managed.path, subscription.path)) {
       throw contractError('gatt.stale-handle', 'gatt', 'gatt.unsubscribe')

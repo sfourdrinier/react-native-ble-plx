@@ -34,6 +34,8 @@ export interface BackendTckFactory<
    * standard runner otherwise always creates one fixture for every base scenario.
    */
   readonly providerOnlyIdentityScenarios?: boolean
+  /** First-party suites supplied by the factory when a caller requests the standard run. */
+  readonly defaultFeatureSuites?: readonly TckFeatureSuite[]
   create(context: TckFixtureContext): Promise<BackendTckFixture<Attachment, Identity, Backend>>
 }
 
@@ -114,6 +116,7 @@ export type TckControllerAction =
   | 'advance-time'
   | 'force-disconnect'
   | 'trigger-services-changed'
+  | 'inject-att-error'
   | 'inject-unsubscribe-failure'
   | 'set-adapter-state'
   | 'reload-renderer'
@@ -143,8 +146,13 @@ export type TckScenarioId =
   | 'connection.lease-joins-borrowing-transfer-and-revocation'
   | 'connection.two-client-arbitration'
   | 'connection.rssi-and-att-mtu-capability-contract'
+  | 'gatt.descriptor-discovery-read-write'
   | 'gatt.discovery-complete-paths-and-services-changed'
   | 'gatt.reads-descriptors-write-policy-and-dispatched-cancellation'
+  | 'gatt.maximum-write-length-boundaries'
+  | 'gatt.long-write-partial-failure'
+  | 'gatt.long-write-cancellation'
+  | 'gatt.long-write-disconnect'
   | 'subscription.enable-ready-shared-cccd-and-fanout'
   | 'subscription.pre-ready-overflow-controls-and-late-quarantine'
   | 'restoration.provider-journal-adoption-and-rejection'
@@ -179,11 +187,16 @@ export type TckFactId =
   | 'connection-second-client-arbitrates-without-stealing-link'
   | 'connection-rssi-is-measured-or-explicitly-unavailable'
   | 'connection-att-mtu-is-negotiated-or-explicitly-unavailable'
+  | 'gatt-descriptor-discovery-read-write-crosses-boundary'
   | 'gatt-discovery-returns-complete-occurrence-safe-paths'
   | 'gatt-services-changed-invalidates-database-generation'
   | 'gatt-stale-path-rejects-before-dispatch'
   | 'gatt-read-and-descriptor-return-owned-bytes'
   | 'gatt-write-policy-and-uncertain-dispatched-commit-are-exact'
+  | 'gatt-maximum-write-length-observation-is-current-and-bounded'
+  | 'gatt-long-write-receipt-reports-partial-failure'
+  | 'gatt-long-write-cancellation-stops-following-chunks'
+  | 'gatt-long-write-disconnect-stops-following-chunks'
   | 'subscription-no-value-before-ready'
   | 'subscription-shares-physical-cccd-with-consumer-refcount'
   | 'subscription-fanout-is-consumer-isolated'

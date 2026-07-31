@@ -15,7 +15,7 @@ import type {
   SubscriptionId,
   Uuid
 } from './primitives'
-import type { PublicOperationOptions, SubscriptionOptions, WritePolicy, WriteReceipt } from './operations'
+import type { PublicOperationOptions, SubscriptionOptions, WriteMode, WritePolicy, WriteReceipt } from './operations'
 import type { BoundedAsyncStream } from './streams'
 
 export type PathValidity = 'current' | 'stale'
@@ -24,48 +24,48 @@ export interface DevicePath<Attachment extends string> {
   readonly attachmentId: AttachmentId<Attachment>
   readonly peerId: PeerId<Attachment>
 }
-export interface ConnectionPath<Attachment extends string, _Connection extends string> extends DevicePath<Attachment> {
-  readonly connectionId: ConnectionId<Attachment, string>
-  readonly ownerLeaseId: LeaseId<Attachment, string>
-  readonly connectionGeneration: GenerationId<'connection-generation', string>
+export interface ConnectionPath<Attachment extends string, Connection extends string> extends DevicePath<Attachment> {
+  readonly connectionId: ConnectionId<Attachment, Connection>
+  readonly ownerLeaseId: LeaseId<Attachment, Connection>
+  readonly connectionGeneration: GenerationId<'connection-generation', Connection>
 }
-export interface DatabasePath<Attachment extends string, _Connection extends string, _Database extends string>
-  extends ConnectionPath<Attachment, _Connection> {
-  readonly databaseId: GattDatabaseId<Attachment, string, string>
-  readonly databaseGeneration: GenerationId<'database-generation', string>
+export interface DatabasePath<Attachment extends string, Connection extends string, Database extends string>
+  extends ConnectionPath<Attachment, Connection> {
+  readonly databaseId: GattDatabaseId<Attachment, Connection, Database>
+  readonly databaseGeneration: GenerationId<'database-generation', Database>
 }
 export interface ServicePath<
   Attachment extends string,
   Connection extends string,
   Database extends string,
-  _ServiceScope extends string
+  ServiceScope extends string
 > extends DatabasePath<Attachment, Connection, Database> {
   readonly serviceUuid: Uuid
-  readonly serviceOccurrence: GenerationId<'service-occurrence', string>
+  readonly serviceOccurrence: GenerationId<'service-occurrence', ServiceScope>
 }
 export interface CharacteristicPath<
   Attachment extends string,
   Connection extends string,
   Database extends string,
-  _ServiceScope extends string,
-  _CharacteristicScope extends string,
+  ServiceScope extends string,
+  CharacteristicScope extends string,
   Validity extends PathValidity = 'current'
-> extends ServicePath<Attachment, Connection, Database, _ServiceScope> {
+> extends ServicePath<Attachment, Connection, Database, ServiceScope> {
   readonly characteristicUuid: Uuid
-  readonly characteristicOccurrence: GenerationId<'characteristic-occurrence', string>
+  readonly characteristicOccurrence: GenerationId<'characteristic-occurrence', CharacteristicScope>
   readonly validity: Validity
 }
 export interface DescriptorPath<
   Attachment extends string,
   Connection extends string,
   Database extends string,
-  _ServiceScope extends string,
-  _CharacteristicScope extends string,
-  _DescriptorScope extends string,
+  ServiceScope extends string,
+  CharacteristicScope extends string,
+  DescriptorScope extends string,
   Validity extends PathValidity = 'current'
-> extends CharacteristicPath<Attachment, Connection, Database, _ServiceScope, _CharacteristicScope, Validity> {
+> extends CharacteristicPath<Attachment, Connection, Database, ServiceScope, CharacteristicScope, Validity> {
   readonly descriptorUuid: Uuid
-  readonly descriptorOccurrence: GenerationId<'descriptor-occurrence', string>
+  readonly descriptorOccurrence: GenerationId<'descriptor-occurrence', DescriptorScope>
 }
 export interface Service<
   Attachment extends string,
@@ -165,6 +165,14 @@ export interface GattDatabase<Attachment extends string, Connection extends stri
     options: SubscriptionOptions
   ): Promise<Subscription<Attachment, Connection, Database, string, string, string>>
 }
+/** Current backend observation used by the portable chunking policy. */
+export interface MaximumWriteLengthObservation<Attachment extends string> {
+  readonly connectionId: ConnectionId<Attachment, string>
+  readonly connectionGeneration: GenerationId<'connection-generation', string>
+  readonly mode: WriteMode
+  readonly maximumWriteLength: number
+  readonly observedAtMonotonicMs: number
+}
 export interface NotificationValue {
   readonly value: OwnedBytes
   readonly indication: boolean
@@ -175,9 +183,16 @@ export interface Subscription<
   Database extends string = string,
   ServiceOccurrence extends string = string,
   CharacteristicOccurrence extends string = string,
-  _SubscriptionScope extends string = string
+  SubscriptionScope extends string = string
 > {
-  readonly subscriptionId: SubscriptionId<Attachment, string, string, string, string, string>
+  readonly subscriptionId: SubscriptionId<
+    Attachment,
+    Connection,
+    Database,
+    ServiceOccurrence,
+    CharacteristicOccurrence,
+    SubscriptionScope
+  >
   readonly path: CharacteristicPath<
     Attachment,
     Connection,

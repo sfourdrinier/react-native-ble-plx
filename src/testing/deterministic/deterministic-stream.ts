@@ -4,6 +4,7 @@ import type { CleanupRecord } from '../../backend-contract/errors'
 import { resourceCount, type Capacity } from '../../backend-contract/primitives'
 import type {
   BoundedAsyncStream,
+  BoundedAsyncStreamIterator,
   OverflowPolicy,
   StreamItem,
   StreamLimits,
@@ -26,7 +27,12 @@ interface OverflowEntry {
 type Entry<Value> = ValueEntry<Value> | OverflowEntry
 
 interface PendingReader<Value> {
+  readonly iterator: StreamIteratorState
   readonly resolve: (result: IteratorResult<StreamItem<Value>>) => void
+}
+
+interface StreamIteratorState {
+  closed: boolean
 }
 
 export interface StreamCounters {
@@ -207,17 +213,20 @@ export class DeterministicBoundedStream<Value> implements BoundedAsyncStream<Val
     }
   }
 
-  [Symbol.asyncIterator](): AsyncIterator<StreamItem<Value>> {
-    return {
-      next: () => this.next(),
-      return: async () => {
-        await this.close()
-        return { done: true, value: undefined }
-      }
+  [Symbol.asyncIterator](): BoundedAsyncStreamIterator<Value> {
+    const state: StreamIteratorState = { closed: false }
+    const iterator: BoundedAsyncStreamIterator<Value> = {
+      next: () => this.next(state),
+      return: () => this.returnIterator(state),
+      [Symbol.asyncIterator]: () => iterator
     }
+    return iterator
   }
 
-  private next(): Promise<IteratorResult<StreamItem<Value>>> {
+  private next(iterator: StreamIteratorState): Promise<IteratorResult<StreamItem<Value>>> {
+    if (iterator.closed) {
+      return Promise.resolve({ done: true, value: undefined })
+    }
     const available = this.takeNextItem()
     if (available !== null) {
       return Promise.resolve({ done: false, value: available })
@@ -226,8 +235,41 @@ export class DeterministicBoundedStream<Value> implements BoundedAsyncStream<Val
       return Promise.resolve({ done: true, value: undefined })
     }
     return new Promise<IteratorResult<StreamItem<Value>>>(resolve => {
-      this.readers.push({ resolve })
+      if (iterator.closed) {
+        resolve({ done: true, value: undefined })
+        return
+      }
+      this.readers.push({ iterator, resolve })
     })
+  }
+
+  private returnIterator(iterator: StreamIteratorState): Promise<IteratorResult<StreamItem<Value>>> {
+    if (iterator.closed) {
+      return Promise.resolve({ done: true, value: undefined })
+    }
+    iterator.closed = true
+    const pendingReaders = this.removePendingReaders(iterator)
+    for (const reader of pendingReaders) {
+      reader.resolve({ done: true, value: undefined })
+    }
+    return Promise.resolve({ done: true, value: undefined })
+  }
+
+  private removePendingReaders(iterator: StreamIteratorState): PendingReader<Value>[] {
+    const pendingReaders: PendingReader<Value>[] = []
+    const remainingReaders: PendingReader<Value>[] = []
+    for (const reader of this.readers) {
+      if (reader.iterator === iterator) {
+        pendingReaders.push(reader)
+        continue
+      }
+      remainingReaders.push(reader)
+    }
+    this.readers.length = 0
+    for (const reader of remainingReaders) {
+      this.readers.push(reader)
+    }
+    return pendingReaders
   }
 
   private applyOverflow(value: Value, byteLength: number, key: string | null): StreamPushResult {

@@ -35,8 +35,13 @@ export interface StreamTerminalNotice {
   readonly replacedItems: ResourceCount
 }
 export type StreamItem<T> = StreamValue<T> | StreamOverflowNotice | StreamTerminalNotice
-export interface BoundedAsyncStream<T> extends AsyncIterable<StreamItem<T>> {
+export interface BoundedAsyncStreamIterator<T> extends AsyncIterator<StreamItem<T>, undefined, undefined> {
+  readonly return: () => Promise<IteratorResult<StreamItem<T>, undefined>>
+  [Symbol.asyncIterator](): BoundedAsyncStreamIterator<T>
+}
+export interface BoundedAsyncStream<T> extends AsyncIterable<StreamItem<T>, undefined, undefined> {
   readonly limits: StreamLimits
   readonly overflowPolicy: OverflowPolicy
+  [Symbol.asyncIterator](): BoundedAsyncStreamIterator<T>
   close(): Promise<CleanupRecord>
 }

@@ -14,10 +14,10 @@ import type {
 } from '../../backend-contract/operations'
 
 export interface DeterministicGattRuntime {
-  discover<Connection extends string, Database extends string>(
-    connection: BackendConnection<string, Connection>,
+  discover(
+    connection: BackendConnection<string, string>,
     options: import('../../backend-contract/operations').PublicOperationOptions
-  ): Promise<import('../../backend-contract/gatt').GattDatabase<string, Connection, Database>>
+  ): Promise<import('../../backend-contract/gatt').GattDatabase<string, string, string>>
   read<
     Connection extends string,
     Database extends string,
@@ -69,7 +69,7 @@ export interface DeterministicGattRuntime {
   >(
     path: CharacteristicPath<string, Connection, Database, Service, Characteristic, 'current'>,
     request: SubscribeRequest<string, Operation>
-  ): Promise<BackendSubscription<string, Connection, Database, Service, Characteristic>>
+  ): Promise<BackendSubscription<string, string, string, string, string>>
   unsubscribeFromBackend<
     Connection extends string,
     Database extends string,
@@ -79,7 +79,7 @@ export interface DeterministicGattRuntime {
   >(
     subscription: BackendSubscription<string, Connection, Database, Service, Characteristic>,
     operation: OperationOptions<string, Operation>
-  ): Promise<OperationTerminalRecord<string, Operation>>
+  ): Promise<OperationTerminalRecord<string, string>>
   createBackendOperationDispatch<Operation extends string, Result>(
     operation: OperationOptions<string, Operation>,
     start: (operation: OperationOptions<string, Operation>) => Promise<Result>
@@ -88,10 +88,10 @@ export interface DeterministicGattRuntime {
 
 export function createDeterministicGattBackend(runtime: DeterministicGattRuntime): GattBackend<string> {
   return {
-    discover: async <Connection extends string, Database extends string>(
-      connection: BackendConnection<string, Connection>,
+    discover: async (
+      connection: BackendConnection<string, string>,
       options: import('../../backend-contract/operations').PublicOperationOptions
-    ) => runtime.discover<Connection, Database>(connection, options),
+    ) => runtime.discover(connection, options),
     read: <
       Connection extends string,
       Database extends string,

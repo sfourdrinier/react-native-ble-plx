@@ -48,7 +48,10 @@ export function coreDispatch<Attachment extends string, Value>(
   }
 }
 
-export function requireOperationValue<Value>(result: CoreOperationResult<Value>, operation: string): Value {
+export function requireOperationValue<Attachment extends string, Value>(
+  result: CoreOperationResult<Attachment, Value>,
+  operation: string
+): Value {
   if (result.outcome === 'succeeded') {
     return result.value
   }

@@ -78,6 +78,7 @@ export type {
   DescriptorPath,
   DevicePath,
   GattDatabaseSnapshot,
+  MaximumWriteLengthObservation,
   NotificationValue,
   PathValidity,
   Service,
@@ -95,6 +96,13 @@ export type {
 export type { ConnectionLifecycleCause, ConnectionLifecycleEvent } from './backend-contract/connection-lifecycle'
 export type { BackendIdentity } from './backend-contract/identity'
 export type {
+  LongWriteChunkProgress,
+  LongWriteNotPlannedReceipt,
+  LongWritePlannedReceipt,
+  LongWritePolicy,
+  LongWriteReceipt,
+  OperationTerminalOutcome,
+  OperationTerminalRecord,
   PublicOperationOptions,
   SubscriptionOptions,
   WriteMode,
@@ -116,6 +124,7 @@ export type {
 } from './backend-contract/primitives'
 export type {
   BoundedAsyncStream,
+  BoundedAsyncStreamIterator,
   OverflowPolicy,
   StreamItem,
   StreamLimits,

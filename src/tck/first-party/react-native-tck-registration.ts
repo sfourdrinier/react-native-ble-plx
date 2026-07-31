@@ -60,6 +60,11 @@ const connectionControlsFeatureSuite = Object.freeze({
   scenarioIds: Object.freeze(['connection.rssi-and-att-mtu-capability-contract'] as const)
 })
 
+const descriptorOperationsFeatureSuite = Object.freeze({
+  suiteId: 'descriptor-operations',
+  scenarioIds: Object.freeze<TckScenarioId[]>(['gatt.descriptor-discovery-read-write'])
+})
+
 const restorationFeatureSuite = Object.freeze({
   suiteId: 'restoration',
   scenarioIds: Object.freeze(['restoration.provider-journal-adoption-and-rejection'] as const)
@@ -102,7 +107,7 @@ export function createReactNativeAndroidFirstPartyTckRegistration(
         baseScenarioIds: reactNativeProviderScenarioIds
       })
     ]),
-    featureSuites: Object.freeze([connectionControlsFeatureSuite]),
+    featureSuites: Object.freeze([connectionControlsFeatureSuite, descriptorOperationsFeatureSuite]),
     capabilityExclusions: Object.freeze([
       Object.freeze({
         featureId: 'state:restoration-adoption',
@@ -170,17 +175,16 @@ export function createReactNativeAppleFirstPartyTckRegistration(
         baseScenarioIds: reactNativeProviderScenarioIds
       })
     ]),
-    featureSuites: Object.freeze([connectionControlsFeatureSuite, restorationFeatureSuite]),
+    featureSuites: Object.freeze([
+      connectionControlsFeatureSuite,
+      descriptorOperationsFeatureSuite,
+      restorationFeatureSuite
+    ]),
     capabilityExclusions: Object.freeze([
       Object.freeze({
         featureId: 'connection:request-att-mtu',
         state: 'unsupported',
         reason: 'CoreBluetooth negotiates ATT MTU internally and exposes no caller-directed request operation.'
-      }),
-      Object.freeze({
-        featureId: 'gatt:descriptor-operations',
-        state: 'unavailable',
-        reason: 'React Native Apple Native Protocol v1 does not publish descriptor records to the JavaScript boundary.'
       })
     ])
   }

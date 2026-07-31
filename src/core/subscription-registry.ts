@@ -757,7 +757,10 @@ function matchesDatabasePath<Attachment extends string>(
   return databasePathsEqual(characteristic, database)
 }
 
-function requireOperationValue<Value>(result: CoreOperationResult<Value>, operation: string): Value {
+function requireOperationValue<Attachment extends string, Value>(
+  result: CoreOperationResult<Attachment, Value>,
+  operation: string
+): Value {
   if (result.outcome === 'succeeded') {
     return result.value
   }

@@ -29,6 +29,8 @@ import { CoreBluetoothBackend, type DirectGattBackendIdentityOptions } from '../
 import { coreBluetoothCompatibility } from '../corebluetooth/corebluetooth-provider'
 import { ReactNativeAppleProtocolBoundary } from '../../native-protocol/rn-apple-boundary'
 import { createReactNativeConnectionControlFeatureRegistry } from './react-native-connection-control-features'
+import { createReactNativeDescriptorFeatureRegistry } from './react-native-descriptor-features'
+import { withReactNativeProviderCleanup } from './react-native-provider-cleanup'
 import {
   combineReactNativeFeatureRegistries,
   createReactNativeRestorationFeatureRegistry,
@@ -74,17 +76,9 @@ export function createReactNativeAppleBackendProvider(
     restoration,
     listAdapters: async () => {
       const backend = await createOpenedBackend(options.control, options.now, createOwnerId(), restoration, false)
-      try {
-        return Object.freeze([backend.identity.attachment.adapter])
-      } finally {
-        const cleanup = await backend.destroy()
-        if (cleanup.state === 'release-failed') {
-          console.error(
-            '[createReactNativeAppleBackendProvider.listAdapters] Adapter probe cleanup requires retry:',
-            cleanup.failures
-          )
-        }
-      }
+      return withReactNativeProviderCleanup(backend, 'apple', 'react-native-apple.provider.list-adapters.cleanup', () =>
+        Object.freeze([backend.identity.attachment.adapter])
+      )
     },
     create: async (selection: AdapterSelection<string>) => {
       if (String(selection.selectedAdapterId) !== REACT_NATIVE_APPLE_DEFAULT_ADAPTER_NATIVE_ID) {
@@ -156,7 +150,7 @@ class ReactNativeAppleBackend implements BleCentralBackend<string, NativeBackend
       const destruction = this.destroyInternal()
       this.destroyResult = destruction.then(
         cleanup => {
-          if (cleanup.state === 'release-failed') {
+          if (cleanup.state !== 'released' || cleanup.failures.length !== 0) {
             this.destroyResult = null
           }
           return cleanup
@@ -199,18 +193,9 @@ async function createOpenedBackend(
       : null
     return new ReactNativeAppleBackend(directBackend, restoration, activation)
   } catch (error) {
-    try {
-      const cleanup = await directBackend.destroy()
-      if (cleanup.state === 'release-failed') {
-        console.error(
-          '[createReactNativeAppleBackendProvider] Failed-provider cleanup requires retry:',
-          cleanup.failures
-        )
-      }
-    } catch (cleanupError) {
-      console.error('[createReactNativeAppleBackendProvider] Failed-provider cleanup rejected:', cleanupError)
-    }
-    throw error
+    return withReactNativeProviderCleanup(directBackend, 'apple', 'react-native-apple.provider.open.cleanup', () => {
+      throw error
+    })
   }
 }
 
@@ -228,6 +213,7 @@ function appleDirectGattIdentity(): DirectGattBackendIdentityOptions {
     ]),
     features: combineReactNativeFeatureRegistries(
       createReactNativeConnectionControlFeatureRegistry('apple', REACT_NATIVE_APPLE_IMPLEMENTATION_VERSION),
+      createReactNativeDescriptorFeatureRegistry('apple', REACT_NATIVE_APPLE_IMPLEMENTATION_VERSION),
       createReactNativeRestorationFeatureRegistry('apple', REACT_NATIVE_APPLE_IMPLEMENTATION_VERSION)
     )
   })

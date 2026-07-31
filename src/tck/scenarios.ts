@@ -93,6 +93,12 @@ export const baseTckScenarios: readonly TckScenarioDefinition[] = [
     requiredControllerActions: []
   },
   {
+    id: 'gatt.descriptor-discovery-read-write',
+    execution: 'feature',
+    requiredFacts: ['gatt-descriptor-discovery-read-write-crosses-boundary'],
+    requiredControllerActions: ['queue-advertisement']
+  },
+  {
     id: 'gatt.discovery-complete-paths-and-services-changed',
     execution: 'base',
     requiredFacts: [
@@ -110,6 +116,30 @@ export const baseTckScenarios: readonly TckScenarioDefinition[] = [
       'gatt-write-policy-and-uncertain-dispatched-commit-are-exact'
     ],
     requiredControllerActions: ['queue-operation-completion', 'advance-time']
+  },
+  {
+    id: 'gatt.maximum-write-length-boundaries',
+    execution: 'feature',
+    requiredFacts: ['gatt-maximum-write-length-observation-is-current-and-bounded'],
+    requiredControllerActions: ['queue-advertisement']
+  },
+  {
+    id: 'gatt.long-write-partial-failure',
+    execution: 'feature',
+    requiredFacts: ['gatt-long-write-receipt-reports-partial-failure'],
+    requiredControllerActions: ['queue-advertisement', 'queue-operation-completion', 'advance-time', 'inject-att-error']
+  },
+  {
+    id: 'gatt.long-write-cancellation',
+    execution: 'feature',
+    requiredFacts: ['gatt-long-write-cancellation-stops-following-chunks'],
+    requiredControllerActions: ['queue-advertisement', 'queue-operation-completion', 'advance-time']
+  },
+  {
+    id: 'gatt.long-write-disconnect',
+    execution: 'feature',
+    requiredFacts: ['gatt-long-write-disconnect-stops-following-chunks'],
+    requiredControllerActions: ['queue-advertisement', 'queue-operation-completion', 'advance-time', 'force-disconnect']
   },
   {
     id: 'subscription.enable-ready-shared-cccd-and-fanout',

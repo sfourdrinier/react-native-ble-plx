@@ -49,10 +49,49 @@ describe('external backend SDK and offline CLI', () => {
       scenarioId: 'capability.truth-limits-evidence-and-binding'
     })
     try {
-      expect(inspectBackendCapabilities(fixture.backend)).toEqual({
+      const capabilityReport = inspectBackendCapabilities(fixture.backend)
+      expect(capabilityReport).toMatchObject({
         backendId: 'unified-ble:deterministic-test',
-        platformId: 'unified-ble:test',
-        capabilities: []
+        platformId: 'unified-ble:test'
+      })
+      expect(capabilityReport.capabilities).toHaveLength(2)
+      const maximumWriteLength = capabilityReport.capabilities.find(
+        capability => capability.id === 'gatt:maximum-write-length'
+      )
+      const longWrite = capabilityReport.capabilities.find(capability => capability.id === 'gatt:long-write')
+      if (maximumWriteLength === undefined || longWrite === undefined) {
+        throw new Error('deterministic capability report did not expose maximum-write-length and long-write')
+      }
+      expect(maximumWriteLength).toMatchObject({
+        state: 'limited',
+        implementationOrigin: 'backend-native',
+        tck: {
+          suiteId: 'tck.feature.gatt.maximum-write-length',
+          requiredScenarioIds: ['gatt.maximum-write-length-boundaries']
+        },
+        evidence: {
+          evidenceLevel: 'deterministic',
+          receiptId: 'deterministic-maximum-write-length-v1'
+        },
+        limits: { maximumWriteLength: { minimum: 1, unit: 'bytes' } }
+      })
+      expect(longWrite).toMatchObject({
+        state: 'limited',
+        implementationOrigin: 'core-emulated',
+        tck: {
+          suiteId: 'tck.feature.gatt.long-write',
+          requiredScenarioIds: [
+            'gatt.maximum-write-length-boundaries',
+            'gatt.long-write-partial-failure',
+            'gatt.long-write-cancellation',
+            'gatt.long-write-disconnect'
+          ]
+        },
+        evidence: {
+          evidenceLevel: 'deterministic',
+          receiptId: 'deterministic-core-long-write-v1'
+        },
+        limitations: [expect.objectContaining({ code: 'core-emulated-sequential-chunks' })]
       })
     } finally {
       await fixture.dispose()

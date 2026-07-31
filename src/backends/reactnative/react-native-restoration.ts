@@ -235,11 +235,8 @@ export function createReactNativeRestorationFeatureRegistry(
   )
 }
 
-export function combineReactNativeFeatureRegistries(
-  connectionControls: FeatureRegistry,
-  restoration: FeatureRegistry
-): FeatureRegistry {
-  return createFeatureRegistry(Object.freeze([...connectionControls.registrations, ...restoration.registrations]))
+export function combineReactNativeFeatureRegistries(...registries: readonly FeatureRegistry[]): FeatureRegistry {
+  return createFeatureRegistry(Object.freeze(registries.flatMap(registry => registry.registrations)))
 }
 
 function restorationLimitation(platform: 'android' | 'apple'): Limitation {

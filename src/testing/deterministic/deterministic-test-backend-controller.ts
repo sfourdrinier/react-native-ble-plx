@@ -6,7 +6,8 @@ import type { AdapterStateSnapshot } from '../../backend-contract/identity'
 import type { PeerId } from '../../backend-contract/primitives'
 import type { DeterministicBackendTraceRecord, DeterministicTestBackend } from './deterministic-test-backend'
 import type { DeterministicCompletionStage, ProgrammableCompletion } from './deterministic-operation-runtime'
-import type { VirtualCharacteristicAddress, VirtualPeripheral } from './virtual-peripheral'
+import type { VirtualCharacteristicAddress, VirtualPeripheral, VirtualPeripheralOperation } from './virtual-peripheral'
+import type { BleErrorCode } from '../../backend-contract/errors'
 import type { DeterministicVirtualClock } from './virtual-clock'
 
 export interface DeterministicBackendController {
@@ -17,6 +18,8 @@ export interface DeterministicBackendController {
   emitNotification(address: VirtualCharacteristicAddress, value: Uint8Array, indication?: boolean): void
   forceDisconnect(peerId: PeerId<string>): ConnectionPath<string, string>
   replayConnectionLoss(connection: ConnectionPath<string, string>): void
+  setMaximumWriteLength(maximumWriteLength: number): void
+  injectAttError(operation: VirtualPeripheralOperation, code: BleErrorCode): void
   triggerServicesChanged(peerId: PeerId<string>): void
   setAdapterState(
     availability: AdapterStateSnapshot<string>['availability'],

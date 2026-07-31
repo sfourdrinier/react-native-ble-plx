@@ -2,38 +2,34 @@
 
 import { BackendContractError, contractError } from '../backend-contract/errors'
 import type { NormalizedBleError } from '../backend-contract/errors'
-import type { PublicOperationOptions } from '../backend-contract/operations'
+import type { OperationTerminalOutcome, PublicOperationOptions } from '../backend-contract/operations'
 import type { OperationCorrelation } from '../backend-contract/primitives'
 import { ResourceLedger } from './resource-ledger'
 import { CoreTraceRecorder } from './trace-recorder'
 
-export type CoreOperationOutcome =
-  | 'succeeded'
-  | 'failed'
-  | 'aborted'
-  | 'timed-out'
-  | 'disconnected'
-  | 'reset'
-  | 'adapter-unavailable'
-  | 'destroyed'
+export type CoreOperationOutcome = OperationTerminalOutcome
 
 export type CoreCommitState = 'not-applicable' | 'confirmed' | 'unknown'
 
-export interface CoreOperationSuccess<Value> {
+export interface CoreOperationSuccess<Attachment extends string, Value> {
+  readonly correlation: OperationCorrelation<Attachment, string>
   readonly outcome: 'succeeded'
   readonly value: Value
   readonly error: null
   readonly commitState: 'not-applicable' | 'confirmed'
 }
 
-export interface CoreOperationFailure {
+export interface CoreOperationFailure<Attachment extends string> {
+  readonly correlation: OperationCorrelation<Attachment, string>
   readonly outcome: Exclude<CoreOperationOutcome, 'succeeded'>
   readonly value: null
   readonly error: NormalizedBleError
   readonly commitState: CoreCommitState
 }
 
-export type CoreOperationResult<Value> = CoreOperationSuccess<Value> | CoreOperationFailure
+export type CoreOperationResult<Attachment extends string, Value> =
+  | CoreOperationSuccess<Attachment, Value>
+  | CoreOperationFailure<Attachment>
 
 export interface CoreOperationDispatch<Value> {
   readonly completion: Promise<Value>
@@ -64,11 +60,11 @@ interface PendingOperation<Attachment extends string, Value> extends TrackedOper
   readonly correlation: OperationCorrelation<Attachment, string>
   readonly traceLabel: string
   readonly execution: CoreOperationExecution<Attachment, Value>
-  readonly resolve: (result: CoreOperationResult<Value>) => void
+  readonly resolve: (result: CoreOperationResult<Attachment, Value>) => void
   readonly abortListener: () => void
   deadlineTimer: ReturnType<typeof setTimeout> | null
   dispatchHandle: CoreOperationDispatch<Value> | null
-  publicResult: CoreOperationResult<Value> | null
+  publicResult: CoreOperationResult<Attachment, Value> | null
   readonly retainedPayloadBytes: number
   payloadRetained: boolean
 }
@@ -96,36 +92,49 @@ export class CoreOperationCoordinator<Attachment extends string> {
 
   constructor(private readonly options: CoreOperationCoordinatorOptions<Attachment>) {}
 
-  run<Value>(execution: CoreOperationExecution<Attachment, Value>): Promise<CoreOperationResult<Value>> {
+  run<Value>(execution: CoreOperationExecution<Attachment, Value>): Promise<CoreOperationResult<Attachment, Value>> {
     return this.runWithAdmission(execution, false)
   }
 
   /** Internal teardown lane: no public admission, but required cleanup may still dispatch. */
-  runCleanup<Value>(execution: CoreOperationExecution<Attachment, Value>): Promise<CoreOperationResult<Value>> {
+  runCleanup<Value>(
+    execution: CoreOperationExecution<Attachment, Value>
+  ): Promise<CoreOperationResult<Attachment, Value>> {
     return this.runWithAdmission(execution, true)
   }
 
   private runWithAdmission<Value>(
     execution: CoreOperationExecution<Attachment, Value>,
     allowAfterAdmissionClosed: boolean
-  ): Promise<CoreOperationResult<Value>> {
+  ): Promise<CoreOperationResult<Attachment, Value>> {
+    const correlation = this.options.createCorrelation()
     if (!this.admissionOpen && !allowAfterAdmissionClosed) {
-      return Promise.resolve(this.failure('destroyed', execution.mayCommit, 'operation-coordinator.admission-closed'))
+      return Promise.resolve(
+        this.failure(correlation, 'destroyed', execution.mayCommit, 'operation-coordinator.admission-closed')
+      )
     }
     if (execution.options.signal?.aborted === true) {
-      return Promise.resolve(this.failure('aborted', execution.mayCommit, 'operation-coordinator.pre-abort'))
+      return Promise.resolve(
+        this.failure(correlation, 'aborted', execution.mayCommit, 'operation-coordinator.pre-abort')
+      )
     }
     if (execution.options.deadline !== null && execution.options.deadline <= this.options.now()) {
-      return Promise.resolve(this.failure('timed-out', execution.mayCommit, 'operation-coordinator.pre-deadline'))
+      return Promise.resolve(
+        this.failure(correlation, 'timed-out', execution.mayCommit, 'operation-coordinator.pre-deadline')
+      )
     }
     return new Promise(resolve => {
       const retainedPayloadBytes = execution.retainedPayloadBytes ?? 0
       if (!Number.isSafeInteger(retainedPayloadBytes) || retainedPayloadBytes < 0) {
         return resolve(
-          this.failure('failed', execution.mayCommit, 'operation-coordinator.invalid-retained-payload-bytes')
+          this.failure(
+            correlation,
+            'failed',
+            execution.mayCommit,
+            'operation-coordinator.invalid-retained-payload-bytes'
+          )
         )
       }
-      const correlation = this.options.createCorrelation()
       const traceLabel = `operation-${this.nextTraceLabel}`
       this.nextTraceLabel += 1
       const operation: PendingOperation<Attachment, Value> = {
@@ -254,7 +263,12 @@ export class CoreOperationCoordinator<Attachment extends string> {
       this.removeQueuedOperation(operation)
       this.settlePublic(
         operation,
-        this.failure(outcome, operation.execution.mayCommit, 'operation-coordinator.cancel-queued')
+        this.failure(
+          operation.correlation,
+          outcome,
+          operation.execution.mayCommit,
+          'operation-coordinator.cancel-queued'
+        )
       )
       this.completeAcknowledged(operation)
       return
@@ -263,7 +277,12 @@ export class CoreOperationCoordinator<Attachment extends string> {
       this.options.resourceLedger.decrement('dispatchedOperations')
       this.settlePublic(
         operation,
-        this.failure(outcome, operation.execution.mayCommit, 'operation-coordinator.cancel-dispatched')
+        this.failure(
+          operation.correlation,
+          outcome,
+          operation.execution.mayCommit,
+          'operation-coordinator.cancel-dispatched'
+        )
       )
       operation.phase = 'quarantined'
       this.quarantinedOperations += 1
@@ -292,6 +311,7 @@ export class CoreOperationCoordinator<Attachment extends string> {
     this.options.resourceLedger.decrement('dispatchedOperations')
     this.releasePayload(operation)
     this.settlePublic(operation, {
+      correlation: operation.correlation,
       outcome: 'succeeded',
       value,
       error: null,
@@ -315,7 +335,8 @@ export class CoreOperationCoordinator<Attachment extends string> {
       error instanceof BackendContractError
         ? error.normalized
         : contractError('platform.failure', 'core', 'operation-coordinator.backend-rejection').normalized
-    const result: CoreOperationFailure = {
+    const result: CoreOperationFailure<Attachment> = {
+      correlation: operation.correlation,
       outcome: 'failed',
       value: null,
       error: normalized,
@@ -334,7 +355,8 @@ export class CoreOperationCoordinator<Attachment extends string> {
     }
     this.options.resourceLedger.decrement('dispatchedOperations')
     this.releasePayload(operation)
-    const result: CoreOperationFailure = {
+    const result: CoreOperationFailure<Attachment> = {
+      correlation: operation.correlation,
       outcome: 'failed',
       value: null,
       error,
@@ -417,7 +439,7 @@ export class CoreOperationCoordinator<Attachment extends string> {
 
   private settlePublic<Value>(
     operation: PendingOperation<Attachment, Value>,
-    result: CoreOperationResult<Value>
+    result: CoreOperationResult<Attachment, Value>
   ): void {
     if (operation.publicResult !== null) {
       return
@@ -460,11 +482,13 @@ export class CoreOperationCoordinator<Attachment extends string> {
   }
 
   private failure(
+    correlation: OperationCorrelation<Attachment, string>,
     outcome: Exclude<CoreOperationOutcome, 'succeeded'>,
     mayCommit: boolean,
     operation: string
-  ): CoreOperationFailure {
+  ): CoreOperationFailure<Attachment> {
     return {
+      correlation,
       outcome,
       value: null,
       error: contractError(this.codeForOutcome(outcome), 'core', operation).normalized,

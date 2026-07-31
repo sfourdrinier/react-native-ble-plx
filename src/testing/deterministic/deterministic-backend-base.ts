@@ -6,10 +6,15 @@ import {
   type OwnerScanOptions
 } from '../../backend-contract/advertisement'
 import {
+  BUILT_IN_FEATURE_IDS,
   createFeatureRegistry,
   type FeatureImplementation,
-  type FeatureRegistration
+  type FeatureRegistration,
+  type MaximumWriteLengthFeatureImplementation,
+  type MaximumWriteLengthFeatureInput,
+  type MaximumWriteLengthFeatureOutput
 } from '../../backend-contract/capabilities'
+import { createCoreFeatureRegistry } from '../../core/core-capabilities'
 import {
   BackendContractError,
   contractError,
@@ -80,6 +85,7 @@ export interface DeterministicBackendTraceRecord extends DiagnosticTraceRecord {
 export interface DeterministicBackendOptions {
   readonly peripheral?: VirtualPeripheral
   readonly maximumOperationBytes?: number
+  readonly maximumWriteLength?: number
   readonly aggregateStreamByteQuota?: number
   readonly adapterId?: string
   readonly featureRegistrations?: readonly FeatureRegistration<
@@ -125,6 +131,63 @@ function allocateBackendInstance(): number {
   return allocated
 }
 
+function createDeterministicMaximumWriteLengthRegistration(
+  currentMaximumWriteLength: () => number,
+  now: () => number,
+  maximumOperationBytes: number
+) {
+  const implementation: MaximumWriteLengthFeatureImplementation = Object.freeze({
+    async invoke(input: MaximumWriteLengthFeatureInput): Promise<MaximumWriteLengthFeatureOutput> {
+      if (
+        input.connectionId.length === 0 ||
+        input.connectionGeneration.length === 0 ||
+        (input.mode !== 'with-response' && input.mode !== 'without-response')
+      ) {
+        throw contractError('argument.invalid', 'gatt', 'deterministic.maximum-write-length-observation')
+      }
+      return Object.freeze({
+        connectionId: input.connectionId,
+        connectionGeneration: input.connectionGeneration,
+        mode: input.mode,
+        maximumWriteLength: currentMaximumWriteLength(),
+        observedAtMonotonicMs: now()
+      })
+    }
+  })
+  const limitations = Object.freeze([
+    Object.freeze({
+      code: 'deterministic-virtual-peripheral',
+      explanation: 'The reported limit belongs to the deterministic virtual peripheral, not a live radio link.',
+      affectedGuarantee: 'No live-platform maximum-write-length support is evidenced by this backend.'
+    })
+  ])
+  const scenarioIds = Object.freeze(['gatt.maximum-write-length-boundaries'])
+  return Object.freeze({
+    id: BUILT_IN_FEATURE_IDS.maximumWriteLength,
+    state: 'limited' as const,
+    selectedSchemaRange: versionRange(version('capability-schema', 1), version('capability-schema', 1)),
+    implementationOrigin: 'backend-native' as const,
+    implementation,
+    tck: Object.freeze({
+      suiteId: 'tck.feature.gatt.maximum-write-length',
+      requiredScenarioIds: scenarioIds,
+      contractRange: versionRange(version('capability-schema', 1), version('capability-schema', 1))
+    }),
+    evidence: Object.freeze({
+      receiptId: 'deterministic-maximum-write-length-v1',
+      evidenceLevel: 'deterministic' as const,
+      implementationVersion: '4.0.0',
+      sourceDigest: 'deterministic-virtual-peripheral-max-write-length-v1',
+      scenarioIds,
+      limitations
+    }),
+    limitations,
+    limits: Object.freeze({
+      maximumWriteLength: Object.freeze({ minimum: 1, maximum: maximumOperationBytes, unit: 'bytes' })
+    })
+  })
+}
+
 /** Shared deterministic radio, attachment, stream, and operation mechanics. */
 export abstract class DeterministicBackendBase {
   readonly clock = new DeterministicVirtualClock()
@@ -135,6 +198,7 @@ export abstract class DeterministicBackendBase {
   readonly features
 
   protected readonly maximumOperationBytes
+  protected currentMaximumWriteLength: number
   protected readonly aggregateStreamByteQuota
   protected readonly eventStreams = new Set<DeterministicBoundedStream<BackendEvent<string>>>()
   protected readonly stateWatchers = new Set<DeterministicBoundedStream<AdapterStateSnapshot<string>>>()
@@ -154,9 +218,21 @@ export abstract class DeterministicBackendBase {
 
   constructor(options: DeterministicBackendOptions = {}) {
     this.backendInstance = allocateBackendInstance()
-    this.features = createFeatureRegistry(options.featureRegistrations ?? [])
     this.peripheral = options.peripheral ?? createDefaultVirtualPeripheral()
     this.maximumOperationBytes = byteLimit(options.maximumOperationBytes ?? 512 * 1024)
+    this.currentMaximumWriteLength = options.maximumWriteLength ?? 20
+    this.assertMaximumWriteLength(this.currentMaximumWriteLength)
+    const backendFeatures = createFeatureRegistry(
+      Object.freeze([
+        createDeterministicMaximumWriteLengthRegistration(
+          () => this.currentMaximumWriteLength,
+          () => Number(this.clock.now()),
+          Number(this.maximumOperationBytes)
+        ),
+        ...(options.featureRegistrations ?? [])
+      ])
+    )
+    this.features = createCoreFeatureRegistry(backendFeatures)
     this.aggregateStreamByteQuota = options.aggregateStreamByteQuota ?? 4 * 1024 * 1024
     if (!Number.isSafeInteger(this.aggregateStreamByteQuota) || this.aggregateStreamByteQuota < 1) {
       throw new Error('deterministic aggregate stream quota must be a positive safe integer')
@@ -209,6 +285,13 @@ export abstract class DeterministicBackendBase {
     const plans = this.plans.get(stage) ?? []
     plans.push(completion)
     this.plans.set(stage, plans)
+  }
+
+  setMaximumWriteLength(maximumWriteLength: number): void {
+    this.assertUsable('gatt.set-maximum-write-length')
+    this.assertMaximumWriteLength(maximumWriteLength)
+    this.currentMaximumWriteLength = maximumWriteLength
+    this.recordTrace('operation', 'maximum-write-length-updated', null)
   }
 
   emitAdvertisement(observation: AdvertisementObservation<string>): void {
@@ -507,6 +590,16 @@ export abstract class DeterministicBackendBase {
   protected assertUsable(operation: string): void {
     if (this.destroyed) {
       throw contractError('lifecycle.destroyed', 'core', operation)
+    }
+  }
+
+  private assertMaximumWriteLength(maximumWriteLength: number): void {
+    if (
+      !Number.isSafeInteger(maximumWriteLength) ||
+      maximumWriteLength < 1 ||
+      maximumWriteLength > Number(this.maximumOperationBytes)
+    ) {
+      throw contractError('argument.invalid', 'gatt', 'deterministic.maximum-write-length')
     }
   }
 

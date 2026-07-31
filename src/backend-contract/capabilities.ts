@@ -3,6 +3,52 @@
 import { contractError } from './errors'
 import type { SerializableRecord, VersionRange } from './primitives'
 
+/** Canonical built-in capability identifiers. Third-party identifiers remain open namespaced strings. */
+export const BUILT_IN_FEATURE_IDS = Object.freeze({
+  maximumWriteLength: 'gatt:maximum-write-length',
+  longWrite: 'gatt:long-write'
+})
+export type BuiltInFeatureId = (typeof BUILT_IN_FEATURE_IDS)[keyof typeof BUILT_IN_FEATURE_IDS]
+
+/** The backend-observed per-connection limit used to plan a chunked write. */
+export interface MaximumWriteLengthFeatureInput extends SerializableRecord {
+  readonly connectionId: string
+  readonly connectionGeneration: string
+  readonly mode: 'with-response' | 'without-response'
+}
+
+/** Serializable maximum-write-length observation returned by a registered backend implementation. */
+export interface MaximumWriteLengthFeatureOutput extends SerializableRecord {
+  readonly connectionId: string
+  readonly connectionGeneration: string
+  readonly mode: 'with-response' | 'without-response'
+  readonly maximumWriteLength: number
+  readonly observedAtMonotonicMs: number
+}
+
+/** Typed registration implementation for the built-in maximum-write-length capability. */
+export type MaximumWriteLengthFeatureImplementation = FeatureImplementation<
+  MaximumWriteLengthFeatureInput,
+  MaximumWriteLengthFeatureOutput
+>
+
+/** The core-owned chunking policy is identified separately from native reliable-write support. */
+export interface LongWriteFeatureInput extends SerializableRecord {
+  readonly connectionId: string
+  readonly connectionGeneration: string
+  readonly mode: 'with-response' | 'without-response'
+  readonly byteLength: number
+  readonly maximumWriteLength: number
+}
+
+export interface LongWriteFeatureOutput extends SerializableRecord {
+  readonly totalChunks: number
+  readonly maximumWriteLength: number
+}
+
+/** Typed registration implementation for the core-emulated long-write planner. */
+export type LongWriteFeatureImplementation = FeatureImplementation<LongWriteFeatureInput, LongWriteFeatureOutput>
+
 export type FeatureState = 'supported' | 'limited' | 'unsupported' | 'unavailable'
 export type EvidenceLevel = 'blocked' | 'deterministic' | 'live-preview' | 'supported' | 'reliability-qualified'
 export type FeatureId<Namespace extends string = string, Name extends string = string> = `${Namespace}:${Name}`

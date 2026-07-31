@@ -120,7 +120,21 @@ describe('production backend TCK runner authority', () => {
 
     expect(report.verification).toBe('runner-controlled')
     expect(report.proofScope).toBe('deterministic')
-    expect(report.receipts).toHaveLength(17)
+    expect(report.baseScenarioIds).toEqual(
+      baseTckScenarios.filter(definition => definition.execution === 'base').map(definition => definition.id)
+    )
+    expect(report.featureSuiteIds).toEqual([
+      'tck.feature.gatt.maximum-write-length',
+      'tck.feature.gatt.long-write'
+    ])
+    expect(report.receipts.map(receipt => receipt.scenarioId)).toEqual([
+      ...report.baseScenarioIds,
+      'gatt.maximum-write-length-boundaries',
+      'gatt.maximum-write-length-boundaries',
+      'gatt.long-write-partial-failure',
+      'gatt.long-write-cancellation',
+      'gatt.long-write-disconnect'
+    ])
     expect(report.receipts.every(receipt => receipt.proof.claim === 'deterministic-conformance')).toBe(true)
     expect(report.receipts.every(receipt => receipt.facts.every(fact => fact.holds))).toBe(true)
   })

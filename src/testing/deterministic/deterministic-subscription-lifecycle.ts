@@ -21,7 +21,7 @@ export async function unsubscribeManagedDeterministicSubscription<Operation exte
     readonly operation: OperationOptions<string, Operation>
     readonly requireCurrent: () => void
   }
-): Promise<OperationTerminalRecord<string, Operation>> {
+): Promise<OperationTerminalRecord<string, string>> {
   const physical = resources.physicalSubscriptions.get(resources.managed.physicalKey)
   if (physical === undefined || !physical.consumers.has(resources.managed)) {
     throw contractError('gatt.stale-handle', 'gatt', 'gatt.unsubscribe')

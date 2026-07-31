@@ -29,6 +29,8 @@ import { CoreBluetoothBackend, type DirectGattBackendIdentityOptions } from '../
 import { coreBluetoothCompatibility } from '../corebluetooth/corebluetooth-provider'
 import { ReactNativeAndroidProtocolBoundary } from '../../native-protocol/rn-android-boundary'
 import { createReactNativeConnectionControlFeatureRegistry } from './react-native-connection-control-features'
+import { createReactNativeDescriptorFeatureRegistry } from './react-native-descriptor-features'
+import { withReactNativeProviderCleanup } from './react-native-provider-cleanup'
 import {
   combineReactNativeFeatureRegistries,
   createReactNativeRestorationFeatureRegistry,
@@ -77,17 +79,12 @@ export function createReactNativeAndroidBackendProvider(
     restoration,
     listAdapters: async () => {
       const backend = await createOpenedBackend(options.control, options.now, createOwnerId(), restoration, false)
-      try {
-        return Object.freeze([backend.identity.attachment.adapter])
-      } finally {
-        const cleanup = await backend.destroy()
-        if (cleanup.state === 'release-failed') {
-          console.error(
-            '[createReactNativeAndroidBackendProvider.listAdapters] Adapter probe cleanup requires retry:',
-            cleanup.failures
-          )
-        }
-      }
+      return withReactNativeProviderCleanup(
+        backend,
+        'android',
+        'react-native-android.provider.list-adapters.cleanup',
+        () => Object.freeze([backend.identity.attachment.adapter])
+      )
     },
     create: async (selection: AdapterSelection<string>) => {
       if (String(selection.selectedAdapterId) !== REACT_NATIVE_ANDROID_DEFAULT_ADAPTER_NATIVE_ID) {
@@ -159,7 +156,7 @@ class ReactNativeAndroidBackend implements BleCentralBackend<string, NativeBacke
       const destruction = this.destroyInternal()
       this.destroyResult = destruction.then(
         cleanup => {
-          if (cleanup.state === 'release-failed') {
+          if (cleanup.state !== 'released' || cleanup.failures.length !== 0) {
             this.destroyResult = null
           }
           return cleanup
@@ -202,18 +199,14 @@ async function createOpenedBackend(
       : null
     return new ReactNativeAndroidBackend(directBackend, restoration, activation)
   } catch (error) {
-    try {
-      const cleanup = await directBackend.destroy()
-      if (cleanup.state === 'release-failed') {
-        console.error(
-          '[createReactNativeAndroidBackendProvider] Failed-provider cleanup requires retry:',
-          cleanup.failures
-        )
+    return withReactNativeProviderCleanup(
+      directBackend,
+      'android',
+      'react-native-android.provider.open.cleanup',
+      () => {
+        throw error
       }
-    } catch (cleanupError) {
-      console.error('[createReactNativeAndroidBackendProvider] Failed-provider cleanup rejected:', cleanupError)
-    }
-    throw error
+    )
   }
 }
 
@@ -231,6 +224,7 @@ function androidDirectGattIdentity(): DirectGattBackendIdentityOptions {
     ]),
     features: combineReactNativeFeatureRegistries(
       createReactNativeConnectionControlFeatureRegistry('android', REACT_NATIVE_ANDROID_IMPLEMENTATION_VERSION),
+      createReactNativeDescriptorFeatureRegistry('android', REACT_NATIVE_ANDROID_IMPLEMENTATION_VERSION),
       createReactNativeRestorationFeatureRegistry('android', REACT_NATIVE_ANDROID_IMPLEMENTATION_VERSION)
     )
   })

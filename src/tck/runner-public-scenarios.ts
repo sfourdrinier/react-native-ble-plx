@@ -4,6 +4,7 @@ import type { BleCentralBackend } from '../backend-contract/backend'
 import type { ConnectionLifecycleCause, ConnectionLifecycleEvent } from '../backend-contract/connection-lifecycle'
 import { MINIMUM_ATT_MTU } from '../backend-contract/connection-controls'
 import { BackendContractError } from '../backend-contract/errors'
+import type { Characteristic } from '../backend-contract/gatt'
 import type { BackendIdentity } from '../backend-contract/identity'
 import {
   createAttachmentBoundIdFactory,
@@ -40,6 +41,7 @@ import {
 import { executePublicVerticalSlice } from './runner-public-vertical-scenario'
 import { executeSubscriptionOverflowScenario } from './runner-public-subscription-overflow-scenario'
 import { executeDiagnosticsScenario, executeLifecycleScenario } from './runner-public-lifecycle-diagnostics-scenario'
+import { executeDescriptorOperationsScenario } from './runner-public-descriptor-scenario'
 
 const publicScenarioId = 'manager.scan-connect-discover-read-notify-destroy'
 const publicScenarioFact = 'scan-connect-discover-read-notify-destroy-completes'
@@ -164,11 +166,26 @@ async function executeManagerScenario<
   if (definition.id === 'connection.rssi-and-att-mtu-capability-contract') {
     return executeConnectionControlsScenario(manager, fixture, definition)
   }
+  if (definition.id === 'gatt.descriptor-discovery-read-write') {
+    return executeDescriptorOperationsScenario(manager, fixture, definition)
+  }
   if (definition.id === 'gatt.discovery-complete-paths-and-services-changed') {
     return executeGattDiscoveryScenario(manager, fixture, definition)
   }
   if (definition.id === 'gatt.reads-descriptors-write-policy-and-dispatched-cancellation') {
     return executeGattReadWriteScenario(manager, fixture, definition)
+  }
+  if (definition.id === 'gatt.maximum-write-length-boundaries') {
+    return executeMaximumWriteLengthScenario(manager, fixture, definition)
+  }
+  if (definition.id === 'gatt.long-write-partial-failure') {
+    return executeLongWritePartialFailureScenario(manager, fixture, definition)
+  }
+  if (definition.id === 'gatt.long-write-cancellation') {
+    return executeLongWriteCancellationScenario(manager, fixture, definition)
+  }
+  if (definition.id === 'gatt.long-write-disconnect') {
+    return executeLongWriteDisconnectScenario(manager, fixture, definition)
   }
   if (definition.id === 'restoration.provider-journal-adoption-and-rejection') {
     return executeRestorationScenario(manager, fixture, definition)
@@ -200,6 +217,235 @@ async function executeManagerScenario<
       reason: 'the public manager TCK has no scenario-specific observer for this feature scenario'
     })
   )
+}
+
+async function executeMaximumWriteLengthScenario<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>,
+  Backend extends BleCentralBackend<Attachment, Identity>
+>(
+  manager: PublicManager<Attachment, Identity>,
+  fixture: BackendTckFixture<Attachment, Identity, Backend>,
+  definition: TckScenarioDefinition
+): Promise<readonly TckFact[]> {
+  const connected = await connectAndDiscover(manager, fixture, definition)
+  const characteristic = connected.snapshot.characteristics[0]
+  if (characteristic === undefined) {
+    throw new TckAssertionError(definition.id, 'maximum-write-length scenario requires one characteristic')
+  }
+  const first = await connected.database.maximumWriteLength(characteristic.path, 'with-response')
+  const second = await connected.database.maximumWriteLength(characteristic.path, 'without-response')
+  const registration = manager.capability('gatt:maximum-write-length')
+  const bounded =
+    manager.supports('gatt:maximum-write-length') &&
+    registration !== null &&
+    first.maximumWriteLength >= 1 &&
+    second.maximumWriteLength >= 1 &&
+    first.connectionId === connected.connection.connectionId &&
+    second.connectionGeneration === connected.connection.connectionGeneration
+  assertCleanupReleased(
+    definition,
+    await fixture.controller.settle(connected.connection.release()),
+    'maximum-write-length connection'
+  )
+  return [
+    fact('gatt-maximum-write-length-observation-is-current-and-bounded', bounded, {
+      firstMaximumWriteLength: first.maximumWriteLength,
+      secondMaximumWriteLength: second.maximumWriteLength,
+      registrationState: registration?.state ?? 'absent'
+    })
+  ]
+}
+
+async function executeLongWritePartialFailureScenario<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>,
+  Backend extends BleCentralBackend<Attachment, Identity>
+>(
+  manager: PublicManager<Attachment, Identity>,
+  fixture: BackendTckFixture<Attachment, Identity, Backend>,
+  definition: TckScenarioDefinition
+): Promise<readonly TckFact[]> {
+  const connected = await connectAndDiscover(manager, fixture, definition)
+  const characteristic = requireLongWriteCharacteristic(connected.snapshot.characteristics[0], definition)
+  try {
+    await fixture.controller.perform(
+      'queue-operation-completion',
+      Object.freeze({ stage: 'write', delayMilliseconds: 0 })
+    )
+    const write = connected.database.writeLong(characteristic.path, longWriteBytes(), {
+      signal: null,
+      deadline: null,
+      mode: 'with-response'
+    })
+    await fixture.controller.flush()
+    await fixture.controller.perform('advance-time', Object.freeze({ milliseconds: 0 }))
+    await fixture.controller.flush()
+    await fixture.controller.perform(
+      'inject-att-error',
+      Object.freeze({ operation: 'write', code: 'gatt.write-failed' })
+    )
+    const receipt = await fixture.controller.settle(write)
+    const secondChunk = receipt.chunks[1]
+    const holds =
+      manager.supports('gatt:long-write') &&
+      receipt.terminal.outcome === 'failed' &&
+      receipt.terminal.cause === 'gatt.write-failed' &&
+      receipt.commitState === 'unknown' &&
+      receipt.completedChunks === 1 &&
+      receipt.committedBytes > 0 &&
+      receipt.failedChunkIndex === 1 &&
+      secondChunk !== undefined &&
+      (secondChunk.state === 'uncertain' || secondChunk.state === 'not-started') &&
+      chunksAfter(receipt.chunks, secondChunk.index).every(chunk => chunk.state === 'not-started')
+    return [
+      fact('gatt-long-write-receipt-reports-partial-failure', holds, {
+        completedChunks: receipt.completedChunks,
+        committedBytes: receipt.committedBytes,
+        failedChunkIndex: receipt.failedChunkIndex,
+        terminalCause: receipt.terminal.cause,
+        terminalOutcome: receipt.terminal.outcome
+      })
+    ]
+  } finally {
+    assertCleanupReleased(
+      definition,
+      await fixture.controller.settle(connected.connection.release()),
+      'long-write connection'
+    )
+  }
+}
+
+async function executeLongWriteCancellationScenario<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>,
+  Backend extends BleCentralBackend<Attachment, Identity>
+>(
+  manager: PublicManager<Attachment, Identity>,
+  fixture: BackendTckFixture<Attachment, Identity, Backend>,
+  definition: TckScenarioDefinition
+): Promise<readonly TckFact[]> {
+  const connected = await connectAndDiscover(manager, fixture, definition)
+  const characteristic = requireLongWriteCharacteristic(connected.snapshot.characteristics[0], definition)
+  try {
+    await fixture.controller.perform(
+      'queue-operation-completion',
+      Object.freeze({ stage: 'write', delayMilliseconds: 10 })
+    )
+    const cancellation = new AbortController()
+    const write = connected.database.writeLong(characteristic.path, longWriteBytes(), {
+      signal: cancellation.signal,
+      deadline: null,
+      mode: 'with-response'
+    })
+    await fixture.controller.flush()
+    await fixture.controller.perform('advance-time', Object.freeze({ milliseconds: 0 }))
+    await fixture.controller.flush()
+    cancellation.abort()
+    const receipt = await fixture.controller.settle(write)
+    const firstChunk = receipt.chunks[0]
+    const holds =
+      manager.supports('gatt:long-write') &&
+      receipt.terminal.outcome === 'aborted' &&
+      receipt.terminal.cause === 'operation.aborted' &&
+      receipt.commitState === 'unknown' &&
+      receipt.completedChunks === 0 &&
+      receipt.committedBytes === 0 &&
+      receipt.failedChunkIndex === 0 &&
+      firstChunk !== undefined &&
+      firstChunk.state === 'uncertain' &&
+      chunksAfter(receipt.chunks, firstChunk.index).every(chunk => chunk.state === 'not-started')
+    return [
+      fact('gatt-long-write-cancellation-stops-following-chunks', holds, {
+        completedChunks: receipt.completedChunks,
+        failedChunkIndex: receipt.failedChunkIndex,
+        terminalCause: receipt.terminal.cause,
+        terminalOutcome: receipt.terminal.outcome
+      })
+    ]
+  } finally {
+    assertCleanupReleased(
+      definition,
+      await fixture.controller.settle(connected.connection.release()),
+      'long-write connection'
+    )
+  }
+}
+
+async function executeLongWriteDisconnectScenario<
+  Attachment extends string,
+  Identity extends BackendIdentity<Attachment>,
+  Backend extends BleCentralBackend<Attachment, Identity>
+>(
+  manager: PublicManager<Attachment, Identity>,
+  fixture: BackendTckFixture<Attachment, Identity, Backend>,
+  definition: TckScenarioDefinition
+): Promise<readonly TckFact[]> {
+  const connected = await connectAndDiscover(manager, fixture, definition)
+  const characteristic = requireLongWriteCharacteristic(connected.snapshot.characteristics[0], definition)
+  try {
+    await fixture.controller.perform(
+      'queue-operation-completion',
+      Object.freeze({ stage: 'write', delayMilliseconds: 10 })
+    )
+    const write = connected.database.writeLong(characteristic.path, longWriteBytes(), {
+      signal: null,
+      deadline: null,
+      mode: 'with-response'
+    })
+    await fixture.controller.flush()
+    await fixture.controller.perform('advance-time', Object.freeze({ milliseconds: 0 }))
+    await fixture.controller.flush()
+    await fixture.controller.perform('force-disconnect', Object.freeze({ peerId: String(connected.connection.peerId) }))
+    const receipt = await fixture.controller.settle(write)
+    const firstChunk = receipt.chunks[0]
+    const holds =
+      manager.supports('gatt:long-write') &&
+      receipt.terminal.outcome === 'disconnected' &&
+      receipt.terminal.cause === 'operation.disconnected' &&
+      receipt.commitState === 'unknown' &&
+      receipt.completedChunks === 0 &&
+      receipt.committedBytes === 0 &&
+      receipt.failedChunkIndex === 0 &&
+      firstChunk !== undefined &&
+      firstChunk.state === 'uncertain' &&
+      chunksAfter(receipt.chunks, firstChunk.index).every(chunk => chunk.state === 'not-started')
+    return [
+      fact('gatt-long-write-disconnect-stops-following-chunks', holds, {
+        completedChunks: receipt.completedChunks,
+        failedChunkIndex: receipt.failedChunkIndex,
+        terminalCause: receipt.terminal.cause,
+        terminalOutcome: receipt.terminal.outcome
+      })
+    ]
+  } finally {
+    assertCleanupReleased(
+      definition,
+      await fixture.controller.settle(connected.connection.release()),
+      'long-write connection'
+    )
+  }
+}
+
+function requireLongWriteCharacteristic<Attachment extends string>(
+  characteristic: Characteristic<Attachment, string, string, string, string> | undefined,
+  definition: TckScenarioDefinition
+) {
+  if (characteristic === undefined) {
+    throw new TckAssertionError(definition.id, 'long-write scenario requires one characteristic')
+  }
+  return characteristic
+}
+
+function longWriteBytes(): Uint8Array {
+  return new Uint8Array(41)
+}
+
+function chunksAfter<Chunk extends { readonly index: number }>(
+  chunks: readonly Chunk[],
+  index: number
+): readonly Chunk[] {
+  return chunks.filter(chunk => chunk.index > index)
 }
 
 async function executeAdapterWatchScenario<

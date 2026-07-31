@@ -89,6 +89,79 @@ describe('CoreBoundedStream', () => {
     }
   )
 
+  test('return removes only its pending reads and preserves delivery for other iterators', async () => {
+    const stream = new CoreBoundedStream(limits(2, 6, 1), 'drop-newest')
+    const cancelled = stream[Symbol.asyncIterator]()
+    const active = stream[Symbol.asyncIterator]()
+    const firstCancelledNext = cancelled.next()
+    const secondCancelledNext = cancelled.next()
+    const activeNext = active.next()
+
+    await expect(cancelled.return()).resolves.toEqual({ done: true, value: undefined })
+    await expect(firstCancelledNext).resolves.toEqual({ done: true, value: undefined })
+    await expect(secondCancelledNext).resolves.toEqual({ done: true, value: undefined })
+    expect(stream.consumers).toHaveLength(1)
+
+    stream.emit('active-value', 2)
+
+    await expect(activeNext).resolves.toMatchObject({ done: false, value: { kind: 'value', value: 'active-value' } })
+    await expect(cancelled.next()).resolves.toEqual({ done: true, value: undefined })
+    expect(stream.consumers).toHaveLength(0)
+    expect(stream.retainedBytes()).toBe(1)
+  })
+
+  test.each(['closed', 'source-failed', 'overflow'])(
+    'return cannot consume or revive another iterator after a %s terminal',
+    async reason => {
+      const stream = new CoreBoundedStream(limits(2, 6, 1), 'error')
+      const returned = stream[Symbol.asyncIterator]()
+      const active = stream[Symbol.asyncIterator]()
+      const returnedNext = returned.next()
+      const activeNext = active.next()
+
+      await returned.return()
+      stream.closeWithReason(reason)
+
+      await expect(returnedNext).resolves.toEqual({ done: true, value: undefined })
+      await expect(activeNext).resolves.toMatchObject({ done: false, value: { kind: 'terminal', reason } })
+      await expect(returned.next()).resolves.toEqual({ done: true, value: undefined })
+      await expect(active.next()).resolves.toEqual({ done: true, value: undefined })
+      expect(stream.consumers).toHaveLength(0)
+    }
+  )
+
+  test('return is idempotent and cannot steal an already delivered item', async () => {
+    const stream = new CoreBoundedStream(limits(2, 6, 1), 'drop-newest')
+    const iterator = stream[Symbol.asyncIterator]()
+    const next = iterator.next()
+
+    stream.emit('delivered-before-return', 2)
+
+    await expect(iterator.return()).resolves.toEqual({ done: true, value: undefined })
+    await expect(iterator.return()).resolves.toEqual({ done: true, value: undefined })
+    await expect(next).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'value', value: 'delivered-before-return' }
+    })
+    await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined })
+    expect(stream.consumers).toHaveLength(0)
+    expect(stream.retainedBytes()).toBe(1)
+  })
+
+  test('repeated iterator teardown settles every pending read without retaining a consumer queue', async () => {
+    const stream = new CoreBoundedStream(limits(2, 6, 1), 'drop-newest')
+
+    for (let index = 0; index < 8; index += 1) {
+      const iterator = stream[Symbol.asyncIterator]()
+      const pending = iterator.next()
+
+      await expect(iterator.return()).resolves.toEqual({ done: true, value: undefined })
+      await expect(pending).resolves.toEqual({ done: true, value: undefined })
+      expect(stream.consumers).toHaveLength(0)
+      expect(stream.retainedBytes()).toBe(1)
+    }
+  })
+
   test('coalesces upstream bounded-ingress loss before its next value without discarding the control notice', async () => {
     const stream = new CoreBoundedStream(limits(2, 6, 1), 'drop-newest')
     stream.observeSourceOverflow({

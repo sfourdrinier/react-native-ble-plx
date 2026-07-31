@@ -1,5 +1,7 @@
 // __tests__/package-surface/fixtures/public-surface.ts
 
+// __tests__/package-surface/fixtures/public-surface.ts
+
 import {
   BleManager,
   capacity,
@@ -10,16 +12,31 @@ import {
 } from 'unified-ble-manager'
 import type {
   BoundedAsyncStream,
+  BoundedAsyncStreamIterator,
   CleanupRecord,
   ConnectionLifecycleCause,
   ConnectionLifecycleEvent,
   FeatureRegistry,
+  LongWriteChunkProgress,
+  LongWriteNotPlannedReceipt,
+  LongWritePlannedReceipt,
+  LongWritePolicy,
+  LongWriteReceipt,
+  MaximumWriteLengthObservation,
   NormalizedBleError,
+  OperationTerminalRecord,
   PublicOperationOptions,
   ScanOptions
 } from 'unified-ble-manager'
 import { createFeatureRegistry, runBackendTck } from 'unified-ble-manager/backend-sdk'
-import type { BackendAuthorDefinition } from 'unified-ble-manager/backend-sdk'
+import type {
+  BackendAuthorDefinition,
+  CharacteristicPath,
+  DatabasePath,
+  DescriptorPath,
+  ServicePath,
+  Subscription
+} from 'unified-ble-manager/backend-sdk'
 import { runUnifiedBleCli } from 'unified-ble-manager/cli'
 import { copyBytes, dataView, decodeIeee11073Float } from 'unified-ble-manager/codecs'
 import { readCharacteristic, resolveCharacteristicPath } from 'unified-ble-manager/profiles/commands'
@@ -84,9 +101,17 @@ import type {
 declare const operation: PublicOperationOptions
 declare const scan: ScanOptions<string, string>
 declare const stream: BoundedAsyncStream<CleanupRecord>
+declare const streamIterator: BoundedAsyncStreamIterator<CleanupRecord>
 declare const connectionLifecycleCause: ConnectionLifecycleCause
 declare const connectionLifecycleEvent: ConnectionLifecycleEvent<string>
 declare const featureRegistry: FeatureRegistry
+declare const maximumWriteLengthObservation: MaximumWriteLengthObservation<string>
+declare const longWritePolicy: LongWritePolicy
+declare const longWriteReceipt: LongWriteReceipt<string, string>
+declare const longWriteChunkProgress: LongWriteChunkProgress
+declare const notPlannedLongWriteReceipt: LongWriteNotPlannedReceipt<string, string>
+declare const plannedLongWriteReceipt: LongWritePlannedReceipt<string, string>
+declare const scopedLongWriteReceipt: LongWriteReceipt<'package-surface-attachment', 'package-surface-write'>
 declare const normalizedError: NormalizedBleError
 declare const backendAuthor: BackendAuthorDefinition<string, never>
 declare const deterministicFixture: DeterministicBackendFixture
@@ -108,7 +133,61 @@ declare const navigatorWebManagerOptions: NavigatorWebBleManagerOptions
 declare const webManagerOptions: WebBleManagerOptions
 declare const browserBluetooth: Bluetooth
 declare const browserTimer: WebBluetoothTimerHandle
+declare const connectionOneDatabasePath: DatabasePath<'scope-test', 'connection-one', 'database-one'>
+declare const connectionTwoDatabasePath: DatabasePath<'scope-test', 'connection-two', 'database-one'>
+declare const differentDatabasePath: DatabasePath<'scope-test', 'connection-one', 'database-two'>
+declare const serviceOnePath: ServicePath<'scope-test', 'connection-one', 'database-one', 'service-one'>
+declare const serviceTwoPath: ServicePath<'scope-test', 'connection-one', 'database-one', 'service-two'>
+declare const characteristicOnePath: CharacteristicPath<
+  'scope-test',
+  'connection-one',
+  'database-one',
+  'service-one',
+  'characteristic-one'
+>
+declare const characteristicTwoPath: CharacteristicPath<
+  'scope-test',
+  'connection-one',
+  'database-one',
+  'service-one',
+  'characteristic-two'
+>
+declare const descriptorOnePath: DescriptorPath<
+  'scope-test',
+  'connection-one',
+  'database-one',
+  'service-one',
+  'characteristic-one',
+  'descriptor-one'
+>
+declare const descriptorTwoPath: DescriptorPath<
+  'scope-test',
+  'connection-one',
+  'database-one',
+  'service-one',
+  'characteristic-one',
+  'descriptor-two'
+>
+declare const subscriptionOne: Subscription<
+  'scope-test',
+  'connection-one',
+  'database-one',
+  'service-one',
+  'characteristic-one',
+  'subscription-one'
+>
+declare const subscriptionTwo: Subscription<
+  'scope-test',
+  'connection-one',
+  'database-one',
+  'service-one',
+  'characteristic-one',
+  'subscription-two'
+>
 declare function observe<Value>(value: Value): void
+
+const scopedLongWriteTerminal: OperationTerminalRecord<'package-surface-attachment', 'package-surface-write'> =
+  scopedLongWriteReceipt.terminal
 
 const browserNavigatorManagerOptions: NavigatorWebBleManagerOptions = {
   environment: {
@@ -162,9 +241,18 @@ observe(deadline(1))
 observe(operation)
 observe(scan)
 observe(stream)
+observe(stream[Symbol.asyncIterator]().return())
+observe(streamIterator.return())
 observe(connectionLifecycleCause)
 observe(connectionLifecycleEvent.connectionGeneration)
 observe(featureRegistry)
+observe(maximumWriteLengthObservation.maximumWriteLength)
+observe(longWritePolicy.mode)
+observe(longWriteReceipt.chunks)
+observe(longWriteChunkProgress.state)
+observe(notPlannedLongWriteReceipt.chunkSize)
+observe(plannedLongWriteReceipt.chunkSize)
+observe(scopedLongWriteTerminal.correlation)
 observe(normalizedError)
 observe(backendAuthor)
 observe(deterministicFixture)
@@ -183,3 +271,26 @@ observe(webChooser.choose(webChooserRequest, operation))
 observe(createNavigatorWebBleManager(navigatorWebManagerOptions))
 observe(createNavigatorWebBleManager(browserNavigatorManagerOptions))
 observe(createWebBleManager(webManagerOptions))
+// @ts-expect-error GATT database paths must retain their literal connection scope.
+observe<DatabasePath<'scope-test', 'connection-one', 'database-one'>>(connectionTwoDatabasePath)
+// @ts-expect-error GATT database paths must retain their literal database scope.
+observe<DatabasePath<'scope-test', 'connection-one', 'database-one'>>(differentDatabasePath)
+// @ts-expect-error GATT service paths must retain their literal service occurrence scope.
+observe<ServicePath<'scope-test', 'connection-one', 'database-one', 'service-one'>>(serviceTwoPath)
+observe<CharacteristicPath<'scope-test', 'connection-one', 'database-one', 'service-one', 'characteristic-one'>>(
+  // @ts-expect-error GATT characteristic paths must retain their literal characteristic occurrence scope.
+  characteristicTwoPath
+)
+observe<DescriptorPath<'scope-test', 'connection-one', 'database-one', 'service-one', 'characteristic-one', 'descriptor-one'>>(
+  // @ts-expect-error GATT descriptor paths must retain their literal descriptor occurrence scope.
+  descriptorTwoPath
+)
+observe<Subscription<'scope-test', 'connection-one', 'database-one', 'service-one', 'characteristic-one', 'subscription-one'>>(
+  // @ts-expect-error GATT subscriptions must retain their literal subscription scope.
+  subscriptionTwo
+)
+observe(connectionOneDatabasePath)
+observe(serviceOnePath)
+observe(characteristicOnePath)
+observe(descriptorOnePath)
+observe(subscriptionOne)

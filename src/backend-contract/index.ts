@@ -1,5 +1,7 @@
 // src/backend-contract/index.ts
 
+// src/backend-contract/index.ts
+
 export type {
   AdvertisementField,
   AdvertisementInput,
@@ -99,6 +101,7 @@ export type {
   DevicePath,
   GattDatabase,
   GattDatabaseSnapshot,
+  MaximumWriteLengthObservation,
   NotificationValue,
   PathValidity,
   Service,
@@ -129,8 +132,14 @@ export { attachmentRecordsEqual } from './identity'
 export type {
   BackendOperationDispatch,
   CancellationAcknowledgement,
+  LongWriteChunkProgress,
+  LongWriteNotPlannedReceipt,
+  LongWritePlannedReceipt,
+  LongWritePolicy,
+  LongWriteReceipt,
   OperationSettlementCoordinator,
   OperationOptions,
+  OperationTerminalOutcome,
   OperationTerminalRecord,
   PublicOperationOptions,
   ReadRequest,
@@ -229,6 +238,7 @@ export type {
 } from './restoration'
 export type {
   BoundedAsyncStream,
+  BoundedAsyncStreamIterator,
   OverflowPolicy,
   StreamItem,
   StreamLimits,
