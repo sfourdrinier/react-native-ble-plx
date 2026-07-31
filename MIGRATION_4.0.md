@@ -6,11 +6,13 @@
 
 **Architecture and sequencing authority:** [`docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)
 
-`unified-ble-manager@4.0.0-alpha.14` is the current public 4.0 package. It is
-not a source-compatible rename of `@sfourdrinier/react-native-ble-plx`: migrate
-each host integration to the explicit v4 factory and lifecycle below. There is
-no legacy scoped-name shim, Base64 compatibility surface, public transaction-ID
-API, Noble wrapper, or singleton manager fallback.
+`unified-ble-manager@4.0.0-alpha.14` is the current public 4.0 prerelease. 4.0
+started as a new package with no released 4.0 consumer baseline. This is an
+adoption guide for a project that chooses to move from another BLE integration,
+not a supported in-place upgrade from `@sfourdrinier/react-native-ble-plx`.
+There is no legacy scoped-name shim, Base64 compatibility surface, public
+transaction-ID API, Noble wrapper, singleton manager fallback, or
+source-compatible rename. It is not a source-compatible rename.
 
 Install the exact currently supported package line with your application's
 package manager:
@@ -18,6 +20,12 @@ package manager:
 ```sh
 pnpm add unified-ble-manager@4.0.0-alpha.14
 ```
+
+`next` is the mutable prerelease dist-tag; it currently resolves to alpha.14.
+Pin the exact version you evaluate, and do not use a bare install or `@latest`
+to select the 4.0 alpha train. The prerelease package is Experimental: no
+current evidence record links alpha.14's package artifact to a hardware-backed
+backend support claim. See [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
 
 Use only documented package subpaths. The root export is host-neutral; import
 the host factory from `unified-ble-manager/react-native`,
@@ -135,10 +143,11 @@ Pass `signal: null` when an operation is intentionally not cancellable. The
 manager normalizes abort, deadline, and backend failures; callers must handle
 the resulting error and still perform their lifecycle cleanup.
 
-## Migration checklist
+## Adoption checklist
 
-1. Replace 3.x imports and `new BleManager(...)` with the explicit v4 host
-   construction entrypoint.
+1. Replace any older BLE integration imports and constructors with the explicit
+   v4 host construction entrypoint; this is a deliberate rewrite, not a shimmed
+   compatibility migration.
 2. Select and own exactly one backend/radio at the trusted host boundary.
 3. Replace Base64 API calls with `Uint8Array` reads, writes, and notifications.
 4. Replace public transaction IDs with `AbortSignal` and deadline options.
@@ -150,10 +159,14 @@ the resulting error and still perform their lifecycle cleanup.
 6. Await scan, connection, subscription, renderer, binding, and manager cleanup
    before the relevant owner is replaced or destroyed.
 7. Validate the packed package artifact and the selected host's native/runtime
-   integration before shipping.
+   integration before shipping. Hardware-backed claims additionally need the
+   host's current physical evidence; a successful build or deterministic test
+   is not live-radio proof.
 
-No compatibility path may be introduced without explicit maintainer approval,
-an owner, a deletion condition, and tests.
+Meta Quest and an nRF52840-based controllable fault-injection controller are
+deferred to 4.1 and have no 4.0 adoption path or support claim. No compatibility
+path may be introduced without explicit maintainer approval, an owner, a
+deletion condition, and tests.
 
 ## Related records
 

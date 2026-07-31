@@ -10,7 +10,11 @@
 
 ## Product decision
 
-`unified-ble-manager@4.0.0` is a new open-source package with zero consumers. It is a clean-baseline release, not a compatibility release of `react-native-ble-plx`. The controlling implementation plan is the only authority for 4.0 architecture, contracts, sequencing, deletion gates, and engineering acceptance criteria.
+`unified-ble-manager@4.0.0` is a new open-source package line launched with no
+released 4.0 consumer baseline. It is a clean-baseline release, not a compatibility
+release of `react-native-ble-plx`. The controlling implementation plan is the
+only authority for 4.0 architecture, contracts, sequencing, deletion gates, and
+engineering acceptance criteria.
 
 4.0 establishes one versioned backend contract, one shared policy core, bytes-only public and backend BLE contracts, `AbortSignal` cancellation, typed capabilities reported by instantiated backends, and bounded normalized events. It does not preserve a permanent 3.x API, Base64/bytes dual API, static host capability table, legacy manager/port architecture, Noble wrapper, or scoped-package shim.
 
@@ -24,9 +28,9 @@ Stable 4.0 is comprehensive. It requires the plan's public API, deterministic ba
 - Electron main/renderer IPC;
 - independent-consumer and bun-mono convergence gates;
 
-Meta Quest, peripheral mode, Bluetooth Classic, LE Audio, L2CAP CoC, and a
-controllable physical fault-injection peripheral are deferred to 4.1. Quest
-retains an evidence-bound `Live Preview` target but is not a 4.0 gate.
+Meta Quest, peripheral mode, Bluetooth Classic, LE Audio, L2CAP CoC, and an
+nRF52840-based controllable physical fault-injection controller are deferred to 4.1.
+Quest retains an evidence-bound `Live Preview` target but is not a 4.0 gate.
 Deterministic fault injection remains mandatory 4.0 proof, but must never be
 presented as live-radio proof.
 
@@ -38,9 +42,20 @@ The package owns portable BLE-central mechanics: adapter state, scanning, choose
 
 Applications and vendor libraries own device choice, vendor protocols, product reconnect policy, persistence, telemetry, UI, and product state. `bun-mono` is a proving consumer and release-blocking fixture; it is never public API authority.
 
-## Package and support claims
+## Published alpha and support claims
 
-The intended public package is `unified-ble-manager`, with host-neutral root exports and explicit host subpaths defined by the controlling plan. The exact exports, package metadata, installation instructions, and compatibility ranges are not yet a released 4.0 contract and must not be inferred from transitional source files or examples.
+`unified-ble-manager@4.0.0-alpha.14` is published under npm's `next` dist-tag
+with GitHub Actions trusted publishing, npm SLSA provenance, and a GitHub
+prerelease. Its host-neutral root and explicit public subpaths are the current
+alpha package contract; users must pin an exact alpha version rather than infer
+an API from transitional source files or examples. The alpha has no 3.x
+compatibility layer.
+
+The current package release is Experimental. There is no current evidence record
+linking alpha.14's package artifact to a passed physical-radio backend scenario,
+so it makes no Preview-or-higher platform claim. Hardware evidence is required
+only for the corresponding support label; it does not erase package or
+deterministic proof.
 
 Support labels are evidence-based:
 
@@ -68,15 +83,22 @@ The 3.9 line remains a separately documented historical/current release line. It
 ## Documentation rules
 
 - [`MIGRATION_4.0.md`](MIGRATION_4.0.md) must describe the new-package migration honestly; it must not promise zero-change 3.x compatibility.
-- [`RELEASE.md`](RELEASE.md) must not authorize publishing 4.0 until the plan's release gates are satisfied.
-- Getting-started and platform pages must distinguish transitional source characterization from the future 4.0 contract.
+- [`RELEASE.md`](RELEASE.md) must not authorize publishing 4.0 outside the controlling plan's gated release workflow.
+- Getting-started and platform pages must distinguish transitional source characterization from the current alpha contract.
 - [`docs/GAPS.4.0.md`](docs/GAPS.4.0.md) records platform proof and current baseline evidence. A transitional item marked done is not a completed clean-baseline replacement.
 
-## Current baseline: characterization only
+## Historical baseline boundary
 
-This branch contains source and documentation inherited from a 3.x-style architecture. That material is useful audit evidence: it identifies existing native work, Base64 bridge behavior, port-host behavior, live-run history, and gaps that must be re-proven through the unified core. It does not represent shipping 4.0 behavior.
+Historical source and documentation inherited from a 3.x-style architecture
+remain audit material only. They identify prior native work, Base64 bridge
+behavior, port-host behavior, live-run history, and gaps that had to be
+re-proven through the unified core. They do not define shipping 4.0 behavior.
 
-Before a public 4.0 implementation claim, the relevant plan work package, ADR, TCK/scenario gate, evidence record, and artifact gate must be complete. Until then, users should not install or integrate an unreleased 4.0 package based on this repository's transitional examples.
+Before a backend can receive a public 4.0 support label, the relevant plan work
+package, ADR, TCK/scenario gate, evidence record, and artifact gate must be
+complete. Users may evaluate the published alpha using its current host factories
+and exact package version, but must not infer live-radio support from historical
+examples, compilation, or deterministic checks.
 
 ## Related records
 

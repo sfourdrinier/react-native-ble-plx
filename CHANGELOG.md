@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Documentation
+
+- Clarified that `4.0.0-alpha.14` is an Experimental npm `next` prerelease with
+  GitHub Actions trusted publishing and npm SLSA provenance, not a live-radio
+  platform promotion.
+- Documented the exact public host entrypoints, repository fixture boundaries,
+  package/release verification, and the absence of a currently published private
+  vulnerability-reporting route.
+- Documented that Meta Quest and an nRF52840-based controllable
+  fault-injection controller remain deferred to 4.1.
+
 ## [4.0.0-alpha.14] - 2026-07-30
 
 ### Changed

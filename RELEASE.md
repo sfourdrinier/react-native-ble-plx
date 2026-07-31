@@ -6,47 +6,106 @@
 
 This document describes release mechanics. It does not define a 4.0 API, compatibility policy, package topology, or support claim.
 
-This document does not authorize publishing 4.0 before the controlling plan's release gates are complete.
+This document does not authorize publishing 4.0 outside the reviewed tag and
+GitHub Actions workflow described here. A package publication does not promote a
+backend support label.
 
 The 4.0 artifact has no permanent scoped shim.
 
-For `unified-ble-manager@4.0.0`, the publication authority is [`docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md), especially its package, evidence, deletion, and Section 31 release gates. [`ROADMAP.4.0.md`](ROADMAP.4.0.md) controls product scope and [`docs/GAPS.4.0.md`](docs/GAPS.4.0.md) controls the platform-proof inventory.
+The controlling plan for `unified-ble-manager@4.0.0` is
+[`docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md),
+especially its package, evidence, deletion, and Section 31 release gates.
+[`ROADMAP.4.0.md`](ROADMAP.4.0.md) controls product scope and
+[`docs/GAPS.4.0.md`](docs/GAPS.4.0.md) controls the platform-proof inventory.
 
-## Current released line
+## Current public prerelease
 
-The last documented released line is `@sfourdrinier/react-native-ble-plx@3.9.2`. Its source layout and release process are current-release characterization, not a template for publishing 4.0. Do not publish an unreleased `unified-ble-manager` package, a scoped shim, or an alpha that advertises compatibility before the clean-baseline gates are complete.
+`unified-ble-manager@4.0.0-alpha.14` was published from
+`v4.0.0-alpha.14` by GitHub Actions trusted publishing. The published npm
+metadata identifies GitHub Actions as the trusted publisher and includes an npm
+SLSA provenance attestation. Its
+[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.14)
+is a prerelease and its notes are generated from the alpha.14 section of
+[`CHANGELOG.md`](CHANGELOG.md).
 
-## 4.0 publication preconditions
+This is an Experimental package release. It proves a public package, tested
+exports, and the workflow's deterministic/package gates; it does not establish
+hardware support for a backend. The repository's current evidence records do
+not bind alpha.14's package artifact to a passed physical-radio scenario. No
+backend is thereby Preview, Live Preview, Supported, or Reliability-qualified.
+See [`docs/PLATFORMS.md`](docs/PLATFORMS.md) and
+[`evidence/v1/README.md`](evidence/v1/README.md).
 
-Before creating a 4.0 release branch, a maintainer must confirm all of the following:
+The former `@sfourdrinier/react-native-ble-plx` 3.x line is historical
+characterization only. It is not a 4.0 package identity, upgrade path, or
+compatibility promise.
 
-- contract v1, semantics, public API, backend SDK/TCK, and native/Electron protocol decisions are accepted and implemented;
-- legacy manager/port, Base64/bytes dual API, static capability matrix, Noble fallback/wrapper, public transaction IDs, and any shim are absent from the packed artifact;
-- every declared backend has the required typed capability implementation, TCK/scenario proof, and evidence manifest;
-- Meta Quest is absent from 4.0 support claims and remains explicitly deferred to 4.1;
-- the controllable physical fault-injection peripheral remains explicitly deferred to 4.1 and deterministic proof is not mislabelled as live radio;
-- independent packed consumers and `bun-mono` convergence gates pass;
-- required tests, builds, package checks, documentation generation, security/provenance/SBOM, and zero-diagnostic gates pass.
+## Version and release-channel semantics
 
-If any condition is incomplete, stop. A mock, compilation result, current transitional behavior, or schedule concern does not authorize a reduced or compatibility-based release.
+The workflow derives the release channel from the package version after
+verifying that the pushed `vX.Y.Z` tag exactly matches `package.json`:
 
-## Release mechanics after authorization
+| Version form | npm dist-tag | GitHub Release state | Consumer guidance |
+| --- | --- | --- | --- |
+| Hyphenated SemVer prerelease, such as `4.0.0-alpha.14` | `next` | prerelease | Pin the exact version for reproducible evaluation; `@next` is mutable. |
+| Final SemVer version, such as `4.0.0` | `latest` | normal release | Use the final version only after its published evidence supports the required host claim. |
 
-After the preconditions are met, the accepted packaging ADR defines the exact package name, exports, supported runtime ranges, artifact list, tag, provenance configuration, and publish workflow. Execute the approved clean-checkout release command set and retain the generated evidence artifacts with the release.
+Do not use a bare install or `@latest` to select a 4.0 alpha. The exact package
+version is the public API and artifact identity being evaluated.
 
-Every release must:
+## Workflow and release checks
 
-1. originate from the reviewed release commit;
-2. run the complete release gates on the packed artifact rather than source-only imports;
-3. verify runtime/type exports and host isolation for every declared subpath;
-4. publish provenance, SBOM/license, evidence manifests, and support-policy material;
-5. verify the npm artifact contains no source-only, secret, legacy, or unintended host artifact;
-6. create release notes from verified user-visible changes and evidence labels;
-7. record the exact tag, commit, package digest, and command results.
+The tag workflow runs these release gates before publication:
 
-## Historical procedure boundary
+- package and plugin tests, evidence-record validation, lint/typecheck, and
+  package build;
+- public export resolution, canonical pack/install smoke, and packed artifact
+  tarball inventory;
+- deterministic Electron main/router/renderer L1 smoke;
+- classic React Native Android assembly plus Expo SDK 57 CNG prebuild and
+  Android assembly; and
+- npm OIDC trusted publishing with `--provenance`, followed by the GitHub
+  Release creation from the changelog.
 
-Older release scripts, dual-package instructions, `npm publish` commands, and shim packaging text elsewhere in repository history describe the transitional 3.x-style tree. They must not be copied into a 4.0 release run without an accepted 4.0 packaging decision and the gates above.
+Apple and Windows host gates remain their own CI lanes. A green package release
+does not silently convert a platform's compile, ABI, deterministic, or system
+proof into physical-radio evidence.
+
+## Independent verification
+
+Check the published version, dist-tag, integrity, attestation, and trusted
+publisher from npm:
+
+```sh
+npm view unified-ble-manager@4.0.0-alpha.14 version dist-tags dist.integrity dist.attestations _npmUser --json
+```
+
+Then cross-check the matching tag and GitHub Release:
+
+```sh
+gh release view v4.0.0-alpha.14 --repo sfourdrinier/react-native-ble-plx --json tagName,isPrerelease,publishedAt,url
+```
+
+For alpha.14, npm must report the exact version, `next`, integrity, a SLSA
+provenance attestation, and GitHub Actions trusted publisher; GitHub must report
+the matching `v4.0.0-alpha.14` tag with `isPrerelease: true`. These checks
+verify release identity and supply chain metadata only. They do not verify BLE
+hardware behavior, platform permissions, browser availability, background
+operation, restoration, reconnect, or reliability.
+
+## Support, security, and deferred work
+
+Meta Quest and an nRF52840-based controllable fault-injection controller are
+deferred to 4.1. They are not 4.0 release gates and must not appear in 4.0
+backend, hardware, Live Preview, Supported, or Reliability-qualified claims.
+Deterministic fault injection remains useful 4.0 contract proof but is never
+physical-radio proof.
+
+At the time of alpha.14, GitHub private vulnerability reporting is disabled and
+no private reporting channel or supported-version response policy is published.
+Release notes and support material must not claim otherwise. Establish and
+publish that external repository policy before advertising a confidential
+security-reporting route.
 
 ## Related records
 

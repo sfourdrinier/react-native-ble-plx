@@ -10,6 +10,12 @@ remain host-specific
 Configure the published plugin as `unified-ble-manager`. The plugin's supported
 options are exactly the schema implemented in `plugin/src/withBLE.ts`:
 
+The plugin configuration is part of the Experimental 4.0 alpha package. The
+release workflow validates Expo SDK 57 CNG prebuild and Android assembly, but no
+current evidence record binds alpha.14 to a physical device, permission,
+background, or restoration scenario. Configuration and compilation therefore do
+not make a live-radio or restoration support claim.
+
 | Option | Type | Effect |
 | --- | --- | --- |
 | `debug` | `boolean` | Enables plugin diagnostics; `BLEPLX_PLUGIN_DEBUG=1` also enables them. |
@@ -67,6 +73,11 @@ The following alpha-era/3.x option names are not accepted by this plugin:
 Do not add aliases or compatibility transforms for those names. A host that
 needs an Android foreground service must own and validate that platform policy;
 the plugin does not silently provide it.
+
+[`../example-expo/`](../example-expo/) is the repository CNG fixture and uses a
+`file:..` dependency. It demonstrates the source-tree integration path only;
+pin the published package version in a consumer and validate that consumer's
+native build separately.
 
 ## Related records
 

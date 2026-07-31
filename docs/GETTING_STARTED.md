@@ -4,10 +4,11 @@
 
 ## 4.0 status
 
-`unified-ble-manager@4.0.0-alpha.14` is the current 4.0 alpha package line.
-It is a clean API line: install the package, choose one explicit host entrypoint,
-and build the matching native integration before making a Bluetooth claim. It is
-not a source-compatible rename of the retired 3.x package.
+`unified-ble-manager@4.0.0-alpha.14` is the current public 4.0 alpha package
+line. It is a clean API line launched with no released 4.0 consumer baseline:
+choose one explicit host entrypoint and build the matching native integration
+before making a Bluetooth claim. It is not a source-compatible rename of the
+retired 3.x package.
 
 The architecture and implementation sequence are controlled by [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md). Product scope is in [`../ROADMAP.4.0.md`](../ROADMAP.4.0.md), and backend/platform proof is in [`GAPS.4.0.md`](GAPS.4.0.md).
 
@@ -16,6 +17,13 @@ The architecture and implementation sequence are controlled by [`UNIFIED_BLE_4.0
 ```sh
 pnpm add unified-ble-manager@4.0.0-alpha.14
 ```
+
+The alpha train publishes under npm's mutable `next` dist-tag. Pin the exact
+version you validate; do not use a bare install or `@latest` to select 4.0
+alpha. The package is Experimental, and no current evidence record binds the
+published alpha.14 artifact to a physical-radio backend result. Package builds
+and deterministic tests remain useful proof at their own scope, but do not
+create a platform support label.
 
 The root import is host-neutral. Import the selected integration explicitly:
 
@@ -50,6 +58,11 @@ prebuilt addon. Build against the host Node ABI or, for Electron, run the
 Electron-targeted `node-gyp` command with `--target` and Electron headers from
 [`ELECTRON.md`](ELECTRON.md). A Node ABI addon cannot be loaded by Electron.
 
+`example/` and `example-expo/` are repository fixtures using `file:..`, not
+published-package installation recipes. The Electron fixture is deterministic
+L1 only, while `example-web/` is historical source characterization. See the
+root [`README.md`](../README.md) for their current boundaries.
+
 ## Verify the selected host
 
 Run the packed-artifact, platform-native, and physical-device checks appropriate
@@ -60,6 +73,8 @@ product's own release decision.
 
 For an end-to-end React Native manager construction and the supported Expo
 plugin object, use the canonical examples in [`../README.md`](../README.md).
+Meta Quest and an nRF52840-based controllable fault-injection controller are
+deferred to 4.1 and are not 4.0 host or hardware claims.
 
 ## Related records
 
@@ -67,3 +82,4 @@ plugin object, use the canonical examples in [`../README.md`](../README.md).
 - [`PLATFORMS.md`](PLATFORMS.md)
 - [`EXPO_PLUGIN.md`](EXPO_PLUGIN.md)
 - [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)
+- [`../RELEASE.md`](../RELEASE.md)

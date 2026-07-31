@@ -60,6 +60,9 @@ describe('ci-release canonical package (4.0)', () => {
     expect(w).toContain('npm publish --provenance --access public --tag "${NPM_DIST_TAG}"')
     expect(w).toContain('echo "NPM_DIST_TAG=next" >> "$GITHUB_ENV"')
     expect(w).toContain('echo "NPM_DIST_TAG=latest" >> "$GITHUB_ENV"')
+    expect(w).toMatch(
+      /if \[\[ "\$\{VER\}" == \*-\* \]\]; then[\s\S]+?gh release create[\s\S]+?--prerelease[\s\S]+?\n\s+else[\s\S]+?gh release create/
+    )
     expect(w).toContain('https://registry.npmjs.org/unified-ble-manager/-/unified-ble-manager-${VER}.tgz')
     expect(w).not.toContain('@sfourdrinier/react-native-ble-plx')
     expect(w).not.toMatch(/prepare-shim|dual packages|canonical \+ shim/i)

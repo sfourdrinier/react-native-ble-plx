@@ -14,6 +14,11 @@ This file tracks platform code, CI, package, lab, and live-radio evidence. It do
 
 The pre-4.0 source tree contains a transitional `BleManager`, `BlePort`, `PortBleManager`, Base64 bridge, byte convenience methods, static capability helpers, Noble-era code, and host examples. Any statement below about that source is current-state characterization and migration input. It is not proof that a clean-baseline 4.0 replacement exists.
 
+`unified-ble-manager@4.0.0-alpha.14` is published as an Experimental package,
+but no current record in `evidence/v1/records/` binds that artifact to a passed
+physical-radio backend scenario. The records below are historical L0 context and
+must not be read as Preview-or-higher evidence for the published alpha.
+
 ## Proof levels
 
 | Level | Meaning |
@@ -42,7 +47,7 @@ Deterministic fault injection must never be presented as live-radio proof.
 | WinRT | Mock TCK, native compile/Electron ABI, live radio | No placeholder or fallback claim is acceptable |
 | Electron IPC | Versioned main/renderer handshake, bounded streams, reload/rebind scenarios | No renderer-owned radio or implicit legacy bridge |
 | Meta Quest | Not a 4.0 evidence target | Deferred to 4.1 with no 4.0 claim or gate |
-| Controllable physical fault provider | Not a 4.0 delivery item | Explicit 4.1 feasibility, selection, and procurement responsibility |
+| nRF52840-based controllable physical fault-injection controller | Not a 4.0 delivery item | Explicit 4.1 feasibility, selection, procurement, and physical-radio decision |
 
 ## Current transitional baseline: evidence to preserve and re-prove
 

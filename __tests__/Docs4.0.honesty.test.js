@@ -199,7 +199,7 @@ describe('4.0 documentation honesty', () => {
   test('roadmap rejects compatibility, dual APIs, static matrices, Noble, and reduced scope', () => {
     const roadmap = read('ROADMAP.4.0.md')
 
-    expect(roadmap).toContain('not a compatibility release')
+    expect(roadmap).toMatch(/not a\s+compatibility\s+release/)
     expect(roadmap).toContain('bytes-only public and backend BLE contracts')
     expect(roadmap).toContain('does not preserve a permanent 3.x API')
     expect(roadmap).toContain('Meta Quest, peripheral mode, Bluetooth Classic, LE Audio, L2CAP CoC')
@@ -251,6 +251,20 @@ describe('4.0 documentation honesty', () => {
     expect(changelog).toContain('## [4.0.0-alpha.14] - 2026-07-30')
     expect(changelog).toContain('node-addon-api')
     expect(changelog).toContain('hostSessionScope')
+  })
+
+  test('published alpha documentation preserves exact release, evidence, and deferral boundaries', () => {
+    const readme = read('README.md')
+    const release = read('RELEASE.md')
+    const platforms = read('docs/PLATFORMS.md')
+
+    expect(readme).toContain('`next` dist-tag')
+    expect(readme).toMatch(/Do not install\s+the bare package name or `@latest`/)
+    expect(release).toContain('v4.0.0-alpha.14')
+    expect(release).toContain('GitHub Actions trusted publishing')
+    expect(release).toContain('SLSA provenance')
+    expect(platforms).toContain('No current evidence record binds the published alpha.14 artifact')
+    expect(platforms).toContain('Meta Quest and an nRF52840-based controllable fault-injection controller are deferred to 4.1')
   })
 
   test('platform pages make instantiated backend evidence, not static source behavior, authoritative', () => {

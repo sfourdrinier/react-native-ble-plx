@@ -204,6 +204,9 @@ jobs:
 
       # Tags remain manual. After npm succeeds, create the GitHub Release from
       # CHANGELOG.md notes so the Releases page matches the published package.
+      # SemVer prereleases must also be GitHub prereleases: npm publishes them
+      # to `next`, while final versions publish to `latest` and create normal
+      # GitHub releases.
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -238,10 +241,18 @@ jobs:
             echo "  - tarball: https://registry.npmjs.org/unified-ble-manager/-/unified-ble-manager-${VER}.tgz"
           } > "${NOTES_FILE}"
 
-          gh release create "${TAG}" \
-            --title "${TAG}" \
-            --notes-file "${NOTES_FILE}" \
-            --verify-tag
+          if [[ "${VER}" == *-* ]]; then
+            gh release create "${TAG}" \
+              --title "${TAG}" \
+              --notes-file "${NOTES_FILE}" \
+              --prerelease \
+              --verify-tag
+          else
+            gh release create "${TAG}" \
+              --title "${TAG}" \
+              --notes-file "${NOTES_FILE}" \
+              --verify-tag
+          fi
 
           echo "Created GitHub Release ${TAG}"
           rm -f "${NOTES_FILE}"
