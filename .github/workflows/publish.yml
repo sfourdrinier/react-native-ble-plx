@@ -157,15 +157,25 @@ jobs:
           set -euo pipefail
           rm -rf .release-package
           mkdir .release-package
-          PACK_JSON="$(npm pack --json --pack-destination .release-package)"
-          TARBALL_NAME="$(printf '%s' "${PACK_JSON}" | node -e '
+          # npm forwards prepare/prepack child output to stdout even with
+          # --json, so JSON capture is not a stable machine boundary. The final
+          # non-empty stdout line is npm's documented tarball filename; bind it
+          # to the exact package identity and require one generated archive.
+          PACK_OUTPUT="$(npm pack --pack-destination .release-package)"
+          TARBALL_NAME="$(printf '%s' "${PACK_OUTPUT}" | node -e '
             const fs = require("fs")
-            const result = JSON.parse(fs.readFileSync(0, "utf8"))
-            if (!Array.isArray(result) || result.length !== 1 || typeof result[0].filename !== "string") {
-              throw new Error("npm pack must generate exactly one named tarball")
+            const lines = fs.readFileSync(0, "utf8").split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+            if (lines.length === 0) {
+              throw new Error("npm pack did not report a tarball filename")
             }
-            process.stdout.write(result[0].filename)
+            process.stdout.write(lines[lines.length - 1])
           ')"
+          EXPECTED_TARBALL="$(node -p "require('./package.json').name + '-' + require('./package.json').version + '.tgz'")"
+          test "${TARBALL_NAME}" = "${EXPECTED_TARBALL}"
+          shopt -s nullglob
+          TARBALLS=(.release-package/*.tgz)
+          test "${#TARBALLS[@]}" -eq 1
+          test "${TARBALLS[0]}" = ".release-package/${EXPECTED_TARBALL}"
           PUBLISH_TARBALL=".release-package/${TARBALL_NAME}"
           test -f "${PUBLISH_TARBALL}"
           echo "PUBLISH_TARBALL=${PUBLISH_TARBALL}" >> "$GITHUB_ENV"
