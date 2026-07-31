@@ -284,6 +284,11 @@ describe('Electron IPC hardening', () => {
     expect(unscopedBytes).toBeLessThanOrEqual(512 * 1024)
     expect(scopedBytes).toBeGreaterThan(512 * 1024)
     await expect(publish(String(lease.leaseId), event)).resolves.toBe('terminalized')
+    expectConsoleError('[ElectronMainBleBinding] Renderer event budget exhausted:', {
+      rendererLeaseId: String(lease.leaseId),
+      streamId: event.streamId,
+      terminal: false
+    })
     expect(sender.send).not.toHaveBeenCalled()
     expect(router.terminateStream).toHaveBeenCalledWith(lease, event.streamId, 'renderer-backpressure')
     await binding.destroy()
@@ -336,14 +341,15 @@ describe('Electron IPC hardening', () => {
     expect(scopedBytes).toBeGreaterThan(maximumMessageBytes)
     registry.registerScan(resources, lease, streamId, { observations: stream, stop })
     stream.push(item)
-    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     await flushAsyncWork()
 
     expect(stop).toHaveBeenCalledTimes(1)
     expect(events).toEqual([
       expect.objectContaining({ item: expect.objectContaining({ kind: 'terminal', reason: 'ipc-message-too-large' }) })
     ])
-    errorLog.mockRestore()
+    expectConsoleError('[ElectronRendererStreamRegistry] Stream item exceeded the configured IPC message limit:', {
+      streamId
+    })
   })
 
   test('forwards complete advertisements with fractional monotonic timestamps and owned binary fields', async () => {
@@ -532,14 +538,15 @@ describe('Electron IPC hardening', () => {
         deadline: null
       })
     )
-    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     bareStream.close()
     await flushAsyncWork()
     expect(bareStop).toHaveBeenCalledTimes(1)
     expect(events.filter(event => event.item.kind === 'terminal')).toHaveLength(2)
     expect(events[1].item.reason).toBe('source-failed')
     expect(current.router.resources.get(String(bootstrapValue.rendererLease.leaseId)).scans.size).toBe(0)
-    errorLog.mockRestore()
+    expectConsoleError('[ElectronRendererStreamRegistry] Stream ended without a terminal item:', {
+      streamId: 'scan-2'
+    })
     await current.router.destroy()
   })
 
@@ -617,7 +624,6 @@ describe('Electron IPC hardening', () => {
   })
 
   test('aggregates router and manager destroy rejections into cleanup records', async () => {
-    const managerErrorLog = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     const current = createRouter({ destroy: jest.fn(async () => {
       throw new Error('manager destroy rejected')
     }) })
@@ -625,6 +631,10 @@ describe('Electron IPC hardening', () => {
       state: 'release-failed',
       failures: [{ resourceKind: 'manager' }]
     })
+    expectConsoleErrorMatching(
+      '[ElectronMainBleRouter] Manager cleanup rejected during router destroy:',
+      expect.objectContaining({ message: 'manager destroy rejected' })
+    )
 
     const router = {
       setEventPublisher: jest.fn(),
@@ -642,7 +652,10 @@ describe('Electron IPC hardening', () => {
       state: 'release-failed',
       failures: [{ resourceKind: 'electron-router' }]
     })
-    managerErrorLog.mockRestore()
+    expectConsoleErrorMatching(
+      '[ElectronMainBleBinding] Router destroy rejected:',
+      expect.objectContaining({ message: 'router destroy rejected' })
+    )
   })
 
   test('retries ambiguous renderer acknowledgements against an idempotent main ledger', async () => {
@@ -676,7 +689,6 @@ describe('Electron IPC hardening', () => {
           return () => listeners.splice(listeners.indexOf(listener), 1)
         }
       }
-      const errorLog = jest.spyOn(console, 'error').mockImplementation(() => undefined)
       const client = new ElectronRendererBleClient(transport)
       await client.initialize()
       listeners[0]({
@@ -692,7 +704,10 @@ describe('Electron IPC hardening', () => {
       expect(acknowledge).toHaveBeenCalledTimes(2)
       expect(acknowledge).toHaveBeenNthCalledWith(2, bootstrapValue.rendererLease, 'event-retry')
       await client.destroy()
-      errorLog.mockRestore()
+      expectConsoleErrorMatching(
+        '[ElectronRendererBleClient] Event acknowledgement failed; retry scheduled:',
+        expect.objectContaining({ eventId: 'event-retry', error: expect.objectContaining({ message: 'ack response lost' }) })
+      )
     } finally {
       jest.useRealTimers()
     }
@@ -736,7 +751,6 @@ describe('Electron IPC hardening', () => {
       }
       const port = { handle(_channel, handler) { this.handler = handler }, removeHandler: jest.fn() }
       const binding = new ElectronMainBleBinding({ router, port, authenticate: event => event.sender.trusted })
-      const errorLog = jest.spyOn(console, 'error').mockImplementation(() => undefined)
       binding.install()
       await port.handler({ sender }, { kind: 'bootstrap' })
       destroyedListener()
@@ -745,7 +759,10 @@ describe('Electron IPC hardening', () => {
       await jest.advanceTimersByTimeAsync(100)
       expect(router.releaseRenderer).toHaveBeenCalledTimes(2)
       await binding.destroy()
-      errorLog.mockRestore()
+      expectConsoleErrorMatching(
+        '[ElectronMainBleBinding] Renderer lifetime cleanup reported failures:',
+        expect.objectContaining({ rendererLeaseId: String(lease.leaseId) })
+      )
     } finally {
       jest.useRealTimers()
     }
@@ -761,7 +778,6 @@ describe('Electron IPC hardening', () => {
         return () => listeners.splice(listeners.indexOf(listener), 1)
       }
     }
-    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     const client = new ElectronRendererBleClient(transport)
     const initialization = client.initialize()
     const destruction = client.destroy()
@@ -769,7 +785,10 @@ describe('Electron IPC hardening', () => {
     await expect(destruction).resolves.toEqual(released())
     expect(transport.invoke).toHaveBeenCalledTimes(1)
     expect(listeners).toEqual([])
-    errorLog.mockRestore()
+    expectConsoleErrorMatching(
+      '[ElectronRendererBleClient] Initialization failed during destroy; releasing main ownership:',
+      expect.objectContaining({ message: 'bootstrap response lost' })
+    )
   })
 
   test('retries native cleanup after a natural stream terminal without publishing a second terminal', async () => {
@@ -806,7 +825,6 @@ describe('Electron IPC hardening', () => {
           deadline: null
         })
       )
-      const errorLog = jest.spyOn(console, 'error').mockImplementation(() => undefined)
       stream.push({
         kind: 'terminal',
         reason: 'closed',
@@ -822,7 +840,10 @@ describe('Electron IPC hardening', () => {
       expect(stop).toHaveBeenCalledTimes(2)
       expect(resources.scans.size).toBe(0)
       expect(events.filter(event => event.item.kind === 'terminal')).toHaveLength(1)
-      errorLog.mockRestore()
+      expectConsoleErrorMatching(
+        '[ElectronRendererStreamRegistry] Failed to stop scan after source terminal:',
+        expect.objectContaining({ handle: 'scan-1' })
+      )
       await current.router.destroy()
     } finally {
       jest.useRealTimers()

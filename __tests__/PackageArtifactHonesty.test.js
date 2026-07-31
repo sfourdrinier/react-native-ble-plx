@@ -69,7 +69,7 @@ describe('package artifact honesty gate', () => {
     expect(packInstallSmokeSource).not.toContain('linkHostExpoConfigPlugins')
     expect(packInstallSmokeSource).not.toContain('linkOptionalBluezDependency')
     expect(packInstallSmokeSource).not.toContain("assert.strictEqual(nodeGyp.version, '12.4.0'")
-    expect(packInstallSmokeSource).toContain('verifyInstalledPublishedRuntimeDependencies')
+    expect(packInstallSmokeSource).toContain('verifyInstalledPublishedHostDependencies')
     expect(packInstallSmokeSource).toContain("require('unified-ble-manager/app.plugin.js')")
     expect(packInstallSmokeSource).toContain("require('unified-ble-manager/web')")
     expect(packInstallSmokeSource).toContain('ERR_PACKAGE_PATH_NOT_EXPORTED')
@@ -93,6 +93,72 @@ describe('package artifact honesty gate', () => {
     expect(packageJson.bin).toEqual({ ubm: 'bin/ubm.js' })
   })
 
+  test('packs and browser-bundles a Web-only public consumer without host dependencies', () => {
+    const packInstallSmokeSource = fs.readFileSync(path.join(root, 'scripts', 'ci', 'pack-install-smoke.js'), 'utf8')
+
+    expect(packageJson.peerDependencies).toMatchObject({
+      react: '*',
+      'react-native': '>=0.86.0'
+    })
+    expect(packageJson.peerDependenciesMeta).toMatchObject({
+      react: { optional: true },
+      'react-native': { optional: true }
+    })
+    expect(packageJson.optionalDependencies).toMatchObject({
+      '@expo/config-plugins': '57.0.6',
+      'dbus-next': '^0.10.2',
+      'node-addon-api': '8.9.0',
+      'node-gyp': '12.4.0'
+    })
+    expect(packageJson.dependencies).toBeUndefined()
+    expect(packageJson.devDependencies.webpack).toBe('5.109.2')
+    expect(packInstallSmokeSource).toContain('createPackedBrowserBundleConsumer')
+    expect(packInstallSmokeSource).toContain('bundlePackedBrowserConsumer')
+    expect(packInstallSmokeSource).toContain('assertBrowserBundleHostDependenciesAreUnavailable')
+    expect(packInstallSmokeSource).toContain('resolveIsolatedConsumerToolEntrypoint')
+    expect(packInstallSmokeSource).toContain("'webpack',")
+    expect(packInstallSmokeSource).toContain('isolatedConsumerToolVersions.webpack')
+    expect(packInstallSmokeSource).not.toContain("rootRequire.resolve('webpack')")
+    expect(packInstallSmokeSource).not.toContain("path.join(root, 'node_modules', '.pnpm')")
+    expect(packInstallSmokeSource).toContain("'--loglevel=warn'")
+    expect(packInstallSmokeSource).toContain("target: 'web'")
+    expect(packInstallSmokeSource).toContain("unified-ble-manager/web")
+    expect(packInstallSmokeSource).toContain('Browser bundle must not resolve forbidden host request')
+    expect(packInstallSmokeSource).toContain('Browser bundle must not include forbidden host module')
+    expect(packInstallSmokeSource).toContain('stats.hasWarnings()')
+    expect(packInstallSmokeSource).toContain('warnings: true')
+    expect(packInstallSmokeSource).toContain('Webpack browser bundle produced diagnostics')
+    expect(packInstallSmokeSource).toContain('not L4 live browser BLE')
+  })
+
+  test('limits the Node VM Electron check to a data-only preload-surface membrane', () => {
+    const electronBoundaryFixture = fs.readFileSync(
+      path.join(root, 'scripts', 'ci', 'electron-packed-boundary-fixture.js'),
+      'utf8'
+    )
+
+    expect(electronBoundaryFixture).toContain('data-only VM preload-surface membrane')
+    expect(electronBoundaryFixture).toContain('vm.createContext(Object.create(null)')
+    expect(electronBoundaryFixture).toContain('codeGeneration: { strings: false, wasm: false }')
+    expect(electronBoundaryFixture).toContain('objectConstructorEscapeBlocked')
+    expect(electronBoundaryFixture).toContain('functionConstructorEscapeBlocked')
+    expect(electronBoundaryFixture).not.toContain('sandboxedRequire')
+    expect(electronBoundaryFixture).not.toContain('context-isolated\n * Electron renderer')
+  })
+
+  test('uses only declared tools from each isolated consumer or fixture', () => {
+    const packInstallSmokeSource = fs.readFileSync(path.join(root, 'scripts', 'ci', 'pack-install-smoke.js'), 'utf8')
+    const thirdPartyFixtureManifest = require('../fixtures/third-party-backend-sdk/package.json')
+
+    expect(packInstallSmokeSource).toContain("typescript: '5.8.3'")
+    expect(packInstallSmokeSource).toContain("webpack: '5.109.2'")
+    expect(packInstallSmokeSource).toContain('devDependencies: {\n          webpack: isolatedConsumerToolVersions.webpack')
+    expect(packInstallSmokeSource).toContain('devDependencies: {\n            typescript: isolatedConsumerToolVersions.typescript')
+    expect(packInstallSmokeSource).toContain("'typescript/bin/tsc'")
+    expect(packInstallSmokeSource).not.toContain("path.join(root, 'node_modules', 'typescript', 'bin', 'tsc')")
+    expect(thirdPartyFixtureManifest.devDependencies).toEqual({ typescript: '5.8.3' })
+  })
+
   test('publishes self-contained Electron native build inputs and direct native loaders', () => {
     expect(() => require('../native/electron/corebluetooth')).not.toThrow()
     const coreBluetoothLoader = fs.readFileSync(
@@ -102,11 +168,12 @@ describe('package artifact honesty gate', () => {
     const winRtLoader = fs.readFileSync(path.join(root, 'native', 'electron', 'winrt', 'index.js'), 'utf8')
     const tarballVerifierSource = fs.readFileSync(tarballVerifier, 'utf8')
 
-    expect(packageJson.dependencies).toMatchObject({
-      '@expo/config-plugins': '^57.0.6',
-      'node-addon-api': '^8.9.0',
-      'node-gyp': '^12.4.0'
+    expect(packageJson.optionalDependencies).toMatchObject({
+      '@expo/config-plugins': '57.0.6',
+      'node-addon-api': '8.9.0',
+      'node-gyp': '12.4.0'
     })
+    expect(packageJson.dependencies).toBeUndefined()
     expect(packageJson.devDependencies).not.toHaveProperty('@expo/config-plugins')
     expect(packageJson.devDependencies.semver).toBe('^7.8.5')
     expect(packageJson.devDependencies).not.toHaveProperty('node-addon-api')

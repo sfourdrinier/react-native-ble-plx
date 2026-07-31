@@ -21,9 +21,7 @@ function createNativeVmJestArguments(jestCli, configPath, testPath) {
     configPath,
     '--runInBand',
     '--runTestsByPath',
-    testPath,
-    '-t',
-    'loads a ESM'
+    testPath
   ]
 }
 
@@ -227,7 +225,11 @@ describe('external backend SDK and offline CLI', () => {
       expect(() =>
         execFileSync(
           process.execPath,
-          createNativeVmJestArguments(jestCli, path.join(projectRoot, 'jest.config.js'), __filename),
+          createNativeVmJestArguments(
+            jestCli,
+            path.join(projectRoot, 'scripts/ci/jest-native-vm.config.js'),
+            __filename
+          ),
           { cwd: projectRoot, stdio: 'pipe' }
         )
       ).not.toThrow()

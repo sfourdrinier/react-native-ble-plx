@@ -2,7 +2,7 @@
 
 import type { BleCentralBackend } from '../../backend-contract/backend'
 import type { AdapterSelection, HostNeutralBackendIdentity } from '../../backend-contract/identity'
-import { opaqueId } from '../../backend-contract/primitives'
+import { opaqueId, type SerializableRecord } from '../../backend-contract/primitives'
 import { createBluezBackendProvider } from '../../backends/bluez/bluez-backend-provider'
 import type {
   BluezBusKind,
@@ -18,20 +18,38 @@ export interface BluezFirstPartyTckRegistrationOptions {
   readonly busKind: BluezBusKind
   readonly now: () => number
   readonly selectedAdapterId: string
-  createBoundary(): BluezDbusBoundary
+  createBoundary(): DeterministicBluezTckBoundary
 }
 
-const bluezProviderScenarioIds: readonly TckScenarioId[] = Object.freeze([
+/** In-memory D-Bus controls used only by runner-owned deterministic public scenarios. */
+export interface DeterministicBluezTckBoundary extends BluezDbusBoundary {
+  queueAdvertisement(): void
+  emitNotification(input: BluezNotificationInput): void
+}
+
+export interface BluezNotificationInput {
+  readonly serviceUuid: string
+  readonly characteristicUuid: string
+  readonly value: Uint8Array
+}
+
+const bluezScenarioIds: readonly TckScenarioId[] = Object.freeze([
   'identity.provider-loadability-and-adapter-availability',
   'identity.adapter-selection-and-unique-instance',
   'identity.valid-all-axis-negotiation',
   'identity.version-skew-and-malformed-offers',
-  'capability.truth-limits-evidence-and-binding'
+  'capability.truth-limits-evidence-and-binding',
+  'scenario.scan-connect-discover-read-notify-destroy'
+])
+
+const bluezControllerActions: readonly TckControllerAction[] = Object.freeze([
+  'queue-advertisement',
+  'emit-notification'
 ])
 
 /**
- * Registers BlueZ provider-contract paths that a deterministic D-Bus boundary
- * can prove without asserting deterministic peripheral or live-radio control.
+ * Registers BlueZ provider invariants and the public vertical slice exercised
+ * through deterministic D-Bus object-manager events, never as live-radio proof.
  */
 export function createBluezFirstPartyTckRegistration(
   options: BluezFirstPartyTckRegistrationOptions
@@ -54,7 +72,7 @@ export function createBluezFirstPartyTckRegistration(
       create: async _context => createBluezFixture(options, selection)
     },
     suites: Object.freeze([
-      Object.freeze({ suiteId: 'bluez-provider-contract-v1', baseScenarioIds: bluezProviderScenarioIds })
+      Object.freeze({ suiteId: 'bluez-provider-contract-v1', baseScenarioIds: bluezScenarioIds })
     ]),
     featureSuites: Object.freeze([]),
     capabilityExclusions: Object.freeze([
@@ -74,10 +92,10 @@ export function createBluezFirstPartyTckRegistration(
         reason: 'BlueZ pairing and Agent1 behavior are not implemented or proven by the first-party backend.'
       }),
       Object.freeze({
-        featureId: 'bluez:deterministic-scenario-controls',
+        featureId: 'bluez:deterministic-advanced-scenario-controls',
         state: 'unavailable',
         reason:
-          'This registration has no deterministic peripheral, callback-timing, or fault controller for scan, connection, GATT, subscription, and lifecycle scenarios.'
+          'The in-memory boundary controls advertisement and notification ingress for the public vertical slice only; it cannot script operation timing, forced disconnects, Services Changed, or ATT faults required by advanced scenarios.'
       }),
       Object.freeze({
         featureId: 'bluez:live-radio',
@@ -117,16 +135,16 @@ async function createBluezFixture(
   const backend = await provider.create(selection)
   return Object.freeze({
     backend,
-    controller: createBluezProviderController(options.now),
+    controller: createBluezProviderController(boundary, options.now),
     dispose: () => backend.destroy()
   })
 }
 
-async function validateBoundaryBusKind(
-  boundary: BluezDbusBoundary,
+async function validateBoundaryBusKind<Boundary extends BluezDbusBoundary>(
+  boundary: Boundary,
   expectedBusKind: BluezBusKind,
   boundaryName: string
-): Promise<BluezDbusBoundary> {
+): Promise<Boundary> {
   if (boundary.busKind === expectedBusKind) {
     return boundary
   }
@@ -165,14 +183,58 @@ function createSingleBoundaryFactory(
   }
 }
 
-function createBluezProviderController(now: () => number): TckScenarioController {
+function createBluezProviderController(
+  boundary: DeterministicBluezTckBoundary,
+  now: () => number
+): TckScenarioController {
   return Object.freeze({
-    availableActions: Object.freeze([]),
+    availableActions: bluezControllerActions,
     now,
     settle: <Value>(promise: Promise<Value>) => promise,
-    flush: async () => undefined,
-    perform: async (action: TckControllerAction) => {
-      throw new Error(`BlueZ provider TCK controller cannot perform ${action}`)
+    flush: flushMicrotasks,
+    perform: async (action: TckControllerAction, input: SerializableRecord) => {
+      if (action === 'queue-advertisement') {
+        requireEmptyInput(action, input)
+        boundary.queueAdvertisement()
+        return
+      }
+      if (action === 'emit-notification') {
+        boundary.emitNotification({
+          serviceUuid: stringField(action, input, 'serviceUuid'),
+          characteristicUuid: stringField(action, input, 'characteristicUuid'),
+          value: bytesField(action, input, 'value')
+        })
+        return
+      }
+      throw new Error(`BlueZ deterministic boundary cannot perform ${action}`)
     }
   })
+}
+
+async function flushMicrotasks(): Promise<void> {
+  for (let turn = 0; turn < 8; turn += 1) {
+    await Promise.resolve()
+  }
+}
+
+function requireEmptyInput(action: string, input: SerializableRecord): void {
+  if (Object.keys(input).length !== 0) {
+    throw new Error(`${action} must not receive input`)
+  }
+}
+
+function stringField(action: string, input: SerializableRecord, field: string): string {
+  const value = input[field]
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${action}.${field} must be a non-empty string`)
+  }
+  return value
+}
+
+function bytesField(action: string, input: SerializableRecord, field: string): Uint8Array {
+  const value = input[field]
+  if (!(value instanceof Uint8Array)) {
+    throw new Error(`${action}.${field} must be Uint8Array`)
+  }
+  return new Uint8Array(value)
 }

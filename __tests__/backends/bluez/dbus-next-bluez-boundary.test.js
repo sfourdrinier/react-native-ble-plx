@@ -124,15 +124,11 @@ describe('dbus-next BlueZ boundary', () => {
       body: ['org.bluez', ':1.42', '']
     })
     const busError = new Error('socket lost')
-    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     fixture.bus.emit('error', busError)
 
     expect(reset).toHaveBeenCalledTimes(1)
     expect(reset).toHaveBeenCalledWith('BlueZ D-Bus service owner disappeared')
-    expect(consoleError).toHaveBeenCalledWith(
-      '[DbusNextBluezBoundary.handleBusError] D-Bus connection failed:',
-      busError
-    )
+    expectConsoleError('[DbusNextBluezBoundary.handleBusError] D-Bus connection failed:', busError)
     fixture.bus.emit('message', {
       type: 4,
       path: '/org/freedesktop/DBus',
@@ -148,7 +144,6 @@ describe('dbus-next BlueZ boundary', () => {
       body: ['org.bluez', ':1.43', '']
     })
     expect(reset).toHaveBeenCalledTimes(2)
-    consoleError.mockRestore()
     await boundary.close()
   })
 
@@ -158,15 +153,16 @@ describe('dbus-next BlueZ boundary', () => {
     fixture.daemon.RemoveMatch.mockRejectedValueOnce(cleanupError)
     buses.push(fixture.bus)
     const boundary = await new DbusNextBluezBoundaryFactory().open('system')
-    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
     await expect(boundary.close()).rejects.toThrow('Failed to remove one or more BlueZ D-Bus match rules')
+    expectConsoleErrorMatching(
+      '[DbusNextBluezBoundary.close] Failed to remove D-Bus match rule:',
+      expect.objectContaining({ detail: expect.objectContaining({ name: 'Error', message: 'remove failed' }) })
+    )
     expect(fixture.bus.disconnect).not.toHaveBeenCalled()
     await expect(boundary.close()).resolves.toBeUndefined()
     expect(fixture.bus.disconnect).toHaveBeenCalledTimes(1)
     expect(fixture.daemon.RemoveMatch).toHaveBeenCalledTimes(4)
-    expect(consoleError).toHaveBeenCalled()
-    consoleError.mockRestore()
   })
 
   test('decodes a sorted owned snapshot and encodes discovery filter variants', async () => {

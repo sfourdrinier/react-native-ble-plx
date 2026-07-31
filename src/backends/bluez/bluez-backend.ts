@@ -40,6 +40,7 @@ export class BluezBackend implements BleCentralBackend<string, HostNeutralBacken
   readonly gatt
   private readonly backendInstanceId: BackendInstanceId<string>
   private readonly runtime: BluezBackendRuntime
+  private destroyedIdentity: HostNeutralBackendIdentity<string> | null = null
   private attached = false
 
   constructor(construction: BluezBackendConstruction) {
@@ -55,6 +56,9 @@ export class BluezBackend implements BleCentralBackend<string, HostNeutralBacken
   }
 
   get identity(): HostNeutralBackendIdentity<string> {
+    if (this.destroyedIdentity !== null) {
+      return this.destroyedIdentity
+    }
     const attachment = this.runtime.attachment()
     return Object.freeze({
       registeredBackendId: BLUEZ_BACKEND_ID,
@@ -94,6 +98,9 @@ export class BluezBackend implements BleCentralBackend<string, HostNeutralBacken
   }
 
   destroy(): Promise<CleanupRecord> {
+    if (this.destroyedIdentity === null) {
+      this.destroyedIdentity = this.identity
+    }
     return this.runtime.destroy()
   }
 }

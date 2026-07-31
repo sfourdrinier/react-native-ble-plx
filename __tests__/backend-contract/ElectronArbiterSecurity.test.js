@@ -341,7 +341,6 @@ describe('ElectronMainArbiterContext security accounting', () => {
       .mockImplementationOnce(async () => firstRelease.promise)
       .mockImplementationOnce(async () => secondRelease.promise)
       .mockResolvedValueOnce({ state: 'released', failures: [] })
-    const log = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     const arbiter = new ElectronMainArbiterContext(current.authority, {
       route: async () => ({}),
       release: releaseHandler
@@ -360,14 +359,16 @@ describe('ElectronMainArbiterContext security accounting', () => {
     const rejected = arbiter.releaseRenderer(current.senderA, current.rendererA.rendererLease)
     secondRelease.reject(new Error('release transport failed'))
     await expect(rejected).rejects.toThrow('release transport failed')
-    expect(log).toHaveBeenCalled()
+    expectConsoleErrorMatching(
+      '[ElectronMainArbiterContext.releaseRenderer] Renderer release rejected:',
+      expect.objectContaining({ message: 'release transport failed' })
+    )
     await expect(arbiter.route(current.senderA, envelope(current, current.rendererA, 3))).resolves.toEqual({})
     await expect(
       arbiter.releaseRenderer(current.senderA, current.rendererA.rendererLease)
     ).resolves.toEqual({ state: 'released', failures: [] })
     expect(releaseHandler).toHaveBeenCalledTimes(3)
 
-    log.mockRestore()
   })
 
   test('retains exactly the active 128-entry terminal replay window and evicts older settled requests', async () => {

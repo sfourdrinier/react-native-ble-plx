@@ -164,6 +164,10 @@ describe('WebBluetoothBackend availability and attachment lifecycle', () => {
     ).rejects.toMatchObject({
       normalized: { code: 'adapter.unavailable' }
     })
+    expectConsoleErrorMatching(
+      '[WebBluetoothBackend.connect] Browser connect rejected:',
+      expect.objectContaining({ normalized: expect.objectContaining({ code: 'adapter.unavailable' }) })
+    )
     expect(mock.device.gatt.connect).not.toHaveBeenCalled()
     expect(backend.attachment.adapter.state).toMatchObject({ availability: 'unavailable' })
     await backend.destroy()
@@ -230,6 +234,10 @@ describe('WebBluetoothBackend availability and attachment lifecycle', () => {
     ).rejects.toMatchObject({
       normalized: { code: 'gatt.subscribe-failed' }
     })
+    expectConsoleErrorMatching(
+      '[WebBluetoothGattRuntime.enableSubscription] Notification start rejected:',
+      expect.objectContaining({ message: 'Browser notification startup rejected' })
+    )
     expect(mock.notificationListeners.size).toBe(0)
     expect(backend.resourceCounters()).toMatchObject({ physicalCccdEnablements: 0, subscriptionConsumers: 0 })
     await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
@@ -333,6 +341,10 @@ describe('WebBluetoothBackend availability and attachment lifecycle', () => {
 
     await backend.adapter.currentState()
     await expect(inFlightRead).rejects.toMatchObject({ normalized: { code: 'operation.disconnected' } })
+    expectConsoleErrorMatching(
+      '[WebBluetoothBackend.invalidateUnavailableSession] Browser disconnect failed:',
+      expect.objectContaining({ message: 'The browser refused disconnect cleanup' })
+    )
     resolveRead(new Uint8Array([0, 72]))
     await Promise.resolve()
     expect(backend.resourceCounters()).toMatchObject({ connectionLeases: 0, physicalLinks: 1, databaseSnapshots: 0 })
@@ -341,6 +353,10 @@ describe('WebBluetoothBackend availability and attachment lifecycle', () => {
     await expect(backend.attach({ coreCompatibility: provider.descriptor.compatibility })).rejects.toMatchObject({
       normalized: { code: 'lifecycle.invalid-state' }
     })
+    expectConsoleErrorMatching(
+      '[WebBluetoothBackend.releaseRetainedConnection] Browser disconnect retry failed:',
+      expect.objectContaining({ message: 'The browser refused disconnect cleanup' })
+    )
     expect(backend.resourceCounters()).toMatchObject({ connectionLeases: 0, physicalLinks: 1, databaseSnapshots: 0 })
     await expect(backend.choose(chooserRequest(), noDeadline())).rejects.toMatchObject({
       normalized: { code: 'lifecycle.invalid-state' }

@@ -501,12 +501,25 @@ describe('React Native Android canonical protocol vertical slice', () => {
     expect(runtime.retainedPayloadCount()).toBe(0)
     runtime.emitAdvertisement(new Uint8Array(524289))
     expect(runtime.retainedPayloadCount()).toBe(0)
+    expectConsoleErrorMatching(
+      '[ReactNativeAndroidProtocolBoundary.takeOutputBytes] Native output copy failed:',
+      expect.objectContaining({ operation: 'advertisement', error: expect.any(Error) })
+    )
+    expectConsoleErrorMatching(
+      '[ReactNativeAndroidProtocolBoundary.takeAdvertisementBytes] Native advertisement output copy failed:',
+      expect.objectContaining({ operationCorrelation: 'advertisement-output', error: expect.any(Error) })
+    )
+    expectConsoleErrorMatching(
+      '[ReactNativeAndroidProtocolBoundary.receiveRecord] Native record was rejected:',
+      expect.objectContaining({ normalized: expect.objectContaining({ operation: 'rn-android-boundary.advertisement' }) })
+    )
 
     runtime.emitDiagnostic('scanFailed', 'Android scanner rejected its active scan')
     await expect(scanIterator.next()).resolves.toMatchObject({
       done: false,
       value: { kind: 'terminal', reason: 'source-failed' }
     })
+    expectConsoleError('[CoreBluetoothBackend.handleScanFailure] Native scan failed:', 'Android scanner rejected its active scan')
     await scan.stop()
 
     const restartedScan = await manager.scan(scanOptions())
@@ -536,6 +549,7 @@ describe('React Native Android canonical protocol vertical slice', () => {
       done: false,
       value: { kind: 'terminal', reason: 'connection-lost' }
     })
+    expectConsoleError('[CoreBluetoothBackend.handleDisconnect] Native link loss:', 'Android GATT connection lost with status 133')
     await connection.release()
 
     const reconnected = await manager.connect(restartedObservation.value.value.device.id, operation())
@@ -585,6 +599,14 @@ describe('React Native Android canonical protocol vertical slice', () => {
     const provider = createProvider({ control, now: () => 20, createOwnerId: () => ownerId })
 
     const failure = await rejectedError(() => provider.listAdapters())
+    expectConsoleErrorMatching(
+      '[ReactNativeAndroidProtocolBoundary.destroy] Native protocol destroy failed:',
+      expect.objectContaining({ normalized: expect.objectContaining({ operation: 'rn-android-boundary.destroy' }) })
+    )
+    expectConsoleErrorMatching(
+      '[releaseReactNativeProviderResource] Provider cleanup did not complete:',
+      expect.objectContaining({ platform: _name.toLowerCase(), cleanup: expect.objectContaining({ state: 'release-failed' }) })
+    )
 
     expectCleanupRetryFailure(failure, 'release-failed')
     expect(runtime.commandKinds.filter(kind => kind === 'destroy')).toHaveLength(1)
@@ -620,6 +642,10 @@ describe('React Native Android canonical protocol vertical slice', () => {
     } finally {
       destroySpy.mockRestore()
     }
+    expectConsoleErrorMatching(
+      '[releaseReactNativeProviderResource] Provider cleanup did not complete:',
+      expect.objectContaining({ platform: _name.toLowerCase(), cleanup: expect.objectContaining({ state: 'released' }) })
+    )
 
     expectCleanupRetryFailure(failure, 'released-with-failures')
     expect(runtime.commandKinds.filter(kind => kind === 'destroy')).toHaveLength(0)
@@ -653,6 +679,10 @@ describe('React Native Android canonical protocol vertical slice', () => {
     } finally {
       destroySpy.mockRestore()
     }
+    expectConsoleErrorMatching(
+      '[releaseReactNativeProviderResource] Provider cleanup rejected:',
+      expect.objectContaining({ platform: _name.toLowerCase(), error: cleanupRejection })
+    )
 
     expectCleanupRetryFailure(failure, 'rejected')
     expect(failure.cleanup).toBe(cleanupRejection)
@@ -677,6 +707,18 @@ describe('React Native Android canonical protocol vertical slice', () => {
     const provider = createProvider({ control, now: () => 20, createOwnerId: () => ownerId })
 
     const failure = await rejectedError(() => provider.listAdapters())
+    expectConsoleErrorMatching(
+      '[ReactNativeAndroidProtocolBoundary.open] Handshake-open cleanup failed:',
+      expect.objectContaining({ message: 'Native attachment close failed' })
+    )
+    expectConsoleErrorMatching(
+      '[ReactNativeAndroidProtocolBoundary.destroy] Native attachment close failed:',
+      expect.objectContaining({ message: 'Native attachment close failed' })
+    )
+    expectConsoleErrorMatching(
+      '[releaseReactNativeProviderResource] Provider cleanup did not complete:',
+      expect.objectContaining({ platform: _name.toLowerCase(), cleanup: expect.objectContaining({ state: 'release-failed' }) })
+    )
 
     expect(failure).toBeInstanceOf(AggregateError)
     expect(failure.errors).toHaveLength(2)
@@ -715,6 +757,10 @@ describe('React Native Android canonical protocol vertical slice', () => {
       destroySpy.mockRestore()
       refreshSpy.mockRestore()
     }
+    expectConsoleErrorMatching(
+      '[releaseReactNativeProviderResource] Provider cleanup rejected:',
+      expect.objectContaining({ platform: _name.toLowerCase(), error: cleanupRejection })
+    )
 
     expect(failure).toBeInstanceOf(AggregateError)
     expect(failure.errors).toEqual([initializationFailure, expect.any(Error)])
@@ -740,10 +786,18 @@ describe('React Native Android canonical protocol vertical slice', () => {
     await boundary.open()
 
     await expect(boundary.destroy()).rejects.toMatchObject({ normalized: { code: 'platform.failure' } })
+    expectConsoleErrorMatching(
+      '[ReactNativeAndroidProtocolBoundary.destroy] Native protocol destroy failed:',
+      expect.objectContaining({ normalized: expect.objectContaining({ operation: 'rn-android-boundary.destroy' }) })
+    )
     expect(runtime.commandKinds.filter(kind => kind === 'destroy')).toHaveLength(1)
     expect(control.closeAttachmentAttempts).toHaveLength(0)
 
     await expect(boundary.destroy()).rejects.toThrow('Native attachment close failed')
+    expectConsoleErrorMatching(
+      '[ReactNativeAndroidProtocolBoundary.destroy] Native attachment close failed:',
+      expect.objectContaining({ message: 'Native attachment close failed' })
+    )
     expect(runtime.commandKinds.filter(kind => kind === 'destroy')).toHaveLength(2)
     expect(control.closeAttachmentAttempts).toHaveLength(1)
     expect(control.closedAttachments).toHaveLength(0)
@@ -765,6 +819,10 @@ describe('React Native Android canonical protocol vertical slice', () => {
     boundary.bindAttachment(deterministicAttachment())
 
     await expect(boundary.open()).rejects.toThrow('runtime installation failed')
+    expectConsoleErrorMatching(
+      '[ReactNativeAndroidProtocolBoundary.open] Handshake-open cleanup failed:',
+      expect.objectContaining({ message: 'Native attachment close failed' })
+    )
     expect(control.closeAttachmentAttempts).toHaveLength(1)
     expect(control.closedAttachments).toHaveLength(0)
 

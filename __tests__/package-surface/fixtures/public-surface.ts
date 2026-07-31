@@ -1,7 +1,5 @@
 // __tests__/package-surface/fixtures/public-surface.ts
 
-// __tests__/package-surface/fixtures/public-surface.ts
-
 import {
   BleManager,
   capacity,
@@ -61,7 +59,9 @@ import {
 } from 'unified-ble-manager/testing'
 import type {
   BluezFirstPartyTckRegistrationOptions,
+  BluezNotificationInput,
   CoreBluetoothFirstPartyTckRegistrationOptions,
+  DeterministicBluezTckBoundary,
   DeterministicBackendFixture,
   FirstPartyBackendTckRegistry,
   ReactNativeAndroidFirstPartyTckRegistrationOptions,
@@ -117,6 +117,8 @@ declare const backendAuthor: BackendAuthorDefinition<string, never>
 declare const deterministicFixture: DeterministicBackendFixture
 declare const firstPartyRegistry: FirstPartyBackendTckRegistry
 declare const bluezFirstPartyTckOptions: BluezFirstPartyTckRegistrationOptions
+declare const deterministicBluezTckBoundary: DeterministicBluezTckBoundary
+declare const bluezNotificationInput: BluezNotificationInput
 declare const coreBluetoothFirstPartyTckOptions: CoreBluetoothFirstPartyTckRegistrationOptions
 declare const reactNativeAndroidFirstPartyTckOptions: ReactNativeAndroidFirstPartyTckRegistrationOptions
 declare const reactNativeAppleFirstPartyTckOptions: ReactNativeAppleFirstPartyTckRegistrationOptions
@@ -257,6 +259,8 @@ observe(normalizedError)
 observe(backendAuthor)
 observe(deterministicFixture)
 observe(firstPartyRegistry)
+observe(deterministicBluezTckBoundary)
+observe(bluezNotificationInput)
 observe(createDbusNextBluezBackendProvider({ busKind: bluezBusKind, now: () => 0 }))
 observe(createNativeWinRtBackendProvider)
 observe(createElectronMainWinRtBackendProvider)

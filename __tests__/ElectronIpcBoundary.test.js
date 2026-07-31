@@ -410,7 +410,6 @@ describe('Electron v4 IPC boundary', () => {
     })
     const sender = createSender('client-terminal-quota', 'window-terminal-quota', 'session-terminal-quota')
     const renderer = await bootstrap(current, sender)
-    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
     for (let index = 0; index < streams.length; index += 1) {
       await current.port.handler(
@@ -440,13 +439,17 @@ describe('Electron v4 IPC boundary', () => {
     }
     expect(current.router.resources).toHaveProperty('size', 0)
     expect(current.binding.renderers).toHaveProperty('size', 0)
+    expectConsoleError('[ElectronMainBleBinding] Renderer event budget exhausted:', {
+      rendererLeaseId: 'renderer-lease-1',
+      streamId: 'scan-9',
+      terminal: true
+    })
     await expect(
       current.port.handler({ sender }, routeRequest(current, renderer, 20))
     ).rejects.toMatchObject({
       normalized: { code: 'ownership.denied', operation: 'electron-main-arbiter.renderer-registration' }
     })
 
-    errorLog.mockRestore()
     await current.binding.destroy()
   })
 
@@ -550,7 +553,6 @@ describe('Electron v4 IPC boundary', () => {
       }
     })
     await flushAsyncWork()
-
     const event = sender.sent.find(({ event: candidate }) => candidate.streamId === scan.payload.handle)
     expect(event.event.item).toMatchObject({ kind: 'value' })
     expect(event.event.item.value).toMatchObject({
@@ -725,8 +727,13 @@ describe('Electron v4 IPC boundary', () => {
       { sender },
       commandRequest(current, renderer, 1, 'scan.start', { serviceUuids: [], manufacturerData: [], localNamePrefix: null, deadline: null })
     )
-    scanStream.fail(new Error('native scan source failed'))
+    const nativeScanFailure = new Error('native scan source failed')
+    scanStream.fail(nativeScanFailure)
     await flushAsyncWork()
+    expectConsoleError('[ElectronRendererStreamRegistry] Stream forwarding failed:', {
+      streamId: 'scan-1',
+      error: nativeScanFailure
+    })
     expect(scanStop).toHaveBeenCalledTimes(1)
     expect(
       current.router.resources.get(String(renderer.rendererLease.leaseId)).scans.has(scanResponse.payload.handle)
@@ -749,6 +756,9 @@ describe('Electron v4 IPC boundary', () => {
     )
     subscriptionStream.push({ kind: 'value', value: { value: new Uint8Array(5000), indication: false } })
     await flushAsyncWork()
+    expectConsoleError('[ElectronRendererStreamRegistry] Stream item exceeded the configured IPC message limit:', {
+      streamId: 'subscription-5'
+    })
     expect(subscriptionRemove).toHaveBeenCalledTimes(1)
     expect(
       current.router.resources
@@ -798,6 +808,11 @@ describe('Electron v4 IPC boundary', () => {
     }
     await removed.promise
     await flushAsyncWork()
+    expectConsoleError('[ElectronMainBleBinding] Renderer event budget exhausted:', {
+      rendererLeaseId: 'renderer-lease-1',
+      streamId: 'subscription-4',
+      terminal: false
+    })
     const events = sender.sent.map(({ event }) => event)
     expect(events.filter(event => event.item.kind === 'value')).toHaveLength(128)
     expect(events.filter(event => event.item.kind === 'terminal')).toHaveLength(1)
@@ -823,8 +838,9 @@ describe('Electron v4 IPC boundary', () => {
     const connection = createConnection('peer-delivery-failure', createDatabase(subscription), disconnect)
     const current = createMainFixture({ connect: jest.fn(async () => connection) })
     const sender = createSender('client-delivery-failure', 'window-delivery-failure', 'session-delivery-failure')
+    const deliveryFailure = new Error('WebContents has stopped accepting events')
     sender.send = jest.fn(() => {
-      throw new Error('WebContents has stopped accepting events')
+      throw deliveryFailure
     })
     const renderer = await bootstrap(current, sender)
     const connectionResponse = await current.port.handler(
@@ -842,14 +858,16 @@ describe('Electron v4 IPC boundary', () => {
         characteristicHandle: databaseResponse.payload.characteristics[0].handle
       })
     )
-    const log = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     stream.push({ kind: 'value', value: { value: new Uint8Array([1]), indication: false } })
     await flushAsyncWork()
+    expectConsoleError('[ElectronMainBleBinding] Event delivery failed; releasing renderer resources:', {
+      rendererLeaseId: 'renderer-lease-1',
+      error: deliveryFailure
+    })
     expect(subscription.remove).toHaveBeenCalledTimes(1)
     expect(disconnect).toHaveBeenCalledTimes(1)
     await expect(current.binding.destroy()).resolves.toEqual(released())
     expect(current.router.resources.has(String(renderer.rendererLease.leaseId))).toBe(false)
-    log.mockRestore()
   })
 
   test('retains failed stop and unsubscribe resources for explicit retry ownership', async () => {
@@ -953,11 +971,12 @@ describe('Electron v4 IPC boundary', () => {
       },
       rendererLease: rendererLease('racing-client')
     }
+    const releaseTransportFailure = new Error('preload transport unavailable')
     const transport = {
       invoke: jest
         .fn()
         .mockResolvedValueOnce({ kind: 'bootstrap', bootstrap: bootstrapValue })
-        .mockRejectedValueOnce(new Error('preload transport unavailable'))
+        .mockRejectedValueOnce(releaseTransportFailure)
         .mockResolvedValueOnce({ kind: 'release', cleanup: released() }),
       async acknowledge() {},
       subscribe(listener) {
@@ -965,14 +984,13 @@ describe('Electron v4 IPC boundary', () => {
         return () => listeners.splice(listeners.indexOf(listener), 1)
       }
     }
-    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     const client = new ElectronRendererBleClient(transport)
     await client.initialize()
     await expect(client.destroy()).rejects.toThrow('preload transport unavailable')
+    expectConsoleError('[ElectronRendererBleClient] Release failed; client remains retryable:', releaseTransportFailure)
     expect(listeners).toHaveLength(1)
     await expect(client.destroy()).resolves.toEqual(released())
     expect(listeners).toEqual([])
-    errorLog.mockRestore()
   })
 
   test('coalesces concurrent bootstrap and releases main ownership when destroy races initialization', async () => {

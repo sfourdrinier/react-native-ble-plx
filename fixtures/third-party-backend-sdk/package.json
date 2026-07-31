@@ -1,0 +1,16 @@
+{
+  "name": "@example/packed-third-party-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./dist/packed-third-party-backend.js",
+  "files": [
+    "dist"
+  ],
+  "peerDependencies": {
+    "unified-ble-manager": ">=4.0.0-alpha.0 <5.0.0"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3"
+  }
+}

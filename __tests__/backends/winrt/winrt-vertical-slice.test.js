@@ -512,6 +512,8 @@ describe('WinRT contract-v1 deterministic native-boundary vertical slice', () =>
     await expect(dispatch.requestCancellation()).resolves.toMatchObject({ state: 'not-cancellable' })
     resolveRead(new Uint8Array([7, 7]))
     await aborted
+    await flushMicrotasks()
+    expectConsoleInfo('[WinRtBackend] Late WinRT completion quarantined: winrt.gatt.read')
     boundary.readGate = null
     const next = backend.gatt.read(characteristic, {
       operation: { ...operation(), correlation: opaqueId('next-read', 'core-operation', 'winrt:cancel') }
@@ -551,6 +553,10 @@ describe('WinRT contract-v1 deterministic native-boundary vertical slice', () =>
       ).rejects.toMatchObject({ normalized: { code: 'connection.already-owned' } })
       gate.reject(new Error(`late native ${_name} rejection`))
       await flushMicrotasks()
+      expectConsoleErrorMatching(
+        '[WinRtBackend] Late WinRT completion failed: winrt.connect',
+        expect.objectContaining({ message: `late native ${_name} rejection` })
+      )
       boundary.setConnectGate(null)
 
       const retry = await backend.connections.connect(
@@ -592,6 +598,14 @@ describe('WinRT contract-v1 deterministic native-boundary vertical slice', () =>
         })
         gate.resolve()
         await flushMicrotasks()
+        expectConsoleErrorMatching(
+          '[WinRtBackend.connect] Late native connect cleanup requires retry:',
+          expect.arrayContaining([expect.objectContaining({ resourceKind: 'connection' })])
+        )
+        expectConsoleErrorMatching(
+          '[WinRtBackend] Late WinRT completion failed: winrt.connect',
+          expect.objectContaining({ normalized: expect.objectContaining({ operation: 'winrt.connect.late-success-cleanup' }) })
+        )
         boundary.setConnectGate(null)
 
         const retry = await backend.connections.connect(
@@ -629,6 +643,13 @@ describe('WinRT contract-v1 deterministic native-boundary vertical slice', () =>
 
     boundary.emitAdapterLoss()
     await flushMicrotasks()
+    expectConsoleErrorMatching(
+      '[WinRtBackend.adapter-state] Adapter loss cleanup requires retry:',
+      expect.arrayContaining([
+        expect.objectContaining({ resourceKind: 'scan' }),
+        expect.objectContaining({ resourceKind: 'subscription' })
+      ])
+    )
     expect(backend.resourceCounters()).toMatchObject({ activeScanControllers: 1, physicalCccdEnablements: 1 })
 
     boundary.emitAdapterReady()

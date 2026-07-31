@@ -193,6 +193,10 @@ describe('CoreBluetooth late-operation quarantine', () => {
 
     connectGate.resolve()
     await flushMicrotasks()
+    expectConsoleErrorMatching(
+      '[CoreBluetoothOperationLifecycle] Late completion cleanup failed:',
+      expect.objectContaining({ message: 'The deterministic late disconnect cleanup failed' })
+    )
     expect(boundary.connected).toBe(true)
     expect(backend.resourceCounters()).toMatchObject({ physicalLinks: 1, connectionLeases: 0 })
 

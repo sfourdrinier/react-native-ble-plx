@@ -2,7 +2,6 @@
 
 const childProcess = require('child_process')
 const fs = require('fs')
-const os = require('os')
 const path = require('path')
 
 const root = path.resolve(__dirname, '../..')
@@ -10,8 +9,6 @@ const root = path.resolve(__dirname, '../..')
 function read(relativePath) {
   return fs.readFileSync(path.join(root, relativePath), 'utf8')
 }
-
-const executesOnAppleHost = process.platform === 'darwin' ? test : test.skip
 
 describe('Apple Native Protocol v1 radio boundary', () => {
   test('owns direct CoreBluetooth bytes, duplicate-aware paths, and direct restoration', () => {
@@ -220,34 +217,32 @@ describe('Apple Native Protocol v1 radio boundary', () => {
     expect(provider).not.toContain('Descriptor operations are unavailable')
   })
 
-  executesOnAppleHost('executes canonical 128-bit UUID parsing through the native startScan path', () => {
-    const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'ble-plx-apple-scan-parser-'))
-    const executable = path.join(temporaryDirectory, 'AppleCoreBluetoothScanParserHarness')
-    try {
-      const compilation = childProcess.spawnSync(
-        'xcrun',
-        [
-          'swiftc',
-          path.join(root, 'ios/Owned/OwnedCoreBluetoothProtocolRadioSupport.swift'),
-          path.join(root, 'ios/Owned/OwnedCoreBluetoothProtocolRadio.swift'),
-          path.join(root, 'ios/Owned/OwnedCoreBluetoothProtocolRadioDescriptors.swift'),
-          path.join(root, 'native/protocol/tests/AppleCoreBluetoothScanParserHarness.swift'),
-          '-o',
-          executable
-        ],
-        { encoding: 'utf8', timeout: 30_000 }
-      )
-      expect(compilation.error).toBeUndefined()
-      if (compilation.status !== 0) {
-        throw new Error(`Apple CoreBluetooth parser harness compilation failed:\n${compilation.stderr}`)
-      }
-      const execution = childProcess.spawnSync(executable, [], { encoding: 'utf8', timeout: 15_000 })
+  test('executes the Apple harness on macOS or verifies its required macOS CI route elsewhere', () => {
+    if (process.platform === 'darwin') {
+      const execution = childProcess.spawnSync('pnpm', ['test:native-protocol:apple'], {
+        cwd: root,
+        encoding: 'utf8',
+        timeout: 90_000
+      })
+
       expect(execution.error).toBeUndefined()
       if (execution.status !== 0) {
-        throw new Error(`Apple CoreBluetooth parser harness failed:\n${execution.stderr}`)
+        throw new Error(`Apple Native Protocol executable harness failed on macOS:\n${execution.stderr}`)
       }
-    } finally {
-      fs.rmSync(temporaryDirectory, { recursive: true, force: true })
+      return
+    }
+
+    const ciWorkflow = read('.github/workflows/ci.yml')
+    const appleWorkflow = read('.github/workflows/apple-ci.yml')
+
+    if (!ciWorkflow.includes('uses: ./.github/workflows/apple-ci.yml')) {
+      throw new Error('Non-macOS routing check failed: ci.yml does not invoke the reusable Apple CI workflow.')
+    }
+    if (!appleWorkflow.includes('runs-on: macos-26')) {
+      throw new Error('Non-macOS routing check failed: the Apple native protocol job is not pinned to a macOS runner.')
+    }
+    if (!appleWorkflow.includes('run: pnpm test:native-protocol:apple')) {
+      throw new Error('Non-macOS routing check failed: the macOS Apple CI workflow does not require pnpm test:native-protocol:apple.')
     }
   })
 })

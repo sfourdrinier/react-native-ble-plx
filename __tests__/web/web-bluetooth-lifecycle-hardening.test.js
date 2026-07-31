@@ -246,6 +246,10 @@ describe('Web Bluetooth lifecycle hardening', () => {
     const first = backend.connections.connect(selected.peerId, 'first', noDeadline())
     testFixture.connectDeferred.reject(new Error('connect failed'))
     await expect(first).rejects.toMatchObject({ normalized: { code: 'connection.failed' } })
+    expectConsoleErrorMatching(
+      '[WebBluetoothBackend.connect] Browser connect rejected:',
+      expect.objectContaining({ message: 'connect failed' })
+    )
     testFixture.setConnectMode('immediate')
 
     const retry = await backend.connections.connect(selected.peerId, 'retry', noDeadline())
@@ -266,6 +270,10 @@ describe('Web Bluetooth lifecycle hardening', () => {
     await expect(first).rejects.toMatchObject({ normalized: { code: 'operation.aborted' } })
     testFixture.connectDeferred.reject(new Error('late connect rejection'))
     await flushMicrotasks()
+    expectConsoleErrorMatching(
+      '[WebBluetoothBackend.connect] Browser connect rejected:',
+      expect.objectContaining({ message: 'late connect rejection' })
+    )
     testFixture.setConnectMode('immediate')
 
     const retry = await backend.connections.connect(selected.peerId, 'retry', noDeadline())
@@ -322,6 +330,10 @@ describe('Web Bluetooth lifecycle hardening', () => {
     await expect(connect).rejects.toMatchObject({ normalized: { code: 'operation.aborted' } })
     testFixture.connectDeferred.resolve()
     await flushMicrotasks()
+    expectConsoleErrorMatching(
+      '[WebBluetoothBackend.compensatePendingConnection] Browser disconnect failed:',
+      expect.objectContaining({ message: 'disconnect failed' })
+    )
 
     await expect(backend.destroy()).resolves.toMatchObject({ state: 'release-failed' })
     await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
@@ -359,6 +371,10 @@ describe('Web Bluetooth lifecycle hardening', () => {
     expect(backend.resourceCounters().subscriptionConsumers).toBe(1)
     testFixture.startDeferred.resolve()
     await flushMicrotasks()
+    expectConsoleErrorMatching(
+      '[WebBluetoothGattRuntime.stopManagedSubscription] Notification stop rejected:',
+      expect.objectContaining({ message: 'stop failed' })
+    )
 
     await expect(backend.destroy()).resolves.toMatchObject({ state: 'release-failed' })
     await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
@@ -406,9 +422,17 @@ describe('Web Bluetooth lifecycle hardening', () => {
     const subscription = await database.subscribe(snapshot.characteristics[0].path, subscriptionOptions())
     testFixture.setStopFailures(1)
     await expect(subscription.remove()).resolves.toMatchObject({ state: 'release-failed' })
+    expectConsoleErrorMatching(
+      '[WebBluetoothGattRuntime.stopManagedSubscription] Notification stop rejected:',
+      expect.objectContaining({ message: 'stop failed' })
+    )
     await expect(subscription.remove()).resolves.toEqual({ state: 'released', failures: [] })
     testFixture.setDisconnectFailures(1)
     await expect(lease.release()).resolves.toMatchObject({ state: 'release-failed' })
+    expectConsoleErrorMatching(
+      '[WebBluetoothBackend.disconnectRecord] Browser disconnect failed:',
+      expect.objectContaining({ message: 'disconnect failed' })
+    )
     await expect(lease.release()).resolves.toEqual({ state: 'released', failures: [] })
   })
 
@@ -422,6 +446,10 @@ describe('Web Bluetooth lifecycle hardening', () => {
     await expect(backend.gatt.discover(lease.connection, noDeadline())).rejects.toMatchObject({
       normalized: { code: 'gatt.subscribe-failed' }
     })
+    expectConsoleErrorMatching(
+      '[WebBluetoothGattRuntime.stopManagedSubscription] Notification stop rejected:',
+      expect.objectContaining({ message: 'stop failed' })
+    )
     await expect(database.snapshot()).resolves.toBeDefined()
     await subscription.remove()
     const replacement = await backend.gatt.discover(lease.connection, noDeadline())

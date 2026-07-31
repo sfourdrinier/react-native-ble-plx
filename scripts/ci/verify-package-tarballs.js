@@ -56,14 +56,11 @@ const requiredElectronNativeSourceEntries = Object.freeze([
   'package/native/electron/winrt/src/winrt-boundary.inc'
 ])
 
-const electronNativeLoaderDependencies = Object.freeze({
-  'node-addon-api': '^8.9.0',
-  'node-gyp': '^12.4.0'
-})
-
-const publishedRuntimeDependencies = Object.freeze({
-  '@expo/config-plugins': '^57.0.6',
-  ...electronNativeLoaderDependencies
+const publishedOptionalHostDependencies = Object.freeze({
+  '@expo/config-plugins': '57.0.6',
+  'dbus-next': '^0.10.2',
+  'node-addon-api': '8.9.0',
+  'node-gyp': '12.4.0'
 })
 
 const excludedHistoricalDocumentationEntries = Object.freeze([
@@ -353,23 +350,22 @@ function verifyRootTarball(tarballPath) {
   if (!files.has('package/bin/ubm.js')) {
     throw new Error('Packed canonical package is missing CLI entrypoint bin/ubm.js')
   }
-  assertExactObjectKeys(packageJson.optionalDependencies, ['dbus-next'], 'Packed canonical optionalDependencies')
-  if (packageJson.optionalDependencies['dbus-next'] !== '^0.10.2') {
-    throw new Error(
-      `Packed canonical dbus-next optional dependency must equal ^0.10.2, received ${String(packageJson.optionalDependencies['dbus-next'])}`
-    )
-  }
-  if (packageJson.dependencies?.['dbus-next'] !== undefined) {
-    throw new Error('Packed canonical dbus-next must remain an optional host dependency')
-  }
-  for (const [dependency, requiredVersion] of Object.entries(publishedRuntimeDependencies)) {
-    if (packageJson.dependencies?.[dependency] !== requiredVersion) {
+  assertExactObjectKeys(
+    packageJson.optionalDependencies,
+    Object.keys(publishedOptionalHostDependencies),
+    'Packed canonical optionalDependencies'
+  )
+  for (const [dependency, requiredVersion] of Object.entries(publishedOptionalHostDependencies)) {
+    if (packageJson.optionalDependencies?.[dependency] !== requiredVersion) {
       throw new Error(
-        `Packed canonical runtime dependency ${dependency} must equal ${requiredVersion}, received ${String(packageJson.dependencies?.[dependency])}`
+        `Packed canonical optional host dependency ${dependency} must equal ${requiredVersion}, received ${String(packageJson.optionalDependencies?.[dependency])}`
       )
     }
+    if (packageJson.dependencies?.[dependency] !== undefined) {
+      throw new Error(`Packed canonical optional host dependency ${dependency} must not be required at the root`)
+    }
     if (packageJson.devDependencies?.[dependency] !== undefined) {
-      throw new Error(`Packed canonical runtime dependency ${dependency} must not remain development-only`)
+      throw new Error(`Packed canonical optional host dependency ${dependency} must not remain development-only`)
     }
   }
   if (packageJson.codegenConfig?.jsSrcsDir !== 'src') {

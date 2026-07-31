@@ -535,7 +535,6 @@ describe('BleManager production core slice', () => {
   test('destroys a freshly provided backend when attachment negotiation fails', async () => {
     const fixture = createDeterministicTestBackend()
     const destroy = jest.spyOn(fixture.backend, 'destroy')
-    const log = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     const attachedIdentity = fixture.backend.identity
     const incompatible = {
       ...compatibility(),
@@ -543,24 +542,30 @@ describe('BleManager production core slice', () => {
     }
     const provider = { create: async () => fixture.backend }
     try {
-      await expect(
-        createBleManagerFromProvider(
-          owningProviderManagerConstruction(
-            provider,
-            { selectedAdapterId: attachedIdentity.attachment.adapter.adapterId },
-            incompatible,
-            1
-          ),
-          DEFAULT_BLE_MANAGER_OPTIONS
-        )
-      ).rejects.toMatchObject({
+      const rejection = await createBleManagerFromProvider(
+        owningProviderManagerConstruction(
+          provider,
+          { selectedAdapterId: attachedIdentity.attachment.adapter.adapterId },
+          incompatible,
+          1
+        ),
+        DEFAULT_BLE_MANAGER_OPTIONS
+      ).then(
+        () => {
+          throw new Error('expected incompatible provider attachment to reject')
+        },
+        error => error
+      )
+      expect(rejection).toMatchObject({
         normalized: { code: 'protocol.incompatible', domain: 'core', operation: 'version-negotiate.backend-contract' }
       })
+      expectConsoleError('[createBleManagerFromProvider] Backend attachment or manager admission failed:', {
+        error: rejection,
+        cleanup: { state: 'released', failures: [] }
+      })
       expect(destroy).toHaveBeenCalledTimes(1)
-      expect(log).toHaveBeenCalled()
       expectZeroCounters(fixture.backend.resourceCounters())
     } finally {
-      log.mockRestore()
       destroy.mockRestore()
     }
   })
@@ -606,29 +611,32 @@ describe('BleManager production core slice', () => {
       }
     }
     const provider = { create: async () => backend }
-    const log = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    try {
-      await expect(
-        createBleManagerFromProvider(
-          owningProviderManagerConstruction(
-            provider,
-            { selectedAdapterId: currentIdentity.attachment.adapter.adapterId },
-            compatibility(),
-            2
-          ),
-          DEFAULT_BLE_MANAGER_OPTIONS
-        )
-      ).rejects.toMatchObject({
+    const rejection = await createBleManagerFromProvider(
+      owningProviderManagerConstruction(
+        provider,
+        { selectedAdapterId: currentIdentity.attachment.adapter.adapterId },
+        compatibility(),
+        2
+      ),
+      DEFAULT_BLE_MANAGER_OPTIONS
+    ).then(
+      () => {
+        throw new Error('expected failed cleanup to reject provider admission')
+      },
+      error => error
+    )
+    expect(rejection).toMatchObject({
         normalized: {
           code: 'platform.failure',
           domain: 'cleanup',
           operation: 'ble-manager.create-from-provider.cleanup'
         }
-      })
-      expect(destroyCalls).toBe(1)
-      expect(log).toHaveBeenCalled()
-    } finally {
-      log.mockRestore()
-    }
+    })
+    expectConsoleError('[createBleManagerFromProvider] Unadmitted backend cleanup reported failures:', cleanupFailure.failures)
+    expectConsoleError('[createBleManagerFromProvider] Backend attachment or manager admission failed:', {
+      error: new TypeError("Cannot read properties of undefined (reading 'attachment')"),
+      cleanup: cleanupFailure
+    })
+    expect(destroyCalls).toBe(1)
   })
 })

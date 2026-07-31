@@ -1,9 +1,10 @@
 // jest.config.js
 
-// jest.config.js
-
 module.exports = {
   roots: ['<rootDir>/__tests__'],
+  globalSetup: '<rootDir>/scripts/ci/jest-zero-diagnostic-global-setup.js',
+  setupFilesAfterEnv: ['<rootDir>/__tests__/helpers/zero-diagnostic-guard.js'],
+  testResultsProcessor: '<rootDir>/scripts/ci/jest-zero-diagnostic-results.js',
   // Shared fixtures under helpers/ export modules only — not test suites (F086/F087).
   testPathIgnorePatterns: [
     '/node_modules/',

@@ -87,6 +87,7 @@ describe('BluezBackendProvider', () => {
     expect(String(attached.attachment.identity.attachment.adapter.adapterId)).toBe('/org/bluez/hci0')
     expect(attached.attachment.identity.versions.backendContract.selected.value).toBe(1)
     await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+    expect(backend.identity).toEqual(attached.attachment.identity)
     expect(boundary.closed).toBe(true)
   })
 })

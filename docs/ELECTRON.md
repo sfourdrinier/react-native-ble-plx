@@ -22,7 +22,7 @@ entrypoints.
 The published `4.0.0-alpha.17` Electron surface is Experimental. The release
 workflow's packed Electron smoke is deterministic L1 package/IPC proof, not an
 Electron host, adapter, or peripheral support claim. No current evidence record
-binds alpha.15 to a physical Electron radio journey.
+binds alpha.17 to a physical Electron radio journey.
 
 ## Main-process backend selection
 
@@ -64,7 +64,19 @@ must not duplicate those policies.
 
 The packed-artifact L1 smoke proves the installed public Electron main/router,
 authenticated IPC binding, and renderer client across the deterministic scan →
-connect → discover → read → notify → destroy journey:
+connect → discover → read → notify → destroy journey. It also runs a clean
+consumer package-boundary fixture: it loads only the documented main and
+renderer entrypoints from the installed tarball, rejects private export paths,
+and checks a data-only Node VM preload-surface membrane. That membrane uses
+only serialized bootstrap/release data and context-realm code with string and
+WebAssembly code generation disabled; it asserts that common constructor
+escapes cannot obtain `process` or `require`.
+
+This is deliberately narrower than Electron runtime security proof. It does
+not execute Electron and does not establish `contextIsolation`, preload
+configuration, Electron IPC permissions, an Electron ABI, or live-radio
+behavior. Applications must enable and verify their actual Electron security
+settings in an Electron runtime.
 
 ```sh
 pnpm prepack
@@ -73,7 +85,8 @@ node scripts/ci/pack-install-smoke.js
 
 `node example-electron/smoke.js` is a local published-entrypoint
 public-manager scenario only. It is useful as a fast deterministic check, but
-it does not substitute for the packed router/client boundary smoke.
+it does not substitute for the packed router/client boundary smoke or an
+Electron-runtime security test.
 
 The package publishes CoreBluetooth source plus `node-gyp`, not a prebuilt
 addon. Build from the installed package source. On macOS, a host-Node build

@@ -638,6 +638,10 @@ async function executeWebTckScenario(definition, backend, provider, adapter, moc
     await Promise.resolve()
     mock.triggerPageLifecycle('page-hidden')
     await expect(backend.destroy()).resolves.toMatchObject({ state: 'release-failed' })
+    expectConsoleErrorMatching(
+      '[WebBluetoothBackend.pageLifecycle] page-hidden cleanup failed:',
+      expect.arrayContaining([expect.objectContaining({ resourceKind: 'chooser' })])
+    )
     await pendingRejection
     expect(backend.resourceCounters().chooserSessions).toBe(1)
     resolveChooser({ device: mock.device, grantedServices: [HEART_RATE_SERVICE] })
@@ -649,6 +653,10 @@ async function executeWebTckScenario(definition, backend, provider, adapter, moc
     const subscription = await database.subscribe(snapshot.characteristics[0].path, subscriptionOptions())
     mock.stopNotifications.mockRejectedValueOnce(new Error('transient stop failure'))
     await expect(subscription.remove()).resolves.toMatchObject({ state: 'release-failed' })
+    expectConsoleErrorMatching(
+      '[WebBluetoothGattRuntime.stopManagedSubscription] Notification stop rejected:',
+      expect.objectContaining({ message: 'transient stop failure' })
+    )
     await expect(subscription.remove()).resolves.toEqual({ state: 'released', failures: [] })
     await lease.release()
     await lease.release()

@@ -352,6 +352,14 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
         await expect(start).rejects.toMatchObject({
           normalized: { code: termination === 'abort' ? 'operation.aborted' : 'operation.timed-out' }
         })
+        expectConsoleErrorMatching(
+          '[CoreBluetoothBackend.scan.abort] Native scan cleanup requires retry:',
+          expect.arrayContaining([expect.objectContaining({ resourceKind: 'scan' })])
+        )
+        expectConsoleErrorMatching(
+          '[CoreBluetoothBackend.scan.late-start] Native scan compensation failed:',
+          expect.objectContaining({ message: 'The deterministic late scan stop failed' })
+        )
         expect(stopAttempts).toBe(2)
         expect(backend.resourceCounters()).toMatchObject({ activeScanControllers: 1, scanConsumers: 0 })
 
@@ -756,6 +764,10 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
 
     emitAdapterState(boundary, lossState)
     await flushAdapterLossCleanup()
+    expectConsoleErrorMatching(
+      '[CoreBluetoothBackend.handleAdapterState] Native adapter-loss cleanup requires retry:',
+      expect.arrayContaining([expect.objectContaining({ resourceKind: 'connection' })])
+    )
 
     expect(backend.attachment()).toMatchObject({
       attachmentId: attachmentBeforeLoss.attachmentId,
@@ -816,6 +828,10 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
 
     emitAdapterState(boundary, lossState)
     await flushAdapterLossCleanup()
+    expectConsoleErrorMatching(
+      '[CoreBluetoothBackend.handleAdapterState] Native adapter-loss cleanup requires retry:',
+      expect.arrayContaining([expect.objectContaining({ resourceKind: 'subscription' })])
+    )
 
     expect(boundary.stopNotifyCalls).toBe(0)
     expect(backend.attachment().attachmentId).toBe(attachmentBeforeLoss.attachmentId)

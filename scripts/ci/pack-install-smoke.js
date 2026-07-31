@@ -18,14 +18,25 @@ const { spawnSync } = require('child_process')
 
 const root = path.resolve(__dirname, '../..')
 const rootPackage = require(path.join(root, 'package.json'))
-const requiredPackedRuntimeDependencies = Object.freeze({
-  '@expo/config-plugins': '^57.0.6',
-  'node-addon-api': '^8.9.0',
-  'node-gyp': '^12.4.0'
+const isolatedConsumerToolVersions = Object.freeze({
+  typescript: '5.8.3',
+  webpack: '5.109.2'
 })
-const requiredPackedOptionalDependencies = Object.freeze({
-  'dbus-next': '^0.10.2'
+const requiredPackedOptionalHostDependencies = Object.freeze({
+  '@expo/config-plugins': '57.0.6',
+  'dbus-next': '^0.10.2',
+  'node-addon-api': '8.9.0',
+  'node-gyp': '12.4.0'
 })
+const browserBundleForbiddenHostDependencies = Object.freeze([
+  '@expo/config-plugins',
+  'dbus-next',
+  'electron',
+  'node-addon-api',
+  'node-gyp',
+  'react',
+  'react-native'
+])
 
 function npmCommand() {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm'
@@ -45,7 +56,7 @@ function run(cmd, args, opts = {}) {
   if (r.status !== 0) {
     throw new Error(`${cmd} ${args.join(' ')} failed (${r.status}):\n${out}`)
   }
-  if (/^(?:npm )?(?:WARN|warn)\b|^warning\b|^⚠/im.test(out)) {
+  if (/^(?:npm )?(?:WARN|warn)\b|^warning\b|^⚠|(?:^|\n).*?(?:DeprecationWarning|\bdeprecated\b|\bdeprecation\b)/im.test(out)) {
     throw new Error(`${cmd} ${args.join(' ')} produced a warning:\n${out}`)
   }
   return r.stdout || ''
@@ -115,7 +126,7 @@ function writeExternalTypeScriptFixture(consumer, module, moduleResolution) {
       "import { BleManager } from 'unified-ble-manager';",
       "import { createFeatureRegistry, type BackendAuthorDefinition, type HostNeutralBackendIdentity } from 'unified-ble-manager/backend-sdk';",
       "import { runUnifiedBleCli } from 'unified-ble-manager/cli';",
-      "import { createDeterministicBackendTckFactory, createDeterministicTestBackend, runBackendTck } from 'unified-ble-manager/testing';",
+      "import { createDeterministicBackendTckFactory, createDeterministicTestBackend, runBackendTck, type BluezNotificationInput, type DeterministicBluezTckBoundary } from 'unified-ble-manager/testing';",
       "import { createNavigatorWebBluetoothProvider } from 'unified-ble-manager/web';",
       "import { createDbusNextBluezBackendProvider, type BluezBusKind } from 'unified-ble-manager/node/bluez';",
       "import { createNativeWinRtBackendProvider, type NativeWinRtProviderOptions } from 'unified-ble-manager/node/winrt';",
@@ -124,6 +135,13 @@ function writeExternalTypeScriptFixture(consumer, module, moduleResolution) {
       '  definition: BackendAuthorDefinition<string, HostNeutralBackendIdentity<string>>',
       '): BackendAuthorDefinition<string, HostNeutralBackendIdentity<string>> {',
       '  return definition;',
+      '}',
+      '',
+      'export function preserveBluezTckControlTypes(',
+      '  boundary: DeterministicBluezTckBoundary,',
+      '  notification: BluezNotificationInput',
+      '): { boundary: DeterministicBluezTckBoundary; notification: BluezNotificationInput } {',
+      '  return { boundary, notification };',
       '}',
       '',
       'export async function runExternalBackendAuthoringFixture() {',
@@ -162,7 +180,12 @@ function writeExternalTypeScriptFixture(consumer, module, moduleResolution) {
 }
 
 function compileExternalConsumerFixtures(consumer) {
-  const tsc = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc')
+  const tsc = resolveIsolatedConsumerToolEntrypoint(
+    consumer,
+    'typescript',
+    isolatedConsumerToolVersions.typescript,
+    'typescript/bin/tsc'
+  )
   for (const configuration of [
     { module: 'ESNext', moduleResolution: 'Bundler' },
     { module: 'Node16', moduleResolution: 'Node16' },
@@ -175,6 +198,241 @@ function compileExternalConsumerFixtures(consumer) {
     )
     run(process.execPath, [tsc, '--project', path.join(fixtureDirectory, 'tsconfig.json')], { cwd: consumer })
   }
+}
+
+function runPackedThirdPartyBackendFixture(consumer, artifactDirectory, npmEnvironment) {
+  const fixtureSource = path.join(root, 'fixtures', 'third-party-backend-sdk')
+  const fixtureDirectory = path.join(consumer, 'third-party-backend-sdk')
+  if (!fs.existsSync(path.join(fixtureSource, 'package.json'))) {
+    throw new Error(`Third-party backend fixture package is missing: ${fixtureSource}`)
+  }
+  fs.cpSync(fixtureSource, fixtureDirectory, { recursive: true })
+
+  const fixtureManifest = JSON.parse(fs.readFileSync(path.join(fixtureDirectory, 'package.json'), 'utf8'))
+  assertDeclaredToolDependency(
+    fixtureManifest,
+    '@example/packed-third-party-backend',
+    'typescript',
+    isolatedConsumerToolVersions.typescript
+  )
+  const tsc = resolveIsolatedConsumerToolEntrypoint(
+    consumer,
+    'typescript',
+    isolatedConsumerToolVersions.typescript,
+    'typescript/bin/tsc'
+  )
+  for (const configuration of ['bundler', 'node16', 'nodenext']) {
+    run(process.execPath, [tsc, '--project', path.join(fixtureDirectory, `tsconfig.${configuration}.json`)], {
+      cwd: consumer
+    })
+  }
+  run(process.execPath, [tsc, '--project', path.join(fixtureDirectory, 'tsconfig.build.json')], { cwd: consumer })
+
+  const fixtureTarball = assertTarballIsAbsent(artifactDirectory, fixtureManifest.name, fixtureManifest.version)
+  run(npmCommand(), ['pack', '--pack-destination', artifactDirectory, '--loglevel=error'], {
+    cwd: fixtureDirectory,
+    env: npmEnvironment
+  })
+  if (!fs.existsSync(fixtureTarball)) {
+    throw new Error(`third-party backend fixture tarball not found after npm pack: ${fixtureTarball}`)
+  }
+  run(npmCommand(), ['install', '--ignore-scripts', '--prefer-offline', '--loglevel=error', fixtureTarball], {
+    cwd: consumer,
+    env: npmEnvironment
+  })
+
+  const proofScript = [
+    "import assert from 'node:assert/strict';",
+    "const fixture = await import('@example/packed-third-party-backend');",
+    'const proof = await fixture.runPackedThirdPartyBackendFixture();',
+    "assert.equal(proof.report.backendId, 'example:packed-author-backend', 'external fixture backend identity');",
+    "assert.equal(proof.report.identity.registeredPlatformId, 'example:deterministic-host', 'external fixture platform identity');",
+    "assert.equal(proof.report.verification, 'runner-controlled', 'external fixture runner controls receipts');",
+    "assert.equal(proof.report.proofScope, 'deterministic', 'external fixture makes only deterministic proof');",
+    "assert.equal(proof.unavailableCapabilityDeclared, true, 'external fixture retains explicit unavailable capability');",
+    "assert.ok(proof.report.receipts.every(receipt => receipt.error === null && receipt.facts.every(fact => fact.holds)), 'external fixture TCK receipts hold');",
+    "console.log('packed third-party backend fixture: deterministic TCK, version-skew, capability-binding, and cleanup proof complete');"
+  ].join('\n')
+  run(process.execPath, ['--input-type=module', '-e', proofScript], { cwd: consumer })
+}
+
+function browserHostDependencyPaths(consumer, dependencyName) {
+  const dependencyPathParts = dependencyName.split('/')
+  return [
+    path.join(consumer, 'node_modules', ...dependencyPathParts),
+    path.join(consumer, 'node_modules', 'unified-ble-manager', 'node_modules', ...dependencyPathParts)
+  ]
+}
+
+function moveBrowserBundleHostDependenciesAside(consumer) {
+  const hiddenDependenciesDirectory = path.join(consumer, 'hidden-browser-host-dependencies')
+  fs.mkdirSync(hiddenDependenciesDirectory)
+  for (const dependencyName of browserBundleForbiddenHostDependencies) {
+    for (const dependencyPath of browserHostDependencyPaths(consumer, dependencyName)) {
+      if (!fs.existsSync(dependencyPath)) {
+        continue
+      }
+      const hiddenDependencyPath = path.join(
+        hiddenDependenciesDirectory,
+        dependencyName.replace('/', '__')
+      )
+      if (fs.existsSync(hiddenDependencyPath)) {
+        throw new Error(`Browser bundle dependency was installed more than once: ${dependencyName}`)
+      }
+      fs.renameSync(dependencyPath, hiddenDependencyPath)
+    }
+  }
+}
+
+function assertBrowserBundleHostDependenciesAreUnavailable(consumer) {
+  const consumerRequire = createRequire(path.join(consumer, 'package.json'))
+  for (const dependencyName of browserBundleForbiddenHostDependencies) {
+    try {
+      const resolvedPath = consumerRequire.resolve(`${dependencyName}/package.json`)
+      throw new Error(
+        `Browser bundle consumer must not resolve ${dependencyName}, but resolved ${resolvedPath}`
+      )
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Browser bundle consumer must not resolve')) {
+        throw error
+      }
+      if (!(error instanceof Error) || error.code !== 'MODULE_NOT_FOUND') {
+        throw error
+      }
+    }
+  }
+}
+
+function createPackedBrowserBundleConsumer(tmp, rootTgz, npmEnvironment) {
+  const consumer = path.join(tmp, 'browser-consumer')
+  fs.mkdirSync(consumer)
+  fs.writeFileSync(
+    path.join(consumer, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'ubm-packed-browser-bundle-consumer',
+        private: true,
+        version: '0.0.0',
+        type: 'module',
+        devDependencies: {
+          webpack: isolatedConsumerToolVersions.webpack
+        }
+      },
+      null,
+      2
+    )}\n`
+  )
+  fs.writeFileSync(
+    path.join(consumer, 'browser-entry.mjs'),
+    [
+      "import * as unifiedBleManager from 'unified-ble-manager'",
+      "import * as webBluetooth from 'unified-ble-manager/web'",
+      '',
+      '// L2 package/build proof only: this exports documented public surfaces without selecting a browser radio.',
+      'export const browserRootPublicSurface = unifiedBleManager',
+      'export const browserWebPublicSurface = webBluetooth',
+      'export const BrowserBleManager = unifiedBleManager.BleManager',
+      '',
+      'export function createBrowserWebBluetoothProvider(environment) {',
+      '  return webBluetooth.createNavigatorWebBluetoothProvider(environment)',
+      '}',
+      '',
+      'export function createBrowserBleManager(environment) {',
+      '  return webBluetooth.createNavigatorWebBleManager({',
+      '    environment,',
+      "    clientId: 'packed-browser-bundle-client',",
+      "    managerId: 'packed-browser-bundle-manager'",
+      '  })',
+      '}',
+      ''
+    ].join('\n')
+  )
+
+  console.log('installing packed artifact into Web-only browser consumer')
+  run(
+    npmCommand(),
+    [
+      'install',
+      '--ignore-scripts',
+      '--include=dev',
+      '--omit=optional',
+      '--prefer-offline',
+      '--loglevel=warn',
+      rootTgz
+    ],
+    { cwd: consumer, env: npmEnvironment }
+  )
+  moveBrowserBundleHostDependenciesAside(consumer)
+  assertBrowserBundleHostDependenciesAreUnavailable(consumer)
+  return consumer
+}
+
+function bundlePackedBrowserConsumer(consumer) {
+  const webpackEntrypoint = resolveIsolatedConsumerToolEntrypoint(
+    consumer,
+    'webpack',
+    isolatedConsumerToolVersions.webpack,
+    'webpack'
+  )
+  const bundleScript = [
+    "'use strict'",
+    "const fs = require('fs')",
+    "const path = require('path')",
+    "const { builtinModules } = require('module')",
+    `const webpack = require(${JSON.stringify(webpackEntrypoint)})`,
+    `const forbiddenHostDependencies = ${JSON.stringify(browserBundleForbiddenHostDependencies)}`,
+    'const forbiddenRequests = new Set([...builtinModules, ...builtinModules.map(name => `node:${name}`), ...forbiddenHostDependencies])',
+    'const packedModuleRoot = path.join(__dirname, "node_modules", "unified-ble-manager", "lib", "module")',
+    'const forbiddenPackedHostModules = new Set(["NativeUnifiedBleProtocolControl.js", "electron-main.js", "electron-renderer.js", "node-bluez.js", "node-corebluetooth.js", "node-winrt.js", "react-native.js"])',
+    'class RejectForbiddenBrowserRequestPlugin {',
+    '  apply(compiler) {',
+    "    compiler.hooks.normalModuleFactory.tap('RejectForbiddenBrowserRequestPlugin', normalModuleFactory => {",
+    "      normalModuleFactory.hooks.beforeResolve.tap('RejectForbiddenBrowserRequestPlugin', resolveData => {",
+    '        if (resolveData !== undefined && forbiddenRequests.has(resolveData.request)) {',
+    '          throw new Error(`Browser bundle must not resolve forbidden host request: ${resolveData.request}`)',
+    '        }',
+    '      })',
+    "      normalModuleFactory.hooks.afterResolve.tap('RejectForbiddenBrowserRequestPlugin', resolveData => {",
+    '        const resource = resolveData.createData && resolveData.createData.resource',
+    '        if (typeof resource !== "string" || !resource.startsWith(`${packedModuleRoot}${path.sep}`)) { return }',
+    '        const relativeResource = path.relative(packedModuleRoot, resource)',
+    '        if (forbiddenPackedHostModules.has(relativeResource) || relativeResource.startsWith(`backends${path.sep}reactnative${path.sep}`) || relativeResource.startsWith(`electron${path.sep}`) || relativeResource.startsWith(`native-protocol${path.sep}`) || relativeResource.startsWith(`node${path.sep}`)) {',
+    '          throw new Error(`Browser bundle must not include forbidden host module: ${relativeResource}`)',
+    '        }',
+    '      })',
+    '    })',
+    '  }',
+    '}',
+    'const outputDirectory = path.join(__dirname, "dist")',
+    'const outputPath = path.join(outputDirectory, "browser-consumer.js")',
+    'const compiler = webpack({',
+    "  mode: 'production',",
+    "  target: 'web',",
+    '  entry: path.join(__dirname, "browser-entry.mjs"),',
+    '  output: { path: outputDirectory, filename: "browser-consumer.js", clean: true },',
+    "  resolve: { conditionNames: ['browser', 'import', 'module', 'default'] },",
+    '  plugins: [new RejectForbiddenBrowserRequestPlugin()]',
+    '})',
+    'compiler.run((error, stats) => {',
+    '  compiler.close(closeError => {',
+    '    if (error !== null) { console.error(error.stack || error); process.exitCode = 1; return }',
+    '    if (closeError !== null) { console.error(closeError.stack || closeError); process.exitCode = 1; return }',
+    '    if (stats === undefined || stats.hasErrors() || stats.hasWarnings()) {',
+    '      const diagnostics = stats ? stats.toString({ all: false, errors: true, warnings: true }) : "webpack returned no stats"',
+    '      console.error(`Webpack browser bundle produced diagnostics:\\n${diagnostics}`)',
+    '      process.exitCode = 1',
+    '      return',
+    '    }',
+    '    if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size === 0) { console.error(`Browser bundle was not emitted: ${outputPath}`); process.exitCode = 1; return }',
+    '    console.log(`packed browser public-surface bundle created: ${outputPath}`)',
+    '  })',
+    '})',
+    ''
+  ].join('\n')
+  const bundleScriptPath = path.join(consumer, 'bundle-browser-consumer.cjs')
+  fs.writeFileSync(bundleScriptPath, bundleScript)
+  run(process.execPath, [bundleScriptPath], { cwd: consumer })
+  console.log('packed browser public-surface bundle: L2 package/browser-build proof only, not L4 live browser BLE')
 }
 
 function writeExternalCliBackendFixture(consumer) {
@@ -211,6 +469,35 @@ function resolveInstalledConsumerModule(consumer, specifier) {
   return consumerRequire.resolve(specifier)
 }
 
+function assertDeclaredToolDependency(manifest, packageName, toolName, expectedVersion) {
+  const declaredVersion = manifest.devDependencies?.[toolName]
+  if (declaredVersion !== expectedVersion) {
+    throw new Error(
+      `${packageName} must declare ${toolName}@${expectedVersion} as a development dependency, received ${String(declaredVersion)}`
+    )
+  }
+}
+
+function resolveIsolatedConsumerToolEntrypoint(consumer, toolName, expectedVersion, entrypoint) {
+  const manifestPath = resolveInstalledConsumerModule(consumer, `${toolName}/package.json`)
+  const installedManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+  if (installedManifest.name !== toolName || installedManifest.version !== expectedVersion) {
+    throw new Error(
+      `Isolated consumer must install ${toolName}@${expectedVersion}, received ${String(installedManifest.name)}@${String(installedManifest.version)}`
+    )
+  }
+  const consumerNodeModules = fs.realpathSync(path.join(consumer, 'node_modules'))
+  const toolRoot = path.dirname(fs.realpathSync(manifestPath))
+  if (toolRoot === consumerNodeModules || !toolRoot.startsWith(`${consumerNodeModules}${path.sep}`)) {
+    throw new Error(`Isolated consumer tool ${toolName} resolved outside consumer node_modules: ${toolRoot}`)
+  }
+  const entrypointPath = resolveInstalledConsumerModule(consumer, entrypoint)
+  if (!fs.realpathSync(entrypointPath).startsWith(`${toolRoot}${path.sep}`)) {
+    throw new Error(`Isolated consumer tool ${toolName} entrypoint resolved outside its installed package: ${entrypointPath}`)
+  }
+  return entrypointPath
+}
+
 function installedPackageRoot(consumer) {
   const packageJson = resolveInstalledConsumerModule(consumer, 'unified-ble-manager/package.json')
   const packageRoot = path.dirname(fs.realpathSync(packageJson))
@@ -244,18 +531,9 @@ function assertInstalledDependencySatisfiesPackedManifest(
   }
 }
 
-function verifyInstalledPublishedRuntimeDependencies(consumer) {
+function verifyInstalledPublishedHostDependencies(consumer) {
   const packageRoot = installedPackageRoot(consumer)
-  for (const [dependencyName, expectedRange] of Object.entries(requiredPackedRuntimeDependencies)) {
-    assertInstalledDependencySatisfiesPackedManifest(
-      consumer,
-      packageRoot,
-      'dependencies',
-      dependencyName,
-      expectedRange
-    )
-  }
-  for (const [dependencyName, expectedRange] of Object.entries(requiredPackedOptionalDependencies)) {
+  for (const [dependencyName, expectedRange] of Object.entries(requiredPackedOptionalHostDependencies)) {
     assertInstalledDependencySatisfiesPackedManifest(
       consumer,
       packageRoot,
@@ -508,6 +786,9 @@ function main() {
 
     run(process.execPath, ['scripts/ci/verify-package-tarballs.js', rootTgz], { cwd: root })
 
+    const browserConsumer = createPackedBrowserBundleConsumer(tmp, rootTgz, npmEnvironment)
+    bundlePackedBrowserConsumer(browserConsumer)
+
     // Install the packed canonical package into an isolated consumer.
     const consumer = path.join(tmp, 'consumer')
     fs.mkdirSync(consumer)
@@ -521,6 +802,9 @@ function main() {
           dependencies: {
             react: 'file:../react-stub',
             'react-native': 'file:../react-native-stub'
+          },
+          devDependencies: {
+            typescript: isolatedConsumerToolVersions.typescript
           }
         },
         null,
@@ -531,7 +815,7 @@ function main() {
     console.log('installing packed artifacts into isolated consumer')
     run(
       npmCommand(),
-      ['install', '--ignore-scripts', '--prefer-offline', '--loglevel=error', rootTgz],
+      ['install', '--ignore-scripts', '--include=dev', '--prefer-offline', '--loglevel=error', rootTgz],
       {
         cwd: consumer,
         env: npmEnvironment
@@ -674,10 +958,13 @@ function main() {
       "console.log('pack+install ESM imports ok: root, backend-sdk, cli, testing, codecs, profiles, web, react-native, node/bluez, node/corebluetooth, node/winrt, electron/main, electron/renderer');"
     ].join('\n')
     run(process.execPath, ['--input-type=module', '-e', esmAssertScript], { cwd: consumer })
-    verifyInstalledPublishedRuntimeDependencies(consumer)
+    verifyInstalledPublishedHostDependencies(consumer)
     verifyInstalledNativeTooling(consumer)
     buildAndLoadInstalledCoreBluetoothAddon(consumer)
     runInstalledElectronL1Scenario(consumer)
+    run(process.execPath, [path.join(root, 'scripts', 'ci', 'electron-packed-boundary-fixture.js'), consumer], {
+      cwd: consumer
+    })
 
     const tracePath = path.join(consumer, 'redacted-trace.json')
     fs.writeFileSync(
@@ -734,8 +1021,11 @@ function main() {
     }
 
     compileExternalConsumerFixtures(consumer)
+    runPackedThirdPartyBackendFixture(consumer, artifactDirectory, npmEnvironment)
 
-    console.log('pack-install-smoke: OK (canonical CJS/ESM, native build tooling, Electron L1, CLI, Web, BlueZ, Bundler, Node16, NodeNext)')
+    console.log(
+      'pack-install-smoke: OK (canonical CJS/ESM, zero-warning browser public-surface bundle, native build tooling, Electron L1 + data-only preload-surface membrane, CLI, Web, BlueZ, external third-party TCK, Bundler, Node16, NodeNext)'
+    )
   } catch (error) {
     primaryError = error
     throw error

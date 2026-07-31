@@ -150,6 +150,44 @@ class InMemoryBluezBoundary {
     }
   }
 
+  queueAdvertisement() {
+    const device = this.objectManager.objects.find(candidate =>
+      candidate.interfaces.some(definition => definition.name === BLUEZ_DEVICE_INTERFACE)
+    )
+    if (device === undefined) {
+      throw new Error('In-memory BlueZ boundary has no Device1 object to advertise')
+    }
+    const deviceInterface = device.interfaces.find(definition => definition.name === BLUEZ_DEVICE_INTERFACE)
+    const rssi = deviceInterface?.properties.RSSI
+    if (rssi === undefined || typeof rssi.value !== 'number') {
+      throw new Error('In-memory BlueZ Device1 object has no numeric RSSI to advertise')
+    }
+    this.objectManager.emitPropertiesChanged(device.path, BLUEZ_DEVICE_INTERFACE, {
+      RSSI: { signature: 'n', value: rssi.value }
+    })
+  }
+
+  emitNotification({ serviceUuid, characteristicUuid, value }) {
+    const characteristic = this.objectManager.objects.find(candidate => {
+      const characteristicInterface = candidate.interfaces.find(
+        definition => definition.name === BLUEZ_GATT_CHARACTERISTIC_INTERFACE
+      )
+      if (characteristicInterface?.properties.UUID?.value !== characteristicUuid) {
+        return false
+      }
+      const servicePath = characteristicInterface.properties.Service?.value
+      const service = this.objectManager.objects.find(candidateService => candidateService.path === servicePath)
+      const serviceInterface = service?.interfaces.find(definition => definition.name === BLUEZ_GATT_SERVICE_INTERFACE)
+      return serviceInterface?.properties.UUID?.value === serviceUuid
+    })
+    if (characteristic === undefined) {
+      throw new Error(`In-memory BlueZ boundary has no characteristic for ${serviceUuid}/${characteristicUuid}`)
+    }
+    this.objectManager.emitPropertiesChanged(characteristic.path, BLUEZ_GATT_CHARACTERISTIC_INTERFACE, {
+      Value: { signature: 'ay', value: new Uint8Array(value) }
+    })
+  }
+
   async close() {
     this.closed = true
     this.resetListeners.clear()

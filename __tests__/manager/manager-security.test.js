@@ -216,26 +216,32 @@ describe('BleManager authority and cleanup security', () => {
     const fixture = createDeterministicTestBackend()
     const attach = jest.spyOn(fixture.backend, 'attach')
     const destroy = jest.spyOn(fixture.backend, 'destroy')
-    const log = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     const selectedAdapterId = opaqueId('different-adapter', 'adapter', 'security')
 
     try {
-      await expect(
-        createBleManagerFromProvider(
-          providerConstruction({ create: async () => fixture.backend }, selectedAdapterId, 1),
-          DEFAULT_BLE_MANAGER_OPTIONS
-        )
-      ).rejects.toMatchObject({
+      const rejection = await createBleManagerFromProvider(
+        providerConstruction({ create: async () => fixture.backend }, selectedAdapterId, 1),
+        DEFAULT_BLE_MANAGER_OPTIONS
+      ).then(
+        () => {
+          throw new Error('expected selected adapter admission to reject')
+        },
+        error => error
+      )
+      expect(rejection).toMatchObject({
         normalized: {
           code: 'argument.invalid',
           domain: 'adapter',
           operation: 'ble-manager.create-from-provider.adapter-selection'
         }
       })
+      expectConsoleError('[createBleManagerFromProvider] Backend attachment or manager admission failed:', {
+        error: rejection,
+        cleanup: { state: 'released', failures: [] }
+      })
       expect(attach).not.toHaveBeenCalled()
       expect(destroy).toHaveBeenCalledTimes(1)
     } finally {
-      log.mockRestore()
       attach.mockRestore()
       destroy.mockRestore()
     }

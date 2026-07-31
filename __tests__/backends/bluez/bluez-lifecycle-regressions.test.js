@@ -286,9 +286,17 @@ describe('BlueZ lifecycle regressions', () => {
 
     const destroying = backend.destroy()
     await expect(connecting).rejects.toMatchObject({ normalized: { code: 'operation.aborted' } })
+    expectConsoleErrorMatching(
+      '[scheduleOrphanedBluezConnectionCleanup] Shared transition cleanup failed:',
+      expect.objectContaining({ normalized: expect.objectContaining({ code: 'operation.aborted', operation: 'bluez.connect' }) })
+    )
     releaseConnect()
 
     await expect(destroying).resolves.toEqual({ state: 'released', failures: [] })
+    expectConsoleErrorMatching(
+      '[connectBluezConnection] Shared BlueZ connect transition failed:',
+      expect.objectContaining({ normalized: expect.objectContaining({ code: 'operation.aborted', operation: 'bluez.connect' }) })
+    )
     expect(boundary.calls.filter(call => call.method === 'Disconnect')).toHaveLength(1)
   })
 

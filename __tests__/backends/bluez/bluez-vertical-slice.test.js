@@ -616,6 +616,10 @@ describe('BlueZ contract-v1 vertical slice', () => {
     await expect(backend.connections.connect(peerId, clientId, operation())).rejects.toMatchObject({
       normalized: { code: 'platform.failure' }
     })
+    expectConsoleErrorMatching(
+      '[connectBluezConnection] Shared BlueZ connect transition failed:',
+      expect.objectContaining({ normalized: expect.objectContaining({ operation: 'bluez.connect' }) })
+    )
     expect(Number(backend.resourceCounters().physicalLinks)).toBe(0)
     expect(Number(backend.resourceCounters().connectionLeases)).toBe(0)
     boundary.onCall(devicePath, BLUEZ_DEVICE_INTERFACE, 'Connect', async () => {
@@ -700,11 +704,14 @@ describe('BlueZ contract-v1 vertical slice', () => {
       opaqueId('reset-connect-client', 'client', 'bluez:reset'),
       operation()
     )
-    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     first.boundary.objectManager.emitPropertiesChanged(adapterPath, BLUEZ_ADAPTER_INTERFACE, {
       Powered: { signature: 'b', value: false }
     })
     await expect(connect).rejects.toMatchObject({ normalized: { code: 'operation.reset' } })
+    expectConsoleErrorMatching(
+      '[connectBluezConnection] Shared BlueZ connect transition failed:',
+      expect.objectContaining({ normalized: expect.objectContaining({ operation: 'bluez.connect.after-method' }) })
+    )
     await expect(resetScanIterator.next()).resolves.toMatchObject({
       value: { kind: 'terminal', reason: 'source-failed' }
     })
@@ -734,7 +741,6 @@ describe('BlueZ contract-v1 vertical slice', () => {
     expect(Number(second.backend.resourceCounters().databaseSnapshots)).toBe(0)
     expect(Number(second.backend.resourceCounters().connectionLeases)).toBe(0)
     await second.backend.destroy()
-    consoleError.mockRestore()
   })
 
   test('atomically aborts scan startup and retries both physical stop phases without losing ownership', async () => {
@@ -769,6 +775,10 @@ describe('BlueZ contract-v1 vertical slice', () => {
       throw new Error('transient stop failure')
     })
     await expect(scan.stop()).rejects.toThrow('transient stop failure')
+    expectConsoleErrorMatching(
+      '[stopBluezScan] BlueZ StopDiscovery failed; scan ownership retained for retry:',
+      expect.objectContaining({ message: 'transient stop failure' })
+    )
     expect(Number(stopping.backend.resourceCounters().activeScanControllers)).toBe(1)
     stopping.boundary.onCall(adapterPath, BLUEZ_ADAPTER_INTERFACE, 'StopDiscovery', async () => undefined)
     await expect(scan.stop()).resolves.toEqual({ state: 'released', failures: [] })
@@ -829,6 +839,10 @@ describe('BlueZ contract-v1 vertical slice', () => {
       }
     )
     await expect(secondSubscription.remove()).rejects.toThrow('transient notify stop failure')
+    expectConsoleErrorMatching(
+      '[beginBluezPhysicalRemoval] BlueZ StopNotify failed:',
+      expect.objectContaining({ message: 'transient notify stop failure' })
+    )
     expect(Number(backend.resourceCounters().physicalCccdEnablements)).toBe(1)
     boundary.onCall(
       String(characteristic.characteristicOccurrence),
