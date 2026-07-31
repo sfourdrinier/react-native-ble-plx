@@ -4,7 +4,14 @@ import type { Uuid } from '../backend-contract/primitives'
 
 export interface WebBluetoothRequestFilter {
   readonly services: readonly Uuid[]
+  readonly manufacturerData: readonly WebBluetoothRequestManufacturerDataFilter[]
   readonly namePrefix: string | null
+}
+
+/** A copied Web Bluetooth manufacturer predicate ready for a browser request. */
+export interface WebBluetoothRequestManufacturerDataFilter {
+  readonly companyIdentifier: number
+  readonly dataPrefix: Readonly<Uint8Array> | null
 }
 
 export interface WebBluetoothRequestDeviceOptions {
@@ -64,7 +71,6 @@ export interface WebBluetoothGattServerBoundary {
 
 export interface WebBluetoothDeviceBoundary {
   readonly id: string
-  readonly name: string | null
   readonly gatt: WebBluetoothGattServerBoundary
   addDisconnectListener(listener: WebBluetoothDisconnectListener): void
   removeDisconnectListener(listener: WebBluetoothDisconnectListener): void
@@ -82,7 +88,6 @@ export interface WebBluetoothBoundary {
   hasTransientUserActivation(): boolean
   bluetoothAvailable(): Promise<boolean>
   requestDevice(options: WebBluetoothRequestDeviceOptions): Promise<WebBluetoothDeviceSelection>
-  permittedDevices(): Promise<readonly WebBluetoothDeviceSelection[]>
   now(): number
   setTimer(callback: () => void, delayMilliseconds: number): WebBluetoothTimerHandle
   clearTimer(handle: WebBluetoothTimerHandle): void

@@ -10,7 +10,7 @@ const {
   DEFAULT_BLE_MANAGER_OPTIONS
 } = require('../../src/manager/ble-manager')
 const { opaqueId } = require('../../src/backend-contract/primitives')
-const { runWebBluetoothTck } = require('../../src/web/web-bluetooth-tck')
+const { InMemoryWebBluetoothTckBoundary } = require('../../test-support/web/in-memory-web-bluetooth-tck-boundary')
 
 const HEART_RATE_SERVICE = '0000180d-0000-1000-8000-00805f9b34fb'
 const HEART_RATE_MEASUREMENT = '00002a37-0000-1000-8000-00805f9b34fb'
@@ -78,7 +78,6 @@ function createBoundary(options = {}) {
   }
   const device = {
     id: 'browser-owned-device-identifier',
-    name: 'Heart Sensor',
     gatt,
     addDisconnectListener: listener => disconnectListeners.add(listener),
     removeDisconnectListener: listener => disconnectListeners.delete(listener)
@@ -110,7 +109,6 @@ function createBoundary(options = {}) {
       hasTransientUserActivation: () => options.userActivation !== false,
       bluetoothAvailable: async () => options.bluetoothAvailable ?? true,
       requestDevice,
-      permittedDevices: async () => [],
       now: () => 10,
       setTimer: callback => {
         const handle = { callback }
@@ -146,14 +144,16 @@ describe('WebBluetoothBackend', () => {
         id: 'web:continuous-scan',
         state: 'unsupported',
         evidence: expect.objectContaining({ evidenceLevel: 'blocked' }),
-        tck: expect.objectContaining({ requiredScenarioIds: ['web.continuous-scan-and-join-unsupported'] })
+        tck: expect.objectContaining({
+          requiredScenarioIds: ['web.unsupported-capabilities-reject-and-remain-honest']
+        })
       })
     )
 
     await expect(
       backend.choose(
         {
-          filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
+          filters: [{ serviceUuids: [HEART_RATE_SERVICE], manufacturerData: [], localNamePrefix: null }],
           acceptAllDevices: false,
           optionalServices: [HEART_RATE_SERVICE]
         },
@@ -173,7 +173,7 @@ describe('WebBluetoothBackend', () => {
 
     const chooserSelection = await backend.choose(
       {
-        filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
+        filters: [{ serviceUuids: [HEART_RATE_SERVICE], manufacturerData: [], localNamePrefix: null }],
         acceptAllDevices: false,
         optionalServices: [HEART_RATE_SERVICE]
       },
@@ -181,7 +181,7 @@ describe('WebBluetoothBackend', () => {
     )
     expect(String(chooserSelection.peerId)).not.toContain('browser-owned-device-identifier')
     expect(mock.requestDevice).toHaveBeenCalledWith({
-      filters: [{ services: [HEART_RATE_SERVICE], namePrefix: null }],
+      filters: [{ services: [HEART_RATE_SERVICE], manufacturerData: [], namePrefix: null }],
       acceptAllDevices: false,
       optionalServices: [HEART_RATE_SERVICE]
     })
@@ -205,20 +205,22 @@ describe('WebBluetoothBackend', () => {
     await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
   })
 
-  test('retains the first notification emitted while notification startup resolves and cleans up exactly once', async () => {
-    const mock = createBoundary()
-    const provider = createWebBluetoothProvider(mock.boundary)
-    const [adapter] = await provider.listAdapters()
-    const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
-    await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
-    const selected = await backend.choose(
-      {
-        filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
+  test('installs the listener before synchronous notification startup, removes it before later emissions, and stops once', async () => {
+    const boundary = new InMemoryWebBluetoothTckBoundary()
+    const { backend } = await createAttachedWebBackend(boundary)
+    const chooser = backend.choose(chooserRequest(), noDeadline())
+    await boundary.flush()
+    expect(boundary.resourceSnapshot()).toMatchObject({
+      chooserRequests: 1,
+      pendingChooser: true,
+      lastChooserRequest: {
+        filters: [{ services: [HEART_RATE_SERVICE], manufacturerData: [], namePrefix: null }],
         acceptAllDevices: false,
         optionalServices: [HEART_RATE_SERVICE]
-      },
-      noDeadline()
-    )
+      }
+    })
+    boundary.resolveChooser()
+    const selected = await chooser
     const lease = await backend.connections.connect(selected.peerId, 'notification-client', {
       signal: null,
       deadline: null
@@ -241,10 +243,27 @@ describe('WebBluetoothBackend', () => {
       done: false,
       value: { kind: 'value', value: { value: new Uint8Array([0, 73]) } }
     })
+    expect(boundary.resourceSnapshot()).toMatchObject({
+      notificationListeners: 1,
+      notificationStarts: 1,
+      notificationDeliveries: 1
+    })
     await expect(subscription.remove()).resolves.toEqual({ state: 'released', failures: [] })
+    boundary.emitNotification({
+      serviceUuid: HEART_RATE_SERVICE,
+      serviceOccurrence: 1,
+      characteristicUuid: HEART_RATE_MEASUREMENT,
+      characteristicOccurrence: 1,
+      value: new Uint8Array([0, 74])
+    })
+    await boundary.flush()
+    await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { kind: 'terminal' } })
     await expect(subscription.remove()).resolves.toEqual({ state: 'released', failures: [] })
-    expect(mock.stopNotifications).toHaveBeenCalledTimes(1)
-    expect(mock.notificationListeners.size).toBe(0)
+    expect(boundary.resourceSnapshot()).toMatchObject({
+      notificationListeners: 0,
+      notificationStops: 1,
+      notificationDeliveries: 1
+    })
     await backend.destroy()
   })
 
@@ -256,7 +275,7 @@ describe('WebBluetoothBackend', () => {
     await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
     const selected = await backend.choose(
       {
-        filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
+        filters: [{ serviceUuids: [HEART_RATE_SERVICE], manufacturerData: [], localNamePrefix: null }],
         acceptAllDevices: false,
         optionalServices: [HEART_RATE_SERVICE]
       },
@@ -369,7 +388,7 @@ describe('WebBluetoothBackend', () => {
     await expect(
       backend.choose(
         {
-          filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
+          filters: [{ serviceUuids: [HEART_RATE_SERVICE], manufacturerData: [], localNamePrefix: null }],
           acceptAllDevices: false,
           optionalServices: [HEART_RATE_SERVICE]
         },
@@ -391,7 +410,7 @@ describe('WebBluetoothBackend', () => {
     const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
     await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
     const request = {
-      filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
+      filters: [{ serviceUuids: [HEART_RATE_SERVICE], manufacturerData: [], localNamePrefix: null }],
       acceptAllDevices: false,
       optionalServices: [HEART_RATE_SERVICE]
     }
@@ -418,6 +437,215 @@ describe('WebBluetoothBackend', () => {
     expect(backend.resourceCounters().chooserSessions).toBe(0)
     await backend.destroy()
   })
+
+  test('validates every chooser filter before browser work and never broadens malformed requests', async () => {
+    const mock = createBoundary()
+    const provider = createWebBluetoothProvider(mock.boundary)
+    const [adapter] = await provider.listAdapters()
+    const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
+    await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
+
+    const invalidRequests = [
+      {
+        filters: [{ serviceUuids: [], manufacturerData: [], localNamePrefix: null }],
+        acceptAllDevices: false,
+        optionalServices: []
+      },
+      {
+        filters: [{ serviceUuids: [], manufacturerData: [], localNamePrefix: '' }],
+        acceptAllDevices: false,
+        optionalServices: []
+      },
+      {
+        filters: [
+          {
+            serviceUuids: [],
+            manufacturerData: [{ companyIdentifier: 65536, dataPrefix: null }],
+            localNamePrefix: null
+          }
+        ],
+        acceptAllDevices: false,
+        optionalServices: []
+      },
+      {
+        filters: [{ serviceUuids: [HEART_RATE_SERVICE], manufacturerData: [], localNamePrefix: null }],
+        acceptAllDevices: true,
+        optionalServices: []
+      }
+    ]
+
+    try {
+      for (const invalidRequest of invalidRequests) {
+        await expect(backend.choose(invalidRequest, noDeadline())).rejects.toMatchObject({
+          normalized: { code: 'scan.filter-invalid' }
+        })
+      }
+      expect(mock.requestDevice).not.toHaveBeenCalled()
+    } finally {
+      await backend.destroy()
+    }
+  })
+
+  test('snapshots chooser services, manufacturer prefixes, and optional services before browser admission', async () => {
+    let resolveBrowserChooser
+    const browserChooser = new Promise(resolve => {
+      resolveBrowserChooser = resolve
+    })
+    const mock = createBoundary({ requestDevice: () => browserChooser })
+    const provider = createWebBluetoothProvider(mock.boundary)
+    const [adapter] = await provider.listAdapters()
+    const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
+    await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
+    const services = [HEART_RATE_SERVICE]
+    const manufacturerPrefix = new Uint8Array([10, 11])
+    const manufacturerData = [{ companyIdentifier: 76, dataPrefix: manufacturerPrefix }]
+    const optionalServices = [HEART_RATE_SERVICE]
+
+    try {
+      const choosing = backend.choose(
+        {
+          filters: [{ serviceUuids: services, manufacturerData, localNamePrefix: 'Heart' }],
+          acceptAllDevices: false,
+          optionalServices
+        },
+        noDeadline()
+      )
+      services[0] = '0000180a-0000-1000-8000-00805f9b34fb'
+      manufacturerPrefix[0] = 99
+      manufacturerData.push({ companyIdentifier: 77, dataPrefix: new Uint8Array([12]) })
+      optionalServices[0] = '0000180a-0000-1000-8000-00805f9b34fb'
+      await flushWebTckMicrotasks()
+
+      expect(mock.requestDevice).toHaveBeenCalledWith({
+        filters: [
+          {
+            services: [HEART_RATE_SERVICE],
+            manufacturerData: [{ companyIdentifier: 76, dataPrefix: new Uint8Array([10, 11]) }],
+            namePrefix: 'Heart'
+          }
+        ],
+        acceptAllDevices: false,
+        optionalServices: [HEART_RATE_SERVICE]
+      })
+      resolveBrowserChooser({ device: mock.device, grantedServices: [HEART_RATE_SERVICE] })
+      await expect(choosing).resolves.toMatchObject({ grantedServices: [HEART_RATE_SERVICE] })
+    } finally {
+      await backend.destroy()
+    }
+  })
+
+  test('rejects adapter state calls after destroy before polling or allocating streams', async () => {
+    const mock = createBoundary()
+    mock.boundary.bluetoothAvailable = jest.fn(async () => true)
+    const provider = createWebBluetoothProvider(mock.boundary)
+    const [adapter] = await provider.listAdapters()
+    const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
+    await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
+    const pollsBeforeDestroy = mock.boundary.bluetoothAvailable.mock.calls.length
+    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+
+    await expect(backend.adapter.currentState()).rejects.toMatchObject({ normalized: { code: 'lifecycle.destroyed' } })
+    await expect(backend.adapter.watchState()).rejects.toMatchObject({ normalized: { code: 'lifecycle.destroyed' } })
+    expect(mock.boundary.bluetoothAvailable).toHaveBeenCalledTimes(pollsBeforeDestroy)
+    expect(backend.adapterStreams.size).toBe(0)
+  })
+
+  test('unregisters explicitly closed event and adapter streams', async () => {
+    const mock = createBoundary()
+    const provider = createWebBluetoothProvider(mock.boundary)
+    const [adapter] = await provider.listAdapters()
+    const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
+    await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
+
+    try {
+      for (let index = 0; index < 3; index += 1) {
+        await backend.events().close()
+        const watch = await backend.adapter.watchState()
+        await watch.transitions.close()
+      }
+      expect(backend.eventStreams.size).toBe(0)
+      expect(backend.adapterStreams.size).toBe(0)
+    } finally {
+      await backend.destroy()
+    }
+  })
+
+  test('locally releasing a connection suppresses the browser disconnect event and preserves retry ownership', async () => {
+    const mock = createBoundary()
+    const provider = createWebBluetoothProvider(mock.boundary)
+    const [adapter] = await provider.listAdapters()
+    const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
+    await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
+    const events = backend.events()
+    const iterator = events[Symbol.asyncIterator]()
+    const pendingEvent = iterator.next()
+    const delivered = []
+    pendingEvent.then(result => {
+      delivered.push(result)
+    })
+
+    try {
+      const selected = await backend.choose(chooserRequest(), noDeadline())
+      const lease = await backend.connections.connect(selected.peerId, 'local-release-client', noDeadline())
+      await expect(lease.release()).resolves.toEqual({ state: 'released', failures: [] })
+      await flushWebTckMicrotasks()
+      expect(delivered).toEqual([])
+      expect(lease.connection.state).toBe('disconnected')
+      await events.close()
+      await expect(pendingEvent).resolves.toMatchObject({ value: { kind: 'terminal', reason: 'closed' } })
+    } finally {
+      await backend.destroy()
+    }
+  })
+
+  test.each(['abort', 'deadline'])(
+    'quarantines a late chooser selection after %s without retaining a peer or GATT resources',
+    async termination => {
+      const boundary = new InMemoryWebBluetoothTckBoundary()
+      const { backend } = await createAttachedWebBackend(boundary)
+      const controller = new AbortController()
+      const chooser = backend.choose(chooserRequest(), {
+        signal: termination === 'abort' ? controller.signal : null,
+        deadline: termination === 'deadline' ? 21 : null
+      })
+      await boundary.flush()
+      expect(boundary.resourceSnapshot()).toMatchObject({ chooserRequests: 1, pendingChooser: true })
+
+      if (termination === 'abort') {
+        controller.abort()
+      } else {
+        boundary.advanceTime(1)
+        boundary.fireTimers()
+      }
+
+      await expect(chooser).rejects.toMatchObject({
+        normalized: { code: termination === 'abort' ? 'operation.aborted' : 'operation.timed-out' }
+      })
+      expect(backend.resourceCounters()).toMatchObject({
+        chooserSessions: 1,
+        connectionLeases: 0,
+        physicalLinks: 0,
+        databaseSnapshots: 0,
+        subscriptionConsumers: 0
+      })
+
+      boundary.resolveChooser()
+      await boundary.flush()
+
+      expect(boundary.resourceSnapshot()).toMatchObject({ pendingChooser: false, connected: false })
+      expect(backend.resourceCounters()).toMatchObject({
+        chooserSessions: 0,
+        connectionLeases: 0,
+        physicalLinks: 0,
+        databaseSnapshots: 0,
+        subscriptionConsumers: 0
+      })
+      await expect(
+        backend.connections.connect(boundary.expectedSelectedPeerId, 'late-chooser-client', noDeadline())
+      ).rejects.toMatchObject({ normalized: { code: 'connection.not-found' } })
+      await backend.destroy()
+    }
+  )
 
   test('integrates with the host-neutral manager for chooser discovery and connection ownership', async () => {
     const mock = createBoundary()
@@ -475,7 +703,6 @@ describe('NavigatorWebBluetoothBoundary', () => {
     }
     const rawDevice = {
       id: 'raw-device',
-      name: 'Raw Sensor',
       gatt: rawGatt,
       addEventListener: () => {},
       removeEventListener: () => {}
@@ -497,290 +724,158 @@ describe('NavigatorWebBluetoothBoundary', () => {
     })
 
     const selection = await boundary.requestDevice({
-      filters: [{ services: [HEART_RATE_SERVICE], namePrefix: null }],
+      filters: [{ services: [HEART_RATE_SERVICE], manufacturerData: [], namePrefix: null }],
       acceptAllDevices: false,
       optionalServices: [HEART_RATE_SERVICE]
     })
     expect(requestDevice).toHaveBeenCalledWith({
-      filters: [{ services: [HEART_RATE_SERVICE], namePrefix: undefined }],
+      filters: [{ services: [HEART_RATE_SERVICE], manufacturerData: undefined, namePrefix: undefined }],
       optionalServices: [HEART_RATE_SERVICE]
     })
     expect(selection.grantedServices).toEqual([HEART_RATE_SERVICE])
     expect(selection.device.id).toBe('raw-device')
   })
-})
 
-describe('Web Bluetooth applicable TCK', () => {
-  test('passes all applicable scenarios and records Web-only unsupported semantics explicitly', async () => {
-    const report = await runWebBluetoothTck({
-      create: async () => {
-        const mock = createBoundary()
-        const provider = createWebBluetoothProvider(mock.boundary)
-        const [adapter] = await provider.listAdapters()
-        const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
-        return {
-          backend,
-          execute: definition => executeWebTckScenario(definition, backend, provider, adapter, mock),
-          dispose: () => backend.destroy()
+  test('forwards owned manufacturer criteria for manufacturer-only and combined filters', async () => {
+    const rawGatt = {
+      connected: false,
+      connect: async () => rawGatt,
+      disconnect: () => {},
+      getPrimaryServices: async () => []
+    }
+    const rawDevice = {
+      id: 'manufacturer-filter-device',
+      gatt: rawGatt,
+      addEventListener: () => {},
+      removeEventListener: () => {}
+    }
+    let resolveBrowserRequest
+    const pendingBrowserRequest = new Promise(resolve => {
+      resolveBrowserRequest = resolve
+    })
+    const requestDevice = jest.fn(() => pendingBrowserRequest)
+    const boundary = new NavigatorWebBluetoothBoundary({
+      implementationVersion: 'navigator-test',
+      browserEngine: 'test-engine',
+      bluetooth: { requestDevice },
+      isSecureContext: () => true,
+      hasTransientUserActivation: () => true,
+      now: () => 1,
+      setTimer: callback => ({ callback }),
+      clearTimer: () => {},
+      addPageLifecycleListener: () => () => {}
+    })
+    const manufacturerOnlyPrefix = new Uint8Array([1, 2])
+    const combinedPrefix = new Uint8Array([3, 4])
+    const request = boundary.requestDevice({
+      filters: [
+        {
+          services: [],
+          manufacturerData: [{ companyIdentifier: 76, dataPrefix: manufacturerOnlyPrefix }],
+          namePrefix: null
+        },
+        {
+          services: [HEART_RATE_SERVICE],
+          manufacturerData: [{ companyIdentifier: 77, dataPrefix: combinedPrefix }],
+          namePrefix: 'Heart'
         }
-      }
+      ],
+      acceptAllDevices: false,
+      optionalServices: [HEART_RATE_SERVICE]
     })
+    manufacturerOnlyPrefix[0] = 9
+    combinedPrefix[0] = 8
 
-    expect(report.receipts).toHaveLength(10)
-    expect(report.receipts.filter(receipt => receipt.disposition === 'applicable')).toHaveLength(7)
-    expect(report.receipts.filter(receipt => receipt.disposition === 'unsupported')).toHaveLength(3)
+    expect(requestDevice).toHaveBeenCalledWith({
+      filters: [
+        {
+          services: undefined,
+          manufacturerData: [{ companyIdentifier: 76, dataPrefix: new Uint8Array([1, 2]) }],
+          namePrefix: undefined
+        },
+        {
+          services: [HEART_RATE_SERVICE],
+          manufacturerData: [{ companyIdentifier: 77, dataPrefix: new Uint8Array([3, 4]) }],
+          namePrefix: 'Heart'
+        }
+      ],
+      optionalServices: [HEART_RATE_SERVICE]
+    })
+    resolveBrowserRequest(rawDevice)
+    await expect(request).resolves.toMatchObject({ grantedServices: [HEART_RATE_SERVICE] })
   })
 })
 
-async function executeWebTckScenario(definition, backend, provider, adapter, mock) {
-  await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
-  if (definition.id === 'web.provider-selection-and-browser-identity') {
-    expect(adapter.adapterId).toBe(backend.identity.attachment.adapter.adapterId)
-    expect(backend.identity.runtime).toMatchObject({ hostKind: 'browser' })
-    expect(backend.identity.runtime.diagnostics).toMatchObject({ chooserDiscovery: true, continuousScan: false })
-    return passedWebReceipt(definition)
-  }
-  if (definition.id === 'web.chooser-security-authorization-and-opaque-identity') {
-    await proveChooserGate({ secureContext: false }, 'chooser.insecure-context')
-    await proveChooserGate({ userActivation: false }, 'chooser.user-activation-required')
-    const selected = await chooseHeartRateDevice(backend)
-    expect(String(selected.peerId)).not.toContain(mock.device.id)
-    expect(selected.grantedServices).toEqual([HEART_RATE_SERVICE])
-    await proveOptionalServiceAuthorization()
-    return passedWebReceipt(definition)
-  }
-  if (definition.id === 'web.manager-chooser-connect-discover-read') {
-    await proveManagerVerticalSlice()
-    return passedWebReceipt(definition)
-  }
-  if (definition.id === 'web.gatt-occurrences-owned-bytes-and-stale-generations') {
-    mock.device.gatt.getPrimaryServices = async () => [mock.service, mock.service]
-    mock.service.getCharacteristics = async () => [mock.characteristic, mock.characteristic]
-    mock.characteristic.getDescriptors = async () => [mock.descriptor, mock.descriptor]
-    const { lease, database, snapshot } = await connectedDatabase(backend)
-    expect(snapshot.services).toHaveLength(2)
-    expect(snapshot.characteristics).toHaveLength(4)
-    expect(snapshot.descriptors).toHaveLength(8)
-    const value = await database.read(snapshot.characteristics[0].path, noDeadline())
-    mock.readBuffer[1] = 120
-    expect([...value]).toEqual([0, 72])
-    const input = new Uint8Array([1, 2])
-    const write = database.write(snapshot.characteristics[0].path, input, {
-      ...noDeadline(),
-      mode: 'with-response'
+describe('InMemoryWebBluetoothTckBoundary', () => {
+  test('captures an owned chooser request and fires only due timers in stable order', async () => {
+    const boundary = new InMemoryWebBluetoothTckBoundary({
+      expectedReadValue: new Uint8Array(),
+      expectedInitialNotificationValue: new Uint8Array()
     })
-    input[0] = 9
-    await write
-    expect(mock.written[0]).toEqual([1, 2])
-    await backend.gatt.discover(lease.connection, noDeadline())
-    await expect(database.read(snapshot.characteristics[0].path, noDeadline())).rejects.toMatchObject({
-      normalized: { code: 'gatt.stale-handle' }
+    const fired = []
+    boundary.setTimer(() => fired.push('first-at-three'), 3)
+    boundary.setTimer(() => fired.push('second-at-three'), 3)
+    boundary.setTimer(() => fired.push('at-five'), 5)
+    boundary.fireTimers()
+    expect(fired).toEqual([])
+    boundary.advanceTime(3)
+    boundary.fireTimers()
+    expect(fired).toEqual(['first-at-three', 'second-at-three'])
+    boundary.advanceTime(2)
+    boundary.fireTimers()
+    expect(fired).toEqual(['first-at-three', 'second-at-three', 'at-five'])
+    expect(boundary.resourceSnapshot()).toMatchObject({ timersScheduled: 3, timersFired: 3, activeTimers: 0 })
+    expect([...boundary.expectedReadValue]).toEqual([])
+    expect([...boundary.expectedInitialNotificationValue]).toEqual([])
+    expect(String(boundary.expectedSelectedPeerId)).toBe('web-device-1')
+
+    const prefix = new Uint8Array([4, 5])
+    const choosing = boundary.requestDevice({
+      filters: [
+        {
+          services: [],
+          manufacturerData: [{ companyIdentifier: 76, dataPrefix: prefix }],
+          namePrefix: null
+        }
+      ],
+      acceptAllDevices: false,
+      optionalServices: []
     })
-    await lease.release()
-    return passedWebReceipt(definition)
-  }
-  if (definition.id === 'web.notification-readiness-ordering-and-cleanup') {
-    const { database, snapshot } = await connectedDatabase(backend)
-    const subscription = await database.subscribe(snapshot.characteristics[0].path, subscriptionOptions())
-    const iterator = subscription.values[Symbol.asyncIterator]()
-    await expect(iterator.next()).resolves.toMatchObject({
-      value: { kind: 'value', value: { value: new Uint8Array([0, 73]) } }
+    prefix[0] = 9
+    expect(boundary.resourceSnapshot().lastChooserRequest).toEqual({
+      filters: [
+        {
+          services: [],
+          manufacturerData: [{ companyIdentifier: 76, dataPrefix: new Uint8Array([4, 5]) }],
+          namePrefix: null
+        }
+      ],
+      acceptAllDevices: false,
+      optionalServices: []
     })
-    await subscription.remove()
-    for (const listener of mock.notificationListeners) {
-      listener(new Uint8Array([0, 99]))
-    }
-    await expect(iterator.next()).resolves.toMatchObject({ value: { kind: 'terminal' } })
-    await subscription.remove()
-    expect(mock.stopNotifications).toHaveBeenCalledTimes(1)
-    expect(mock.notificationListeners.size).toBe(0)
-    return passedWebReceipt(definition)
-  }
-  if (definition.id === 'web.cancellation-page-lifecycle-and-late-quarantine') {
-    let resolveChooser
-    mock.requestDevice.mockImplementation(
-      () =>
-        new Promise(resolve => {
-          resolveChooser = resolve
-        })
-    )
-    const controller = new AbortController()
-    const chooser = backend.choose(chooserRequest(), { signal: controller.signal, deadline: null })
-    await Promise.resolve()
-    controller.abort()
-    await expect(chooser).rejects.toMatchObject({ normalized: { code: 'operation.aborted' } })
-    resolveChooser({ device: mock.device, grantedServices: [HEART_RATE_SERVICE] })
-    await flushWebTckMicrotasks()
-    mock.requestDevice.mockImplementation(
-      () =>
-        new Promise(resolve => {
-          resolveChooser = resolve
-        })
-    )
-    const deadlineChooser = backend.choose(chooserRequest(), { signal: null, deadline: 20 })
-    await Promise.resolve()
-    for (const timer of mock.timers) {
-      timer.callback()
-    }
-    await expect(deadlineChooser).rejects.toMatchObject({ normalized: { code: 'operation.timed-out' } })
-    resolveChooser({ device: mock.device, grantedServices: [HEART_RATE_SERVICE] })
-    await flushWebTckMicrotasks()
-    mock.requestDevice.mockImplementation(
-      () =>
-        new Promise(resolve => {
-          resolveChooser = resolve
-        })
-    )
-    const pendingAtDestroy = backend.choose(chooserRequest(), noDeadline())
-    const pendingRejection = expect(pendingAtDestroy).rejects.toMatchObject({
-      normalized: { code: 'operation.cancelled-by-destroy' }
-    })
-    await Promise.resolve()
-    mock.triggerPageLifecycle('page-hidden')
-    await expect(backend.destroy()).resolves.toMatchObject({ state: 'release-failed' })
-    expectConsoleErrorMatching(
-      '[WebBluetoothBackend.pageLifecycle] page-hidden cleanup failed:',
-      expect.arrayContaining([expect.objectContaining({ resourceKind: 'chooser' })])
-    )
-    await pendingRejection
-    expect(backend.resourceCounters().chooserSessions).toBe(1)
-    resolveChooser({ device: mock.device, grantedServices: [HEART_RATE_SERVICE] })
-    await flushWebTckMicrotasks()
-    return passedWebReceipt(definition)
-  }
-  if (definition.id === 'web.owner-release-and-exact-resource-cleanup') {
-    const { database, lease, snapshot } = await connectedDatabase(backend)
-    const subscription = await database.subscribe(snapshot.characteristics[0].path, subscriptionOptions())
-    mock.stopNotifications.mockRejectedValueOnce(new Error('transient stop failure'))
-    await expect(subscription.remove()).resolves.toMatchObject({ state: 'release-failed' })
-    expectConsoleErrorMatching(
-      '[WebBluetoothGattRuntime.stopManagedSubscription] Notification stop rejected:',
-      expect.objectContaining({ message: 'transient stop failure' })
-    )
-    await expect(subscription.remove()).resolves.toEqual({ state: 'released', failures: [] })
-    await lease.release()
-    await lease.release()
-    const firstDestroy = backend.destroy()
-    const secondDestroy = backend.destroy()
-    expect(secondDestroy).toBe(firstDestroy)
-    await expect(firstDestroy).resolves.toEqual({ state: 'released', failures: [] })
-    expect(backend.resourceCounters()).toMatchObject({ connectionLeases: 0, physicalLinks: 0 })
-    return passedWebReceipt(definition)
-  }
-  if (definition.id === 'web.continuous-scan-and-join-unsupported') {
-    await expect(backend.scanner.start(scanOptions(null), 'web-tck-scan-client')).rejects.toMatchObject({
-      normalized: { code: 'capability.unsupported' }
-    })
-    await expect(backend.scanner.join('joined-lease', 'join-token', 'join-client')).rejects.toMatchObject({
-      normalized: { code: 'capability.unsupported' }
-    })
-    expect(backend.identity.runtime.diagnostics.continuousScan).toBe(false)
-    expect(backend.features.registrations).toContainEqual(
-      expect.objectContaining({
-        id: 'web:continuous-scan',
-        state: 'unsupported',
-        evidence: expect.objectContaining({ evidenceLevel: 'blocked' })
-      })
-    )
-    return unsupportedWebReceipt(definition)
-  }
-  const featureId =
-    definition.id === 'web.background-operation-unsupported' ? 'web:background-operation' : 'web:state-restoration'
-  const feature = backend.features.registrations.find(registration => registration.id === featureId)
-  expect(feature).toMatchObject({
-    state: 'unsupported',
-    evidence: { evidenceLevel: 'blocked' }
+    boundary.resolveChooser()
+    await expect(choosing).resolves.toMatchObject({ grantedServices: [HEART_RATE_SERVICE] })
   })
-  expect(feature.limitations.length).toBeGreaterThan(0)
-  return unsupportedWebReceipt(definition)
-}
+})
 
-async function proveManagerVerticalSlice() {
-  const mock = createBoundary()
-  const provider = createWebBluetoothProvider(mock.boundary)
-  const [adapter] = await provider.listAdapters()
-  const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
-  const attachedBackend = await attachBleBackend(backend, provider.descriptor.compatibility)
-  const manager = await createBleManager(
-    {
-      attachedBackend,
-      clientId: opaqueId('web-tck-client', 'client', 'web-tck'),
-      managerId: opaqueId('web-tck-manager', 'manager', 'web-tck'),
-      ownerMode: 'owning'
-    },
-    createManagerOwnershipAuthority(attachedBackend),
-    DEFAULT_BLE_MANAGER_OPTIONS
-  )
-  const selection = await backend.choose(chooserRequest(), noDeadline())
-  const connection = await manager.connect(selection.peerId, noDeadline())
-  const database = await connection.discover(noDeadline())
-  const snapshot = await database.snapshot()
-  const value = await database.read(snapshot.characteristics[0].path, noDeadline())
-  expect([...value]).toEqual([0, 72])
-  await connection.release()
-  await manager.destroy()
-}
-
-async function proveChooserGate(options, expectedCode) {
-  const mock = createBoundary(options)
-  const provider = createWebBluetoothProvider(mock.boundary)
+async function createAttachedWebBackend(boundary) {
+  const provider = createWebBluetoothProvider(boundary)
   const [adapter] = await provider.listAdapters()
   const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
   await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
-  await expect(chooseHeartRateDevice(backend)).rejects.toMatchObject({ normalized: { code: expectedCode } })
-  await backend.destroy()
-}
-
-async function proveOptionalServiceAuthorization() {
-  const mock = createBoundary()
-  mock.requestDevice.mockResolvedValue({ device: mock.device, grantedServices: [] })
-  const provider = createWebBluetoothProvider(mock.boundary)
-  const [adapter] = await provider.listAdapters()
-  const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
-  await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
-  const selected = await chooseHeartRateDevice(backend)
-  const lease = await backend.connections.connect(selected.peerId, 'authorization-client', noDeadline())
-  const database = await backend.gatt.discover(lease.connection, noDeadline())
-  const snapshot = await database.snapshot()
-  await expect(database.read(snapshot.characteristics[0].path, noDeadline())).rejects.toMatchObject({
-    normalized: { code: 'chooser.optional-service-not-granted' }
-  })
-  await backend.destroy()
-}
-
-async function chooseHeartRateDevice(backend) {
-  return backend.choose(chooserRequest(), noDeadline())
+  return { backend, provider }
 }
 
 function chooserRequest() {
   return {
-    filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
+    filters: [{ serviceUuids: [HEART_RATE_SERVICE], manufacturerData: [], localNamePrefix: null }],
     acceptAllDevices: false,
     optionalServices: [HEART_RATE_SERVICE]
   }
 }
 
-async function connectedDatabase(backend) {
-  const selected = await chooseHeartRateDevice(backend)
-  const lease = await backend.connections.connect(selected.peerId, 'web-tck-client', noDeadline())
-  const database = await backend.gatt.discover(lease.connection, noDeadline())
-  return { lease, database, snapshot: await database.snapshot() }
-}
-
 function noDeadline() {
   return { signal: null, deadline: null }
-}
-
-function subscriptionOptions() {
-  return {
-    ...noDeadline(),
-    delivery: {
-      itemCapacity: 2,
-      byteCapacity: 16,
-      reservedControlCapacity: 1,
-      overflowPolicy: 'error'
-    }
-  }
 }
 
 function scanOptions(signal) {
@@ -803,23 +898,5 @@ function scanOptions(signal) {
 async function flushWebTckMicrotasks() {
   for (let ordinal = 0; ordinal < 8; ordinal += 1) {
     await Promise.resolve()
-  }
-}
-
-function passedWebReceipt(definition) {
-  return {
-    scenarioId: definition.id,
-    disposition: 'applicable',
-    facts: definition.requiredFacts,
-    unsupportedCode: null
-  }
-}
-
-function unsupportedWebReceipt(definition) {
-  return {
-    scenarioId: definition.id,
-    disposition: 'unsupported',
-    facts: definition.requiredFacts,
-    unsupportedCode: definition.expectedUnsupportedCode
   }
 }

@@ -50,12 +50,14 @@ import type {
   PeerId
 } from '../backend-contract/primitives'
 import type { BoundedAsyncStream, StreamLimits } from '../backend-contract/streams'
+import type { ScanFilter } from '../backend-contract/advertisement'
 import type { ChooserRequest, ChooserSelection, WebChooser } from '../backend-contract/host/web'
 import { CoreBoundedStream } from '../core/bounded-stream'
 import type {
   WebBluetoothBoundary,
   WebBluetoothDeviceSelection,
   WebBluetoothRequestDeviceOptions,
+  WebBluetoothRequestFilter,
   WebBluetoothTimerHandle
 } from './web-bluetooth-boundary'
 import { normalizeWebBluetoothError, validateWebChooserRequest, webCleanupFailure } from './web-bluetooth-errors'
@@ -252,7 +254,7 @@ export class WebBluetoothBackend
     this.assertUsable('web-backend.events')
     const stream = new CoreBoundedStream<BackendEvent<string>>(DEFAULT_STREAM_LIMITS, 'error')
     this.eventStreams.add(stream)
-    return stream
+    return managedStream(stream, () => this.eventStreams.delete(stream))
   }
 
   resourceCounters(): ResourceCounters {
@@ -315,13 +317,19 @@ export class WebBluetoothBackend
     if (subscriptionCleanup.state === 'release-failed') {
       return subscriptionCleanup
     }
+    let disconnectListenerRemoved = false
     try {
       if (record.device.gatt.connected) {
+        record.device.removeDisconnectListener(record.disconnectListener)
+        disconnectListenerRemoved = true
         record.device.gatt.disconnect()
       }
       this.invalidateConnection(record, 'owner-released')
       return RELEASED
     } catch (error) {
+      if (disconnectListenerRemoved && record.valid) {
+        record.device.addDisconnectListener(record.disconnectListener)
+      }
       console.error('[WebBluetoothBackend.disconnectRecord] Browser disconnect failed:', error)
       return webCleanupFailure('connection', 'web-connection.disconnect')
     }
@@ -379,7 +387,9 @@ export class WebBluetoothBackend
   }
 
   private async currentAdapterState(): Promise<AdapterStateSnapshot<string>> {
+    this.assertUsable('web-adapter.current-state')
     const available = await this.boundary.bluetoothAvailable()
+    this.assertUsable('web-adapter.current-state')
     this.refreshAttachmentAvailability(available)
     return this.attachmentRecord.adapter.state
   }
@@ -399,7 +409,14 @@ export class WebBluetoothBackend
     this.attachmentGeneration += 1
     this.attachmentRecord = this.createAttachmentRecord(available)
     for (const stream of this.adapterStreams) {
-      stream.emit(this.attachmentRecord.adapter.state, 96, String(this.attachmentRecord.backendGeneration))
+      const result = stream.emit(
+        this.attachmentRecord.adapter.state,
+        96,
+        String(this.attachmentRecord.backendGeneration)
+      )
+      if (result.terminated) {
+        this.adapterStreams.delete(stream)
+      }
     }
     if (!available) {
       this.attached = false
@@ -488,10 +505,12 @@ export class WebBluetoothBackend
   }
 
   private async watchAdapterState(): Promise<AdapterStateWatch<string>> {
+    this.assertUsable('web-adapter.watch-state')
     const initial = await this.currentAdapterState()
+    this.assertUsable('web-adapter.watch-state')
     const transitions = new CoreBoundedStream<AdapterStateSnapshot<string>>(DEFAULT_STREAM_LIMITS, 'latest')
     this.adapterStreams.add(transitions)
-    return { initial, transitions }
+    return { initial, transitions: managedStream(transitions, () => this.adapterStreams.delete(transitions)) }
   }
 
   private async chooseDevice(request: ChooserRequest, operation: AbortableOperation): Promise<WebSelectedDevice> {
@@ -507,15 +526,8 @@ export class WebBluetoothBackend
       throw contractError('chooser.busy', 'chooser', 'web-chooser.choose')
     }
     validateWebChooserRequest(request)
+    const browserRequest = snapshotBrowserRequest(request)
     this.chooserBusy = true
-    const browserRequest: WebBluetoothRequestDeviceOptions = {
-      filters: request.filters.map(filter => ({
-        services: filter.serviceUuids,
-        namePrefix: filter.localNamePrefix
-      })),
-      acceptAllDevices: request.acceptAllDevices,
-      optionalServices: [...request.optionalServices]
-    }
     const browserSelection = Promise.resolve().then(async () => {
       await this.assertBluetoothAvailable('web-chooser.choose')
       return this.boundary.requestDevice(browserRequest)
@@ -860,7 +872,10 @@ export class WebBluetoothBackend
 
   private emitBackendEvent(event: BackendEvent<string>): void {
     for (const stream of this.eventStreams) {
-      stream.emit(event, 1)
+      const result = stream.emit(event, 1)
+      if (result.terminated) {
+        this.eventStreams.delete(stream)
+      }
     }
   }
 
@@ -971,3 +986,35 @@ function webAdapterDescriptor(
 }
 
 export const WEB_BLUETOOTH_ADAPTER_ID = WEB_ADAPTER_ID
+
+function snapshotBrowserRequest(request: ChooserRequest): WebBluetoothRequestDeviceOptions {
+  return {
+    filters: request.filters.map(snapshotBrowserFilter),
+    acceptAllDevices: request.acceptAllDevices,
+    optionalServices: [...request.optionalServices]
+  }
+}
+
+function snapshotBrowserFilter(filter: ScanFilter): WebBluetoothRequestFilter {
+  return {
+    services: [...filter.serviceUuids],
+    manufacturerData: filter.manufacturerData.map(manufacturer => ({
+      companyIdentifier: manufacturer.companyIdentifier,
+      dataPrefix: manufacturer.dataPrefix === null ? null : new Uint8Array(manufacturer.dataPrefix)
+    })),
+    namePrefix: filter.localNamePrefix
+  }
+}
+
+function managedStream<Value>(stream: CoreBoundedStream<Value>, unregister: () => void): BoundedAsyncStream<Value> {
+  return {
+    limits: stream.limits,
+    overflowPolicy: stream.overflowPolicy,
+    [Symbol.asyncIterator]: () => stream[Symbol.asyncIterator](),
+    close: async () => {
+      const cleanup = await stream.close()
+      unregister()
+      return cleanup
+    }
+  }
+}

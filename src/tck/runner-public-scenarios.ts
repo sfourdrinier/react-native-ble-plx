@@ -21,7 +21,14 @@ import {
   createManagerOwnershipAuthority,
   DEFAULT_BLE_MANAGER_OPTIONS
 } from '../manager/ble-manager'
-import type { BackendTckFactory, BackendTckFixture, TckFact, TckScenarioDefinition } from './contracts'
+import {
+  WEB_CHOOSER_TCK_SCENARIO_ID,
+  WEB_UNSUPPORTED_CAPABILITIES_TCK_SCENARIO_ID,
+  type BackendTckFactory,
+  type BackendTckFixture,
+  type TckFact,
+  type TckScenarioDefinition
+} from './contracts'
 import { TckAssertionError } from './contracts'
 import {
   assertCleanupReleased,
@@ -42,6 +49,8 @@ import { executePublicVerticalSlice } from './runner-public-vertical-scenario'
 import { executeSubscriptionOverflowScenario } from './runner-public-subscription-overflow-scenario'
 import { executeDiagnosticsScenario, executeLifecycleScenario } from './runner-public-lifecycle-diagnostics-scenario'
 import { executeDescriptorOperationsScenario } from './runner-public-descriptor-scenario'
+import { executePublicWebChooserVerticalSlice } from './runner-public-web-chooser-vertical-scenario'
+import { executePublicWebUnsupportedCapabilitiesScenario } from './runner-public-web-unsupported-capabilities-scenario'
 
 const publicScenarioId = 'manager.scan-connect-discover-read-notify-destroy'
 const publicScenarioFact = 'scan-connect-discover-read-notify-destroy-completes'
@@ -201,6 +210,14 @@ async function executeManagerScenario<
   }
   if (definition.id === 'diagnostics.trace-redaction-and-resource-counters') {
     return executeDiagnosticsScenario(manager, fixture, definition)
+  }
+  if (definition.id === WEB_CHOOSER_TCK_SCENARIO_ID) {
+    const detail = await executePublicWebChooserVerticalSlice(manager, fixture, definition)
+    return [fact('web-chooser-vertical-slice-preserves-selection-and-cleans-up', true, detail)]
+  }
+  if (definition.id === WEB_UNSUPPORTED_CAPABILITIES_TCK_SCENARIO_ID) {
+    const detail = await executePublicWebUnsupportedCapabilitiesScenario(manager, fixture, definition)
+    return [fact('web-unsupported-capabilities-reject-and-report-runtime-truth', true, detail)]
   }
   if (definition.id === publicScenarioDefinitionId) {
     await executePublicVerticalSlice(manager, fixture, definition)
@@ -1047,11 +1064,20 @@ async function executeConnectionControlsScenario<
   }
   const connection = await connectToDeterministicPeer(manager, fixture, definition)
   let rssiMeasured = false
+  let rssiExplicitlyUnavailable = false
   let mtuObserved = false
   let mtuExplicitlyUnavailable = false
   try {
-    const rssi = await fixture.controller.settle(connection.readRssi(operationOptions))
-    rssiMeasured = Number.isSafeInteger(rssi.rssi)
+    const rssiState = featureState(fixture.backend, 'connection:rssi-measurement')
+    if (rssiState === 'supported' || rssiState === 'limited') {
+      const rssi = await fixture.controller.settle(connection.readRssi(operationOptions))
+      rssiMeasured = Number.isSafeInteger(rssi.rssi)
+    } else {
+      rssiExplicitlyUnavailable = await rejectsWithCapabilityCode(
+        fixture.controller.settle(connection.readRssi(operationOptions)),
+        'capability.unsupported'
+      )
+    }
     const mtuState = featureState(fixture.backend, 'connection:request-att-mtu')
     if (mtuState === 'supported' || mtuState === 'limited') {
       const negotiation = await fixture.controller.settle(connection.requestMtu(adapter.requestedMtu, operationOptions))
@@ -1074,7 +1100,10 @@ async function executeConnectionControlsScenario<
     )
   }
   return [
-    fact('connection-rssi-is-measured-or-explicitly-unavailable', rssiMeasured, { rssiMeasured }),
+    fact('connection-rssi-is-measured-or-explicitly-unavailable', rssiMeasured || rssiExplicitlyUnavailable, {
+      rssiExplicitlyUnavailable,
+      rssiMeasured
+    }),
     fact('connection-att-mtu-is-negotiated-or-explicitly-unavailable', mtuObserved || mtuExplicitlyUnavailable, {
       mtuExplicitlyUnavailable,
       mtuObserved,

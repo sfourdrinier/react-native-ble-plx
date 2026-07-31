@@ -11,6 +11,7 @@ const {
 } = require('../../src/testing')
 const { decodeNativeProtocolRecord, encodeNativeProtocolRecord } = require('../../src/native-protocol/v1-codec')
 const { InMemoryCoreBluetoothBoundary } = require('../../test-support/corebluetooth/in-memory-corebluetooth-boundary')
+const { InMemoryWebBluetoothTckBoundary } = require('../../test-support/web/in-memory-web-bluetooth-tck-boundary')
 const {
   BLUEZ_ADAPTER_INTERFACE,
   BLUEZ_DEVICE_INTERFACE,
@@ -48,10 +49,18 @@ describe('first-party deterministic backend TCK registry', () => {
     const androidRuntime = new DeterministicReactNativeProtocolRuntime(androidControl, false)
     const appleControl = new DeterministicNativeControl()
     const appleRuntime = new DeterministicReactNativeProtocolRuntime(appleControl, false)
+    const webBoundaries = []
     let androidOwner = 0
     let appleOwner = 0
     const registry = createFirstPartyBackendTckRegistry([
-      createWebBluetoothFirstPartyTckRegistration({ createBoundary: createWebTckBoundary }),
+      createWebBluetoothFirstPartyTckRegistration({
+        createBoundary: () => {
+          const boundary = createWebTckBoundary()
+          webBoundaries.push(boundary)
+          return boundary
+        },
+        chooserRequest: webChooserRequest()
+      }),
       createCoreBluetoothFirstPartyTckRegistration({
         now: () => 20,
         nativePeerId: 'native-polar-h10',
@@ -97,7 +106,7 @@ describe('first-party deterministic backend TCK registry', () => {
       {
         backendId: 'unified-ble:web-bluetooth',
         prepare: () => undefined,
-        exclusions: ['web:continuous-scan', 'web:background-operation', 'web:state-restoration']
+        exclusions: ['web:continuous-scan', 'web:background-operation', 'web:state-restoration', 'web:live-radio']
       },
       { backendId: 'unified-ble:corebluetooth', prepare: () => undefined, exclusions: [] },
       {
@@ -152,26 +161,56 @@ describe('first-party deterministic backend TCK registry', () => {
         expect(receipt.facts.length).toBeGreaterThan(0)
         expect(receipt.facts.every(fact => fact.holds)).toBe(true)
       }
+      if (registration.backendId === 'unified-ble:web-bluetooth') {
+        expect(report.standard.featureSuiteIds).toEqual(['web-chooser-discovery'])
+        expect(report.standard.receipts).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              scenarioId: 'web.chooser-connect-discover-read-notify-destroy',
+              error: null,
+              facts: [
+                expect.objectContaining({
+                  id: 'web-chooser-vertical-slice-preserves-selection-and-cleans-up',
+                  holds: true,
+                  detail: expect.objectContaining({ cancelledPeerRejected: true })
+                })
+              ]
+            })
+          ])
+        )
+      }
       expect(report.capabilityExclusions.map(exclusion => exclusion.featureId)).toEqual(registration.exclusions)
     }
+    const webScenarioBoundary = webBoundaries.find(boundary => boundary.resourceSnapshot().chooserRequests === 2)
+    expect(webScenarioBoundary).toBeDefined()
+    expect(webScenarioBoundary.resourceSnapshot()).toMatchObject({
+      lastChooserRequest: {
+        filters: [{ services: [SERVICE_UUID], manufacturerData: [], namePrefix: null }],
+        acceptAllDevices: false,
+        optionalServices: [SERVICE_UUID]
+      },
+      connected: false,
+      disconnectListeners: 0,
+      notificationListeners: 0,
+      activeTimers: 0
+    })
+    expect([...webScenarioBoundary.expectedReadValue]).toEqual([0, 72])
+    expect([...webScenarioBoundary.expectedInitialNotificationValue]).toEqual([0, 73])
   })
 })
 
 function createWebTckBoundary() {
-  return {
+  return new InMemoryWebBluetoothTckBoundary({
     implementationVersion: 'first-party-registry-web-boundary',
-    browserEngine: 'first-party-registry-browser',
-    isSecureContext: () => true,
-    hasTransientUserActivation: () => true,
-    bluetoothAvailable: async () => true,
-    requestDevice: async () => {
-      throw new Error('Web provider/capability suites must not open a chooser')
-    },
-    permittedDevices: async () => [],
-    now: () => 20,
-    setTimer: () => ({ id: 'first-party-registry-web-timer' }),
-    clearTimer: () => undefined,
-    addPageLifecycleListener: () => () => undefined
+    browserEngine: 'first-party-registry-browser'
+  })
+}
+
+function webChooserRequest() {
+  return {
+    filters: [{ serviceUuids: [SERVICE_UUID], manufacturerData: [], localNamePrefix: null }],
+    acceptAllDevices: false,
+    optionalServices: [SERVICE_UUID]
   }
 }
 

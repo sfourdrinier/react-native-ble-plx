@@ -40,7 +40,6 @@ function createBoundary(options = {}) {
   }
   const device = {
     id: 'browser-availability-device',
-    name: 'Heart Sensor',
     gatt,
     addDisconnectListener: listener => disconnectListeners.add(listener),
     removeDisconnectListener: listener => disconnectListeners.delete(listener)
@@ -61,7 +60,6 @@ function createBoundary(options = {}) {
       hasTransientUserActivation: () => true,
       bluetoothAvailable: async () => options.bluetoothAvailable ?? true,
       requestDevice,
-      permittedDevices: async () => [],
       now: () => 10,
       setTimer: callback => {
         const handle = { callback }
@@ -81,7 +79,7 @@ function createBoundary(options = {}) {
 
 function chooserRequest() {
   return {
-    filters: [{ serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null }],
+    filters: [{ serviceUuids: [HEART_RATE_SERVICE], manufacturerData: [], localNamePrefix: null }],
     acceptAllDevices: false,
     optionalServices: [HEART_RATE_SERVICE]
   }

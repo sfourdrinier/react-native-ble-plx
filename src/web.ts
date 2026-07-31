@@ -36,20 +36,10 @@ export type {
   WebBluetoothPageLifecycleReason,
   WebBluetoothRequestDeviceOptions,
   WebBluetoothRequestFilter,
+  WebBluetoothRequestManufacturerDataFilter,
   WebBluetoothServiceBoundary,
   WebBluetoothTimerHandle
 } from './web/web-bluetooth-boundary'
-export { runWebBluetoothTck, webBluetoothTckScenarios } from './web/web-bluetooth-tck'
-export type {
-  WebBluetoothTckDisposition,
-  WebBluetoothTckFactory,
-  WebBluetoothTckFixture,
-  WebBluetoothTckReceipt,
-  WebBluetoothTckReport,
-  WebBluetoothTckScenarioDefinition,
-  WebBluetoothTckScenarioId
-} from './web/web-bluetooth-tck'
-
 export interface WebBleManagerOptions {
   readonly provider: WebBluetoothProvider
   readonly clientId: string

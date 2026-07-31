@@ -1,6 +1,7 @@
 // src/web/web-bluetooth-errors.ts
 
 import { BackendContractError, contractError } from '../backend-contract/errors'
+import { assertScanFilter } from '../backend-contract/advertisement'
 import type { BleErrorCode, BleErrorDomain, CleanupRecord } from '../backend-contract/errors'
 import type { ChooserRequest } from '../backend-contract/host/web'
 
@@ -48,10 +49,6 @@ function normalizedNamedErrorCode(name: string, context: WebErrorContext): BleEr
   return context.fallbackCode
 }
 
-export function webError(error: Error, context: WebErrorContext): BackendContractError {
-  return normalizeWebBluetoothError(error, context)
-}
-
 export function webCleanupFailure(resourceKind: string, operation: string): CleanupRecord {
   return {
     state: 'release-failed',
@@ -61,10 +58,13 @@ export function webCleanupFailure(resourceKind: string, operation: string): Clea
 
 export function validateWebChooserRequest(request: ChooserRequest): void {
   const hasFilters = request.filters.length > 0
-  if (
-    request.acceptAllDevices === hasFilters ||
-    request.filters.some(filter => filter.serviceUuids.length === 0 && filter.localNamePrefix === null)
-  ) {
+  if (request.acceptAllDevices === hasFilters) {
     throw contractError('scan.filter-invalid', 'chooser', 'web-chooser.request')
+  }
+  for (const filter of request.filters) {
+    assertScanFilter(filter, 'web-chooser.request')
+    if (filter.serviceUuids.length === 0 && filter.manufacturerData.length === 0 && filter.localNamePrefix === null) {
+      throw contractError('scan.filter-invalid', 'chooser', 'web-chooser.request')
+    }
   }
 }

@@ -13,7 +13,7 @@ const outputPath = path.join(root, 'docs/generated/BACKEND_SDK_REFERENCE.md')
 const checkOnly = process.argv.slice(2).includes('--check')
 
 function extractStringUnion(source, typeName) {
-  const match = new RegExp(`export type ${typeName}\\s*=\\s*([\\s\\S]*?)\\n+export type `).exec(source)
+  const match = new RegExp(`export type ${typeName}\\s*=\\s*([\\s\\S]*?)\\n+export (?:type|const) `).exec(source)
   if (match === null || match[1] === undefined) {
     throw new Error(`Unable to locate canonical ${typeName} union`)
   }
@@ -24,12 +24,23 @@ function extractStringUnion(source, typeName) {
   return values
 }
 
-function requireScenarioImplementations(ids, scenarioSource) {
+function requireScenarioImplementations(ids, contractSource, scenarioSource) {
   for (const id of ids) {
-    if (!scenarioSource.includes(`id: '${id}'`)) {
-      throw new Error(`Canonical TCK scenario ${id} has no scenario definition`)
+    if (scenarioSource.includes(`id: '${id}'`)) {
+      continue
+    }
+    const declaration = new RegExp(
+      `export const ([A-Z][A-Z0-9_]*)\\s*=\\s*'${escapeRegExp(id)}'`
+    ).exec(contractSource)
+    const identifier = declaration?.[1]
+    if (identifier === undefined || !scenarioSource.includes(`id: ${identifier}`)) {
+      throw new Error(`Canonical TCK scenario ${id} has no literal or exported-constant scenario definition`)
     }
   }
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function markdownList(values) {
@@ -43,7 +54,7 @@ function render() {
   const featureStates = extractStringUnion(capabilitySource, 'FeatureState')
   const evidenceLevels = extractStringUnion(capabilitySource, 'EvidenceLevel')
   const scenarioIds = extractStringUnion(tckContractSource, 'TckScenarioId')
-  requireScenarioImplementations(scenarioIds, tckScenarioSource)
+  requireScenarioImplementations(scenarioIds, tckContractSource, tckScenarioSource)
 
   return `<!-- docs/generated/BACKEND_SDK_REFERENCE.md -->
 

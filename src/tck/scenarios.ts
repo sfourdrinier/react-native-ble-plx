@@ -1,6 +1,11 @@
 // src/tck/scenarios.ts
 
-import type { TckScenarioDefinition, TckScenarioId } from './contracts'
+import {
+  WEB_CHOOSER_TCK_SCENARIO_ID,
+  WEB_UNSUPPORTED_CAPABILITIES_TCK_SCENARIO_ID,
+  type TckScenarioDefinition,
+  type TckScenarioId
+} from './contracts'
 
 export const baseTckScenarios: readonly TckScenarioDefinition[] = [
   {
@@ -200,6 +205,18 @@ export const baseTckScenarios: readonly TckScenarioDefinition[] = [
     execution: 'base',
     requiredFacts: ['vertical-slice-preserves-scan-and-cleans-up'],
     requiredControllerActions: ['queue-advertisement', 'emit-notification']
+  },
+  {
+    id: WEB_UNSUPPORTED_CAPABILITIES_TCK_SCENARIO_ID,
+    execution: 'feature',
+    requiredFacts: ['web-unsupported-capabilities-reject-and-report-runtime-truth'],
+    requiredControllerActions: []
+  },
+  {
+    id: WEB_CHOOSER_TCK_SCENARIO_ID,
+    execution: 'feature',
+    requiredFacts: ['web-chooser-vertical-slice-preserves-selection-and-cleans-up'],
+    requiredControllerActions: ['resolve-chooser', 'emit-notification']
   }
 ]
 

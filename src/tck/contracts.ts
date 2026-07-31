@@ -9,8 +9,9 @@ import type {
 } from '../backend-contract/capabilities'
 import type { BleCentralBackend } from '../backend-contract/backend'
 import type { CleanupRecord, NormalizedBleError } from '../backend-contract/errors'
+import type { ChooserRequest, WebChooser } from '../backend-contract/host/web'
 import type { AdapterSelection, BackendIdentity, BackendProvider, HostKind } from '../backend-contract/identity'
-import type { SerializableRecord } from '../backend-contract/primitives'
+import type { BorrowedBytes, PeerId, SerializableRecord } from '../backend-contract/primitives'
 import type { ManagerRestorationCapability, RestorationAdoptionRequest } from '../backend-contract/restoration'
 
 /**
@@ -90,10 +91,21 @@ export interface TckRestorationScenarioAdapter<
   seedJournal(controller: TckScenarioController): Promise<void>
 }
 
+/** Typed browser-boundary inputs for the runner-owned chooser vertical slice. */
+export interface TckWebChooserScenarioAdapter<Attachment extends string> {
+  readonly chooser: WebChooser<Attachment>
+  readonly request: ChooserRequest
+  /** Authoritative deterministic oracle for the peer returned by a cancelled chooser completion. */
+  readonly expectedSelectedPeerId: PeerId<Attachment>
+  readonly expectedReadValue: BorrowedBytes
+  readonly expectedInitialNotificationValue: BorrowedBytes
+}
+
 /** Typed deterministic-boundary inputs for feature scenarios that the standard runner observes. */
 export interface TckFeatureScenarioAdapters<Attachment extends string, Identity extends BackendIdentity<Attachment>> {
   readonly connectionControls?: TckConnectionControlsScenarioAdapter
   readonly restoration?: TckRestorationScenarioAdapter<Attachment, Identity>
+  readonly webChooser?: TckWebChooserScenarioAdapter<Attachment>
 }
 
 export interface BackendTckFixture<
@@ -112,6 +124,7 @@ export interface BackendTckFixture<
 export type TckControllerAction =
   | 'queue-advertisement'
   | 'emit-notification'
+  | 'resolve-chooser'
   | 'queue-operation-completion'
   | 'advance-time'
   | 'force-disconnect'
@@ -160,6 +173,18 @@ export type TckScenarioId =
   | 'lifecycle.destroy-idempotency-admission-and-exact-settlement'
   | 'diagnostics.trace-redaction-and-resource-counters'
   | 'scenario.scan-connect-discover-read-notify-destroy'
+  | 'web.unsupported-capabilities-reject-and-remain-honest'
+  | 'web.chooser-connect-discover-read-notify-destroy'
+
+/** One authority for the runner-owned Web unsupported-capability scenario. */
+export const WEB_UNSUPPORTED_CAPABILITIES_TCK_SCENARIO_ID =
+  'web.unsupported-capabilities-reject-and-remain-honest' satisfies TckScenarioId
+
+/** One authority for the Web chooser scenario consumed by its scenario, registry, and registration. */
+export const WEB_CHOOSER_TCK_SCENARIO_ID = 'web.chooser-connect-discover-read-notify-destroy' satisfies TckScenarioId
+
+/** One authority for the Web chooser feature suite consumed by its registry and registration. */
+export const WEB_CHOOSER_TCK_SUITE_ID = 'web-chooser-discovery'
 
 export type TckFactId =
   | 'provider-loadability-separate-from-adapter-availability'
@@ -212,6 +237,8 @@ export type TckFactId =
   | 'resource-counters-return-to-zero-without-underflow'
   | 'trace-is-ordered-bounded-and-redacted'
   | 'vertical-slice-preserves-scan-and-cleans-up'
+  | 'web-unsupported-capabilities-reject-and-report-runtime-truth'
+  | 'web-chooser-vertical-slice-preserves-selection-and-cleans-up'
 
 export interface TckScenarioDefinition {
   readonly id: TckScenarioId
@@ -239,6 +266,14 @@ export interface TckFeatureSuite {
   /** Feature-only scenario definitions this suite is authorized to require. */
   readonly scenarioIds: readonly TckScenarioId[]
 }
+
+/** Immutable typed Web chooser suite authority. */
+export const WEB_CHOOSER_TCK_FEATURE_SUITE = Object.freeze({
+  suiteId: WEB_CHOOSER_TCK_SUITE_ID,
+  scenarioIds: Object.freeze<
+    readonly [typeof WEB_CHOOSER_TCK_SCENARIO_ID, typeof WEB_UNSUPPORTED_CAPABILITIES_TCK_SCENARIO_ID]
+  >([WEB_CHOOSER_TCK_SCENARIO_ID, WEB_UNSUPPORTED_CAPABILITIES_TCK_SCENARIO_ID])
+}) satisfies TckFeatureSuite
 
 export type RegisteredFeature = FeatureRegistry['registrations'][number]
 

@@ -12,6 +12,7 @@ import type {
   WebBluetoothNotificationListener,
   WebBluetoothPageLifecycleReason,
   WebBluetoothRequestDeviceOptions,
+  WebBluetoothRequestFilter,
   WebBluetoothServiceBoundary,
   WebBluetoothTimerHandle
 } from './web-bluetooth-boundary'
@@ -74,7 +75,6 @@ interface BrowserBluetoothGattServer {
 
 interface BrowserBluetoothDevice {
   readonly id: string
-  readonly name?: string | null
   readonly gatt?: BrowserBluetoothGattServer | null
   addEventListener(type: 'gattserverdisconnected', listener: () => void): void
   removeEventListener(type: 'gattserverdisconnected', listener: () => void): void
@@ -88,6 +88,10 @@ type BrowserBluetoothRequestOptions =
   | {
       readonly filters: Array<{
         readonly services?: string[]
+        readonly manufacturerData?: Array<{
+          readonly companyIdentifier: number
+          readonly dataPrefix?: Uint8Array
+        }>
         readonly namePrefix?: string
       }>
       readonly optionalServices?: string[]
@@ -95,7 +99,6 @@ type BrowserBluetoothRequestOptions =
 
 interface BrowserBluetooth {
   getAvailability?(): Promise<boolean>
-  getDevices?(): Promise<readonly BrowserBluetoothDevice[]>
   requestDevice(options?: BrowserBluetoothRequestOptions): Promise<BrowserBluetoothDevice>
 }
 
@@ -115,7 +118,6 @@ export interface NavigatorWebBluetoothEnvironment {
 export class NavigatorWebBluetoothBoundary implements WebBluetoothBoundary {
   readonly implementationVersion: string
   readonly browserEngine: string
-  private readonly grantedServicesByDevice = new Map<string, readonly Uuid[]>()
 
   constructor(private readonly environment: NavigatorWebBluetoothEnvironment) {
     this.implementationVersion = environment.implementationVersion
@@ -147,30 +149,14 @@ export class NavigatorWebBluetoothBoundary implements WebBluetoothBoundary {
           optionalServices: [...options.optionalServices]
         }
       : {
-          filters: options.filters.map(filter => ({
-            services: filter.services.length === 0 ? undefined : [...filter.services],
-            namePrefix: filter.namePrefix === null ? undefined : filter.namePrefix
-          })),
+          filters: options.filters.map(browserRequestFilter),
           optionalServices: [...options.optionalServices]
         }
     const device = await bluetooth.requestDevice(request)
-    this.grantedServicesByDevice.set(device.id, grantedServices)
     return {
       device: new NavigatorDeviceBoundary(device),
       grantedServices
     }
-  }
-
-  async permittedDevices(): Promise<readonly WebBluetoothDeviceSelection[]> {
-    const bluetooth = this.requireBluetooth()
-    if (bluetooth.getDevices === undefined) {
-      return []
-    }
-    const devices = await bluetooth.getDevices()
-    return devices.map(device => ({
-      device: new NavigatorDeviceBoundary(device),
-      grantedServices: this.grantedServicesByDevice.get(device.id) ?? []
-    }))
   }
 
   now(): number {
@@ -201,13 +187,11 @@ export class NavigatorWebBluetoothBoundary implements WebBluetoothBoundary {
 
 class NavigatorDeviceBoundary implements WebBluetoothDeviceBoundary {
   readonly id: string
-  readonly name: string | null
   readonly gatt: WebBluetoothGattServerBoundary
   private readonly disconnectListeners = new Map<WebBluetoothDisconnectListener, () => void>()
 
   constructor(private readonly device: BrowserBluetoothDevice) {
     this.id = device.id
-    this.name = device.name ?? null
     if (device.gatt === undefined || device.gatt === null) {
       const error = new Error('Selected device does not expose a GATT server')
       error.name = 'NotSupportedError'
@@ -349,6 +333,27 @@ class NavigatorDescriptorBoundary implements WebBluetoothDescriptorBoundary {
 
 function requestedServices(options: WebBluetoothRequestDeviceOptions): readonly Uuid[] {
   return [...new Set([...options.filters.flatMap(filter => filter.services), ...options.optionalServices])]
+}
+
+function browserRequestFilter(filter: WebBluetoothRequestFilter): {
+  readonly services?: string[]
+  readonly manufacturerData?: Array<{
+    readonly companyIdentifier: number
+    readonly dataPrefix?: Uint8Array
+  }>
+  readonly namePrefix?: string
+} {
+  return {
+    services: filter.services.length === 0 ? undefined : [...filter.services],
+    manufacturerData:
+      filter.manufacturerData.length === 0
+        ? undefined
+        : filter.manufacturerData.map(manufacturer => ({
+            companyIdentifier: manufacturer.companyIdentifier,
+            dataPrefix: manufacturer.dataPrefix === null ? undefined : new Uint8Array(manufacturer.dataPrefix)
+          })),
+    namePrefix: filter.namePrefix === null ? undefined : filter.namePrefix
+  }
 }
 
 function copyView(view: BrowserValueView): Uint8Array {

@@ -327,7 +327,7 @@ async function createWebScenarioEnvironment() {
 
 function webChooserRequest() {
   return {
-    filters: [{ serviceUuids: [serviceUuid], localNamePrefix: null }],
+    filters: [{ serviceUuids: [serviceUuid], manufacturerData: [], localNamePrefix: null }],
     acceptAllDevices: false,
     optionalServices: [serviceUuid]
   }
@@ -391,7 +391,6 @@ function createWebScenarioBoundary() {
   }
   const device = {
     id: 'scenario-web-device',
-    name: 'Scenario Web Sensor',
     gatt,
     addDisconnectListener: listener => disconnectListeners.add(listener),
     removeDisconnectListener: listener => disconnectListeners.delete(listener)
@@ -407,7 +406,6 @@ function createWebScenarioBoundary() {
         chooserSelections += 1
         return { device, grantedServices: [serviceUuid] }
       },
-      permittedDevices: async () => [],
       now: () => 20,
       setTimer: () => ({}),
       clearTimer: () => undefined,

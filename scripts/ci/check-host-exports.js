@@ -117,7 +117,6 @@ function main() {
     'function',
     'web.createNavigatorWebBluetoothProvider must be a function'
   )
-  assert.strictEqual(typeof web.runWebBluetoothTck, 'function', 'web.runWebBluetoothTck must be a function')
   assert.strictEqual(
     typeof reactNative.createReactNativeAndroidBackendProvider,
     'function',

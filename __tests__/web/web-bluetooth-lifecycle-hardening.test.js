@@ -1,10 +1,12 @@
 // __tests__/web/web-bluetooth-lifecycle-hardening.test.js
 
 const { createWebBluetoothProvider } = require('../../src/web/web-bluetooth-backend')
+const { InMemoryWebBluetoothTckBoundary } = require('../../test-support/web/in-memory-web-bluetooth-tck-boundary')
 
 const SERVICE = '0000180d-0000-1000-8000-00805f9b34fb'
 const CHARACTERISTIC = '00002a37-0000-1000-8000-00805f9b34fb'
 const DESCRIPTOR = '00002902-0000-1000-8000-00805f9b34fb'
+const activeBackends = new Set()
 
 function deferred() {
   let resolve
@@ -93,7 +95,6 @@ function fixture() {
   }
   const device = {
     id: 'browser-secret-device',
-    name: 'Sensor',
     gatt,
     addDisconnectListener: listener => disconnectListeners.add(listener),
     removeDisconnectListener: listener => disconnectListeners.delete(listener)
@@ -111,7 +112,6 @@ function fixture() {
       }
       return selection
     },
-    permittedDevices: async () => [],
     now: () => 10,
     setTimer: callback => {
       const handle = { callback }
@@ -164,13 +164,36 @@ async function backendFixture(testFixture) {
   const [adapter] = await provider.listAdapters()
   const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
   await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
+  activeBackends.add(backend)
   return backend
 }
+
+async function attachedBoundaryBackend(boundary) {
+  const provider = createWebBluetoothProvider(boundary)
+  const [adapter] = await provider.listAdapters()
+  const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
+  await backend.attach({ coreCompatibility: provider.descriptor.compatibility })
+  activeBackends.add(backend)
+  return backend
+}
+
+afterEach(async () => {
+  try {
+    for (const backend of activeBackends) {
+      const cleanup = await backend.destroy()
+      if (cleanup.state === 'release-failed') {
+        await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+      }
+    }
+  } finally {
+    activeBackends.clear()
+  }
+})
 
 async function selectedPeer(backend) {
   return backend.choose(
     {
-      filters: [{ serviceUuids: [SERVICE], localNamePrefix: null }],
+      filters: [{ serviceUuids: [SERVICE], manufacturerData: [], localNamePrefix: null }],
       acceptAllDevices: false,
       optionalServices: [SERVICE]
     },
@@ -183,6 +206,17 @@ async function connectedDatabase(backend) {
   const lease = await backend.connections.connect(selected.peerId, 'client', noDeadline())
   const database = await backend.gatt.discover(lease.connection, noDeadline())
   return { database, lease, snapshot: await database.snapshot() }
+}
+
+async function connectedBoundaryDatabase(boundary) {
+  const backend = await attachedBoundaryBackend(boundary)
+  const chooser = selectedPeer(backend)
+  await boundary.flush()
+  boundary.resolveChooser()
+  const selected = await chooser
+  const lease = await backend.connections.connect(selected.peerId, 'client', noDeadline())
+  const database = await backend.gatt.discover(lease.connection, noDeadline())
+  return { backend, database, lease, snapshot: await database.snapshot() }
 }
 
 function noDeadline() {
@@ -416,24 +450,29 @@ describe('Web Bluetooth lifecycle hardening', () => {
   )
 
   test('lease and subscription cleanup failures remain retryable', async () => {
-    const testFixture = fixture()
-    const backend = await backendFixture(testFixture)
-    const { database, lease, snapshot } = await connectedDatabase(backend)
+    const boundary = new InMemoryWebBluetoothTckBoundary()
+    const { backend, database, lease, snapshot } = await connectedBoundaryDatabase(boundary)
     const subscription = await database.subscribe(snapshot.characteristics[0].path, subscriptionOptions())
-    testFixture.setStopFailures(1)
+    boundary.failNextNotificationStop(new Error('stop failed'))
     await expect(subscription.remove()).resolves.toMatchObject({ state: 'release-failed' })
     expectConsoleErrorMatching(
       '[WebBluetoothGattRuntime.stopManagedSubscription] Notification stop rejected:',
       expect.objectContaining({ message: 'stop failed' })
     )
     await expect(subscription.remove()).resolves.toEqual({ state: 'released', failures: [] })
-    testFixture.setDisconnectFailures(1)
+    expect(boundary.resourceSnapshot()).toMatchObject({ notificationStops: 2, notificationListeners: 0 })
+    boundary.failNextDisconnect(new Error('disconnect failed'))
     await expect(lease.release()).resolves.toMatchObject({ state: 'release-failed' })
     expectConsoleErrorMatching(
       '[WebBluetoothBackend.disconnectRecord] Browser disconnect failed:',
       expect.objectContaining({ message: 'disconnect failed' })
     )
+    expect(lease.connection.state).toBe('connected')
+    expect(boundary.resourceSnapshot()).toMatchObject({ connected: true, disconnectListeners: 1 })
     await expect(lease.release()).resolves.toEqual({ state: 'released', failures: [] })
+    expect(lease.connection.state).toBe('disconnected')
+    expect(boundary.resourceSnapshot()).toMatchObject({ connected: false, disconnectCalls: 2, disconnectListeners: 0 })
+    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
   })
 
   test('rediscovery settles old database subscriptions before replacing its generation', async () => {
@@ -456,20 +495,36 @@ describe('Web Bluetooth lifecycle hardening', () => {
     expect(replacement.path.databaseGeneration).not.toBe(database.path.databaseGeneration)
   })
 
-  test('destroy reports a pending chooser until the browser chooser settles and is quarantined', async () => {
-    const testFixture = fixture()
-    const backend = await backendFixture(testFixture)
-    testFixture.setChooserMode('pending')
+  test('destroy quarantines a late chooser completion without retaining a peer, connection, database, or subscription', async () => {
+    const boundary = new InMemoryWebBluetoothTckBoundary()
+    const backend = await attachedBoundaryBackend(boundary)
     const chooser = selectedPeer(backend)
-    await Promise.resolve()
+    await boundary.flush()
+    expect(boundary.resourceSnapshot()).toMatchObject({
+      chooserRequests: 1,
+      pendingChooser: true,
+      pageLifecycleListeners: 1
+    })
 
     await expect(backend.destroy()).resolves.toMatchObject({ state: 'release-failed' })
     expect(backend.resourceCounters().chooserSessions).toBe(1)
-    testFixture.chooserDeferred.resolve(testFixture.selection)
+    expect(boundary.resourceSnapshot()).toMatchObject({
+      connected: false,
+      disconnectListeners: 0,
+      notificationListeners: 0,
+      pageLifecycleListeners: 0
+    })
+    boundary.resolveChooser()
     await expect(chooser).rejects.toMatchObject({ normalized: { code: 'operation.cancelled-by-destroy' } })
-    await Promise.resolve()
+    await boundary.flush()
     await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
-    expect(backend.resourceCounters().chooserSessions).toBe(0)
+    expect(backend.resourceCounters()).toMatchObject({
+      chooserSessions: 0,
+      connectionLeases: 0,
+      physicalLinks: 0,
+      databaseSnapshots: 0,
+      subscriptionConsumers: 0
+    })
   })
 
   test('write copies caller input before awaiting the browser and duplicate paths include descriptors', async () => {

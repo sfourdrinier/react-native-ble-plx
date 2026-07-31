@@ -71,7 +71,11 @@ export type {
   CoreBluetoothFirstPartyTckRegistrationOptions,
   DeterministicCoreBluetoothBoundary
 } from './tck/first-party/corebluetooth-tck-registration'
-export type { WebBluetoothFirstPartyTckRegistrationOptions } from './tck/first-party/web-bluetooth-tck-registration'
+export type {
+  DeterministicWebBluetoothTckBoundary,
+  WebBluetoothFirstPartyTckRegistrationOptions,
+  WebBluetoothNotificationInput
+} from './tck/first-party/web-bluetooth-tck-registration'
 export type {
   BluezFirstPartyTckRegistrationOptions,
   BluezNotificationInput,
