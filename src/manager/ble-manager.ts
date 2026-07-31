@@ -702,7 +702,9 @@ export class DiscoveredGattDatabase<Attachment extends string, Identity extends 
   }
 
   private resolveDescriptorPath(path: PortableCurrentDescriptorPath): CurrentDescriptorPath<Attachment> {
-    const descriptor = this.discoverySnapshot.descriptors.find(candidate => descriptorAddressMatches(candidate.path, path))
+    const descriptor = this.discoverySnapshot.descriptors.find(candidate =>
+      descriptorAddressMatches(candidate.path, path)
+    )
     if (descriptor === undefined) {
       throw contractError('gatt.not-found', 'gatt', 'discovered-gatt.resolve-descriptor-path')
     }
