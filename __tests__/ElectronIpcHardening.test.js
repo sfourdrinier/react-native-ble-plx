@@ -645,9 +645,10 @@ describe('Electron IPC hardening', () => {
     })
     await expect(
       port.handler(mainFrameEvent(senderB), { kind: 'event.ack', rendererLease: lease, eventId: 'event-bound' })
-    ).rejects.toMatchObject({ normalized: { code: 'ownership.denied' } })
-    await expect(port.handler(mainFrameEvent(senderB), { kind: 'bootstrap' })).rejects.toMatchObject({
-      normalized: { code: 'ownership.denied' }
+    ).resolves.toMatchObject({ kind: 'failure', error: { code: 'ownership.denied' } })
+    await expect(port.handler(mainFrameEvent(senderB), { kind: 'bootstrap' })).resolves.toMatchObject({
+      kind: 'failure',
+      error: { code: 'ownership.denied' }
     })
     await expect(
       port.handler(mainFrameEvent(senderA), { kind: 'event.ack', rendererLease: lease, eventId: 'event-bound' })
@@ -711,7 +712,7 @@ describe('Electron IPC hardening', () => {
       const acknowledge = jest
         .fn()
         .mockRejectedValueOnce(new Error('ack response lost'))
-        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce({ kind: 'event.ack' })
       const transport = {
         invoke: jest.fn(async request =>
           request.kind === 'bootstrap'
@@ -746,6 +747,138 @@ describe('Electron IPC hardening', () => {
     } finally {
       jest.useRealTimers()
     }
+  })
+
+  test('terminates the renderer event stream without retrying when acknowledgement reports a lost renderer lease', async () => {
+    jest.useFakeTimers()
+    try {
+      const listeners = []
+      const bootstrapValue = {
+        attachment: createAuthority().attachment,
+        attachmentId: createAuthority().attachment.attachmentId,
+        versions: { ...createAuthority().versions, ipcProtocol: negotiated('ipc-protocol') },
+        renderer: {
+          clientId: opaqueId('ack-lease-lost-client', 'client', 'hardening:ack-lease-lost'),
+          windowScope: 'ack-lease-lost-window',
+          sessionScope: 'ack-lease-lost-session'
+        },
+        rendererLease: rendererLease('ack-lease-lost-client')
+      }
+      const rendererRegistrationFailure = {
+        code: 'ownership.denied',
+        domain: 'ipc',
+        operation: 'electron-main-arbiter.renderer-registration',
+        platform: null,
+        retryability: 'never'
+      }
+      const acknowledge = jest.fn(async () => ({ kind: 'failure', error: rendererRegistrationFailure }))
+      const transport = {
+        invoke: jest.fn(async request =>
+          request.kind === 'bootstrap'
+            ? { kind: 'bootstrap', bootstrap: bootstrapValue }
+            : { kind: 'release', cleanup: released() }
+        ),
+        acknowledge,
+        subscribe(listener) {
+          listeners.push(listener)
+          return () => listeners.splice(listeners.indexOf(listener), 1)
+        }
+      }
+      const client = new ElectronRendererBleClient(transport)
+      await client.initialize()
+
+      listeners[0]({
+        rendererLease: bootstrapValue.rendererLease,
+        eventId: 'event-lease-lost',
+        streamId: 'scan-lease-lost',
+        item: { kind: 'value' }
+      })
+      await flushAsyncWork()
+
+      expect(acknowledge).toHaveBeenCalledTimes(1)
+      await jest.advanceTimersByTimeAsync(100)
+      expect(acknowledge).toHaveBeenCalledTimes(1)
+      const iterator = client.events[Symbol.asyncIterator]()
+      await expect(iterator.next()).resolves.toMatchObject({
+        done: false,
+        value: { kind: 'terminal', reason: 'owner-released' }
+      })
+      await expect(client.destroy()).resolves.toEqual(released())
+      expect(transport.invoke).toHaveBeenCalledTimes(1)
+      expect(listeners).toEqual([])
+      expectConsoleError('[ElectronRendererBleClient] Event acknowledgement failed permanently; terminating event delivery:', {
+        error: rendererRegistrationFailure
+      })
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('terminates safely and leaves release available for other permanent acknowledgement failures', async () => {
+    const listeners = []
+    const bootstrapValue = {
+      attachment: createAuthority().attachment,
+      attachmentId: createAuthority().attachment.attachmentId,
+      versions: { ...createAuthority().versions, ipcProtocol: negotiated('ipc-protocol') },
+      renderer: {
+        clientId: opaqueId('ack-permanent-failure-client', 'client', 'hardening:ack-permanent-failure'),
+        windowScope: 'ack-permanent-failure-window',
+        sessionScope: 'ack-permanent-failure-session'
+      },
+      rendererLease: rendererLease('ack-permanent-failure-client')
+    }
+    const transport = {
+      invoke: jest.fn(async request =>
+        request.kind === 'bootstrap'
+          ? { kind: 'bootstrap', bootstrap: bootstrapValue }
+          : { kind: 'release', cleanup: released() }
+      ),
+      acknowledge: jest.fn(async () => ({
+        kind: 'failure',
+        error: {
+          code: 'protocol.violation',
+          domain: 'ipc',
+          operation: 'electron-main-binding.event-ack-replay',
+          platform: null,
+          retryability: 'never'
+        }
+      })),
+      subscribe(listener) {
+        listeners.push(listener)
+        return () => listeners.splice(listeners.indexOf(listener), 1)
+      }
+    }
+    const client = new ElectronRendererBleClient(transport)
+    await client.initialize()
+
+    listeners[0]({
+      rendererLease: bootstrapValue.rendererLease,
+      eventId: 'event-permanent-failure',
+      streamId: 'scan-permanent-failure',
+      item: { kind: 'value' }
+    })
+    await flushAsyncWork()
+
+    const iterator = client.events[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'terminal', reason: 'source-failed' }
+    })
+    await expect(client.destroy()).resolves.toEqual(released())
+    expect(transport.invoke).toHaveBeenNthCalledWith(2, {
+      kind: 'release',
+      rendererLease: bootstrapValue.rendererLease
+    })
+    expect(listeners).toEqual([])
+    expectConsoleError('[ElectronRendererBleClient] Event acknowledgement failed permanently; terminating event delivery:', {
+      error: {
+        code: 'protocol.violation',
+        domain: 'ipc',
+        operation: 'electron-main-binding.event-ack-replay',
+        platform: null,
+        retryability: 'never'
+      }
+    })
   })
 
   test('retries destroyed WebContents cleanup until ownership is released', async () => {

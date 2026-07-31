@@ -2,6 +2,7 @@
 
 const { ElectronMainBleBinding, ElectronMainBleRouter } = require('../src/electron-main')
 const { ElectronRendererBleClient } = require('../src/electron-renderer')
+const { BackendContractError } = require('../src/backend-contract/errors')
 const { monotonicTimestamp, opaqueId, version, versionRange } = require('../src/backend-contract/primitives')
 
 function negotiated(axis) {
@@ -46,6 +47,21 @@ function rendererLease(value) {
   return {
     leaseId: opaqueId(`renderer-lease-${value}`, 'renderer-lease', `electron:${value}`),
     generation: opaqueId(`renderer-lease-generation-${value}`, 'renderer-lease-generation', `electron:${value}`)
+  }
+}
+
+function rendererBootstrap(value) {
+  const currentAttachment = attachment()
+  return {
+    attachment: currentAttachment,
+    attachmentId: currentAttachment.attachmentId,
+    versions: { ...versions(), ipcProtocol: negotiated('ipc-protocol') },
+    renderer: {
+      clientId: opaqueId(`renderer-client-${value}`, 'client', `electron:${value}`),
+      windowScope: `renderer-window-${value}`,
+      sessionScope: `renderer-session-${value}`
+    },
+    rendererLease: rendererLease(value)
   }
 }
 
@@ -359,8 +375,15 @@ function commandRequest(current, renderer, ordinal, command, payload, binaryPayl
 
 async function bootstrap(current, sender) {
   const response = await current.port.handler({ sender }, { kind: 'bootstrap' })
+  if (response.kind === 'failure') {
+    throw new BackendContractError(response.error)
+  }
   expect(response.kind).toBe('bootstrap')
   return response.bootstrap
+}
+
+function expectIpcFailure(response, error) {
+  return expect(response).resolves.toMatchObject({ kind: 'failure', error })
 }
 
 async function flushAsyncWork() {
@@ -378,8 +401,9 @@ describe('Electron v4 IPC boundary', () => {
     sender.finishInitialNavigation()
     await flushAsyncWork()
 
-    await expect(current.port.handler({ sender }, routeRequest(current, renderer, 1))).rejects.toMatchObject({
-      normalized: { code: 'ownership.denied', operation: 'electron-main-router.scan-ownership' }
+    await expectIpcFailure(current.port.handler({ sender }, routeRequest(current, renderer, 1)), {
+      code: 'ownership.denied',
+      operation: 'electron-main-router.scan-ownership'
     })
     expect(current.router.resources.has(String(renderer.rendererLease.leaseId))).toBe(true)
     await current.binding.destroy()
@@ -396,8 +420,9 @@ describe('Electron v4 IPC boundary', () => {
     sender.finishInitialNavigation()
     await flushAsyncWork()
 
-    await expect(current.port.handler({ sender }, routeRequest(current, renderer, 1))).rejects.toMatchObject({
-      normalized: { code: 'ownership.denied', operation: 'electron-main-router.scan-ownership' }
+    await expectIpcFailure(current.port.handler({ sender }, routeRequest(current, renderer, 1)), {
+      code: 'ownership.denied',
+      operation: 'electron-main-router.scan-ownership'
     })
     expect(current.router.resources.has(String(renderer.rendererLease.leaseId))).toBe(true)
     await current.binding.destroy()
@@ -409,8 +434,9 @@ describe('Electron v4 IPC boundary', () => {
     const validateRequest = jest.spyOn(current.router, 'validateRequest')
     const dispatch = jest.spyOn(current.router, 'dispatch')
 
-    await expect(current.port.rawHandler({ sender }, { kind: 'bootstrap' })).rejects.toMatchObject({
-      normalized: { code: 'protocol.malformed', operation: 'electron-main-binding.frame-identity' }
+    await expectIpcFailure(current.port.rawHandler({ sender }, { kind: 'bootstrap' }), {
+      code: 'protocol.malformed',
+      operation: 'electron-main-binding.frame-identity'
     })
 
     expect(current.authenticate).not.toHaveBeenCalled()
@@ -427,13 +453,9 @@ describe('Electron v4 IPC boundary', () => {
     const validateRequest = jest.spyOn(current.router, 'validateRequest')
     const dispatch = jest.spyOn(current.router, 'dispatch')
 
-    await expect(
-      current.port.rawHandler({ sender, frameId: 20, processId: 10 }, { kind: 'bootstrap' })
-    ).rejects.toMatchObject({
-      normalized: {
-        code: 'protocol.malformed',
-        operation: 'electron-main-binding.frame-identity'
-      }
+    await expectIpcFailure(current.port.rawHandler({ sender, frameId: 20, processId: 10 }, { kind: 'bootstrap' }), {
+      code: 'protocol.malformed',
+      operation: 'electron-main-binding.frame-identity'
     })
 
     expect(current.authenticate).not.toHaveBeenCalled()
@@ -443,14 +465,38 @@ describe('Electron v4 IPC boundary', () => {
     await current.binding.destroy()
   })
 
+  test.each([
+    ['a null IPC request', null],
+    ['a malformed route request', { kind: 'route', envelope: null }]
+  ])('returns a safe protocol failure for %s', async (_description, request) => {
+    const current = createMainFixture()
+    const sender = createSender('client-malformed-request', 'window-malformed-request', 'session-malformed-request')
+    const validateRequest = jest.spyOn(current.router, 'validateRequest')
+
+    await expectIpcFailure(
+      current.port.rawHandler({ sender, frameId: 20, processId: 10 }, request),
+      {
+        code: 'protocol.malformed',
+        domain: 'ipc',
+        operation: 'electron-main-binding.request',
+        platform: null,
+        retryability: 'never'
+      }
+    )
+
+    expect(validateRequest).not.toHaveBeenCalled()
+    await current.binding.destroy()
+  })
+
   test('rejects every request kind from a child frame before allocating or routing ownership', async () => {
     const current = createMainFixture()
     const sender = createSender('client-child-frame', 'window-child-frame', 'session-child-frame')
     const dispatch = jest.spyOn(current.router, 'dispatch')
     const childEvent = { sender, frameId: sender.mainFrame.routingId + 1, processId: sender.mainFrame.processId }
 
-    await expect(current.port.handler(childEvent, { kind: 'bootstrap' })).rejects.toMatchObject({
-      normalized: { code: 'ownership.denied', operation: 'electron-main-binding.main-frame' }
+    await expectIpcFailure(current.port.handler(childEvent, { kind: 'bootstrap' }), {
+      code: 'ownership.denied',
+      operation: 'electron-main-binding.main-frame'
     })
     expect(dispatch).not.toHaveBeenCalled()
 
@@ -461,8 +507,9 @@ describe('Electron v4 IPC boundary', () => {
       { kind: 'event.ack', rendererLease: renderer.rendererLease, eventId: 'child-frame-event' }
     ]
     for (const request of requests) {
-      await expect(current.port.handler(childEvent, request)).rejects.toMatchObject({
-        normalized: { code: 'ownership.denied', operation: 'electron-main-binding.main-frame' }
+      await expectIpcFailure(current.port.handler(childEvent, request), {
+        code: 'ownership.denied',
+        operation: 'electron-main-binding.main-frame'
       })
     }
     expect(dispatch).toHaveBeenCalledTimes(1)
@@ -479,18 +526,17 @@ describe('Electron v4 IPC boundary', () => {
 
     expect(bootstrapA.kind).toBe('bootstrap')
     expect(bootstrapB.kind).toBe('bootstrap')
-    await expect(
-      current.port.handler({ sender: senderB }, routeRequest(current, bootstrapA.bootstrap, 1))
-    ).rejects.toMatchObject({
-      normalized: { code: 'ownership.denied', operation: 'electron-main-binding.sender-binding' }
+    await expectIpcFailure(current.port.handler({ sender: senderB }, routeRequest(current, bootstrapA.bootstrap, 1)), {
+      code: 'ownership.denied',
+      operation: 'electron-main-binding.sender-binding'
     })
 
     senderA.destroy()
     await Promise.resolve()
     await Promise.resolve()
-    await expect(
-      current.port.handler({ sender: senderA }, routeRequest(current, bootstrapA.bootstrap, 2))
-    ).rejects.toMatchObject({ normalized: { code: 'lifecycle.invalid-state' } })
+    await expectIpcFailure(current.port.handler({ sender: senderA }, routeRequest(current, bootstrapA.bootstrap, 2)), {
+      code: 'lifecycle.invalid-state'
+    })
     await current.binding.destroy()
   })
 
@@ -575,11 +621,9 @@ describe('Electron v4 IPC boundary', () => {
 
     sender.startNavigation()
     expect(current.router.resources).toHaveProperty('size', 2)
-    await expect(current.port.handler({ sender }, routeRequest(current, firstBootstrap, 2))).rejects.toMatchObject({
-      normalized: {
-        code: 'ownership.denied',
-        operation: 'electron-main-router.scan-ownership'
-      }
+    await expectIpcFailure(current.port.handler({ sender }, routeRequest(current, firstBootstrap, 2)), {
+      code: 'ownership.denied',
+      operation: 'electron-main-router.scan-ownership'
     })
 
     sender.mainFrame = Object.freeze({ processId: 11, routingId: 21 })
@@ -642,8 +686,9 @@ describe('Electron v4 IPC boundary', () => {
 
     expect(current.router.resources.has(String(outgoing.rendererLease.leaseId))).toBe(false)
     expect(current.router.resources.has(String(replacement.rendererLease.leaseId))).toBe(true)
-    await expect(current.port.handler({ sender }, routeRequest(current, replacement, 1))).rejects.toMatchObject({
-      normalized: { code: 'ownership.denied', operation: 'electron-main-router.scan-ownership' }
+    await expectIpcFailure(current.port.handler({ sender }, routeRequest(current, replacement, 1)), {
+      code: 'ownership.denied',
+      operation: 'electron-main-router.scan-ownership'
     })
     await current.binding.destroy()
   })
@@ -661,10 +706,9 @@ describe('Electron v4 IPC boundary', () => {
     sender.failNavigation(failureEvent, 'app://bundle/redirected-failure')
     const admittedAfterFailure = await bootstrap(current, sender)
 
-    await expect(
-      current.port.handler({ sender }, routeRequest(current, admittedAfterFailure, 1))
-    ).rejects.toMatchObject({
-      normalized: { code: 'ownership.denied', operation: 'electron-main-router.scan-ownership' }
+    await expectIpcFailure(current.port.handler({ sender }, routeRequest(current, admittedAfterFailure, 1)), {
+      code: 'ownership.denied',
+      operation: 'electron-main-router.scan-ownership'
     })
     expect(current.router.resources.has(String(admittedAfterFailure.rendererLease.leaseId))).toBe(true)
     await current.binding.destroy()
@@ -684,15 +728,17 @@ describe('Electron v4 IPC boundary', () => {
       current.port.handler({ sender }, { kind: 'release', rendererLease: firstRenderer.rendererLease })
     ).resolves.toEqual({ kind: 'release', cleanup: released() })
     const outgoingLease = await bootstrap(current, sender)
-    await expect(current.port.handler({ sender }, routeRequest(current, outgoingLease, 1))).rejects.toMatchObject({
-      normalized: { code: 'ownership.denied', operation: 'electron-main-router.scan-ownership' }
+    await expectIpcFailure(current.port.handler({ sender }, routeRequest(current, outgoingLease, 1)), {
+      code: 'ownership.denied',
+      operation: 'electron-main-router.scan-ownership'
     })
     sender.commitNavigation({ processId: 11, routingId: 21 })
     await flushAsyncWork()
 
     expect(current.router.resources.has(String(outgoingLease.rendererLease.leaseId))).toBe(false)
-    await expect(current.port.handler({ sender }, routeRequest(current, outgoingLease, 2))).rejects.toMatchObject({
-      normalized: { code: 'ownership.denied', operation: 'electron-main-arbiter.renderer-registration' }
+    await expectIpcFailure(current.port.handler({ sender }, routeRequest(current, outgoingLease, 2)), {
+      code: 'ownership.denied',
+      operation: 'electron-main-arbiter.renderer-registration'
     })
     await current.binding.destroy()
   })
@@ -743,8 +789,8 @@ describe('Electron v4 IPC boundary', () => {
       { kind: 'event.ack', rendererLease: renderer.rendererLease, eventId: `event:${scan.payload.handle}` }
     )
     stopResult.resolve(released())
-    await expect(staleRoute).rejects.toMatchObject({ normalized: { code: 'ownership.denied' } })
-    await expect(staleAcknowledgement).rejects.toMatchObject({ normalized: { code: 'ownership.denied' } })
+    await expectIpcFailure(staleRoute, { code: 'ownership.denied' })
+    await expectIpcFailure(staleAcknowledgement, { code: 'ownership.denied' })
     await flushAsyncWork()
     expect(current.router.resources).toHaveProperty('size', 0)
     expect(current.binding.renderers).toHaveProperty('size', 0)
@@ -770,11 +816,9 @@ describe('Electron v4 IPC boundary', () => {
     sender.destroy()
     dispatchResult.resolve()
 
-    await expect(pendingBootstrap).rejects.toMatchObject({
-      normalized: {
-        code: 'lifecycle.invalid-state',
-        operation: 'electron-main-binding.bootstrap-destroyed'
-      }
+    await expectIpcFailure(pendingBootstrap, {
+      code: 'lifecycle.invalid-state',
+      operation: 'electron-main-binding.bootstrap-destroyed'
     })
     expect(current.router.resources).toHaveProperty('size', 0)
     expect(current.binding.renderers).toHaveProperty('size', 0)
@@ -805,11 +849,9 @@ describe('Electron v4 IPC boundary', () => {
     expect(destructionSettled).toBe(false)
 
     dispatchResult.resolve()
-    await expect(pendingBootstrap).rejects.toMatchObject({
-      normalized: {
-        code: 'lifecycle.invalid-state',
-        operation: 'electron-main-binding.lifecycle'
-      }
+    await expectIpcFailure(pendingBootstrap, {
+      code: 'lifecycle.invalid-state',
+      operation: 'electron-main-binding.lifecycle'
     })
     await expect(destruction).resolves.toEqual(released())
     expect(current.router.resources).toHaveProperty('size', 0)
@@ -845,7 +887,7 @@ describe('Electron v4 IPC boundary', () => {
     const newBootstrap = current.port.handler({ sender }, { kind: 'bootstrap' })
     firstDispatchResult.resolve()
 
-    await expect(oldBootstrap).rejects.toMatchObject({ normalized: { code: 'ownership.denied' } })
+    await expectIpcFailure(oldBootstrap, { code: 'ownership.denied' })
     await expect(newBootstrap).resolves.toMatchObject({
       kind: 'bootstrap',
       bootstrap: { renderer: { clientId: sender.trusted.authenticatedClientId } }
@@ -965,11 +1007,9 @@ describe('Electron v4 IPC boundary', () => {
     )
     sender.trusted.authenticatedSessionScope = 'session-mutated-new'
 
-    await expect(current.port.handler({ sender }, routeRequest(current, renderer, 1))).rejects.toMatchObject({
-      normalized: {
-        code: 'ownership.denied',
-        operation: 'electron-main-binding.sender-binding'
-      }
+    await expectIpcFailure(current.port.handler({ sender }, routeRequest(current, renderer, 1)), {
+      code: 'ownership.denied',
+      operation: 'electron-main-binding.sender-binding'
     })
     expect(current.router.resources).toHaveProperty('size', 0)
     expect(current.binding.renderers).toHaveProperty('size', 0)
@@ -1042,7 +1082,7 @@ describe('Electron v4 IPC boundary', () => {
         }
       })
 
-      await expect(current.binding.destroy()).resolves.toEqual(releaseFailure)
+      await expect(current.binding.destroy()).resolves.toEqual(released())
       expect(current.binding.renderers).toHaveProperty('size', 0)
       expect(jest.getTimerCount()).toBe(0)
       jest.advanceTimersByTime(200)
@@ -1060,6 +1100,39 @@ describe('Electron v4 IPC boundary', () => {
     } finally {
       jest.useRealTimers()
     }
+  })
+
+  test('releases the exact renderer lease when oversized-response rollback fails', async () => {
+    const disconnect = jest.fn(async () => released())
+    const characteristics = Array.from({ length: 128 }, () => ({ path: characteristicPath() }))
+    const database = {
+      snapshot: jest.fn(async () => ({ characteristics }))
+    }
+    const connection = createConnection('peer-rollback-failure', database, disconnect)
+    const current = createMainFixture({ connect: jest.fn(async () => connection) })
+    const sender = createSender('client-rollback-failure', 'window-rollback-failure', 'session-rollback-failure')
+    const renderer = await bootstrap(current, sender)
+    const connected = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 1, 'connection.connect', { peerId: 'peer-rollback-failure' })
+    )
+    jest.spyOn(current.router, 'rollbackOperationResources').mockResolvedValue(failed('rollback'))
+
+    await expectIpcFailure(
+      current.port.handler(
+        { sender },
+        commandRequest(current, renderer, 2, 'gatt.discover', { connectionHandle: connected.payload.handle })
+      ),
+      {
+        code: 'ownership.denied',
+        operation: 'electron-main-arbiter.renderer-registration'
+      }
+    )
+
+    expect(disconnect).toHaveBeenCalledTimes(1)
+    expect(current.router.resources).toHaveProperty('size', 0)
+    expect(current.binding.renderers).toHaveProperty('size', 0)
+    await current.binding.destroy()
   })
 
   test('releases every renderer lease when the renderer process exits without destroying WebContents', async () => {
@@ -1163,8 +1236,9 @@ describe('Electron v4 IPC boundary', () => {
       streamId: 'scan-9',
       terminal: true
     })
-    await expect(current.port.handler({ sender }, routeRequest(current, renderer, 20))).rejects.toMatchObject({
-      normalized: { code: 'ownership.denied', operation: 'electron-main-arbiter.renderer-registration' }
+    await expectIpcFailure(current.port.handler({ sender }, routeRequest(current, renderer, 20)), {
+      code: 'ownership.denied',
+      operation: 'electron-main-arbiter.renderer-registration'
     })
 
     await current.binding.destroy()
@@ -1198,7 +1272,7 @@ describe('Electron v4 IPC boundary', () => {
         capturedEnvelope = request.envelope
         return { kind: 'route', payload: { accepted: true } }
       },
-      async acknowledge() {},
+      async acknowledge() { return { kind: 'event.ack' } },
       subscribe(listener) {
         listeners.push(listener)
         return () => listeners.splice(listeners.indexOf(listener), 1)
@@ -1417,12 +1491,13 @@ describe('Electron v4 IPC boundary', () => {
     await expect(pendingRoute).resolves.toMatchObject({ kind: 'route', payload: { peerId: 'peer-pending' } })
     await flushAsyncWork()
     expect(disconnect).toHaveBeenCalledTimes(1)
-    await expect(
+    await expectIpcFailure(
       current.port.handler(
         { sender },
         commandRequest(current, renderer, 2, 'connection.connect', { peerId: 'peer-pending' })
-      )
-    ).rejects.toMatchObject({ normalized: { code: 'ownership.denied' } })
+      ),
+      { code: 'ownership.denied' }
+    )
     await current.binding.destroy()
   })
 
@@ -1710,7 +1785,7 @@ describe('Electron v4 IPC boundary', () => {
         .mockResolvedValueOnce({ kind: 'bootstrap', bootstrap: bootstrapValue })
         .mockRejectedValueOnce(releaseTransportFailure)
         .mockResolvedValueOnce({ kind: 'release', cleanup: released() }),
-      async acknowledge() {},
+      async acknowledge() { return { kind: 'event.ack' } },
       subscribe(listener) {
         listeners.push(listener)
         return () => listeners.splice(listeners.indexOf(listener), 1)
@@ -1747,7 +1822,7 @@ describe('Electron v4 IPC boundary', () => {
         expect(request).toEqual({ kind: 'release', rendererLease: bootstrapValue.rendererLease })
         return { kind: 'release', cleanup: released() }
       }),
-      async acknowledge() {},
+      async acknowledge() { return { kind: 'event.ack' } },
       subscribe(listener) {
         listeners.push(listener)
         return () => listeners.splice(listeners.indexOf(listener), 1)
@@ -1788,7 +1863,7 @@ describe('Electron v4 IPC boundary', () => {
         .mockResolvedValueOnce({ kind: 'bootstrap', bootstrap: bootstrapValue })
         .mockImplementationOnce(async () => releaseResult.promise)
         .mockResolvedValueOnce({ kind: 'release', cleanup: released() }),
-      acknowledge: jest.fn(async () => undefined),
+      acknowledge: jest.fn(async () => ({ kind: 'event.ack' })),
       subscribe(listener) {
         listeners.push(listener)
         return () => listeners.splice(listeners.indexOf(listener), 1)
@@ -1837,7 +1912,7 @@ describe('Electron v4 IPC boundary', () => {
         .fn()
         .mockResolvedValueOnce({ kind: 'bootstrap', bootstrap: bootstrapValue })
         .mockImplementationOnce(async () => releaseResult.promise),
-      acknowledge: jest.fn(async () => undefined),
+      acknowledge: jest.fn(async () => ({ kind: 'event.ack' })),
       subscribe(listener) {
         listeners.push(listener)
         return () => listeners.splice(listeners.indexOf(listener), 1)
@@ -1862,5 +1937,122 @@ describe('Electron v4 IPC boundary', () => {
       done: false,
       value: { kind: 'terminal', reason: 'owner-released' }
     })
+  })
+
+  test('returns a stale renderer ownership denial as a normalized IPC response', async () => {
+    const current = createMainFixture()
+    const sender = createSender('client-typed-stale-failure', 'window-typed-stale-failure', 'session-typed-stale-failure')
+    const renderer = await bootstrap(current, sender)
+
+    await expect(
+      current.port.handler({ sender }, { kind: 'release', rendererLease: renderer.rendererLease })
+    ).resolves.toEqual({ kind: 'release', cleanup: released() })
+
+    await expect(current.port.handler({ sender }, routeRequest(current, renderer, 1))).resolves.toEqual({
+      kind: 'failure',
+      error: {
+        code: 'ownership.denied',
+        domain: 'ipc',
+        operation: 'electron-main-arbiter.renderer-registration',
+        platform: null,
+        retryability: 'never'
+      }
+    })
+    await current.binding.destroy()
+  })
+
+  test('normalizes unexpected IPC handler exceptions without exposing the thrown object', async () => {
+    const current = createMainFixture()
+    const sender = createSender('client-unexpected-ipc-failure', 'window-unexpected-ipc-failure', 'session-unexpected-ipc-failure')
+    const unexpected = new Error('native IPC details must not cross the preload boundary')
+    jest.spyOn(current.router, 'validateRequest').mockImplementation(() => {
+      throw unexpected
+    })
+
+    await expect(current.port.handler({ sender }, { kind: 'bootstrap' })).resolves.toEqual({
+      kind: 'failure',
+      error: {
+        code: 'platform.failure',
+        domain: 'ipc',
+        operation: 'electron-main-binding.ipc-handler',
+        platform: {
+          domain: 'electron-ipc',
+          code: 'unexpected-handler-error',
+          safeMessage: 'The Electron main process could not complete the BLE request.',
+          metadata: { requestKind: 'bootstrap' }
+        },
+        retryability: 'never'
+      }
+    })
+    expectConsoleError('[ElectronMainBleBinding] IPC request failed:', {
+      functionName: 'ElectronMainBleBinding.handleIpcRequest',
+      operation: 'bootstrap',
+      error: unexpected
+    })
+    await current.binding.destroy()
+  })
+
+  test('rehydrates failure responses into contract errors for bootstrap, route, and release', async () => {
+    const normalizedOwnershipFailure = {
+      code: 'ownership.denied',
+      domain: 'ipc',
+      operation: 'electron-main-arbiter.renderer-registration',
+      platform: null,
+      retryability: 'never'
+    }
+    const bootstrapFailureTransport = {
+      invoke: jest.fn(async () => ({ kind: 'failure', error: normalizedOwnershipFailure })),
+      async acknowledge() {},
+      subscribe() {
+        return () => undefined
+      }
+    }
+    const bootstrapFailureClient = new ElectronRendererBleClient(bootstrapFailureTransport)
+    const bootstrapFailure = await bootstrapFailureClient.initialize().catch(error => error)
+    expect(bootstrapFailure).toBeInstanceOf(BackendContractError)
+    expect(bootstrapFailure).toMatchObject({ normalized: normalizedOwnershipFailure })
+    expect(bootstrapFailureTransport.invoke).toHaveBeenCalledWith({ kind: 'bootstrap' })
+
+    const routeBootstrap = rendererBootstrap('typed-route-failure')
+    const routeFailureTransport = {
+      invoke: jest
+        .fn()
+        .mockResolvedValueOnce({ kind: 'bootstrap', bootstrap: routeBootstrap })
+        .mockResolvedValueOnce({ kind: 'failure', error: normalizedOwnershipFailure })
+        .mockResolvedValueOnce({ kind: 'release', cleanup: released() }),
+      async acknowledge() {},
+      subscribe() {
+        return () => undefined
+      }
+    }
+    const routeFailureClient = new ElectronRendererBleClient(routeFailureTransport)
+    const routeFailure = await routeFailureClient
+      .request({ command: 'scan.start', payload: {}, binaryPayload: null, signal: null })
+      .catch(error => error)
+    expect(routeFailure).toBeInstanceOf(BackendContractError)
+    expect(routeFailure).toMatchObject({ normalized: normalizedOwnershipFailure })
+    expect(routeFailureTransport.invoke).toHaveBeenCalledTimes(2)
+    expect(routeFailureTransport.invoke.mock.calls.map(([request]) => request.kind)).toEqual(['bootstrap', 'route'])
+    await expect(routeFailureClient.destroy()).resolves.toEqual(released())
+
+    const releaseBootstrap = rendererBootstrap('typed-release-failure')
+    const releaseFailureTransport = {
+      invoke: jest
+        .fn()
+        .mockResolvedValueOnce({ kind: 'bootstrap', bootstrap: releaseBootstrap })
+        .mockResolvedValueOnce({ kind: 'failure', error: normalizedOwnershipFailure })
+        .mockResolvedValueOnce({ kind: 'release', cleanup: released() }),
+      async acknowledge() {},
+      subscribe() {
+        return () => undefined
+      }
+    }
+    const releaseFailureClient = new ElectronRendererBleClient(releaseFailureTransport)
+    await releaseFailureClient.initialize()
+    const releaseFailure = await releaseFailureClient.destroy().catch(error => error)
+    expect(releaseFailure).toBeInstanceOf(BackendContractError)
+    expect(releaseFailure).toMatchObject({ normalized: normalizedOwnershipFailure })
+    expectConsoleError('[ElectronRendererBleClient] Release failed; client remains retryable:', releaseFailure)
+    await expect(releaseFailureClient.destroy()).resolves.toEqual(released())
   })
 })

@@ -1,14 +1,16 @@
 // src/electron/main-binding.ts
 
 import type { CleanupRecord } from '../backend-contract/errors'
-import { contractError } from '../backend-contract/errors'
+import { BackendContractError, contractError } from '../backend-contract/errors'
 import { snapshotSerializableRecord } from '../backend-contract/serializable'
 import type { RendererLeaseIdentity, TrustedIpcSender } from '../backend-contract/electron'
 import {
   ELECTRON_BLE_IPC_CHANNEL,
   type ElectronBleIpcEvent,
   type ElectronBleIpcRequest,
-  type ElectronBleIpcResponse
+  type ElectronBleIpcResponse,
+  type ElectronBleIpcSuccessResponse,
+  type ElectronFailureResponse
 } from './protocol'
 import { ElectronMainBleRouter, type ElectronEventDelivery } from './main-router'
 
@@ -60,10 +62,7 @@ export interface ElectronMainIpcEvent<Sender extends ElectronMainIpcSender> {
 export interface ElectronMainIpcPort<Sender extends ElectronMainIpcSender> {
   handle(
     channel: string,
-    listener: (
-      event: ElectronMainIpcEvent<Sender>,
-      request: ElectronBleIpcRequest<string, string, string>
-    ) => Promise<ElectronBleIpcResponse<string, string>>
+    listener: (event: ElectronMainIpcEvent<Sender>, request: unknown) => Promise<ElectronBleIpcResponse<string, string>>
   ): void
   removeHandler(channel: string): void
 }
@@ -158,7 +157,7 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
     if (this.installed) {
       return
     }
-    this.options.port.handle(ELECTRON_BLE_IPC_CHANNEL, (event, request) => this.handle(event, request))
+    this.options.port.handle(ELECTRON_BLE_IPC_CHANNEL, (event, request) => this.handleIpcRequest(event, request))
     this.installed = true
   }
 
@@ -243,6 +242,9 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
         this.completeRendererRelease(rendererLeaseId)
       }
     }
+    if (routerCleanup.state === 'released') {
+      return { state: 'released', failures: [] }
+    }
     const failures = [...routerCleanup.failures]
     for (const cleanup of releaseRecords) {
       failures.push(...cleanup.failures)
@@ -250,10 +252,42 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
     return failures.length === 0 ? { state: 'released', failures: [] } : { state: 'release-failed', failures }
   }
 
+  private async handleIpcRequest(
+    event: ElectronMainIpcEvent<Sender>,
+    request: unknown
+  ): Promise<ElectronBleIpcResponse<string, string>> {
+    try {
+      assertElectronBleIpcRequest(request)
+      return await this.handle(event, request)
+    } catch (error) {
+      return this.failureResponse(error, request)
+    }
+  }
+
+  private failureResponse(error: unknown, request: unknown): ElectronFailureResponse {
+    if (error instanceof BackendContractError) {
+      return { kind: 'failure', error: error.normalized }
+    }
+    console.error('[ElectronMainBleBinding] IPC request failed:', {
+      functionName: 'ElectronMainBleBinding.handleIpcRequest',
+      operation: electronIpcRequestKind(request),
+      error
+    })
+    return {
+      kind: 'failure',
+      error: contractError('platform.failure', 'ipc', 'electron-main-binding.ipc-handler', {
+        domain: 'electron-ipc',
+        code: 'unexpected-handler-error',
+        safeMessage: 'The Electron main process could not complete the BLE request.',
+        metadata: { requestKind: electronIpcRequestKind(request) }
+      }).normalized
+    }
+  }
+
   private async handle(
     event: ElectronMainIpcEvent<Sender>,
     request: ElectronBleIpcRequest<string, string, string>
-  ): Promise<ElectronBleIpcResponse<string, string>> {
+  ): Promise<ElectronBleIpcSuccessResponse<string, string>> {
     this.assertActiveLifecycle()
     this.assertMainFrame(event)
     const trusted = snapshotTrustedSender(this.options.authenticate(event))
@@ -281,7 +315,19 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
       this.acknowledge(rendererLeaseId, request.eventId)
       return { kind: 'event.ack' }
     }
-    const response = await this.options.router.dispatch(trusted, request)
+    let response: ElectronBleIpcSuccessResponse<string, string>
+    try {
+      response = await this.options.router.dispatch(trusted, request)
+    } catch (error) {
+      if (isRollbackReleaseRequiredError(error) && bound !== undefined) {
+        bound.releaseRequired = true
+        const cleanup = await this.releaseRendererAuthoritatively(rendererLeaseId, bound)
+        if (cleanup?.state === 'released') {
+          throw contractError('ownership.denied', 'ipc', 'electron-main-arbiter.renderer-registration')
+        }
+      }
+      throw error
+    }
     if (response.kind === 'release' && response.cleanup.state === 'released') {
       if (request.kind !== 'release') {
         throw contractError('lifecycle.invariant-violation', 'ipc', 'electron-main-binding.release-response')
@@ -294,7 +340,7 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
   private async withBootstrapAdmission(
     event: ElectronMainIpcEvent<Sender>,
     trusted: TrustedIpcSender<string, string>
-  ): Promise<ElectronBleIpcResponse<string, string>> {
+  ): Promise<ElectronBleIpcSuccessResponse<string, string>> {
     const predecessor = this.bootstrapAdmissionTails.get(event.sender)
     const completion = {
       release: (): void => {
@@ -321,7 +367,7 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
   private async bootstrap(
     event: ElectronMainIpcEvent<Sender>,
     trusted: TrustedIpcSender<string, string>
-  ): Promise<ElectronBleIpcResponse<string, string>> {
+  ): Promise<ElectronBleIpcSuccessResponse<string, string>> {
     await this.releaseRetiredSenderRenderers(event)
     this.assertActiveLifecycle()
     this.assertMainFrame(event)
@@ -749,18 +795,20 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
   private async releaseRendererAuthoritatively(
     rendererLeaseId: string,
     renderer: BoundRenderer<Sender>
-  ): Promise<void> {
+  ): Promise<CleanupRecord | null> {
     try {
       const cleanup = await this.releaseRenderer(rendererLeaseId, renderer)
       if (cleanup.state === 'release-failed') {
         this.scheduleRendererReleaseRetry(rendererLeaseId, renderer)
       }
+      return cleanup
     } catch (error) {
       console.error('[ElectronMainBleBinding] Authoritative renderer release rejected:', {
         rendererLeaseId,
         error
       })
       this.scheduleRendererReleaseRetry(rendererLeaseId, renderer)
+      return null
     }
   }
 
@@ -960,4 +1008,48 @@ function assertEventLease<Sender extends ElectronMainIpcSender>(
   ) {
     throw contractError('ownership.denied', 'ipc', 'electron-main-binding.event-lease')
   }
+}
+
+/** Narrows the untrusted IPC wire value before any handler dereferences request fields. */
+function assertElectronBleIpcRequest(
+  request: unknown
+): asserts request is ElectronBleIpcRequest<string, string, string> {
+  const record = recordValue(request)
+  if (record === null) {
+    throw contractError('protocol.malformed', 'ipc', 'electron-main-binding.request')
+  }
+  if (record.kind === 'bootstrap') {
+    return
+  }
+  if (record.kind === 'route' && recordValue(record.envelope) !== null) {
+    return
+  }
+  if (record.kind === 'release' && recordValue(record.rendererLease) !== null) {
+    return
+  }
+  if (record.kind === 'event.ack' && recordValue(record.rendererLease) !== null && typeof record.eventId === 'string') {
+    return
+  }
+  throw contractError('protocol.malformed', 'ipc', 'electron-main-binding.request')
+}
+
+function electronIpcRequestKind(request: unknown): string {
+  const record = recordValue(request)
+  return typeof record?.kind === 'string' ? record.kind : 'malformed'
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isRollbackReleaseRequiredError(error: unknown): boolean {
+  return (
+    error instanceof BackendContractError &&
+    error.normalized.code === 'lifecycle.invalid-state' &&
+    error.normalized.operation === 'electron-main-router.rollback-release-required'
+  )
 }

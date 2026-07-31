@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.24] - 2026-07-31
+
+### Changed
+
+- Electron event acknowledgements now preserve normalized contract failures
+  across the main/preload/renderer boundary instead of collapsing them into
+  generic transport errors.
+
+### Fixed
+
+- Made renderer ownership self-healing after an Electron document reload or
+  replacement navigation: the exact stale lease is invalidated, its resources
+  are quarantined, and a fresh renderer client can bootstrap without reusing
+  scans, connections, subscriptions, or pending events from the old generation.
+- Prevented permanent acknowledgement failures, oversized-response rollback
+  failures, malformed IPC input, and late renderer cleanup from leaking or
+  retrying resources indefinitely.
+- Preserved the final authoritative main-router cleanup receipt when renderer
+  destruction follows an earlier ambiguous cleanup failure.
+
 ## [4.0.0-alpha.23] - 2026-07-31
 
 ### Fixed

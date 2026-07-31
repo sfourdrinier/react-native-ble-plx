@@ -1,6 +1,6 @@
 // src/electron/protocol.ts
 
-import type { CleanupRecord } from '../backend-contract/errors'
+import type { CleanupRecord, NormalizedBleError } from '../backend-contract/errors'
 import type { IpcEnvelope, RendererIdentity, RendererLeaseIdentity } from '../backend-contract/electron'
 import type {
   AttachmentId,
@@ -78,11 +78,21 @@ export interface ElectronEventAcknowledgeResponse {
   readonly kind: 'event.ack'
 }
 
-export type ElectronBleIpcResponse<Attachment extends string, Renderer extends string> =
+/** Typed failure returned by the main-process IPC boundary; renderer code rehydrates it into a contract error. */
+export interface ElectronFailureResponse {
+  readonly kind: 'failure'
+  readonly error: NormalizedBleError
+}
+
+export type ElectronBleIpcSuccessResponse<Attachment extends string, Renderer extends string> =
   | ElectronBootstrapResponse<Attachment, Renderer>
   | ElectronRouteResponse
   | ElectronReleaseResponse
   | ElectronEventAcknowledgeResponse
+
+export type ElectronBleIpcResponse<Attachment extends string, Renderer extends string> =
+  | ElectronBleIpcSuccessResponse<Attachment, Renderer>
+  | ElectronFailureResponse
 
 /**
  * Renderer-neutral preload contract. It deliberately contains no Electron,
@@ -93,7 +103,10 @@ export interface ElectronRendererIpcTransport<Attachment extends string, Rendere
     request: ElectronBleIpcRequest<Attachment, Renderer, Operation>
   ): Promise<ElectronBleIpcResponse<Attachment, Renderer>>
   subscribe(listener: (event: ElectronBleIpcEvent) => void): () => void
-  acknowledge(rendererLease: RendererLeaseIdentity, eventId: string): Promise<void>
+  acknowledge(
+    rendererLease: RendererLeaseIdentity,
+    eventId: string
+  ): Promise<ElectronEventAcknowledgeResponse | ElectronFailureResponse>
 }
 
 export interface ElectronIpcOperationRequest {

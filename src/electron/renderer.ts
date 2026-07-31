@@ -1,6 +1,6 @@
 // src/electron/renderer.ts
 
-import { contractError } from '../backend-contract/errors'
+import { BackendContractError, contractError } from '../backend-contract/errors'
 import { CoreBoundedStream } from '../core/bounded-stream'
 import { byteLimit, capacity, createIpcOperationIdFactory, ownBytes } from '../backend-contract/primitives'
 import type { CleanupRecord } from '../backend-contract/errors'
@@ -33,7 +33,7 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
   private readonly unsubscribe: () => void
   private nextOperation = 1
   private nextDispatchEpoch = 1
-  private lifecycle: 'active' | 'releasing' | 'released' = 'active'
+  private lifecycle: 'active' | 'acknowledgement-failed' | 'releasing' | 'released' = 'active'
   private initializationResult: Promise<ElectronRendererBootstrap<Attachment, Renderer>> | null = null
   private readonly pendingAcknowledgementIds = new Set<string>()
   private readonly pendingReleaseEventIds: string[] = []
@@ -76,6 +76,9 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
 
   private async invokeBootstrap(): Promise<ElectronRendererBootstrap<Attachment, Renderer>> {
     const response = await this.transport.invoke({ kind: 'bootstrap' })
+    if (response.kind === 'failure') {
+      throw new BackendContractError(response.error)
+    }
     if (response.kind !== 'bootstrap') {
       throw contractError('protocol.malformed', 'ipc', 'electron-renderer.bootstrap-response')
     }
@@ -116,6 +119,9 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
     request.signal?.addEventListener('abort', abort, { once: true })
     try {
       const response = await this.transport.invoke({ kind: 'route', envelope })
+      if (response.kind === 'failure') {
+        throw new BackendContractError(response.error)
+      }
       if (response.kind !== 'route') {
         throw contractError('protocol.malformed', 'ipc', 'electron-renderer.route-response')
       }
@@ -168,6 +174,9 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
         return { state: 'released', failures: [] }
       }
       response = await this.transport.invoke({ kind: 'release', rendererLease: bootstrap.rendererLease })
+      if (response.kind === 'failure') {
+        throw new BackendContractError(response.error)
+      }
       if (response.kind !== 'release') {
         throw contractError('protocol.malformed', 'ipc', 'electron-renderer.release-response')
       }
@@ -197,7 +206,7 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
   }
 
   private receiveEvent(event: ElectronBleIpcEvent): void {
-    if (this.lifecycle === 'released') {
+    if (this.lifecycle === 'released' || this.lifecycle === 'acknowledgement-failed') {
       return
     }
     const bootstrap = this.bootstrapValue
@@ -225,7 +234,7 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
   }
 
   private async pumpAcknowledgements(): Promise<void> {
-    if (this.acknowledgementPumpRunning || this.lifecycle === 'released') {
+    if (this.acknowledgementPumpRunning || this.lifecycle !== 'active') {
       return
     }
     this.acknowledgementPumpRunning = true
@@ -236,9 +245,16 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
           if (bootstrap === null) {
             throw contractError('lifecycle.invariant-violation', 'ipc', 'electron-renderer.ack-bootstrap')
           }
-          await this.transport.acknowledge(bootstrap.rendererLease, eventId)
+          const response = await this.transport.acknowledge(bootstrap.rendererLease, eventId)
+          if (response.kind === 'failure') {
+            throw new BackendContractError(response.error)
+          }
           this.pendingAcknowledgementIds.delete(eventId)
         } catch (error) {
+          if (isPermanentAcknowledgementFailure(error)) {
+            this.terminateAfterPermanentAcknowledgementFailure(error)
+            return
+          }
           console.error('[ElectronRendererBleClient] Event acknowledgement failed; retry scheduled:', {
             eventId,
             error
@@ -253,7 +269,7 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
   }
 
   private scheduleAcknowledgementRetry(): void {
-    if (this.acknowledgementRetry !== null || this.lifecycle === 'released') {
+    if (this.acknowledgementRetry !== null || this.lifecycle !== 'active') {
       return
     }
     this.acknowledgementRetry = setTimeout(() => {
@@ -262,6 +278,24 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
         console.error('[ElectronRendererBleClient] Scheduled acknowledgement retry rejected:', error)
       })
     }, acknowledgementRetryDelayMilliseconds)
+  }
+
+  /**
+   * Stops delivery after an acknowledgement proves that this renderer can no longer safely
+   * consume its main-owned event stream. A missing registration already proves main released
+   * every owned handle; other permanent protocol failures retain explicit destroy ownership.
+   */
+  private terminateAfterPermanentAcknowledgementFailure(error: BackendContractError): void {
+    console.error('[ElectronRendererBleClient] Event acknowledgement failed permanently; terminating event delivery:', {
+      error: error.normalized
+    })
+    this.clearAcknowledgementAccounting()
+    if (isRendererRegistrationLoss(error)) {
+      this.completeRelease()
+      return
+    }
+    this.lifecycle = 'acknowledgement-failed'
+    this.eventsStream.closeWithReason('source-failed')
   }
 
   private async restoreAfterFailedRelease(): Promise<void> {
@@ -282,12 +316,7 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
 
   private completeRelease(): void {
     this.lifecycle = 'released'
-    this.pendingReleaseEventIds.length = 0
-    this.pendingAcknowledgementIds.clear()
-    if (this.acknowledgementRetry !== null) {
-      clearTimeout(this.acknowledgementRetry)
-      this.acknowledgementRetry = null
-    }
+    this.clearAcknowledgementAccounting()
     this.releaseResult = null
     try {
       this.unsubscribe()
@@ -296,6 +325,29 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
     }
     this.eventsStream.closeWithReason('owner-released')
   }
+
+  private clearAcknowledgementAccounting(): void {
+    this.pendingReleaseEventIds.length = 0
+    this.pendingAcknowledgementIds.clear()
+    if (this.acknowledgementRetry !== null) {
+      clearTimeout(this.acknowledgementRetry)
+      this.acknowledgementRetry = null
+    }
+  }
+}
+
+function isPermanentAcknowledgementFailure(error: unknown): error is BackendContractError {
+  return (
+    error instanceof BackendContractError &&
+    (error.normalized.retryability === 'never' || isRendererRegistrationLoss(error))
+  )
+}
+
+function isRendererRegistrationLoss(error: BackendContractError): boolean {
+  return (
+    error.normalized.code === 'ownership.denied' &&
+    error.normalized.operation === 'electron-main-arbiter.renderer-registration'
+  )
 }
 
 function serializedByteLength(record: SerializableRecord): number {

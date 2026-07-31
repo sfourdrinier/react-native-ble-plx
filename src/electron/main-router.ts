@@ -36,7 +36,7 @@ import { BleManager, Connection, DiscoveredGattDatabase } from '../manager/ble-m
 import type {
   ElectronBleIpcEvent,
   ElectronBleIpcRequest,
-  ElectronBleIpcResponse,
+  ElectronBleIpcSuccessResponse,
   ElectronRendererBootstrap
 } from './protocol'
 import {
@@ -144,7 +144,7 @@ export class ElectronMainBleRouter {
   async dispatch<Renderer extends string, Operation extends string>(
     sender: TrustedIpcSender<string, Renderer>,
     request: ElectronBleIpcRequest<string, Renderer, Operation>
-  ): Promise<ElectronBleIpcResponse<string, Renderer>> {
+  ): Promise<ElectronBleIpcSuccessResponse<string, Renderer>> {
     if (request.kind === 'bootstrap') {
       const renderer = rendererIdentity(sender)
       const rendererLease = this.arbiter.registerRenderer(renderer)
@@ -169,7 +169,15 @@ export class ElectronMainBleRouter {
   validateRequest<Renderer extends string, Operation extends string>(
     request: ElectronBleIpcRequest<string, Renderer, Operation>
   ): void {
-    const byteLength = electronRequestByteLength(request)
+    let byteLength: number
+    try {
+      byteLength = electronRequestByteLength(request)
+    } catch (error) {
+      if (error instanceof BackendContractError) {
+        throw error
+      }
+      throw contractError('protocol.malformed', 'ipc', 'electron-main-router.request-shape')
+    }
     if (byteLength > this.maximumMessageBytes) {
       throw contractError('bytes.too-large', 'ipc', 'electron-main-router.request-size')
     }
@@ -289,7 +297,10 @@ export class ElectronMainBleRouter {
         throw contractError('argument.invalid', 'ipc', 'electron-main-router.command')
       }
       if (snapshotSerializableRecord(response).byteLength > this.maximumMessageBytes) {
-        await this.rollbackOperationResources(resources, resourceSnapshot)
+        const rollback = await this.rollbackOperationResources(resources, resourceSnapshot)
+        if (rollback.state === 'release-failed') {
+          throw contractError('lifecycle.invalid-state', 'ipc', 'electron-main-router.rollback-release-required')
+        }
         throw contractError('bytes.too-large', 'ipc', 'electron-main-router.response-size')
       }
       return response
@@ -557,13 +568,15 @@ export class ElectronMainBleRouter {
   private async rollbackOperationResources(
     resources: RendererResources,
     snapshot: RendererResourceSnapshot
-  ): Promise<void> {
+  ): Promise<CleanupRecord> {
+    const failures: CleanupFailure[] = []
     for (const [handle, subscription] of resources.subscriptions) {
       if (snapshot.subscriptions.has(handle)) {
         continue
       }
       const cleanup = await this.streams.removeSubscription(resources, handle, subscription, false)
       if (cleanup.state === 'release-failed') {
+        failures.push(...cleanup.failures)
         console.error('[ElectronMainBleRouter] Subscription rollback failed after oversized response:', {
           handle,
           cleanup
@@ -576,6 +589,7 @@ export class ElectronMainBleRouter {
       }
       const cleanup = await this.streams.stopScan(resources, handle, scan, false)
       if (cleanup.state === 'release-failed') {
+        failures.push(...cleanup.failures)
         console.error('[ElectronMainBleRouter] Scan rollback failed after oversized response:', { handle, cleanup })
       }
     }
@@ -585,6 +599,7 @@ export class ElectronMainBleRouter {
       }
       const cleanup = await this.disconnectConnection(resources, handle, connection)
       if (cleanup.state === 'release-failed') {
+        failures.push(...cleanup.failures)
         console.error('[ElectronMainBleRouter] Connection rollback failed after oversized response:', {
           handle,
           cleanup
@@ -596,6 +611,7 @@ export class ElectronMainBleRouter {
         resources.databases.delete(handle)
       }
     }
+    return failures.length === 0 ? { state: 'released', failures: [] } : { state: 'release-failed', failures }
   }
 
   private async disconnectConnection(
