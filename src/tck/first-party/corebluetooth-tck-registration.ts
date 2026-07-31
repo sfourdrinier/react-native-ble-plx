@@ -2,17 +2,21 @@
 
 import { CoreBluetoothBackend } from '../../backends/corebluetooth/corebluetooth-backend'
 import type {
+  CoreBluetoothAdapterSnapshot,
   CoreBluetoothBoundary,
   CoreBluetoothCharacteristicAddress
 } from '../../backends/corebluetooth/corebluetooth-boundary'
 import { createCoreBluetoothBackendProvider } from '../../backends/corebluetooth/corebluetooth-provider'
 import { opaqueId, type SerializableRecord } from '../../backend-contract/primitives'
-import type { TckControllerAction, TckScenarioController, TckScenarioId } from '../contracts'
+import type { TckControllerAction, TckFeatureSuite, TckScenarioController, TckScenarioId } from '../contracts'
 import type { FirstPartyBackendTckRegistration } from './first-party-tck-registry'
 
 export interface DeterministicCoreBluetoothBoundary extends CoreBluetoothBoundary {
   emitAdvertisement(): void
   emitNotification(address: CoreBluetoothCharacteristicAddress, bytes: Uint8Array): void
+  setAdapterState(state: CoreBluetoothAdapterSnapshot): void
+  forceDisconnect(nativePeerId: string): void
+  triggerServicesChanged(nativePeerId: string): void
 }
 
 export interface CoreBluetoothFirstPartyTckRegistrationOptions {
@@ -27,7 +31,33 @@ const coreBluetoothScenarioIds: readonly TckScenarioId[] = Object.freeze([
   'identity.valid-all-axis-negotiation',
   'identity.version-skew-and-malformed-offers',
   'capability.truth-limits-evidence-and-binding',
+  'adapter.atomic-snapshot-and-watch',
+  'scan.owner-join-authority-and-signature',
+  'scan.fairness-abort-deadline-and-final-cleanup',
+  'connection.lease-joins-borrowing-transfer-and-revocation',
+  'connection.two-client-arbitration',
+  'gatt.discovery-complete-paths-and-services-changed',
+  'diagnostics.trace-redaction-and-resource-counters',
   'scenario.scan-connect-discover-read-notify-destroy'
+])
+
+const coreBluetoothFeatureSuites: readonly TckFeatureSuite[] = Object.freeze([
+  Object.freeze({
+    suiteId: 'connection-controls',
+    scenarioIds: Object.freeze<TckScenarioId[]>(['connection.rssi-and-att-mtu-capability-contract'])
+  }),
+  Object.freeze({
+    suiteId: 'tck.feature.gatt.maximum-write-length',
+    scenarioIds: Object.freeze<TckScenarioId[]>(['gatt.maximum-write-length-boundaries'])
+  })
+])
+
+const coreBluetoothControllerActions: readonly TckControllerAction[] = Object.freeze([
+  'queue-advertisement',
+  'emit-notification',
+  'force-disconnect',
+  'trigger-services-changed',
+  'set-adapter-state'
 ])
 
 /** Registers only the CoreBluetooth paths driven by the deterministic boundary's real callbacks. */
@@ -56,6 +86,9 @@ export function createCoreBluetoothFirstPartyTckRegistration(
         return {
           backend,
           controller: createCoreBluetoothController(boundary, options.nativePeerId, options.now),
+          featureScenarioAdapters: Object.freeze({
+            connectionControls: Object.freeze({ requestedMtu: 247 })
+          }),
           dispose: () => backend.destroy()
         }
       }
@@ -63,7 +96,7 @@ export function createCoreBluetoothFirstPartyTckRegistration(
     suites: Object.freeze([
       Object.freeze({ suiteId: 'corebluetooth-provider-contract-v1', baseScenarioIds: coreBluetoothScenarioIds })
     ]),
-    featureSuites: Object.freeze([]),
+    featureSuites: coreBluetoothFeatureSuites,
     capabilityExclusions: Object.freeze([])
   }
 }
@@ -74,7 +107,7 @@ function createCoreBluetoothController(
   now: () => number
 ): TckScenarioController {
   const controller: TckScenarioController = {
-    availableActions: Object.freeze(['queue-advertisement', 'emit-notification']),
+    availableActions: coreBluetoothControllerActions,
     now,
     settle: <Value>(promise: Promise<Value>) => promise,
     flush: flushMicrotasks,
@@ -95,6 +128,20 @@ function createCoreBluetoothController(
           },
           bytesField(action, input, 'value')
         )
+        return
+      }
+      if (action === 'force-disconnect') {
+        stringField(action, input, 'peerId')
+        boundary.forceDisconnect(nativePeerId)
+        return
+      }
+      if (action === 'trigger-services-changed') {
+        stringField(action, input, 'peerId')
+        boundary.triggerServicesChanged(nativePeerId)
+        return
+      }
+      if (action === 'set-adapter-state') {
+        boundary.setAdapterState(adapterStateField(action, input))
         return
       }
       throw new Error(`CoreBluetooth deterministic boundary cannot perform ${action}`)
@@ -127,6 +174,61 @@ function nonNegativeIntegerField(action: string, input: SerializableRecord, fiel
   const value = input[field]
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${action}.${field} must be a non-negative safe integer`)
+  }
+  return value
+}
+
+function adapterStateField(action: string, input: SerializableRecord): CoreBluetoothAdapterSnapshot {
+  return Object.freeze({
+    availability: availabilityField(action, input),
+    authorization: authorizationField(action, input),
+    power: powerField(action, input),
+    safeReason: nullableStringField(action, input, 'safeReason')
+  })
+}
+
+function availabilityField(action: string, input: SerializableRecord): CoreBluetoothAdapterSnapshot['availability'] {
+  const availability = stringField(action, input, 'availability')
+  if (
+    availability === 'available' ||
+    availability === 'unavailable' ||
+    availability === 'unsupported' ||
+    availability === 'unknown'
+  ) {
+    return availability
+  }
+  throw new Error(`${action}.availability is invalid`)
+}
+
+function authorizationField(action: string, input: SerializableRecord): CoreBluetoothAdapterSnapshot['authorization'] {
+  const authorization = stringField(action, input, 'authorization')
+  if (
+    authorization === 'granted' ||
+    authorization === 'denied' ||
+    authorization === 'restricted' ||
+    authorization === 'not-determined' ||
+    authorization === 'unavailable'
+  ) {
+    return authorization
+  }
+  throw new Error(`${action}.authorization is invalid`)
+}
+
+function powerField(action: string, input: SerializableRecord): CoreBluetoothAdapterSnapshot['power'] {
+  const power = stringField(action, input, 'power')
+  if (power === 'on' || power === 'off' || power === 'resetting' || power === 'unsupported' || power === 'unknown') {
+    return power
+  }
+  throw new Error(`${action}.power is invalid`)
+}
+
+function nullableStringField(action: string, input: SerializableRecord, field: string): string | null {
+  const value = input[field]
+  if (value === null) {
+    return null
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`${action}.${field} must be a string or null`)
   }
   return value
 }

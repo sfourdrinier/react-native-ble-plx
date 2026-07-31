@@ -49,6 +49,9 @@ export class CoreBluetoothConnectionControls {
     connection: BackendConnection<string, string>,
     request: RequestMtuRequest<string, Operation>
   ): BackendOperationDispatch<string, MtuNegotiation<string, Operation>> {
+    if (!this.requestMtuFeatureIsCallable()) {
+      return this.unsupported(request.operation, 'corebluetooth.connection.request-mtu')
+    }
     if (this.backend.boundary.connectionControlCapabilities?.requestMtu === 'unavailable') {
       return this.unsupported(request.operation, 'corebluetooth.connection.request-mtu')
     }
@@ -87,5 +90,12 @@ export class CoreBluetoothConnectionControls {
     return this.backend.dispatcher.dispatch(operation, operationName, async () => {
       throw contractError('capability.unsupported', 'connection', operationName)
     })
+  }
+
+  private requestMtuFeatureIsCallable(): boolean {
+    const registration = this.backend.features.registrations.find(
+      candidate => candidate.id === 'connection:request-att-mtu'
+    )
+    return registration?.state === 'supported' || registration?.state === 'limited'
   }
 }

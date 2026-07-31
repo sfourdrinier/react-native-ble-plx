@@ -111,10 +111,73 @@ static std::string StateToString(CBManagerState state) {
   }
 }
 
+static NSArray<NSString *> *CanonicalUUIDStrings(NSArray *values) {
+  NSMutableArray<NSString *> *uuids = [NSMutableArray array];
+  for (id value in values ?: @[]) {
+    if (![value isKindOfClass:[CBUUID class]]) continue;
+    [uuids addObject:NormalizeUUID(((CBUUID *)value).UUIDString)];
+  }
+  return [uuids sortedArrayUsingSelector:@selector(compare:)];
+}
+
+static NSArray<NSDictionary *> *CanonicalServiceData(NSDictionary *serviceData) {
+  NSMutableArray<NSDictionary *> *entries = [NSMutableArray array];
+  for (id key in serviceData ?: @{}) {
+    if (![key isKindOfClass:[CBUUID class]]) continue;
+    id value = serviceData[key];
+    if (![value isKindOfClass:[NSData class]]) continue;
+    [entries addObject:@{
+      @"serviceUuid" : NormalizeUUID(((CBUUID *)key).UUIDString),
+      @"value" : [NSData dataWithData:(NSData *)value]
+    }];
+  }
+  return [entries sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
+    return [left[@"serviceUuid"] compare:right[@"serviceUuid"]];
+  }];
+}
+
+static NSDictionary<NSString *, id> *ProjectAdvertisement(
+    CBPeripheral *peripheral,
+    NSDictionary<NSString *, id> *advertisementData,
+    NSNumber *RSSI) {
+  NSString *advertisedName = advertisementData[CBAdvertisementDataLocalNameKey];
+  NSString *localName = advertisedName ?: peripheral.name;
+  NSData *manufacturerBytes = advertisementData[CBAdvertisementDataManufacturerDataKey];
+  NSMutableArray<NSDictionary *> *manufacturerData = [NSMutableArray array];
+  if ([manufacturerBytes isKindOfClass:[NSData class]] && manufacturerBytes.length >= 2U) {
+    const auto *bytes = static_cast<const std::uint8_t *>(manufacturerBytes.bytes);
+    const std::uint16_t companyIdentifier = static_cast<std::uint16_t>(bytes[0]) |
+        (static_cast<std::uint16_t>(bytes[1]) << 8U);
+    NSData *payload = [manufacturerBytes subdataWithRange:NSMakeRange(2, manufacturerBytes.length - 2U)];
+    [manufacturerData addObject:@{
+      @"companyIdentifier" : @(companyIdentifier),
+      @"value" : [NSData dataWithData:payload]
+    }];
+  }
+  id txPower = advertisementData[CBAdvertisementDataTxPowerLevelKey];
+  id connectable = advertisementData[CBAdvertisementDataIsConnectable];
+  return @{
+    @"id" : peripheral.identifier.UUIDString ?: @"",
+    @"name" : localName ?: [NSNull null],
+    @"rssi" : RSSI ?: [NSNull null],
+    @"serviceUuids" : CanonicalUUIDStrings(advertisementData[CBAdvertisementDataServiceUUIDsKey]),
+    @"solicitedServiceUuids" : CanonicalUUIDStrings(advertisementData[CBAdvertisementDataSolicitedServiceUUIDsKey]),
+    @"overflowServiceUuids" : CanonicalUUIDStrings(advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey]),
+    @"serviceData" : CanonicalServiceData(advertisementData[CBAdvertisementDataServiceDataKey]),
+    @"manufacturerData" : manufacturerData,
+    @"txPower" : [txPower isKindOfClass:[NSNumber class]] ? txPower : [NSNull null],
+    @"connectable" : [connectable isKindOfClass:[NSNumber class]] ? connectable : [NSNull null],
+    @"appearance" : [NSNull null],
+    @"rawRecord" : [NSNull null],
+    @"scanResponseRecord" : [NSNull null]
+  };
+}
+
 typedef void (^UBMVoidBlock)(NSError *_Nullable error);
 typedef void (^UBMDataBlock)(NSData *_Nullable data, NSError *_Nullable error);
 typedef void (^UBMArrayBlock)(NSArray *_Nullable value, NSError *_Nullable error);
-typedef void (^UBMScanBlock)(NSString *deviceId, NSString *_Nullable name, NSNumber *_Nullable rssi);
+typedef void (^UBMNumberBlock)(NSNumber *_Nullable value, NSError *_Nullable error);
+typedef void (^UBMScanBlock)(NSDictionary<NSString *, id> *advertisement);
 typedef void (^UBMNotifyBlock)(NSData *value);
 
 @interface UBMRadio : NSObject <CBCentralManagerDelegate, CBPeripheralDelegate>
@@ -132,6 +195,7 @@ typedef void (^UBMNotifyBlock)(NSData *value);
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *pendingDiscoverDescriptorsLeft;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMDataBlock> *pendingRead;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMVoidBlock> *pendingWrite;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, UBMNumberBlock> *pendingReadRssi;
 /** Completions for setNotifyValue:YES — resolved only in didUpdateNotificationStateFor. */
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMVoidBlock> *pendingNotifyEnable;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMNotifyBlock> *notifyHandlers;
@@ -143,6 +207,8 @@ typedef void (^UBMNotifyBlock)(NSData *value);
 @property(nonatomic, strong) NSMutableDictionary<NSString *, UBMNotifyBlock> *notifyHandlersAt;
 /** Fired on unexpected or intentional link loss after pending ops are failed. */
 @property(nonatomic, copy, nullable) void (^disconnectHandler)(NSString *deviceId, NSError *_Nullable error);
+/** Reports that CoreBluetooth invalidated one or more remote GATT services. */
+@property(nonatomic, copy, nullable) void (^databaseChangedHandler)(NSString *deviceId);
 /** Reports CoreBluetooth adapter-state transitions to the contract-v1 host boundary. */
 @property(nonatomic, copy, nullable) void (^adapterStateHandler)(NSString *state);
 - (void)waitPoweredOn:(UBMVoidBlock)completion;
@@ -153,6 +219,10 @@ typedef void (^UBMNotifyBlock)(NSData *value);
 - (void)connect:(NSString *)deviceId completion:(UBMVoidBlock)completion;
 - (void)disconnect:(NSString *)deviceId completion:(UBMVoidBlock)completion;
 - (NSString *)connectionStateFor:(NSString *)deviceId;
+- (void)readRssi:(NSString *)deviceId completion:(UBMNumberBlock)completion;
+- (void)maximumWriteValueLengthForType:(NSString *)deviceId
+                          withResponse:(BOOL)withResponse
+                            completion:(UBMNumberBlock)completion;
 - (void)discoverServices:(NSString *)deviceId completion:(UBMArrayBlock)completion;
 - (void)discoverCharacteristics:(NSString *)deviceId
                     serviceUUID:(NSString *)serviceUUID
@@ -224,8 +294,8 @@ characteristicUUID:(NSString *)characteristicUUID
     serviceOccurrence:(NSInteger)serviceOccurrence
    characteristicUUID:(NSString *)characteristicUUID
  characteristicOccurrence:(NSInteger)characteristicOccurrence
-           completion:(UBMVoidBlock)completion;
-- (void)invalidate;
+        completion:(UBMVoidBlock)completion;
+- (void)invalidate:(nullable UBMVoidBlock)completion;
 @end
 
 @implementation UBMRadio
@@ -243,6 +313,7 @@ characteristicUUID:(NSString *)characteristicUUID
     _pendingDiscoverDescriptorsLeft = [NSMutableDictionary dictionary];
     _pendingRead = [NSMutableDictionary dictionary];
     _pendingWrite = [NSMutableDictionary dictionary];
+    _pendingReadRssi = [NSMutableDictionary dictionary];
     _pendingNotifyEnable = [NSMutableDictionary dictionary];
     _notifyHandlers = [NSMutableDictionary dictionary];
     _pendingReadAt = [NSMutableDictionary dictionary];
@@ -291,6 +362,11 @@ characteristicUUID:(NSString *)characteristicUUID
       [self.pendingWrite removeObjectForKey:key];
       if (done) done(error);
     }
+  }
+  UBMNumberBlock readRssi = self.pendingReadRssi[deviceId];
+  if (readRssi) {
+    [self.pendingReadRssi removeObjectForKey:deviceId];
+    readRssi(nil, error);
   }
   NSArray<NSString *> *notifyKeys = [self.notifyHandlers.allKeys copy];
   for (NSString *key in notifyKeys) {
@@ -354,42 +430,111 @@ characteristicUUID:(NSString *)characteristicUUID
   }
 }
 
-- (void)invalidate {
-  [self.central stopScan];
-  for (CBPeripheral *p in self.peripherals.allValues) {
-    if (p.state == CBPeripheralStateConnected || p.state == CBPeripheralStateConnecting) {
-      [self.central cancelPeripheralConnection:p];
-    }
-  }
-  self.central.delegate = nil;
-  self.central = nil;
-  [self.peripherals removeAllObjects];
+- (void)failAllPendingWithError:(NSError *)error {
+  NSDictionary<NSString *, UBMVoidBlock> *connects = [self.pendingConnect copy];
   [self.pendingConnect removeAllObjects];
+  for (UBMVoidBlock completion in connects.allValues) {
+    completion(error);
+  }
+
+  NSDictionary<NSString *, UBMVoidBlock> *disconnects = [self.pendingDisconnect copy];
   [self.pendingDisconnect removeAllObjects];
+  for (UBMVoidBlock completion in disconnects.allValues) {
+    completion(error);
+  }
+
+  NSDictionary<NSString *, UBMArrayBlock> *discovers = [self.pendingDiscover copy];
   [self.pendingDiscover removeAllObjects];
   [self.pendingDiscoverCharsLeft removeAllObjects];
   [self.pendingDiscoverDescriptorsLeft removeAllObjects];
+  for (UBMArrayBlock completion in discovers.allValues) {
+    completion(nil, error);
+  }
+
+  NSDictionary<NSString *, UBMDataBlock> *reads = [self.pendingRead copy];
   [self.pendingRead removeAllObjects];
+  for (UBMDataBlock completion in reads.allValues) {
+    completion(nil, error);
+  }
+
+  NSDictionary<NSString *, UBMVoidBlock> *writes = [self.pendingWrite copy];
   [self.pendingWrite removeAllObjects];
+  for (UBMVoidBlock completion in writes.allValues) {
+    completion(error);
+  }
+
+  NSDictionary<NSString *, UBMNumberBlock> *rssiReads = [self.pendingReadRssi copy];
+  [self.pendingReadRssi removeAllObjects];
+  for (UBMNumberBlock completion in rssiReads.allValues) {
+    completion(nil, error);
+  }
+
+  NSDictionary<NSString *, UBMVoidBlock> *notifyEnables = [self.pendingNotifyEnable copy];
   [self.pendingNotifyEnable removeAllObjects];
+  for (UBMVoidBlock completion in notifyEnables.allValues) {
+    completion(error);
+  }
   [self.notifyHandlers removeAllObjects];
+
+  NSDictionary<NSString *, UBMDataBlock> *directReads = [self.pendingReadAt copy];
   [self.pendingReadAt removeAllObjects];
+  for (UBMDataBlock completion in directReads.allValues) {
+    completion(nil, error);
+  }
+
+  NSDictionary<NSString *, UBMVoidBlock> *directWrites = [self.pendingWriteAt copy];
   [self.pendingWriteAt removeAllObjects];
+  for (UBMVoidBlock completion in directWrites.allValues) {
+    completion(error);
+  }
+
+  NSDictionary<NSString *, UBMDataBlock> *descriptorReads = [self.pendingReadDescriptorAt copy];
   [self.pendingReadDescriptorAt removeAllObjects];
+  for (UBMDataBlock completion in descriptorReads.allValues) {
+    completion(nil, error);
+  }
+
+  NSDictionary<NSString *, UBMVoidBlock> *descriptorWrites = [self.pendingWriteDescriptorAt copy];
   [self.pendingWriteDescriptorAt removeAllObjects];
+  for (UBMVoidBlock completion in descriptorWrites.allValues) {
+    completion(error);
+  }
+
+  NSDictionary<NSString *, UBMVoidBlock> *directNotifyEnables = [self.pendingNotifyEnableAt copy];
   [self.pendingNotifyEnableAt removeAllObjects];
+  for (UBMVoidBlock completion in directNotifyEnables.allValues) {
+    completion(error);
+  }
   [self.notifyHandlersAt removeAllObjects];
-  self.scanHandler = nil;
+
   NSArray<UBMVoidBlock> *waiters = [self.powerWaiters copy];
   [self.powerWaiters removeAllObjects];
-  NSError *invErr = [NSError errorWithDomain:@"UBMCoreBluetooth"
-                                        code:199
-                                    userInfo:@{NSLocalizedDescriptionKey : @"Radio invalidated"}];
-  for (UBMVoidBlock w in waiters) {
-    if (w) w(invErr);
+  for (UBMVoidBlock completion in waiters) {
+    completion(error);
   }
-  self.disconnectHandler = nil;
-  self.adapterStateHandler = nil;
+}
+
+- (void)invalidate:(UBMVoidBlock)completion {
+  dispatch_async(self.queue, ^{
+    NSError *invalidationError = [NSError errorWithDomain:@"UBMCoreBluetooth"
+                                                     code:199
+                                                 userInfo:@{NSLocalizedDescriptionKey : @"Radio invalidated"}];
+    [self.central stopScan];
+    self.scanHandler = nil;
+    for (CBPeripheral *peripheral in self.peripherals.allValues) {
+      if (peripheral.state == CBPeripheralStateConnected || peripheral.state == CBPeripheralStateConnecting) {
+        [self.central cancelPeripheralConnection:peripheral];
+      }
+    }
+    [self failAllPendingWithError:invalidationError];
+    self.central.delegate = nil;
+    self.central = nil;
+    [self.peripherals removeAllObjects];
+    self.disconnectHandler = nil;
+    self.databaseChangedHandler = nil;
+    self.adapterStateHandler = nil;
+    if (completion) completion(nil);
+  });
 }
 
 - (NSString *)notifyKey:(NSString *)deviceId service:(NSString *)s char:(NSString *)c {
@@ -607,6 +752,42 @@ characteristicUUID:(NSString *)characteristicUUID
     }
   });
   return state;
+}
+
+- (void)readRssi:(NSString *)deviceId completion:(UBMNumberBlock)completion {
+  dispatch_async(self.queue, ^{
+    NSError *error = nil;
+    CBPeripheral *peripheral = [self requireConnected:deviceId error:&error];
+    if (!peripheral) {
+      completion(nil, error);
+      return;
+    }
+    UBMNumberBlock prior = self.pendingReadRssi[deviceId];
+    self.pendingReadRssi[deviceId] = completion;
+    if (prior) {
+      prior(nil, [NSError errorWithDomain:@"UBMCoreBluetooth"
+                                     code:409
+                                 userInfo:@{NSLocalizedDescriptionKey : @"RSSI read superseded by a newer request"}]);
+    }
+    [peripheral readRSSI];
+  });
+}
+
+- (void)maximumWriteValueLengthForType:(NSString *)deviceId
+                          withResponse:(BOOL)withResponse
+                            completion:(UBMNumberBlock)completion {
+  dispatch_async(self.queue, ^{
+    NSError *error = nil;
+    CBPeripheral *peripheral = [self requireConnected:deviceId error:&error];
+    if (!peripheral) {
+      completion(nil, error);
+      return;
+    }
+    CBCharacteristicWriteType type =
+        withResponse ? CBCharacteristicWriteWithResponse : CBCharacteristicWriteWithoutResponse;
+    NSUInteger value = [peripheral maximumWriteValueLengthForType:type];
+    completion(@(value), nil);
+  });
 }
 
 - (CBPeripheral *)requireConnected:(NSString *)deviceId error:(NSError **)outError {
@@ -1107,8 +1288,7 @@ characteristicUUID:(NSString *)characteristicUUID
   NSString *deviceId = peripheral.identifier.UUIDString;
   self.peripherals[deviceId] = peripheral;
   peripheral.delegate = self;
-  NSString *name = peripheral.name ?: advertisementData[CBAdvertisementDataLocalNameKey];
-  if (self.scanHandler) self.scanHandler(deviceId, name, RSSI);
+  if (self.scanHandler) self.scanHandler(ProjectAdvertisement(peripheral, advertisementData, RSSI));
 }
 
 - (void)centralManager:(CBCentralManager *)central didConnectPeripheral:(CBPeripheral *)peripheral {
@@ -1155,6 +1335,21 @@ characteristicUUID:(NSString *)characteristicUUID
 
   if (self.disconnectHandler) {
     self.disconnectHandler(deviceId, error);
+  }
+}
+
+- (void)peripheral:(CBPeripheral *)peripheral didReadRSSI:(NSNumber *)RSSI error:(NSError *)error {
+  NSString *deviceId = peripheral.identifier.UUIDString;
+  UBMNumberBlock completion = self.pendingReadRssi[deviceId];
+  if (!completion) return;
+  [self.pendingReadRssi removeObjectForKey:deviceId];
+  completion(error ? nil : RSSI, error);
+}
+
+- (void)peripheral:(CBPeripheral *)peripheral didModifyServices:(NSArray<CBService *> *)invalidatedServices {
+  (void)invalidatedServices;
+  if (self.databaseChangedHandler) {
+    self.databaseChangedHandler(peripheral.identifier.UUIDString);
   }
 }
 
@@ -1410,18 +1605,45 @@ struct JsCharacteristicMetadata {
   std::vector<std::string> descriptorUuids;
 };
 
+struct JsServiceDataEntry {
+  std::string serviceUuid;
+  std::vector<std::uint8_t> value;
+};
+
+struct JsManufacturerDataEntry {
+  std::uint16_t companyIdentifier;
+  std::vector<std::uint8_t> value;
+};
+
 struct JsCallbackData {
   std::string type;
   std::string message;
   std::vector<uint8_t> bytes;
   std::string deviceId;
   std::string name;
+  bool hasName = false;
   int rssi = INT_MIN;
+  int number = INT_MIN;
+  int txPower = INT_MIN;
+  int connectable = -1;
   std::vector<std::string> strings;
+  std::vector<std::string> serviceUuids;
+  std::vector<std::string> solicitedServiceUuids;
+  std::vector<std::string> overflowServiceUuids;
+  std::vector<JsServiceDataEntry> serviceData;
+  std::vector<JsManufacturerDataEntry> manufacturerData;
   std::vector<JsCharacteristicMetadata> charMetas;
   napi_deferred deferred = nullptr;
   bool hasDeferred = false;
 };
+
+static std::vector<std::uint8_t> CopyBytes(NSData *data) {
+  std::vector<std::uint8_t> bytes;
+  if (data.length == 0U) return bytes;
+  const auto *source = static_cast<const std::uint8_t *>(data.bytes);
+  bytes.assign(source, source + data.length);
+  return bytes;
+}
 
 static JsCharacteristicMetadata CharacteristicMetadataFromDictionary(NSDictionary *value) {
   JsCharacteristicMetadata metadata;
@@ -1442,10 +1664,50 @@ static void CallJs(Napi::Env env, Napi::Function jsCallback, JsCallbackData *dat
   if (data->type == "scan" && jsCallback) {
     Napi::Object ad = Napi::Object::New(env);
     ad.Set("id", Napi::String::New(env, data->deviceId));
-    if (data->name.empty()) ad.Set("name", env.Null());
+    if (!data->hasName) ad.Set("name", env.Null());
     else ad.Set("name", Napi::String::New(env, data->name));
     if (data->rssi == INT_MIN) ad.Set("rssi", env.Null());
     else ad.Set("rssi", Napi::Number::New(env, data->rssi));
+    Napi::Array serviceUuids = Napi::Array::New(env, data->serviceUuids.size());
+    for (size_t index = 0; index < data->serviceUuids.size(); index++) {
+      serviceUuids.Set(index, data->serviceUuids[index]);
+    }
+    ad.Set("serviceUuids", serviceUuids);
+    Napi::Array solicitedServiceUuids = Napi::Array::New(env, data->solicitedServiceUuids.size());
+    for (size_t index = 0; index < data->solicitedServiceUuids.size(); index++) {
+      solicitedServiceUuids.Set(index, data->solicitedServiceUuids[index]);
+    }
+    ad.Set("solicitedServiceUuids", solicitedServiceUuids);
+    Napi::Array overflowServiceUuids = Napi::Array::New(env, data->overflowServiceUuids.size());
+    for (size_t index = 0; index < data->overflowServiceUuids.size(); index++) {
+      overflowServiceUuids.Set(index, data->overflowServiceUuids[index]);
+    }
+    ad.Set("overflowServiceUuids", overflowServiceUuids);
+    Napi::Array serviceData = Napi::Array::New(env, data->serviceData.size());
+    for (size_t index = 0; index < data->serviceData.size(); index++) {
+      const JsServiceDataEntry &entry = data->serviceData[index];
+      Napi::Object value = Napi::Object::New(env);
+      value.Set("serviceUuid", entry.serviceUuid);
+      value.Set("value", Napi::Buffer<std::uint8_t>::Copy(env, entry.value.data(), entry.value.size()));
+      serviceData.Set(index, value);
+    }
+    ad.Set("serviceData", serviceData);
+    Napi::Array manufacturerData = Napi::Array::New(env, data->manufacturerData.size());
+    for (size_t index = 0; index < data->manufacturerData.size(); index++) {
+      const JsManufacturerDataEntry &entry = data->manufacturerData[index];
+      Napi::Object value = Napi::Object::New(env);
+      value.Set("companyIdentifier", Napi::Number::New(env, entry.companyIdentifier));
+      value.Set("value", Napi::Buffer<std::uint8_t>::Copy(env, entry.value.data(), entry.value.size()));
+      manufacturerData.Set(index, value);
+    }
+    ad.Set("manufacturerData", manufacturerData);
+    if (data->txPower == INT_MIN) ad.Set("txPower", env.Null());
+    else ad.Set("txPower", Napi::Number::New(env, data->txPower));
+    if (data->connectable < 0) ad.Set("connectable", env.Null());
+    else ad.Set("connectable", Napi::Boolean::New(env, data->connectable != 0));
+    ad.Set("appearance", env.Null());
+    ad.Set("rawRecord", env.Null());
+    ad.Set("scanResponseRecord", env.Null());
     jsCallback.Call({ad});
   } else if (data->type == "notify" && jsCallback) {
     jsCallback.Call({Napi::Buffer<uint8_t>::Copy(env, data->bytes.data(), data->bytes.size())});
@@ -1455,6 +1717,8 @@ static void CallJs(Napi::Env env, Napi::Function jsCallback, JsCallbackData *dat
       errArg = Napi::String::New(env, data->message);
     }
     jsCallback.Call({Napi::String::New(env, data->deviceId), errArg});
+  } else if (data->type == "database-changed" && jsCallback) {
+    jsCallback.Call({Napi::String::New(env, data->deviceId)});
   } else if (data->type == "adapter-state" && jsCallback) {
     jsCallback.Call({Napi::String::New(env, data->message)});
   } else if (data->hasDeferred) {
@@ -1494,6 +1758,8 @@ static void CallJs(Napi::Env env, Napi::Function jsCallback, JsCallbackData *dat
     } else if (data->type == "resolve_buffer") {
       napi_resolve_deferred(env, data->deferred,
                             Napi::Buffer<uint8_t>::Copy(env, data->bytes.data(), data->bytes.size()));
+    } else if (data->type == "resolve_number") {
+      napi_resolve_deferred(env, data->deferred, Napi::Number::New(env, data->number));
     }
   }
   delete data;
@@ -1531,6 +1797,8 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
             InstanceMethod("connect", &CoreBluetoothAddon::Connect),
             InstanceMethod("disconnect", &CoreBluetoothAddon::Disconnect),
             InstanceMethod("getConnectionState", &CoreBluetoothAddon::GetConnectionState),
+            InstanceMethod("readRssi", &CoreBluetoothAddon::ReadRssi),
+            InstanceMethod("maximumWriteValueLengthForType", &CoreBluetoothAddon::MaximumWriteValueLengthForType),
             InstanceMethod("discoverServices", &CoreBluetoothAddon::DiscoverServices),
             InstanceMethod("discoverCharacteristicsAt", &CoreBluetoothAddon::DiscoverCharacteristicsAt),
             InstanceMethod("readDescriptorAt", &CoreBluetoothAddon::ReadDescriptorAt),
@@ -1540,6 +1808,7 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
             InstanceMethod("startNotifyAt", &CoreBluetoothAddon::StartNotifyAt),
             InstanceMethod("stopNotifyAt", &CoreBluetoothAddon::StopNotifyAt),
             InstanceMethod("setDisconnectHandler", &CoreBluetoothAddon::SetDisconnectHandler),
+            InstanceMethod("setDatabaseChangedHandler", &CoreBluetoothAddon::SetDatabaseChangedHandler),
             InstanceMethod("setAdapterStateHandler", &CoreBluetoothAddon::SetAdapterStateHandler),
             InstanceMethod("destroy", &CoreBluetoothAddon::Destroy),
         });
@@ -1563,6 +1832,7 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
   /** Per-subscription notify TSFNs keyed by deviceId::serviceUUID::characteristicUUID. */
   std::map<std::string, Napi::ThreadSafeFunction> notifyTsfns_;
   Napi::ThreadSafeFunction disconnectTsfn_;
+  Napi::ThreadSafeFunction databaseChangedTsfn_;
   Napi::ThreadSafeFunction adapterStateTsfn_;
 
   static std::string NotifyMapKey(const std::string &id, const std::string &svc, const std::string &ch) {
@@ -1576,11 +1846,7 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
     notifyTsfns_.erase(it);
   }
 
-  void DestroyInternal() {
-    if (radio_) {
-      [radio_ invalidate];
-      radio_ = nil;
-    }
+  void ReleasePersistentTsfns() {
     if (scanTsfn_) {
       scanTsfn_.Release();
       scanTsfn_ = Napi::ThreadSafeFunction();
@@ -1593,10 +1859,22 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
       disconnectTsfn_.Release();
       disconnectTsfn_ = Napi::ThreadSafeFunction();
     }
+    if (databaseChangedTsfn_) {
+      databaseChangedTsfn_.Release();
+      databaseChangedTsfn_ = Napi::ThreadSafeFunction();
+    }
     if (adapterStateTsfn_) {
       adapterStateTsfn_.Release();
       adapterStateTsfn_ = Napi::ThreadSafeFunction();
     }
+  }
+
+  void DestroyInternal() {
+    if (radio_) {
+      [radio_ invalidate:nil];
+      radio_ = nil;
+    }
+    ReleasePersistentTsfns();
   }
 
   Napi::Value GetAdapterState(const Napi::CallbackInfo &info) {
@@ -1608,6 +1886,60 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
     std::string id = info[0].As<Napi::String>().Utf8Value();
     NSString *state = [radio_ connectionStateFor:[NSString stringWithUTF8String:id.c_str()]];
     return Napi::String::New(info.Env(), [state UTF8String]);
+  }
+
+  Napi::Value ReadRssi(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    std::string id = info[0].As<Napi::String>().Utf8Value();
+    auto tsfn = MakeResolverTsfn(env, "ubm_read_rssi");
+    napi_deferred deferred;
+    napi_value promise;
+    napi_create_promise(env, &deferred, &promise);
+    [radio_ readRssi:[NSString stringWithUTF8String:id.c_str()]
+          completion:^(NSNumber *value, NSError *error) {
+            auto *data = new JsCallbackData();
+            data->hasDeferred = true;
+            data->deferred = deferred;
+            if (error) {
+              data->type = "reject";
+              data->message = error.localizedDescription ? [error.localizedDescription UTF8String] : "readRssi failed";
+            } else {
+              data->type = "resolve_number";
+              data->number = value.intValue;
+            }
+            tsfn.BlockingCall(data, CallJs);
+            tsfn.Release();
+          }];
+    return Napi::Promise(env, promise);
+  }
+
+  Napi::Value MaximumWriteValueLengthForType(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    std::string id = info[0].As<Napi::String>().Utf8Value();
+    bool withResponse = info[1].As<Napi::Boolean>().Value();
+    auto tsfn = MakeResolverTsfn(env, "ubm_maximum_write_value_length");
+    napi_deferred deferred;
+    napi_value promise;
+    napi_create_promise(env, &deferred, &promise);
+    [radio_ maximumWriteValueLengthForType:[NSString stringWithUTF8String:id.c_str()]
+                              withResponse:withResponse
+                                completion:^(NSNumber *value, NSError *error) {
+                                  auto *data = new JsCallbackData();
+                                  data->hasDeferred = true;
+                                  data->deferred = deferred;
+                                  if (error) {
+                                    data->type = "reject";
+                                    data->message = error.localizedDescription
+                                        ? [error.localizedDescription UTF8String]
+                                        : "maximumWriteValueLengthForType failed";
+                                  } else {
+                                    data->type = "resolve_number";
+                                    data->number = value.intValue;
+                                  }
+                                  tsfn.BlockingCall(data, CallJs);
+                                  tsfn.Release();
+                                }];
+    return Napi::Promise(env, promise);
   }
 
   Napi::Value StartScan(const Napi::CallbackInfo &info) {
@@ -1632,12 +1964,42 @@ class CoreBluetoothAddon : public Napi::ObjectWrap<CoreBluetoothAddon> {
     napi_value promise;
     napi_create_promise(env, &deferred, &promise);
 
-    [radio_ startScan:^(NSString *deviceId, NSString *name, NSNumber *rssi) {
+    [radio_ startScan:^(NSDictionary<NSString *, id> *advertisement) {
       auto *data = new JsCallbackData();
       data->type = "scan";
+      NSString *deviceId = advertisement[@"id"];
       data->deviceId = deviceId ? [deviceId UTF8String] : "";
-      data->name = name ? [name UTF8String] : "";
-      data->rssi = rssi ? rssi.intValue : INT_MIN;
+      NSString *name = advertisement[@"name"];
+      data->hasName = [name isKindOfClass:[NSString class]];
+      data->name = data->hasName ? [name UTF8String] : "";
+      NSNumber *rssi = advertisement[@"rssi"];
+      data->rssi = [rssi isKindOfClass:[NSNumber class]] ? rssi.intValue : INT_MIN;
+      for (NSString *uuid in advertisement[@"serviceUuids"] ?: @[]) {
+        data->serviceUuids.push_back([uuid UTF8String]);
+      }
+      for (NSString *uuid in advertisement[@"solicitedServiceUuids"] ?: @[]) {
+        data->solicitedServiceUuids.push_back([uuid UTF8String]);
+      }
+      for (NSString *uuid in advertisement[@"overflowServiceUuids"] ?: @[]) {
+        data->overflowServiceUuids.push_back([uuid UTF8String]);
+      }
+      for (NSDictionary *entry in advertisement[@"serviceData"] ?: @[]) {
+        NSString *uuid = entry[@"serviceUuid"];
+        NSData *value = entry[@"value"];
+        if (![uuid isKindOfClass:[NSString class]] || ![value isKindOfClass:[NSData class]]) continue;
+        data->serviceData.push_back(JsServiceDataEntry{[uuid UTF8String], CopyBytes(value)});
+      }
+      for (NSDictionary *entry in advertisement[@"manufacturerData"] ?: @[]) {
+        NSNumber *companyIdentifier = entry[@"companyIdentifier"];
+        NSData *value = entry[@"value"];
+        if (![companyIdentifier isKindOfClass:[NSNumber class]] || ![value isKindOfClass:[NSData class]]) continue;
+        data->manufacturerData.push_back(JsManufacturerDataEntry{
+            static_cast<std::uint16_t>([companyIdentifier unsignedShortValue]), CopyBytes(value)});
+      }
+      NSNumber *txPower = advertisement[@"txPower"];
+      data->txPower = [txPower isKindOfClass:[NSNumber class]] ? txPower.intValue : INT_MIN;
+      NSNumber *connectable = advertisement[@"connectable"];
+      data->connectable = [connectable isKindOfClass:[NSNumber class]] ? (connectable.boolValue ? 1 : 0) : -1;
       // BlockingCall: never silently drop ads under JS backlog (R2-F022).
       scanTsfn.BlockingCall(data, CallJs);
     }
@@ -2099,6 +2461,30 @@ characteristicOccurrence:chOccurrence
     return env.Undefined();
   }
 
+  Napi::Value SetDatabaseChangedHandler(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    if (info.Length() < 1 || !info[0].IsFunction()) {
+      Napi::TypeError::New(env, "setDatabaseChangedHandler expects a function").ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+    if (databaseChangedTsfn_) {
+      databaseChangedTsfn_.Release();
+      databaseChangedTsfn_ = Napi::ThreadSafeFunction();
+    }
+    databaseChangedTsfn_ = Napi::ThreadSafeFunction::New(
+        env, info[0].As<Napi::Function>(), "ubm_database_changed", 0, 1);
+    Napi::ThreadSafeFunction databaseChangedTsfn = databaseChangedTsfn_;
+    if (radio_) {
+      radio_.databaseChangedHandler = ^(NSString *deviceId) {
+        auto *data = new JsCallbackData();
+        data->type = "database-changed";
+        data->deviceId = deviceId ? [deviceId UTF8String] : "";
+        databaseChangedTsfn.BlockingCall(data, CallJs);
+      };
+    }
+    return env.Undefined();
+  }
+
   Napi::Value SetAdapterStateHandler(const Napi::CallbackInfo &info) {
     Napi::Env env = info.Env();
     if (info.Length() < 1 || !info[0].IsFunction()) {
@@ -2123,8 +2509,25 @@ characteristicOccurrence:chOccurrence
   }
 
   Napi::Value Destroy(const Napi::CallbackInfo &info) {
-    DestroyInternal();
-    return info.Env().Undefined();
+    Napi::Env env = info.Env();
+    napi_deferred deferred;
+    napi_value promise;
+    napi_create_promise(env, &deferred, &promise);
+    if (!radio_) {
+      napi_value undefined;
+      napi_get_undefined(env, &undefined);
+      napi_resolve_deferred(env, deferred, undefined);
+      return Napi::Promise(env, promise);
+    }
+    UBMRadio *radio = radio_;
+    radio_ = nil;
+    CoreBluetoothAddon *self = this;
+    auto tsfn = MakeResolverTsfn(env, "ubm_destroy");
+    [radio invalidate:^(NSError *error) {
+      self->ReleasePersistentTsfns();
+      CompleteVoid(tsfn, deferred, error);
+    }];
+    return Napi::Promise(env, promise);
   }
 };
 

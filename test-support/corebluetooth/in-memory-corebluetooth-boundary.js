@@ -6,12 +6,14 @@ class InMemoryCoreBluetoothBoundary {
     this.characteristicUuid = characteristicUuid
     this.descriptorUuid = descriptorUuid
     this.descriptorOperationsAvailable = true
+    this.connectionControlCapabilities = { rssi: 'available', requestMtu: 'unavailable' }
     this.adapter = { availability: 'available', authorization: 'granted', power: 'on', safeReason: null }
     this.connected = false
     this.destroyed = false
     this.scanHandler = null
     this.stoppedScanHandler = null
     this.disconnectListeners = new Set()
+    this.databaseChangedListeners = new Set()
     this.adapterStateListeners = new Set()
     this.notificationHandlers = new Map()
     this.stoppedNotificationHandlers = new Map()
@@ -52,6 +54,18 @@ class InMemoryCoreBluetoothBoundary {
     })
   }
 
+  setAdapterState(state) {
+    this.adapter = {
+      availability: state.availability,
+      authorization: state.authorization,
+      power: state.power,
+      safeReason: state.safeReason
+    }
+    for (const listener of this.adapterStateListeners) {
+      listener(this.adapterSnapshot())
+    }
+  }
+
   async connect(nativePeerId) {
     if (nativePeerId !== 'native-polar-h10') {
       throw new Error('Unknown deterministic CoreBluetooth peer')
@@ -63,8 +77,32 @@ class InMemoryCoreBluetoothBoundary {
     this.connected = false
   }
 
+  forceDisconnect(nativePeerId) {
+    if (nativePeerId !== 'native-polar-h10') {
+      throw new Error('Unknown deterministic CoreBluetooth peer')
+    }
+    this.connected = false
+    for (const listener of this.disconnectListeners) {
+      listener(nativePeerId, null)
+    }
+  }
+
   connectionState() {
     return this.connected ? 'connected' : 'disconnected'
+  }
+
+  async readRssi(nativePeerId) {
+    if (nativePeerId !== 'native-polar-h10') {
+      throw new Error('Unknown deterministic CoreBluetooth peer')
+    }
+    return -48
+  }
+
+  async maximumWriteValueLength(nativePeerId, _withResponse) {
+    if (nativePeerId !== 'native-polar-h10') {
+      throw new Error('Unknown deterministic CoreBluetooth peer')
+    }
+    return 20
   }
 
   async discover() {
@@ -161,6 +199,11 @@ class InMemoryCoreBluetoothBoundary {
     return () => this.disconnectListeners.delete(listener)
   }
 
+  onDatabaseChanged(listener) {
+    this.databaseChangedListeners.add(listener)
+    return () => this.databaseChangedListeners.delete(listener)
+  }
+
   onAdapterState(listener) {
     this.adapterStateListeners.add(listener)
     return () => this.adapterStateListeners.delete(listener)
@@ -175,12 +218,35 @@ class InMemoryCoreBluetoothBoundary {
     handler(new Uint8Array(bytes))
   }
 
+  triggerServicesChanged(nativePeerId) {
+    if (nativePeerId !== 'native-polar-h10') {
+      throw new Error('Unknown deterministic CoreBluetooth peer')
+    }
+    for (const listener of this.databaseChangedListeners) {
+      listener(nativePeerId)
+    }
+  }
+
   async destroy() {
     this.destroyed = true
     this.scanHandler = null
     this.stoppedScanHandler = null
     this.notificationHandlers.clear()
     this.stoppedNotificationHandlers.clear()
+    this.databaseChangedListeners.clear()
+  }
+
+  resourceSnapshot() {
+    return {
+      connected: this.connected,
+      activeScanHandlers: this.scanHandler === null ? 0 : 1,
+      retainedScanHandlers: this.stoppedScanHandler === null ? 0 : 1,
+      disconnectListeners: this.disconnectListeners.size,
+      databaseChangedListeners: this.databaseChangedListeners.size,
+      adapterStateListeners: this.adapterStateListeners.size,
+      notificationHandlers: this.notificationHandlers.size,
+      retainedNotificationHandlers: this.stoppedNotificationHandlers.size
+    }
   }
 }
 

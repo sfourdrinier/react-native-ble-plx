@@ -44,6 +44,8 @@ function createContractBoundary() {
     'disconnect',
     'getConnectionState',
     'getAdapterState',
+    'readRssi',
+    'maximumWriteValueLengthForType',
     'discoverServices',
     'discoverCharacteristicsAt',
     'readDescriptorAt',
@@ -53,6 +55,7 @@ function createContractBoundary() {
     'startNotifyAt',
     'stopNotifyAt',
     'setDisconnectHandler',
+    'setDatabaseChangedHandler',
     'setAdapterStateHandler',
     'destroy'
   ]
@@ -62,11 +65,17 @@ function createContractBoundary() {
     }
   }
   const unsubscribe = new Set()
+  const databaseChangeListeners = new Set()
   const stateListeners = new Set()
   radio.setAdapterStateHandler(state => {
     const snapshot = adapterSnapshot(state)
     for (const listener of stateListeners) {
       listener(snapshot)
+    }
+  })
+  radio.setDatabaseChangedHandler(nativePeerId => {
+    for (const listener of databaseChangeListeners) {
+      listener(String(nativePeerId))
     }
   })
   return {
@@ -79,7 +88,22 @@ function createContractBoundary() {
             nativePeerId: String(advertisement.id),
             localName: advertisement.name == null ? null : String(advertisement.name),
             rssi: typeof advertisement.rssi === 'number' ? advertisement.rssi : null,
-            serviceUuids: null
+            serviceUuids: advertisement.serviceUuids.map(String),
+            solicitedServiceUuids: advertisement.solicitedServiceUuids.map(String),
+            overflowServiceUuids: advertisement.overflowServiceUuids.map(String),
+            serviceData: advertisement.serviceData.map(entry => ({
+              serviceUuid: String(entry.serviceUuid),
+              value: toUint8Array(entry.value)
+            })),
+            manufacturerData: advertisement.manufacturerData.map(entry => ({
+              companyIdentifier: Number(entry.companyIdentifier),
+              value: toUint8Array(entry.value)
+            })),
+            txPower: typeof advertisement.txPower === 'number' ? advertisement.txPower : null,
+            connectable: typeof advertisement.connectable === 'boolean' ? advertisement.connectable : null,
+            appearance: null,
+            rawRecord: null,
+            scanResponseRecord: null
           })
         },
         serviceUuids.length === 0 ? null : Array.from(serviceUuids, String)
@@ -92,6 +116,9 @@ function createContractBoundary() {
       const state = radio.getConnectionState(String(nativePeerId))
       return state === 'connected' || state === 'connecting' ? state : 'disconnected'
     },
+    readRssi: nativePeerId => radio.readRssi(String(nativePeerId)),
+    maximumWriteValueLength: (nativePeerId, withResponse) =>
+      radio.maximumWriteValueLengthForType(String(nativePeerId), withResponse),
     discover: nativePeerId => discoverGattDatabase(radio, String(nativePeerId)),
     read: address =>
       radio
@@ -165,14 +192,19 @@ function createContractBoundary() {
       })
       return () => unsubscribe.delete(registration)
     },
+    onDatabaseChanged: listener => {
+      databaseChangeListeners.add(listener)
+      return () => databaseChangeListeners.delete(listener)
+    },
     onAdapterState: listener => {
       stateListeners.add(listener)
       return () => stateListeners.delete(listener)
     },
     destroy: async () => {
       unsubscribe.clear()
+      databaseChangeListeners.clear()
       stateListeners.clear()
-      radio.destroy()
+      await radio.destroy()
     }
   }
 }

@@ -82,6 +82,7 @@ import { coreBluetoothIdentityOptions, type DirectGattBackendIdentityOptions } f
 import { adapterStateLimits, backendEventLimits } from './corebluetooth-stream-limits'
 import { releaseCoreBluetoothAdapterLossResources } from './corebluetooth-adapter-loss-cleanup'
 import { releaseLateCoreBluetoothConnection } from './corebluetooth-late-connect-cleanup'
+import { createCoreBluetoothRuntimeFeatureRegistry } from './corebluetooth-runtime-capabilities'
 export type { DirectGattBackendIdentityOptions } from './corebluetooth-identity'
 export interface ScanConsumer {
   readonly scanSessionId: ScanSessionId<string, string>
@@ -145,6 +146,7 @@ export class CoreBluetoothBackend implements BleCentralBackend<string, HostNeutr
   readonly gattOperations: CoreBluetoothGattOperations
   readonly connectionControls: CoreBluetoothConnectionControls
   private readonly disconnectListener: () => void
+  private readonly databaseChangedListener: (() => void) | null
   private readonly scanFailureListener: (() => void) | null
   private readonly adapterStateListener: () => void
   private attached = false
@@ -168,7 +170,14 @@ export class CoreBluetoothBackend implements BleCentralBackend<string, HostNeutr
     private readonly hostKind: 'node' | 'electron-main' | 'native-mobile',
     private readonly identityOptions: DirectGattBackendIdentityOptions = coreBluetoothIdentityOptions
   ) {
-    this.features = identityOptions.features
+    this.features = createCoreBluetoothRuntimeFeatureRegistry({
+      boundary,
+      existingFeatures: identityOptions.features,
+      implementationVersion: identityOptions.implementationVersion,
+      now,
+      resolveNativePeerId: (connectionId, connectionGeneration, operation) =>
+        this.nativePeerIdForRuntimeCapability(connectionId, connectionGeneration, operation)
+    })
     const backendInstanceId = opaqueId(
       `${this.identityOptions.backendInstancePrefix}-${allocateBackendInstance()}`,
       'backend-instance',
@@ -209,6 +218,10 @@ export class CoreBluetoothBackend implements BleCentralBackend<string, HostNeutr
     this.disconnectListener = boundary.onDisconnect((nativePeerId, safeMessage) => {
       this.handleDisconnect(nativePeerId, safeMessage)
     })
+    this.databaseChangedListener =
+      boundary.onDatabaseChanged?.(nativePeerId => {
+        this.handleDatabaseChanged(nativePeerId)
+      }) ?? null
     this.scanFailureListener =
       boundary.onScanFailure?.(safeMessage => {
         this.handleScanFailure(safeMessage)
@@ -663,6 +676,38 @@ export class CoreBluetoothBackend implements BleCentralBackend<string, HostNeutr
       console.error('[CoreBluetoothBackend.handleDisconnect] Native link loss:', safeMessage)
     }
   }
+  private handleDatabaseChanged(nativePeerId: string): void {
+    if (this.admissionClosed || this.destroyed) {
+      return
+    }
+    const record = this.connectionsByNativeId.get(nativePeerId)
+    const database = record?.database
+    if (record === undefined || database === null || database === undefined || record.state !== 'connected') {
+      return
+    }
+    database.invalidate()
+    record.database = null
+    this.removeConnectionSubscriptions(record, 'connection-lost').then(
+      cleanup => {
+        if (cleanup.state === 'release-failed') {
+          console.error(
+            '[CoreBluetoothBackend.database-changed] Subscription cleanup requires retry:',
+            cleanup.failures
+          )
+        }
+      },
+      error => console.error('[CoreBluetoothBackend.database-changed] Subscription cleanup rejected:', error)
+    )
+    const attachment = this.attachment()
+    this.broadcastEvent({
+      attachment,
+      attachmentId: attachment.attachmentId,
+      kind: 'database-changed',
+      database: database.path,
+      ingressOrdinal: this.nextIngressOrdinal
+    })
+    this.nextIngressOrdinal += 1
+  }
   private handleAdapterState(state: CoreBluetoothAdapterSnapshot): void {
     this.attachmentLifecycle.updateAdapterState(state)
     if (this.destroyed) {
@@ -816,6 +861,22 @@ export class CoreBluetoothBackend implements BleCentralBackend<string, HostNeutr
     }
     throw contractError('gatt.stale-handle', 'gatt', operation)
   }
+  private nativePeerIdForRuntimeCapability(
+    connectionId: string,
+    connectionGeneration: string,
+    operation: string
+  ): string {
+    for (const record of this.connectionsByNativeId.values()) {
+      if (
+        String(record.connectionId) === connectionId &&
+        String(record.connectionGeneration) === connectionGeneration &&
+        record.state === 'connected'
+      ) {
+        return record.nativePeerId
+      }
+    }
+    throw contractError('connection.stale', 'connection', operation)
+  }
   private peerIdForNativeId(nativePeerId: string): PeerId<string> {
     const existing = this.peerIdsByNativeId.get(nativePeerId)
     if (existing !== undefined) {
@@ -906,6 +967,7 @@ export class CoreBluetoothBackend implements BleCentralBackend<string, HostNeutr
     }
     try {
       this.disconnectListener()
+      this.databaseChangedListener?.()
       this.scanFailureListener?.()
       this.adapterStateListener()
       await this.boundary.destroy()

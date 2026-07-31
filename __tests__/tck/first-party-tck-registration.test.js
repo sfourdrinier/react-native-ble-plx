@@ -210,27 +210,99 @@ describe('first-party backend standard TCK registrations', () => {
     })
   })
 
-  test('runs CoreBluetooth deterministic boundary vertical suite through the standard runner', async () => {
-    const registry = createFirstPartyBackendTckRegistry([
-      createCoreBluetoothFirstPartyTckRegistration({
+  test('runs every applicable CoreBluetooth deterministic callback and capability scenario without unsupported promotion', async () => {
+    const boundaries = []
+    const registration = createCoreBluetoothFirstPartyTckRegistration({
         now: () => 20,
         nativePeerId: 'native-polar-h10',
-        createBoundary: () =>
-          new InMemoryCoreBluetoothBoundary({ serviceUuid: SERVICE_UUID, characteristicUuid: CHARACTERISTIC_UUID })
+        createBoundary: () => {
+          const boundary = new InMemoryCoreBluetoothBoundary({
+            serviceUuid: SERVICE_UUID,
+            characteristicUuid: CHARACTERISTIC_UUID
+          })
+          boundaries.push(boundary)
+          return boundary
+        }
       })
-    ])
+    const registry = createFirstPartyBackendTckRegistry([registration])
 
     const report = await registry.run('unified-ble:corebluetooth')
 
-    expect(report.standard.baseScenarioIds).toContain('scenario.scan-connect-discover-read-notify-destroy')
-    expect(
-      report.standard.receipts.find(
-        receipt => receipt.scenarioId === 'scenario.scan-connect-discover-read-notify-destroy'
+    expect(report.standard.baseScenarioIds).toEqual([
+      'identity.provider-loadability-and-adapter-availability',
+      'identity.adapter-selection-and-unique-instance',
+      'identity.valid-all-axis-negotiation',
+      'identity.version-skew-and-malformed-offers',
+      'capability.truth-limits-evidence-and-binding',
+      'adapter.atomic-snapshot-and-watch',
+      'scan.owner-join-authority-and-signature',
+      'scan.fairness-abort-deadline-and-final-cleanup',
+      'connection.lease-joins-borrowing-transfer-and-revocation',
+      'connection.two-client-arbitration',
+      'gatt.discovery-complete-paths-and-services-changed',
+      'diagnostics.trace-redaction-and-resource-counters',
+      'scenario.scan-connect-discover-read-notify-destroy'
+    ])
+    expect(report.standard.featureSuiteIds).toEqual([
+      'connection-controls',
+      'tck.feature.gatt.maximum-write-length'
+    ])
+    expect(report.standard.featureBindings.map(binding => binding.featureId)).toEqual([
+      'connection:rssi-measurement',
+      'gatt:maximum-write-length'
+    ])
+    expect(report.standard.receipts.slice(0, report.standard.baseScenarioIds.length)).toEqual(
+      report.standard.baseScenarioIds.map(scenarioId =>
+        expect.objectContaining({
+          scenarioId,
+          error: null,
+          facts: expect.arrayContaining([expect.objectContaining({ holds: true })])
+        })
       )
-    ).toMatchObject({
-      error: null,
-      facts: [expect.objectContaining({ id: 'vertical-slice-preserves-scan-and-cleans-up', holds: true })]
-    })
+    )
+    expect(report.standard.receipts.map(receipt => receipt.scenarioId)).toEqual([
+      ...report.standard.baseScenarioIds,
+      'connection.rssi-and-att-mtu-capability-contract',
+      'gatt.maximum-write-length-boundaries'
+    ])
+    expect(report.standard.receipts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scenarioId: 'connection.rssi-and-att-mtu-capability-contract',
+          facts: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'connection-att-mtu-is-negotiated-or-explicitly-unavailable',
+              holds: true,
+              detail: expect.objectContaining({ mtuExplicitlyUnavailable: true })
+            })
+          ])
+        }),
+        expect.objectContaining({
+          scenarioId: 'gatt.discovery-complete-paths-and-services-changed',
+          facts: expect.arrayContaining([
+            expect.objectContaining({ id: 'gatt-services-changed-invalidates-database-generation', holds: true })
+          ])
+        }),
+      ])
+    )
+    expect(report.standard.featureBindings.map(binding => binding.featureId)).not.toContain(
+      'connection:request-att-mtu'
+    )
+    expect(
+      report.standard.receipts
+        .map(receipt => receipt.scenarioId)
+        .filter(scenarioId => scenarioId.startsWith('gatt.long-write-'))
+    ).toEqual([])
+    expect(registration.featureSuites.map(suite => suite.suiteId)).toEqual([
+      'connection-controls',
+      'tck.feature.gatt.maximum-write-length'
+    ])
+    expect(boundaries.length).toBeGreaterThan(0)
+    expect(
+      boundaries.every(boundary =>
+        Object.values(boundary.resourceSnapshot()).every(value => value === false || value === 0)
+      )
+    ).toBe(true)
   })
 
   test('runs the exact BlueZ provider and public vertical scenario profile with explicit exclusions', async () => {

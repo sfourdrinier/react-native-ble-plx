@@ -93,6 +93,8 @@ export interface CoreBluetoothBoundary {
   disconnect(nativePeerId: string): Promise<void>
   connectionState(nativePeerId: string): 'connecting' | 'connected' | 'disconnected'
   readRssi?(nativePeerId: string): Promise<number>
+  /** Reports the current CoreBluetooth write length for the selected response mode. */
+  maximumWriteValueLength?(nativePeerId: string, withResponse: boolean): Promise<number>
   requestMtu?(nativePeerId: string, requestedMtu: number): Promise<number>
   discover(nativePeerId: string): Promise<CoreBluetoothGattSnapshot>
   read(address: CoreBluetoothCharacteristicAddress): Promise<Uint8Array>
@@ -102,6 +104,8 @@ export interface CoreBluetoothBoundary {
   startNotify(address: CoreBluetoothCharacteristicAddress, onValue: (bytes: Uint8Array) => void): Promise<void>
   stopNotify(address: CoreBluetoothCharacteristicAddress): Promise<void>
   onDisconnect(listener: (nativePeerId: string, safeMessage: string | null) => void): () => void
+  /** Emits when the peer's GATT Services Changed indication invalidates the discovered database. */
+  onDatabaseChanged?(listener: (nativePeerId: string) => void): () => void
   /** Android may report a terminal scanner failure after scan-start has already succeeded. */
   onScanFailure?(listener: (safeMessage: string) => void): () => void
   onAdapterState(listener: (state: CoreBluetoothAdapterSnapshot) => void): () => void

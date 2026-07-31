@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.19] - 2026-07-31
+
+### Added
+
+- Projected complete CoreBluetooth advertisement data through the native Electron
+  boundary, including service/manufacturer data, UUID collections, local name,
+  RSSI, transmit power, and connectability with owned byte buffers.
+- Added backend-reported CoreBluetooth RSSI, maximum-write-length, explicit MTU
+  behavior, Services Changed invalidation, and their deterministic TCK coverage.
+
+### Fixed
+
+- Bound Electron renderer ownership to the exact committed main-frame identity,
+  serialized bootstrap admission, and quarantined navigation, authentication,
+  destruction, and teardown races before routes, acknowledgements, or events.
+
 ## [4.0.0-alpha.18] - 2026-07-31
 
 ### Fixed
