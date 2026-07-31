@@ -2,65 +2,10 @@
 
 # Bonding / pairing
 
-> **Transitional source characterization:** the APIs and static host assumptions below are audit input, not the 4.0 contract. 4.0 capability truth comes from typed feature registrations on an instantiated backend. See [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
+The 4.0 API has no generic bonding operation. Capability truth comes from the typed feature registrations of the backend attached to a manager, never from a host name, static table, or simulated radio. The controlling contract is [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
 
-## Runtime rule: prefer `manager.supports('bonding')`
+Applications must inspect the attached backend's registered feature and its limitations before presenting a pairing flow. If no supported feature registration exists, pairing is unavailable; applications must not infer availability from Android, React Native, Electron, or a test backend.
 
-Bonding is **OS-honest on the React Native `BleManager` instance**:
+Pairing or encryption prompts that an operating system shows while accessing protected characteristics remain OS behavior. They do not create a cross-platform library API or establish an application-level device identity.
 
-| Call | Android RN | iOS RN | Web | Electron / Node |
-| ---- | ---------- | ------ | --- | --------------- |
-| `manager.supports('bonding')` | **true** | **false** | false | false (host matrix) |
-| Static `supports('bonding', 'react-native')` | **true** (host matrix: RN builds *can* expose bond APIs) | same static true | — | — |
-
-**Prefer `manager.supports('bonding')` for runtime branches.**  
-`supports(capability, 'react-native')` from the host matrix is **not** OS-filtered — it answers “does this host kind declare the API surface,” not “will this process succeed on the current OS.” On iOS, `manager.supports('bonding') === false` so callers never treat `createBond` as available (F025 / F095).
-
-## Android
-
-```ts
-import { BleManager, sortDevices } from 'unified-ble-manager'
-
-const manager = new BleManager()
-if (manager.supports('bonding')) {
-  await manager.createBond(deviceId)
-  const state = await manager.getBondState(deviceId) // 'none' | 'bonding' | 'bonded'
-  const paired = await manager.bondedDevices() // OS bonded list
-  await manager.removeBond(deviceId)
-}
-
-// Sort scan results for UI (any host)
-const ordered = sortDevices(scanResults, { key: 'rssi', order: 'desc' })
-// key: 'name' | 'rssi' | 'lastSeen' | 'id'
-```
-
-Native implementation uses `BluetoothDevice.createBond()`, bond-state broadcasts (`RECEIVER_EXPORTED` on API 33+), reflective `removeBond` where the platform allows it, and `BluetoothAdapter.getBondedDevices()` for the bonded list.
-
-**Timeout:** `createBond` has a **60s** safety timeout. If the user dismisses the pairing dialog or bonding stalls, the promise rejects with `DeviceBondFailed` (“bonding timed out”) and the bond-state receiver is unregistered so it cannot leak.
-
-**`removeBond` is async (R3-F025):** the promise resolves only after `ACTION_BOND_STATE_CHANGED` reports `BOND_NONE` (or the same 60s safety timeout / reflective invoke failure). Do not assume the device is immediately unbonded the moment `removeBond` is invoked — await the promise, then call `getBondState` / `bondedDevices` if you need a post-unbond snapshot.
-
-## iOS
-
-Pairing is **OS-driven** when accessing encrypted characteristics. There is no public `createBond` / `removeBond` / bonded-list API.
-
-- **`manager.supports('bonding') === false` on iOS** (OS-honest). Do **not** branch on the static host matrix alone.
-- Calls to `createBond` / `removeBond` / `getBondState` / `bondedDevices` **reject** with `BleErrorCode.OperationNotSupported` (or equivalent typed unsupported) if invoked.
-- The user may still see a system pairing sheet when a characteristic requires encryption; that is CoreBluetooth, not this library’s bond API.
-
-## Web / Electron / Node
-
-`manager.supports('bonding') === false` on these hosts (no OS bond API on Web / CoreBluetooth Electron / Node matrix).
-
-**Electron Fake radio** still implements simulated `createBond` / `removeBond` / `listBondedDevices` on `FakeBlePort` so the shared demo UI can exercise pair/unpair without Android. Live CoreBluetooth does not list OS-paired Classic/LE bonds. The static `supports(..., 'fake')` matrix may mark bonding true for Fake demos; production Electron stays false.
-
-Shared UI: **Paired / bonded** panel + **Sort** (name / RSSI / last seen / id) in `example-shared/ui`.
-
-## Permissions
-
-```ts
-await manager.requestBluetoothPermissions() // Android 12+ SCAN/CONNECT or legacy location
-const check = await manager.checkBluetoothPermissions()
-```
-
-See also [PLATFORMS.md](./PLATFORMS.md).
+See [PLATFORMS.md](./PLATFORMS.md) for current evidence boundaries.

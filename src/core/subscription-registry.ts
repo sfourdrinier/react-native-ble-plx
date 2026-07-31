@@ -39,6 +39,7 @@ interface PhysicalSubscription<Attachment extends string, Identity extends Backe
   released: boolean
   releaseInFlight: Promise<CleanupRecord> | null
   releasedDuringEnable: boolean
+  backendInvalidated: boolean
   lateSubscriptionPending: boolean
   pump: Promise<void> | null
 }
@@ -196,6 +197,7 @@ export class SubscriptionRegistry<Attachment extends string, Identity extends Ba
       released: false,
       releaseInFlight: null,
       releasedDuringEnable: false,
+      backendInvalidated: false,
       lateSubscriptionPending: false,
       pump: null
     }
@@ -239,7 +241,7 @@ export class SubscriptionRegistry<Attachment extends string, Identity extends Ba
       this.closeConsumer(subscription, reason)
       physical.consumers.delete(subscription)
     }
-    return this.disable(physical)
+    return this.disable(physical, reason === 'connection-lost')
   }
 
   async invalidateDatabase(
@@ -255,7 +257,7 @@ export class SubscriptionRegistry<Attachment extends string, Identity extends Ba
         this.closeConsumer(subscription, reason)
         physical.consumers.delete(subscription)
       }
-      const result = await this.disable(physical)
+      const result = await this.disable(physical, reason === 'connection-lost')
       failures.push(...result.failures)
     }
     return failures.length === 0 ? { state: 'released', failures: [] } : { state: 'release-failed', failures }
@@ -397,7 +399,13 @@ export class SubscriptionRegistry<Attachment extends string, Identity extends Ba
     }
   }
 
-  private async disable(physical: PhysicalSubscription<Attachment, Identity>): Promise<CleanupRecord> {
+  private async disable(
+    physical: PhysicalSubscription<Attachment, Identity>,
+    backendInvalidated = false
+  ): Promise<CleanupRecord> {
+    if (backendInvalidated) {
+      physical.backendInvalidated = true
+    }
     if (physical.released) {
       return { state: 'released', failures: [] }
     }
@@ -430,6 +438,9 @@ export class SubscriptionRegistry<Attachment extends string, Identity extends Ba
         if (physical.releasedDuringEnable) {
           return { state: 'released', failures: [] }
         }
+        if (physical.backendInvalidated) {
+          return this.releaseInvalidatedBackend(physical)
+        }
         if (physical.backend !== null) {
           return this.unsubscribePhysical(physical, physical.backend)
         }
@@ -442,11 +453,22 @@ export class SubscriptionRegistry<Attachment extends string, Identity extends Ba
         )
       }
     }
+    if (physical.backendInvalidated) {
+      return this.releaseInvalidatedBackend(physical)
+    }
     const backendSubscription = physical.backend
     if (backendSubscription === null) {
       return { state: 'released', failures: [] }
     }
     return this.unsubscribePhysical(physical, backendSubscription)
+  }
+
+  private releaseInvalidatedBackend(physical: PhysicalSubscription<Attachment, Identity>): CleanupRecord {
+    if (physical.backend !== null) {
+      this.runtime.resourceLedger.decrement('physicalCccdEnablements')
+      physical.backend = null
+    }
+    return { state: 'released', failures: [] }
   }
 
   private async unsubscribePhysical(
@@ -461,6 +483,23 @@ export class SubscriptionRegistry<Attachment extends string, Identity extends Ba
       dispatch: correlation => this.unsubscribeDispatch(backendSubscription, options, correlation)
     })
     if (result.outcome !== 'succeeded') {
+      if (
+        physical.backendInvalidated ||
+        result.error.code === 'gatt.stale-handle' ||
+        result.error.code === 'operation.disconnected'
+      ) {
+        this.runtime.trace.record({
+          timestamp: this.runtime.now(),
+          resource: 'subscription',
+          transition: 'backend-invalidated-during-disable',
+          operation: null,
+          cause: result.error.code,
+          queuedOperations: 0,
+          dispatchedOperations: 0,
+          quarantinedOperations: 0
+        })
+        return this.releaseInvalidatedBackend(physical)
+      }
       return cleanupFailure('subscription', result.error)
     }
     this.runtime.resourceLedger.decrement('physicalCccdEnablements')

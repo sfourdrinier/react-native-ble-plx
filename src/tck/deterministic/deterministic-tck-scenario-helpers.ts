@@ -22,7 +22,7 @@ export function fact(id: TckFactId, holds: boolean, detail: SerializableRecord):
 
 export function scanOptions(allowSharing: boolean): OwnerScanOptions<string, string> {
   return {
-    filter: { serviceUuids: [], localNamePrefix: null },
+    filter: { serviceUuids: [], manufacturerData: [], localNamePrefix: null },
     duplicatePolicy: 'all',
     timestampPolicy: 'receipt-monotonic',
     delivery: {

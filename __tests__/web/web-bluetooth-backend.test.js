@@ -777,7 +777,7 @@ function subscriptionOptions() {
 
 function scanOptions(signal) {
   return {
-    filter: { serviceUuids: [HEART_RATE_SERVICE], localNamePrefix: null },
+    filter: { serviceUuids: [HEART_RATE_SERVICE], manufacturerData: [], localNamePrefix: null },
     duplicatePolicy: 'first',
     timestampPolicy: 'receipt-monotonic',
     delivery: {

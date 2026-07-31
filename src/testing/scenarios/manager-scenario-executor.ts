@@ -1,12 +1,13 @@
 // src/testing/scenarios/manager-scenario-executor.ts
 
 import { BackendContractError } from '../../backend-contract/errors'
-import type { AdvertisementObservation, ScanOptions } from '../../backend-contract/advertisement'
+import { deviceIdentity, type AdvertisementObservation, type ScanOptions } from '../../backend-contract/advertisement'
 import type { CharacteristicPath } from '../../backend-contract/gatt'
 import type { PublicOperationOptions, SubscriptionOptions } from '../../backend-contract/operations'
 import {
   byteLimit,
   capacity,
+  createAttachmentBoundIdFactory,
   deadline,
   monotonicTimestamp,
   opaqueId,
@@ -90,7 +91,7 @@ async function scanConnectDiscoverReadNotifyDestroy<
   await context.controller.flush()
   const received = await observation
   requireCondition(!received.done && received.value.kind === 'value', 'public scan did not receive an advertisement')
-  const peerId = received.value.value.peerId
+  const peerId = received.value.value.device.id
   const connection = await context.controller.settle(context.owner.connect(peerId, operation()))
   const database = await context.controller.settle(connection.discover(operation()))
   const characteristic = await firstCharacteristic(database)
@@ -151,7 +152,7 @@ async function overflowLateEventsAndSettlement<Attachment extends string, Identi
   const afterStop = await scanItems.next()
   requireCondition(!afterStop.done && afterStop.value.kind === 'terminal', 'scan delivered after terminal stop')
 
-  const peerId = value.value.value.peerId
+  const peerId = value.value.value.device.id
   const { database, characteristic } = await connectedDatabase(context, peerId)
   const subscription = await context.controller.settle(database.subscribe(characteristic, subscriptionOptions(1, 128)))
   const notificationItems = subscription.values[Symbol.asyncIterator]()
@@ -212,7 +213,7 @@ async function twoClientArbitrationAndRetryableCleanup<
   await context.controller.flush()
   const observed = await ownerScanItems.next()
   requireCondition(!observed.done && observed.value.kind === 'value', 'owner scan did not observe a peer')
-  const peerId = observed.value.value.peerId
+  const peerId = observed.value.value.device.id
   const { connection, database, characteristic } = await connectedDatabase(context, peerId)
   await expectError(borrower.connect(peerId, operation()), 'connection.already-owned')
   const subscription = await context.controller.settle(database.subscribe(characteristic, subscriptionOptions()))
@@ -261,7 +262,7 @@ async function observePeer<Attachment extends string, Identity extends BackendId
   const received = await observation
   requireCondition(!received.done && received.value.kind === 'value', 'scenario scan did not observe a peer')
   await context.controller.settle(scan.stop())
-  return received.value.value.peerId
+  return received.value.value.device.id
 }
 
 function operation(
@@ -276,7 +277,7 @@ export function managerScenarioScanOptions<Attachment extends string>(
   byteCapacity: number
 ): ScanOptions<Attachment, string> {
   return {
-    filter: { serviceUuids: [], localNamePrefix: null },
+    filter: { serviceUuids: [], manufacturerData: [], localNamePrefix: null },
     duplicatePolicy: 'all',
     timestampPolicy: 'receipt-monotonic',
     delivery: {
@@ -319,11 +320,21 @@ function deterministicPeerId(): PeerId<string> {
 }
 
 export function deterministicScenarioAdvertisement(): AdvertisementObservation<string> {
+  const backendInstanceId = opaqueId('deterministic', 'backend-instance', 'deterministic')
+  const identifiers = createAttachmentBoundIdFactory({
+    attachmentId: opaqueId('deterministic', 'attachment', 'deterministic'),
+    backendInstanceId,
+    backendGeneration: opaqueId('deterministic', 'backend-generation', 'deterministic'),
+    adapterId: opaqueId('deterministic', 'adapter', 'deterministic'),
+    adapterGeneration: opaqueId('deterministic', 'adapter-generation', 'deterministic')
+  })
   return {
-    peerId: deterministicPeerId(),
-    observedAt: monotonicTimestamp(1),
-    source: 'platform-raw',
+    device: deviceIdentity(deterministicPeerId(), backendInstanceId, null),
+    provenance: 'platform-raw',
+    sourceTimestamp: { state: 'absent', reason: 'scenario-source-time-unavailable', provenance: 'not-provided' },
+    receivedAtMonotonicMs: monotonicTimestamp(1),
     ingressOrdinal: 1,
+    scanSessionId: identifiers.scanSessionId('scenario-scan-session'),
     localName: { state: 'present', value: 'Scenario peripheral', provenance: 'observed' },
     rssi: { state: 'absent', reason: 'scenario-not-observed', provenance: 'not-provided' },
     txPower: { state: 'absent', reason: 'scenario-not-observed', provenance: 'not-provided' },

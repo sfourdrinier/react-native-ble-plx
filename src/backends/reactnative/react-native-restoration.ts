@@ -3,7 +3,6 @@
 import { createFeatureRegistry, type FeatureRegistry, type Limitation } from '../../backend-contract/capabilities'
 import { contractError, BackendContractError } from '../../backend-contract/errors'
 import {
-  attachmentRecordsEqual,
   type AttachmentRecord,
   type BackendProvider,
   type NativeBackendIdentity
@@ -26,16 +25,12 @@ import type {
   RestorationJournalRecord
 } from '../../backend-contract/restoration'
 import {
-  decodeNativeProtocolRecord,
-  type NativeProtocolFieldValue,
-  type NativeProtocolRecord
-} from '../../native-protocol/v1-codec'
-import {
   MAXIMUM_CONTROL_RECORD_BYTES,
   type RestorationOutcomes
 } from '../../native-protocol/generated/native-protocol-v1-schema'
 import type {
   NativeRestorationAdoptionControlResult,
+  NativeRestorationReplayRecord,
   Spec as NativeProtocolControl
 } from '../../NativeUnifiedBleProtocolControl'
 
@@ -204,6 +199,7 @@ export function createReactNativeRestorationFeatureRegistry(
       Object.freeze({
         id: 'state:restoration-adoption',
         state,
+        selectedSchemaRange: versionRange(version('capability-schema', 1), version('capability-schema', 1)),
         implementationOrigin: 'backend-native',
         implementation: Object.freeze({
           async invoke(_input: SerializableRecord): Promise<SerializableRecord> {
@@ -229,10 +225,10 @@ export function createReactNativeRestorationFeatureRegistry(
         }),
         limitations: Object.freeze([limitation]),
         limits: Object.freeze({
-          maximumRestorationRecords,
-          maximumRestorationBytes: MAXIMUM_CONTROL_RECORD_BYTES,
-          automaticReconnects: 0,
-          automaticSubscriptionResumptions: 0
+          restorationRecords: Object.freeze({ maximum: maximumRestorationRecords, minimum: null, unit: 'items' }),
+          restorationBytes: Object.freeze({ maximum: MAXIMUM_CONTROL_RECORD_BYTES, minimum: null, unit: 'bytes' }),
+          automaticReconnects: Object.freeze({ maximum: 0, minimum: null, unit: 'connections' }),
+          automaticSubscriptionResumptions: Object.freeze({ maximum: 0, minimum: null, unit: 'subscriptions' })
         })
       })
     ])
@@ -416,13 +412,9 @@ function decodeReplayedRecords(
   binding: ActiveRestorationBinding
 ): readonly RestorationJournalRecord<string>[] {
   const records: RestorationJournalRecord<string>[] = []
-  let totalBytes = 0
   let expectedOrdinal = 1
   for (const nativeRecord of result.records) {
-    const encoded = ownedEncodedRecord(nativeRecord.encodedRecord, totalBytes)
-    totalBytes += encoded.byteLength
-    const record = decodeNativeProtocolRecord(encoded)
-    const replayed = replayedRecordFromProtocol(record, encoded, request, binding)
+    const replayed = replayedRecordFromStructuredTransport(nativeRecord, request, binding)
     if (replayed.ordinal !== expectedOrdinal) {
       throw contractError('protocol.violation', 'restoration', 'react-native-restoration.replay-ordinal')
     }
@@ -432,45 +424,40 @@ function decodeReplayedRecords(
   return Object.freeze(records)
 }
 
-function ownedEncodedRecord(encodedRecord: readonly number[], retainedBytes: number): Uint8Array {
-  if (
-    encodedRecord.length === 0 ||
-    encodedRecord.length > MAXIMUM_CONTROL_RECORD_BYTES ||
-    encodedRecord.length > MAXIMUM_CONTROL_RECORD_BYTES - retainedBytes
-  ) {
-    throw contractError('protocol.malformed', 'restoration', 'react-native-restoration.replay-bytes')
-  }
-  const owned = new Uint8Array(encodedRecord.length)
-  for (let index = 0; index < encodedRecord.length; index += 1) {
-    const value = encodedRecord[index]
-    if (value === undefined || !Number.isSafeInteger(value) || value < 0 || value > 255) {
-      throw contractError('protocol.malformed', 'restoration', 'react-native-restoration.replay-byte')
-    }
-    owned[index] = value
-  }
-  return owned
-}
-
-function replayedRecordFromProtocol(
-  record: NativeProtocolRecord,
-  encoded: Uint8Array,
+function replayedRecordFromStructuredTransport(
+  record: NativeRestorationReplayRecord,
   request: RestorationAdoptionRequest<string>,
   binding: ActiveRestorationBinding
 ): RestorationJournalRecord<string> {
-  if (record.kind !== 'restorationRecord') {
-    throw contractError('protocol.malformed', 'restoration', 'react-native-restoration.replay-kind')
-  }
-  const recordVersion = requiredPositiveUnsigned(record, 1, 'record-version')
-  const namespaceValue = requiredString(record, 2, 'namespace')
-  const attachment = requiredRecord(record, 3, 'attachment')
-  assertRecordAttachment(attachment, binding.attachment)
-  const ordinal = requiredPositiveUnsigned(record, 4, 'ordinal')
-  const epoch = requiredString(record, 5, 'epoch')
-  const kind = requiredRestorationKind(record, 6)
+  const recordVersion = requiredPositiveNativeInteger(record.recordVersion, 'record-version')
+  const namespaceValue = requiredNativeString(record.namespaceValue, 'namespace')
+  const ordinal = requiredPositiveNativeInteger(record.ordinal, 'ordinal')
+  const epoch = requiredNativeString(record.adoptionEpoch, 'epoch')
+  assertStructuredAttachment(record, binding.attachment)
   if (namespaceValue !== request.namespace || epoch !== String(request.expectedEpoch)) {
     throw contractError('protocol.violation', 'restoration', 'react-native-restoration.replay-authority')
   }
-  const peerValue = optionalString(record, 7)
+  const kind = record.kind
+  if (kind !== 'adapter' && kind !== 'connection') {
+    throw contractError('protocol.malformed', 'restoration', 'react-native-restoration.replay-kind')
+  }
+  const peerValue = requiredNativeNullableString(record.peerId, 'peer-id')
+  const connectionId = requiredNativeNullableString(record.connectionId, 'connection-id')
+  const ownerLeaseId = requiredNativeNullableString(record.ownerLeaseId, 'owner-lease-id')
+  const connectionGeneration = requiredNativeNullableString(record.connectionGeneration, 'connection-generation')
+  if (
+    kind === 'adapter' &&
+    (peerValue !== null || connectionId !== null || ownerLeaseId !== null || connectionGeneration !== null)
+  ) {
+    throw contractError('protocol.violation', 'restoration', 'react-native-restoration.adapter-payload')
+  }
+  if (
+    kind === 'connection' &&
+    (peerValue === null || connectionId === null || ownerLeaseId === null || connectionGeneration === null)
+  ) {
+    throw contractError('protocol.violation', 'restoration', 'react-native-restoration.connection-payload')
+  }
+  const protocolRecord = structuredProtocolRecord(record, peerValue, connectionId, ownerLeaseId, connectionGeneration)
   return Object.freeze({
     recordVersion,
     namespace: namespaceValue,
@@ -482,125 +469,96 @@ function replayedRecordFromProtocol(
     kind,
     peerId: peerValue === null ? null : opaqueId(peerValue, 'peer', 'react-native-restoration'),
     payload: Object.freeze({
-      protocolRecord: protocolRecordPayload(record),
-      encodedByteLength: encoded.byteLength
+      protocolRecord
     })
   })
 }
 
-function assertRecordAttachment(record: NativeProtocolRecord, expected: AttachmentRecord<string>): void {
-  if (record.kind !== 'attachment') {
-    throw contractError('protocol.malformed', 'restoration', 'react-native-restoration.replay-attachment-kind')
-  }
-  const actual: AttachmentRecord<string> = Object.freeze({
-    attachmentId: opaqueId(requiredString(record, 1, 'attachment-id'), 'attachment', 'react-native-restoration'),
-    backendInstanceId: opaqueId(
-      requiredString(record, 2, 'backend-instance-id'),
-      'backend-instance',
-      'react-native-restoration'
-    ),
-    backendGeneration: opaqueId(
-      requiredString(record, 3, 'backend-generation'),
-      'backend-generation',
-      'react-native-restoration'
-    ),
-    adapter: Object.freeze({
-      adapterId: opaqueId(requiredString(record, 4, 'adapter-id'), 'adapter', 'react-native-restoration'),
-      displayName: null,
-      state: expected.adapter.state,
-      adapterGeneration: opaqueId(
-        requiredString(record, 5, 'adapter-generation'),
-        'adapter-generation',
-        'react-native-restoration'
-      ),
-      limitations: Object.freeze([])
-    })
-  })
-  if (!attachmentRecordsEqual(actual, expected)) {
+function assertStructuredAttachment(record: NativeRestorationReplayRecord, expected: AttachmentRecord<string>): void {
+  if (
+    requiredNativeString(record.attachmentId, 'attachment-id') !== String(expected.attachmentId) ||
+    requiredNativeString(record.backendInstanceId, 'backend-instance-id') !== String(expected.backendInstanceId) ||
+    requiredNativeString(record.backendGeneration, 'backend-generation') !== String(expected.backendGeneration) ||
+    requiredNativeString(record.adapterId, 'adapter-id') !== String(expected.adapter.adapterId) ||
+    requiredNativeString(record.adapterGeneration, 'adapter-generation') !== String(expected.adapter.adapterGeneration)
+  ) {
     throw contractError('protocol.violation', 'restoration', 'react-native-restoration.replay-attachment')
   }
 }
 
-function requiredRestorationKind(record: NativeProtocolRecord, id: number): RestorationJournalRecord<string>['kind'] {
-  const value = requiredString(record, id, 'kind')
-  if (value === 'adapter' || value === 'connection' || value === 'subscription' || value === 'event') {
-    return value
-  }
-  throw contractError('protocol.malformed', 'restoration', 'react-native-restoration.replay-kind-value')
-}
-
-function requiredPositiveUnsigned(record: NativeProtocolRecord, id: number, fieldName: string): number {
-  const value = requiredValue(record, id, fieldName)
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+function requiredPositiveNativeInteger(value: number, fieldName: string): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
     throw contractError('protocol.malformed', 'restoration', `react-native-restoration.replay-${fieldName}`)
   }
   return value
 }
 
-function requiredString(record: NativeProtocolRecord, id: number, fieldName: string): string {
-  const value = requiredValue(record, id, fieldName)
-  if (typeof value !== 'string' || value.length === 0) {
+function requiredNativeString(value: string, fieldName: string): string {
+  if (value.length === 0) {
     throw contractError('protocol.malformed', 'restoration', `react-native-restoration.replay-${fieldName}`)
   }
   return value
 }
 
-function optionalString(record: NativeProtocolRecord, id: number): string | null {
-  const field = record.fields.find(candidate => candidate.id === id)
-  if (field === undefined) {
-    return null
-  }
-  if (typeof field.value !== 'string' || field.value.length === 0) {
-    throw contractError('protocol.malformed', 'restoration', 'react-native-restoration.replay-optional-string')
-  }
-  return field.value
-}
-
-function requiredRecord(record: NativeProtocolRecord, id: number, fieldName: string): NativeProtocolRecord {
-  const value = requiredValue(record, id, fieldName)
-  if (!isNativeProtocolRecord(value)) {
+function requiredNativeNullableString(value: string | null, fieldName: string): string | null {
+  if (value !== null && value.length === 0) {
     throw contractError('protocol.malformed', 'restoration', `react-native-restoration.replay-${fieldName}`)
   }
   return value
 }
 
-function requiredValue(record: NativeProtocolRecord, id: number, fieldName: string) {
-  const field = record.fields.find(candidate => candidate.id === id)
-  if (field === undefined) {
-    throw contractError('protocol.malformed', 'restoration', `react-native-restoration.replay-${fieldName}`)
-  }
-  return field.value
-}
-
-function isNativeProtocolRecord(value: NativeProtocolFieldValue): value is NativeProtocolRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value) && 'kind' in value && 'fields' in value
-}
-
-function protocolRecordPayload(record: NativeProtocolRecord): SerializableRecord {
-  return Object.freeze({
-    kind: record.kind,
-    fields: Object.freeze(
-      record.fields.map(field =>
-        Object.freeze({
-          id: field.id,
-          value: serializableProtocolValue(field.value)
-        })
-      )
-    )
+function structuredProtocolRecord(
+  record: NativeRestorationReplayRecord,
+  peerId: string | null,
+  connectionId: string | null,
+  ownerLeaseId: string | null,
+  connectionGeneration: string | null
+): SerializableRecord {
+  const attachment = Object.freeze({
+    kind: 'attachment',
+    fields: Object.freeze([
+      Object.freeze({ id: 1, value: record.attachmentId }),
+      Object.freeze({ id: 2, value: record.backendInstanceId }),
+      Object.freeze({ id: 3, value: record.backendGeneration }),
+      Object.freeze({ id: 4, value: record.adapterId }),
+      Object.freeze({ id: 5, value: record.adapterGeneration })
+    ])
   })
-}
-
-function serializableProtocolValue(value: NativeProtocolFieldValue): SerializableValue {
-  if (value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') {
-    return value
+  const fields: SerializableValue[] = [
+    Object.freeze({ id: 1, value: record.recordVersion }),
+    Object.freeze({ id: 2, value: record.namespaceValue }),
+    Object.freeze({ id: 3, value: attachment }),
+    Object.freeze({ id: 4, value: record.ordinal }),
+    Object.freeze({ id: 5, value: record.adoptionEpoch }),
+    Object.freeze({ id: 6, value: record.kind })
+  ]
+  if (
+    record.kind === 'connection' &&
+    peerId !== null &&
+    connectionId !== null &&
+    ownerLeaseId !== null &&
+    connectionGeneration !== null
+  ) {
+    fields.push(
+      Object.freeze({
+        id: 8,
+        value: Object.freeze({
+          kind: 'connectionPath',
+          fields: Object.freeze([
+            Object.freeze({ id: 1, value: attachment }),
+            Object.freeze({ id: 2, value: peerId }),
+            Object.freeze({ id: 3, value: connectionId }),
+            Object.freeze({ id: 4, value: ownerLeaseId }),
+            Object.freeze({ id: 5, value: connectionGeneration })
+          ])
+        })
+      })
+    )
   }
-  if (Array.isArray(value)) {
-    return Object.freeze(value.map(item => serializableProtocolValue(item)))
-  }
-  if (isNativeProtocolRecord(value)) {
-    return protocolRecordPayload(value)
-  }
-  throw contractError('protocol.malformed', 'restoration', 'react-native-restoration.replay-value')
+  return Object.freeze({
+    kind: 'restorationRecord',
+    fields: Object.freeze(fields)
+  })
 }
 
 function restorationClientId(value: string, attachment: AttachmentRecord<string>): ClientId<string, string> {

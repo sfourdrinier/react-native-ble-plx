@@ -22,10 +22,14 @@ function controlRequestRecord<Renderer extends string, Operation extends string>
     return Object.freeze({ kind: request.kind })
   }
   if (request.kind === 'event.ack') {
-    return Object.freeze({ kind: request.kind, eventId: request.eventId })
+    return Object.freeze({
+      kind: request.kind,
+      rendererLease: snapshotRendererLease(request.rendererLease),
+      eventId: request.eventId
+    })
   }
   if (request.kind === 'release') {
-    return Object.freeze({ kind: request.kind })
+    return Object.freeze({ kind: request.kind, rendererLease: snapshotRendererLease(request.rendererLease) })
   }
   throw contractError('lifecycle.invariant-violation', 'ipc', 'electron-ipc-message-sizing.route-control')
 }
@@ -56,12 +60,20 @@ function ipcEnvelopeByteLength<Renderer extends string, Operation extends string
       windowScope: envelope.renderer.windowScope,
       sessionScope: envelope.renderer.sessionScope
     }),
+    rendererLease: snapshotRendererLease(envelope.rendererLease),
     correlation: String(envelope.correlation),
     dispatchEpoch: String(envelope.dispatchEpoch),
     command: envelope.command,
     payload: envelope.payload,
     binaryPayload: envelope.binaryPayload
   }).byteLength
+}
+
+function snapshotRendererLease(lease: { readonly leaseId: string; readonly generation: string }): SerializableRecord {
+  return Object.freeze({
+    leaseId: String(lease.leaseId),
+    generation: String(lease.generation)
+  })
 }
 
 function snapshotVersion(

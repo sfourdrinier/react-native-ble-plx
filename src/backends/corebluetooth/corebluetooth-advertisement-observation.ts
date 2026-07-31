@@ -3,8 +3,10 @@
 import type {
   AdvertisementField,
   AdvertisementObservation,
+  DeviceIdentity,
   ManufacturerData,
-  ServiceDataEntry
+  ServiceDataEntry,
+  SourceTimestamp
 } from '../../backend-contract/advertisement'
 import {
   byteLimit,
@@ -12,7 +14,7 @@ import {
   monotonicTimestamp,
   ownBytes,
   type OwnedBytes,
-  type PeerId,
+  type ScanSessionId,
   type Uuid
 } from '../../backend-contract/primitives'
 import type {
@@ -23,15 +25,18 @@ import type {
 
 export function createCoreBluetoothObservation(
   advertisement: CoreBluetoothAdvertisement,
-  peerId: PeerId<string>,
+  device: DeviceIdentity<string>,
+  scanSessionId: ScanSessionId<string, string>,
   now: number,
   ingressOrdinal: number
 ): AdvertisementObservation<string> {
   return Object.freeze({
-    peerId,
-    observedAt: monotonicTimestamp(now),
-    source: 'platform-derived',
+    device,
+    provenance: 'platform-derived',
+    sourceTimestamp: unavailable<SourceTimestamp>(),
+    receivedAtMonotonicMs: monotonicTimestamp(now),
     ingressOrdinal,
+    scanSessionId,
     localName: observedOrUnavailable(advertisement.localName),
     rssi: observedOrUnavailable(advertisement.rssi),
     txPower: observedOrUnavailable(advertisement.txPower),

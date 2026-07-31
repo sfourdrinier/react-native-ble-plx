@@ -1,6 +1,7 @@
 // src/tck/runner-public-scenarios.ts
 
 import type { BleCentralBackend } from '../backend-contract/backend'
+import type { ConnectionLifecycleCause, ConnectionLifecycleEvent } from '../backend-contract/connection-lifecycle'
 import { MINIMUM_ATT_MTU } from '../backend-contract/connection-controls'
 import { BackendContractError } from '../backend-contract/errors'
 import type { BackendIdentity } from '../backend-contract/identity'
@@ -11,6 +12,8 @@ import {
   versionRange,
   type BackendCompatibilityOffer
 } from '../backend-contract/primitives'
+import type { GenerationId } from '../backend-contract/primitives'
+import type { StreamItem } from '../backend-contract/streams'
 import {
   attachBleBackend,
   createBleManager,
@@ -36,6 +39,7 @@ import {
 } from './runner-public-scenario-support'
 import { executePublicVerticalSlice } from './runner-public-vertical-scenario'
 import { executeSubscriptionOverflowScenario } from './runner-public-subscription-overflow-scenario'
+import { executeDiagnosticsScenario, executeLifecycleScenario } from './runner-public-lifecycle-diagnostics-scenario'
 
 const publicScenarioId = 'manager.scan-connect-discover-read-notify-destroy'
 const publicScenarioFact = 'scan-connect-discover-read-notify-destroy-completes'
@@ -351,7 +355,34 @@ async function executeManagerOwnershipScenario<
   const database = await fixture.controller.settle(connection.discover(operationOptions))
   const ownerOperationRetained = (await database.snapshot()).characteristics.length > 0
   const ownerConnectionRetained = Number(owner.localResourceCounters().connectionLeases) === 1
+  const lifecycle = connection.events[Symbol.asyncIterator]()
+  const connectedLifecycle = await fixture.controller.settle(lifecycle.next())
+  await fixture.controller.perform('force-disconnect', Object.freeze({ peerId: String(connection.peerId) }))
+  const peerLossLifecycle = await fixture.controller.settle(lifecycle.next())
+  const peerLossTerminal = await fixture.controller.settle(lifecycle.next())
   assertCleanupReleased(definition, await fixture.controller.settle(connection.release()), 'owner connection')
+  const requested = await connectToDeterministicPeer(owner, fixture, definition)
+  const requestedLifecycle = requested.events[Symbol.asyncIterator]()
+  const requestedConnected = await fixture.controller.settle(requestedLifecycle.next())
+  assertCleanupReleased(definition, await fixture.controller.settle(requested.disconnect()), 'requested disconnect')
+  const requestedDisconnected = await fixture.controller.settle(requestedLifecycle.next())
+  const requestedTerminal = await fixture.controller.settle(requestedLifecycle.next())
+  const peerLossObserved =
+    isConnectionLifecycleValue(connectedLifecycle, 'connected', connection.connectionGeneration) &&
+    isConnectionLifecycleValue(peerLossLifecycle, 'peer-link-loss', connection.connectionGeneration) &&
+    !peerLossTerminal.done &&
+    peerLossTerminal.value.kind === 'terminal' &&
+    peerLossTerminal.value.reason === 'connection-lost'
+  const requestedDisconnectObserved =
+    isConnectionLifecycleValue(requestedConnected, 'connected', requested.connectionGeneration) &&
+    isConnectionLifecycleValue(requestedDisconnected, 'requested-disconnect', requested.connectionGeneration) &&
+    !requestedTerminal.done &&
+    requestedTerminal.value.kind === 'terminal' &&
+    requestedTerminal.value.reason === 'owner-released'
+  const lifecycleStreamsComplete =
+    (await fixture.controller.settle(lifecycle.next())).done === true &&
+    (await fixture.controller.settle(requestedLifecycle.next())).done === true &&
+    Number(owner.localResourceCounters().connectionLeases) === 0
   const ownerContinued = owner.state === 'ready'
   const destination = await createBorrowingManager(owner, authority, fixture, definition, 'destination')
   let borrowerTransferDenied = false
@@ -435,7 +466,14 @@ async function executeManagerOwnershipScenario<
         transferred,
         revocationSettled
       }
-    )
+    ),
+    fact('connection-lifecycle-peer-loss-is-generation-bound', peerLossObserved, { peerLossObserved }),
+    fact('connection-lifecycle-requested-disconnect-is-distinct', requestedDisconnectObserved, {
+      requestedDisconnectObserved
+    }),
+    fact('connection-lifecycle-stream-cleans-up', lifecycleStreamsComplete, {
+      lifecycleStreamsComplete
+    })
   ]
 }
 
@@ -745,150 +783,6 @@ async function executeSubscriptionSharingScenario<
   ]
 }
 
-async function executeLifecycleScenario<
-  Attachment extends string,
-  Identity extends BackendIdentity<Attachment>,
-  Backend extends BleCentralBackend<Attachment, Identity>
->(
-  manager: PublicManager<Attachment, Identity>,
-  fixture: BackendTckFixture<Attachment, Identity, Backend>,
-  definition: TckScenarioDefinition
-): Promise<readonly TckFact[]> {
-  const connected = await connectAndDiscover(manager, fixture, definition)
-  const characteristic = connected.snapshot.characteristics[0]
-  if (characteristic === undefined) {
-    throw new TckAssertionError(definition.id, 'lifecycle scenario discovery returned no characteristic')
-  }
-  const scan = await fixture.controller.settle(manager.scan(scanOptions(false)))
-  await fixture.controller.perform(
-    'queue-operation-completion',
-    Object.freeze({ stage: 'read', delayMilliseconds: 100 })
-  )
-  await fixture.controller.perform(
-    'queue-operation-completion',
-    Object.freeze({ stage: 'read', delayMilliseconds: 100 })
-  )
-  const dispatchedRead = connected.database.read(characteristic.path, operationOptions)
-  await fixture.controller.perform('advance-time', Object.freeze({ milliseconds: 0 }))
-  const queuedRead = connected.database.read(characteristic.path, operationOptions)
-  const dispatchedSettlement = rejectsWithCode(dispatchedRead, 'operation.cancelled-by-destroy')
-  const queuedSettlement = rejectsWithCode(queuedRead, 'operation.cancelled-by-destroy')
-  const countersBeforeDestroy = manager.localResourceCounters()
-  const queuedAndDispatchedPresent =
-    Number(countersBeforeDestroy.queuedOperations) === 1 && Number(countersBeforeDestroy.dispatchedOperations) === 1
-  const firstDestroy = manager.destroy()
-  const secondDestroy = manager.destroy()
-  const first = await fixture.controller.settle(firstDestroy)
-  const second = await fixture.controller.settle(secondDestroy)
-  assertCleanupReleased(definition, first, 'first manager destroy')
-  assertCleanupReleased(definition, second, 'second manager destroy')
-  const dispatchedRejected = await fixture.controller.settle(dispatchedSettlement)
-  const queuedRejected = await fixture.controller.settle(queuedSettlement)
-  await fixture.controller.perform('advance-time', Object.freeze({ milliseconds: 100 }))
-  await fixture.controller.flush()
-  const admissionRejected = await rejectsWithCode(manager.scan(scanOptions(false)), 'lifecycle.destroyed')
-  const terminal = await fixture.controller.settle(scan.observations[Symbol.asyncIterator]().next())
-  const operationTraces = manager.traces().filter(entry => entry.resource === 'operation')
-  const destroyedSettlements = operationTraces.filter(
-    entry => entry.transition === 'destroyed' && entry.cause === 'operation.cancelled-by-destroy'
-  )
-  const lateAcknowledgements = operationTraces.filter(
-    entry => entry.transition === 'late-success' || entry.transition === 'late-failure'
-  )
-  const exactTraceSettlements = destroyedSettlements.length === 2 && lateAcknowledgements.length === 1
-  const counters = manager.localResourceCounters()
-  const zeroCounters = Object.values(counters).every(value => Number(value) === 0)
-  return [
-    fact('destroy-closes-admission-and-is-idempotent', first === second && admissionRejected, {
-      sameCleanupRecord: first === second,
-      admissionRejected
-    }),
-    fact(
-      'destroy-settles-each-operation-once',
-      queuedAndDispatchedPresent &&
-        dispatchedRejected &&
-        queuedRejected &&
-        exactTraceSettlements &&
-        !terminal.done &&
-        terminal.value.kind === 'terminal',
-      {
-        queuedAndDispatchedPresent,
-        dispatchedRejected,
-        queuedRejected,
-        destroyedSettlementCount: destroyedSettlements.length,
-        lateAcknowledgementCount: lateAcknowledgements.length,
-        scanTerminalObserved: !terminal.done && terminal.value.kind === 'terminal'
-      }
-    ),
-    fact('resource-counters-return-to-zero-without-underflow', zeroCounters, { zeroCounters })
-  ]
-}
-
-async function executeDiagnosticsScenario<
-  Attachment extends string,
-  Identity extends BackendIdentity<Attachment>,
-  Backend extends BleCentralBackend<Attachment, Identity>
->(
-  manager: PublicManager<Attachment, Identity>,
-  fixture: BackendTckFixture<Attachment, Identity, Backend>,
-  definition: TckScenarioDefinition
-): Promise<readonly TckFact[]> {
-  const scan = await fixture.controller.settle(manager.scan(scanOptions(false)))
-  const observation = scan.observations[Symbol.asyncIterator]().next()
-  await fixture.controller.perform('queue-advertisement', emptyInput)
-  await fixture.controller.flush()
-  const observedItem = await fixture.controller.settle(observation)
-  const observed = isValueItem(observedItem)
-  const sensitivePeerId =
-    !observedItem.done && observedItem.value.kind === 'value' ? String(observedItem.value.value.peerId) : ''
-  if (observedItem.done || observedItem.value.kind !== 'value') {
-    throw new TckAssertionError(definition.id, 'diagnostics scan did not observe a peer')
-  }
-  assertCleanupReleased(definition, await fixture.controller.settle(scan.stop()), 'diagnostics scan')
-  const connection = await fixture.controller.settle(manager.connect(observedItem.value.value.peerId, operationOptions))
-  const database = await fixture.controller.settle(connection.discover(operationOptions))
-  const snapshot = await database.snapshot()
-  const characteristic = snapshot.characteristics[0]
-  if (characteristic === undefined) {
-    throw new TckAssertionError(definition.id, 'diagnostics discovery returned no characteristic')
-  }
-  for (let index = 0; index < DEFAULT_BLE_MANAGER_OPTIONS.traceMaximumRecords; index += 1) {
-    await fixture.controller.settle(database.read(characteristic.path, operationOptions))
-  }
-  assertCleanupReleased(definition, await fixture.controller.settle(connection.release()), 'diagnostics connection')
-  const traces = manager.traces()
-  const ordered = traces.every((entry, index) => index === 0 || entry.ordinal > (traces[index - 1]?.ordinal ?? 0))
-  const bounded = traces.length <= DEFAULT_BLE_MANAGER_OPTIONS.traceMaximumRecords
-  const payloadFree = traces.every(
-    entry => !('peerId' in entry) && !('payload' in entry) && !('path' in entry) && !('clientId' in entry)
-  )
-  const boundedRollover =
-    traces.length === DEFAULT_BLE_MANAGER_OPTIONS.traceMaximumRecords && (traces[0]?.ordinal ?? 0) > 1
-  const sensitiveValueRedacted = sensitivePeerId.length > 0 && !JSON.stringify(traces).includes(sensitivePeerId)
-  const localCountersZero = Object.values(manager.localResourceCounters()).every(value => Number(value) === 0)
-  const backendCountersZero = Object.values(fixture.backend.resourceCounters()).every(value => Number(value) === 0)
-  return [
-    fact(
-      'trace-is-ordered-bounded-and-redacted',
-      observed && ordered && bounded && payloadFree && boundedRollover && sensitiveValueRedacted,
-      {
-        observed,
-        ordered,
-        bounded,
-        payloadFree,
-        boundedRollover,
-        sensitiveValueRedacted,
-        traceCount: traces.length
-      }
-    ),
-    fact('resource-counters-return-to-zero-without-underflow', localCountersZero && backendCountersZero, {
-      localCountersZero,
-      backendCountersZero,
-      diagnosticJourneyObserved: observed && ordered && bounded && payloadFree
-    })
-  ]
-}
-
 async function executeConnectionControlsScenario<
   Attachment extends string,
   Identity extends BackendIdentity<Attachment>,
@@ -1011,8 +905,21 @@ function restorationRecordCountIsBounded<Attachment extends string, Identity ext
   count: number
 ): boolean {
   const registration = backend.features.registrations.find(candidate => candidate.id === 'state:restoration-adoption')
-  const maximum = registration?.limits.maximumRestorationRecords
+  const maximum = registration?.limits.restorationRecords?.maximum
   return typeof maximum === 'number' && Number.isSafeInteger(maximum) && maximum >= 0 && count <= maximum
+}
+
+function isConnectionLifecycleValue<Attachment extends string>(
+  result: IteratorResult<StreamItem<ConnectionLifecycleEvent<Attachment>>>,
+  cause: ConnectionLifecycleCause,
+  generation: GenerationId<'connection-generation', string>
+): boolean {
+  return (
+    !result.done &&
+    result.value.kind === 'value' &&
+    result.value.value.cause === cause &&
+    result.value.value.connectionGeneration === generation
+  )
 }
 
 async function rejectsWithCapabilityCode<Value>(promise: Promise<Value>, code: string): Promise<boolean> {

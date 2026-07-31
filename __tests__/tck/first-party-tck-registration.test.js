@@ -81,7 +81,15 @@ describe('first-party backend standard TCK registrations', () => {
       'capability.truth-limits-evidence-and-binding'
     ])
     expect(report.standard.receipts).toHaveLength(5)
-    expect(report.standard.receipts.every(receipt => receipt.error === null)).toBe(true)
+    expect(report.standard.receipts).toEqual(
+      report.standard.baseScenarioIds.map(scenarioId =>
+        expect.objectContaining({
+          scenarioId,
+          error: null,
+          facts: expect.arrayContaining([expect.objectContaining({ holds: true })])
+        })
+      )
+    )
     expect(report.standard.baseScenarioIds).not.toContain(
       'lifecycle.destroy-idempotency-admission-and-exact-settlement'
     )

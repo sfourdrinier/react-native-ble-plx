@@ -46,7 +46,7 @@ function subscriptionOptions(signal = null) {
 
 function scanOptions() {
   return {
-    filter: { serviceUuids: [], localNamePrefix: null },
+    filter: { serviceUuids: [], manufacturerData: [], localNamePrefix: null },
     duplicatePolicy: 'all',
     timestampPolicy: 'receipt-monotonic',
     delivery: delivery(),
@@ -59,10 +59,18 @@ function scanOptions() {
 function advertisement(rawRecord) {
   const absent = { state: 'absent', reason: 'test-not-observed', provenance: 'not-provided' }
   return {
-    peerId: peer(),
-    observedAt: monotonicTimestamp(1),
-    source: 'platform-raw',
+    device: {
+      id: peer(),
+      backendInstanceId: opaqueId('deterministic-backend', 'backend-instance', 'deterministic'),
+      scope: 'backend',
+      stableAcrossRestarts: false,
+      address: null
+    },
+    provenance: 'platform-raw',
+    sourceTimestamp: absent,
+    receivedAtMonotonicMs: monotonicTimestamp(1),
     ingressOrdinal: 1,
+    scanSessionId: opaqueId('deterministic-scan', 'scan-session', 'deterministic'),
     localName: absent,
     rssi: absent,
     txPower: absent,
@@ -171,6 +179,28 @@ function expectNoResources(counters) {
 }
 
 describe('UnifiedBleCore lifecycle hardening', () => {
+  test('rejects stale, mismatched, and impossible public lifecycle transitions before finishing a connection', async () => {
+    const { fixture, manager } = await createFixture()
+    const connection = await settle(fixture.controller, manager.connect(peer(), operation()))
+    const coreConnection = connection.connection
+
+    coreConnection.applyBackendTransition('connected', 'disconnecting', 20)
+    expect(() => coreConnection.applyBackendTransition('disconnecting', 'disconnecting', 20)).toThrow(
+      'connection-lifecycle.ingress-order'
+    )
+    expect(() => coreConnection.applyBackendTransition('connected', 'disconnecting', 21)).toThrow(
+      'connection-lifecycle.previous-state'
+    )
+    expect(() => coreConnection.applyBackendTransition('disconnecting', 'connected', 21)).toThrow(
+      'connection-lifecycle.transition'
+    )
+
+    coreConnection.finishBackendLifecycle('disconnecting', 'disconnected', 'requested-disconnect', 21)
+    await settle(fixture.controller, connection.release())
+    await settle(fixture.controller, manager.destroy())
+    expectNoResources(fixture.backend.resourceCounters())
+  })
+
   test('gives a coalesced discovery joiner its own abort terminal without cancelling the first caller', async () => {
     const { fixture, manager } = await createFixture()
     const connection = await settle(fixture.controller, manager.connect(peer(), operation()))

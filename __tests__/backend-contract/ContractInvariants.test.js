@@ -64,6 +64,7 @@ function capabilityRegistration(limits) {
   return {
     id: 'test:bounded',
     state: 'supported',
+    selectedSchemaRange: schema,
     implementationOrigin: 'backend-native',
     implementation: { invoke: async input => input },
     tck: { suiteId: 'test-suite', requiredScenarioIds: ['test-case'], contractRange: schema },
@@ -193,6 +194,45 @@ describe('backend contract invariants', () => {
     })
   })
 
+  test('requires bounded ingress ordinals and an exact reason for terminal connection transitions', () => {
+    const current = attachment('alpha', 'backend-a', 'generation-a')
+    const ids = primitives.createAttachmentBoundIdFactory(attachmentBinding(current))
+    const connection = {
+      attachment: current,
+      attachmentId: current.attachmentId,
+      peerId: primitives.opaqueId('peer-a', 'peer', 'alpha'),
+      connectionId: ids.connectionId('connection-a'),
+      ownerLeaseId: ids.leaseId('lease-a'),
+      connectionGeneration: primitives.opaqueId(
+        'connection-generation-a',
+        'connection-generation',
+        'connection-a'
+      )
+    }
+    const transition = {
+      kind: 'connection-state-changed',
+      attachment: current,
+      attachmentId: current.attachmentId,
+      ingressOrdinal: 1,
+      connection,
+      previous: 'connected',
+      current: 'lost',
+      reason: 'peer'
+    }
+
+    expect(() => assertBackendEvent(transition)).not.toThrow()
+    expectThrownNormalized(() => assertBackendEvent({ ...transition, reason: null }), {
+      code: 'protocol.malformed',
+      domain: 'core',
+      operation: 'backend.assert-event.connection-transition-reason'
+    })
+    expectThrownNormalized(() => assertBackendEvent({ ...transition, ingressOrdinal: -1 }), {
+      code: 'protocol.malformed',
+      domain: 'core',
+      operation: 'backend.assert-event.ingress-ordinal'
+    })
+  })
+
   test('rejects an attached backend whose backend identity crosses the full attachment tuple', () => {
     const current = attachment('alpha', 'backend-a', 'generation-a')
     const replacement = attachment('alpha', 'backend-a', 'generation-b')
@@ -212,14 +252,14 @@ describe('backend contract invariants', () => {
 
   test('rejects capability lies and unbounded limits', () => {
     expect(() => createFeatureRegistry([capabilityRegistration({})])).toThrow('protocol.malformed')
-    expect(() => createFeatureRegistry([capabilityRegistration({ maximumBytes: 'unbounded' })])).toThrow(
+    expect(() => createFeatureRegistry([capabilityRegistration({ maximumBytes: { maximum: 'unbounded', minimum: null, unit: 'bytes' } })])).toThrow(
       'protocol.malformed'
     )
-    expect(createFeatureRegistry([capabilityRegistration({ maximumBytes: 1024 })]).registrations).toHaveLength(1)
+    expect(createFeatureRegistry([capabilityRegistration({ maximumBytes: { maximum: 1024, minimum: null, unit: 'bytes' } })]).registrations).toHaveLength(1)
   })
 
   test('rejects contradictory feature evidence and deeply snapshots registry truth', () => {
-    const deterministicEvidence = capabilityRegistration({ maximumBytes: 1024 })
+    const deterministicEvidence = capabilityRegistration({ maximumBytes: { maximum: 1024, minimum: null, unit: 'bytes' } })
     deterministicEvidence.evidence.evidenceLevel = 'deterministic'
     expect(() => createFeatureRegistry([deterministicEvidence])).toThrow('supported-evidence')
 
@@ -229,11 +269,11 @@ describe('backend contract invariants', () => {
       affectedGuarantee: 'maximum-throughput'
     }
     const limited = {
-      ...capabilityRegistration({ maximumBytes: 1024 }),
+      ...capabilityRegistration({ maximumBytes: { maximum: 1024, minimum: null, unit: 'bytes' } }),
       state: 'limited',
       limitations: [limitation],
       evidence: {
-        ...capabilityRegistration({ maximumBytes: 1024 }).evidence,
+        ...capabilityRegistration({ maximumBytes: { maximum: 1024, minimum: null, unit: 'bytes' } }).evidence,
         evidenceLevel: 'supported',
         limitations: [{ ...limitation }]
       }
@@ -246,12 +286,12 @@ describe('backend contract invariants', () => {
       affectedGuarantee: 'runtime-truth'
     })
     limited.evidence.limitations[0].explanation = 'mutated'
-    limited.limits.maximumBytes = 1
+    limited.limits.maximumBytes.maximum = 1
     expect(registry.registrations[0]).toMatchObject({
       state: 'limited',
       limitations: [{ code: 'bounded-throughput', explanation: 'Throughput is bounded.' }],
       evidence: { limitations: [{ explanation: 'Throughput is bounded.' }] },
-      limits: { maximumBytes: 1024 }
+      limits: { maximumBytes: { maximum: 1024, minimum: null, unit: 'bytes' } }
     })
     expect(Object.isFrozen(registry.registrations[0].limitations[0])).toBe(true)
     expect(Object.isFrozen(registry.registrations[0].evidence.limitations)).toBe(true)
@@ -344,12 +384,13 @@ describe('backend contract invariants', () => {
         release: async () => ({ state: 'released', failures: [] })
       }
     )
-    arbiter.registerRenderer(renderer)
+    const rendererLease = arbiter.registerRenderer(renderer)
     const envelope = {
       versions,
       attachment: attached,
       attachmentId: attached.attachmentId,
       renderer,
+      rendererLease,
       correlation: primitives.opaqueId('operation-a', 'ipc-operation', 'desktop:operation-a'),
       dispatchEpoch: primitives.opaqueId('epoch-a', 'ipc-dispatch-epoch', 'desktop:operation-a'),
       command: 'read',

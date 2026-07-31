@@ -13,7 +13,12 @@ import type {
   ScanLease,
   ScannerBackend
 } from '../../backend-contract/backend'
-import type { AdvertisementObservation, OwnerScanOptions } from '../../backend-contract/advertisement'
+import {
+  assertScanFilter,
+  deviceIdentity,
+  type AdvertisementObservation,
+  type OwnerScanOptions
+} from '../../backend-contract/advertisement'
 import type { FeatureRegistry } from '../../backend-contract/capabilities'
 import {
   BackendContractError,
@@ -321,6 +326,7 @@ export class CoreBluetoothBackend implements BleCentralBackend<string, HostNeutr
     _clientId: ClientId<string, string>
   ): Promise<ScanLease<string, string>> {
     this.assertOperational('corebluetooth.scan.start')
+    assertScanFilter(options.filter, 'corebluetooth.scan.start')
     if (this.scanGroup?.state === 'failed') {
       try {
         await this.boundary.stopScan()
@@ -495,7 +501,17 @@ export class CoreBluetoothBackend implements BleCentralBackend<string, HostNeutr
       return
     }
     const peerId = this.peerIdForNativeId(advertisement.nativePeerId)
-    const observation = createCoreBluetoothObservation(advertisement, peerId, this.now(), this.nextIngressOrdinal)
+    const owner = group.consumers.get(String(group.ownerLeaseId))
+    if (owner === undefined) {
+      throw contractError('lifecycle.invariant-violation', 'scan', 'corebluetooth.advertisement.scan-owner')
+    }
+    const observation = createCoreBluetoothObservation(
+      advertisement,
+      deviceIdentity(peerId, this.attachment().backendInstanceId, null),
+      owner.scanSessionId,
+      this.now(),
+      this.nextIngressOrdinal
+    )
     this.nextIngressOrdinal += 1
     for (const consumer of group.consumers.values()) {
       if (matchesScan(consumer.options, observation)) {

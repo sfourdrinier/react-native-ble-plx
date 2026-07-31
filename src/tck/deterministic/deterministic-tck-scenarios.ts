@@ -1,5 +1,9 @@
 // src/tck/deterministic/deterministic-tck-scenarios.ts
-import type { AdvertisementObservation, OwnerScanOptions } from '../../backend-contract/advertisement'
+import {
+  deviceIdentity,
+  type AdvertisementObservation,
+  type OwnerScanOptions
+} from '../../backend-contract/advertisement'
 import { BackendContractError } from '../../backend-contract/errors'
 import type { CharacteristicPath, GattDatabase } from '../../backend-contract/gatt'
 import type { ConnectionLease } from '../../backend-contract/backend'
@@ -7,6 +11,7 @@ import type { BackendProvider, HostNeutralBackendIdentity } from '../../backend-
 import {
   capacity,
   byteLimit,
+  createAttachmentBoundIdFactory,
   deadline,
   monotonicTimestamp,
   opaqueId,
@@ -72,11 +77,21 @@ export async function executeDeterministicTckScenarioEvidence(
 }
 
 export function createDeterministicTckAdvertisement(): AdvertisementObservation<string> {
+  const backendInstanceId = opaqueId('deterministic', 'backend-instance', 'deterministic')
+  const identifiers = createAttachmentBoundIdFactory({
+    attachmentId: opaqueId('deterministic', 'attachment', 'deterministic'),
+    backendInstanceId,
+    backendGeneration: opaqueId('deterministic', 'backend-generation', 'deterministic'),
+    adapterId: opaqueId('deterministic', 'adapter', 'deterministic'),
+    adapterGeneration: opaqueId('deterministic', 'adapter-generation', 'deterministic')
+  })
   return {
-    peerId: peerId(),
-    observedAt: monotonicTimestamp(1),
-    source: 'platform-raw',
+    device: deviceIdentity(peerId(), backendInstanceId, null),
+    provenance: 'platform-raw',
+    sourceTimestamp: { state: 'absent', reason: 'tck-source-time-unavailable', provenance: 'not-provided' },
+    receivedAtMonotonicMs: monotonicTimestamp(1),
     ingressOrdinal: 1,
+    scanSessionId: identifiers.scanSessionId('tck-scan-session'),
     localName: { state: 'present', value: 'Deterministic peripheral', provenance: 'observed' },
     rssi: { state: 'present', value: -42, provenance: 'observed' },
     txPower: { state: 'absent', reason: 'not advertised', provenance: 'not-provided' },
@@ -627,7 +642,7 @@ function findFact(id: TckFactId, observations: readonly FactObservation[]): TckF
 
 function scanOptions(allowSharing: boolean): OwnerScanOptions<string, string> {
   return {
-    filter: { serviceUuids: [], localNamePrefix: null },
+    filter: { serviceUuids: [], manufacturerData: [], localNamePrefix: null },
     duplicatePolicy: 'all',
     timestampPolicy: 'receipt-monotonic',
     delivery: {

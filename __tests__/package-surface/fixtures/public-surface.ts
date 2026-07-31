@@ -11,6 +11,8 @@ import {
 import type {
   BoundedAsyncStream,
   CleanupRecord,
+  ConnectionLifecycleCause,
+  ConnectionLifecycleEvent,
   FeatureRegistry,
   NormalizedBleError,
   PublicOperationOptions,
@@ -79,6 +81,8 @@ import type {
 declare const operation: PublicOperationOptions
 declare const scan: ScanOptions<string, string>
 declare const stream: BoundedAsyncStream<CleanupRecord>
+declare const connectionLifecycleCause: ConnectionLifecycleCause
+declare const connectionLifecycleEvent: ConnectionLifecycleEvent<string>
 declare const featureRegistry: FeatureRegistry
 declare const normalizedError: NormalizedBleError
 declare const backendAuthor: BackendAuthorDefinition<string, never>
@@ -155,6 +159,8 @@ observe(deadline(1))
 observe(operation)
 observe(scan)
 observe(stream)
+observe(connectionLifecycleCause)
+observe(connectionLifecycleEvent.connectionGeneration)
 observe(featureRegistry)
 observe(normalizedError)
 observe(backendAuthor)

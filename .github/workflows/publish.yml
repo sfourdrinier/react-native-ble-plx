@@ -30,6 +30,7 @@ on:
       - 'v*.*.*'
 
 permissions:
+  actions: read # Verify the approved ci.yml run bound by a stable release manifest
   contents: write # GitHub Release after successful publish
   id-token: write # npm Trusted Publishing (OIDC)
 
@@ -45,6 +46,8 @@ jobs:
     steps:
       - name: Checkout tag
         uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0 # Stable tags must prove their source commit is on master.
 
       # Trusted publishing: Node ≥22.14.0, npm ≥11.5.1.
       # npm's current GitHub Actions guidance requires an explicit registry URL;
@@ -149,12 +152,26 @@ jobs:
       - name: Canonical pack+install export smoke
         run: node scripts/ci/pack-install-smoke.js
 
-      - name: Inspect canonical npm pack contents
+      - name: Generate the exact canonical npm publish tarball
         run: |
           set -euo pipefail
-          npm pack --dry-run
+          rm -rf .release-package
+          mkdir .release-package
+          PACK_JSON="$(npm pack --json --pack-destination .release-package)"
+          TARBALL_NAME="$(printf '%s' "${PACK_JSON}" | node -e '
+            const fs = require("fs")
+            const result = JSON.parse(fs.readFileSync(0, "utf8"))
+            if (!Array.isArray(result) || result.length !== 1 || typeof result[0].filename !== "string") {
+              throw new Error("npm pack must generate exactly one named tarball")
+            }
+            process.stdout.write(result[0].filename)
+          ')"
+          PUBLISH_TARBALL=".release-package/${TARBALL_NAME}"
+          test -f "${PUBLISH_TARBALL}"
+          echo "PUBLISH_TARBALL=${PUBLISH_TARBALL}" >> "$GITHUB_ENV"
 
-      - name: Guard — canonical package version must match git tag
+      - name: Classify and guard canonical package release channel
+        id: release_channel
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME#v}"
@@ -170,10 +187,27 @@ jobs:
           fi
           if [[ "$ROOT_VER" == *-* ]]; then
             echo "NPM_DIST_TAG=next" >> "$GITHUB_ENV"
+            echo "is_stable=false" >> "$GITHUB_OUTPUT"
           else
             echo "NPM_DIST_TAG=latest" >> "$GITHUB_ENV"
+            echo "is_stable=true" >> "$GITHUB_OUTPUT"
           fi
           echo "Publishing ${ROOT_NAME}@${ROOT_VER} from tag ${GITHUB_REF_NAME}"
+
+      # A GA tag requires complete artifact-bound evidence. Prereleases retain
+      # the existing `next` OIDC/provenance path and deliberately skip this gate.
+      - name: Fetch master for stable tag verification
+        if: steps.release_channel.outputs.is_stable == 'true'
+        run: git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+
+      - name: Validate stable GA evidence and release policies
+        if: steps.release_channel.outputs.is_stable == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          node scripts/evidence/validate-stable-release.js
+          --tag "${GITHUB_REF_NAME}"
+          --publish-tarball "${PUBLISH_TARBALL}"
 
       # Soft check so a re-run after npm success can still create the GitHub Release.
       - name: Check whether versions are already on npm
@@ -200,7 +234,19 @@ jobs:
       # this publish command; a long-lived token would defeat that boundary.
       - name: Publish unified-ble-manager (OIDC + provenance)
         if: steps.npm_status.outputs.package_published != 'true'
-        run: npm publish --provenance --access public --tag "${NPM_DIST_TAG}"
+        run: npm publish "${PUBLISH_TARBALL}" --provenance --access public --tag "${NPM_DIST_TAG}"
+
+      - name: Bind npm tarball to the generated release artifact
+        run: |
+          set -euo pipefail
+          VER="$(node -p "require('./package.json').version")"
+          LOCAL_TARBALL_SHA256="$(node -e "const crypto = require('crypto'); const fs = require('fs'); process.stdout.write(crypto.createHash('sha256').update(fs.readFileSync(process.argv[1])).digest('hex'))" "${PUBLISH_TARBALL}")"
+          REGISTRY_TARBALL="$(npm view "unified-ble-manager@${VER}" dist.tarball --json | node -e "let body = ''; process.stdin.setEncoding('utf8'); process.stdin.on('data', chunk => { body += chunk }); process.stdin.on('end', () => { const value = JSON.parse(body); if (typeof value !== 'string' || !value.startsWith('https://')) { throw new Error('npm dist.tarball must be an HTTPS URL'); } process.stdout.write(value) })")"
+          REGISTRY_TARBALL_SHA256="$(curl --fail --location --silent --show-error --proto '=https' "${REGISTRY_TARBALL}" | node -e "const crypto = require('crypto'); const hash = crypto.createHash('sha256'); process.stdin.on('data', chunk => hash.update(chunk)); process.stdin.on('end', () => process.stdout.write(hash.digest('hex')))")"
+          if [ "${REGISTRY_TARBALL_SHA256}" != "${LOCAL_TARBALL_SHA256}" ]; then
+            echo "Registry tarball SHA-256 does not match the exact generated publish tarball"
+            exit 1
+          fi
 
       # Tags remain manual. After npm succeeds, create the GitHub Release from
       # CHANGELOG.md notes so the Releases page matches the published package.

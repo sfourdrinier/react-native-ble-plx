@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { BleCentralBackend } from './backend-contract/backend'
 import type { BackendIdentity, HostKind } from './backend-contract/identity'
 import type { SerializableRecord, SerializableValue } from './backend-contract/primitives'
+import type { CapabilityLimits } from './backend-contract/capabilities'
 import {
   createBackendAuthorDefinition,
   inspectBackendCapabilities,
@@ -323,6 +324,10 @@ function capabilityReportData(report: BackendCapabilityReport): SerializableReco
     capabilities: report.capabilities.map(capability => ({
       id: capability.id,
       state: capability.state,
+      selectedSchemaRange: {
+        minimum: capability.selectedSchemaMinimum,
+        maximum: capability.selectedSchemaMaximum
+      },
       implementationOrigin: capability.implementationOrigin,
       tck: {
         suiteId: capability.tck.suiteId,
@@ -343,7 +348,7 @@ function capabilityReportData(report: BackendCapabilityReport): SerializableReco
         explanation: limitation.explanation,
         affectedGuarantee: limitation.affectedGuarantee
       })),
-      limits: capability.limits
+      limits: capabilityLimitsData(capability.limits)
     }))
   }
 }
@@ -366,6 +371,10 @@ function tckReportData(report: Awaited<ReturnType<typeof runBackendAuthorTck>>):
     featureBindings: report.featureBindings.map(binding => ({
       featureId: binding.featureId,
       state: binding.state,
+      selectedSchemaRange: {
+        minimum: binding.selectedSchemaMinimum,
+        maximum: binding.selectedSchemaMaximum
+      },
       implementationOrigin: binding.implementationOrigin,
       suiteId: binding.suiteId,
       requiredScenarioIds: [...binding.requiredScenarioIds],
@@ -382,10 +391,18 @@ function tckReportData(report: Awaited<ReturnType<typeof runBackendAuthorTck>>):
         explanation: limitation.explanation,
         affectedGuarantee: limitation.affectedGuarantee
       })),
-      limits: binding.limits
+      limits: capabilityLimitsData(binding.limits)
     })),
     receipts: report.receipts.map(tckReceiptData)
   }
+}
+
+function capabilityLimitsData(limits: CapabilityLimits): SerializableRecord {
+  const data: Record<string, SerializableValue> = {}
+  for (const [name, limit] of Object.entries(limits)) {
+    data[name] = Object.freeze({ maximum: limit.maximum, minimum: limit.minimum, unit: limit.unit })
+  }
+  return Object.freeze(data)
 }
 
 function tckReceiptData(

@@ -1,0 +1,16 @@
+{
+  "schema": "unified-ble-manager/stable-release-synthetic-input",
+  "version": 1,
+  "packageName": "unified-ble-manager",
+  "packageVersion": "4.0.0",
+  "tag": "v4.0.0",
+  "sourceCommit": "0123456789abcdef0123456789abcdef01234567",
+  "claimPrefix": "fixture-stable",
+  "approvedCi": {
+    "workflowPath": ".github/workflows/ci.yml",
+    "runId": 123456,
+    "runUrl": "https://github.com/fixture/repository/actions/runs/123456",
+    "headCommit": "0123456789abcdef0123456789abcdef01234567",
+    "conclusion": "success"
+  }
+}

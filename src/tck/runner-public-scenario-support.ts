@@ -70,7 +70,7 @@ export async function connectToDeterministicPeer<
   if (observed.done || observed.value.kind !== 'value') {
     throw new TckAssertionError(definition.id, 'connection setup did not observe a peer')
   }
-  const peerId = observed.value.value.peerId
+  const peerId = observed.value.value.device.id
   const cleanup = await fixture.controller.settle(scan.stop())
   if (cleanup.state !== 'released' || cleanup.failures.length !== 0) {
     throw new TckAssertionError(definition.id, 'connection setup scan cleanup failed')
@@ -95,7 +95,7 @@ export async function connectAndDiscover<
 
 export function scanOptions<Attachment extends string>(allowSharing: boolean): ScanOptions<Attachment, string> {
   return {
-    filter: { serviceUuids: [], localNamePrefix: null },
+    filter: { serviceUuids: [], manufacturerData: [], localNamePrefix: null },
     duplicatePolicy: 'all',
     timestampPolicy: 'receipt-monotonic',
     delivery: {

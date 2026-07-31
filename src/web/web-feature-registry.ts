@@ -1,7 +1,7 @@
 // src/web/web-feature-registry.ts
 
 import { createFeatureRegistry } from '../backend-contract/capabilities'
-import type { FeatureRegistry, Limitation } from '../backend-contract/capabilities'
+import type { CapabilityLimits, FeatureRegistry, Limitation } from '../backend-contract/capabilities'
 import { version, versionRange } from '../backend-contract/primitives'
 
 const capabilityVersion = version('capability-schema', 1)
@@ -31,11 +31,12 @@ function unsupportedRegistration(
   scenarioId: string,
   limitation: Limitation,
   implementationVersion: string,
-  limits: Record<string, number>
+  limits: CapabilityLimits
 ): FeatureRegistry['registrations'][number] {
   return {
     id,
     state: 'unsupported',
+    selectedSchemaRange: capabilityRange,
     implementationOrigin: 'backend-native',
     implementation: {
       invoke: async () => {
@@ -67,21 +68,21 @@ export function createWebBluetoothFeatureRegistry(implementationVersion: string)
       'web.background-operation-unavailable',
       backgroundLimitation,
       implementationVersion,
-      { maximumBackgroundSeconds: 0 }
+      { backgroundDuration: { maximum: 0, minimum: null, unit: 'milliseconds' } }
     ),
     unsupportedRegistration(
       'web:continuous-scan',
       'web.continuous-scan-and-join-unsupported',
       continuousScanLimitation,
       implementationVersion,
-      { maximumConcurrentScanSessions: 0 }
+      { concurrentScanSessions: { maximum: 0, minimum: null, unit: 'sessions' } }
     ),
     unsupportedRegistration(
       'web:state-restoration',
       'web.state-restoration-unavailable',
       restorationLimitation,
       implementationVersion,
-      { maximumRestorationRecords: 0 }
+      { restorationRecords: { maximum: 0, minimum: null, unit: 'items' } }
     )
   ])
 }

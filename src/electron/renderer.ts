@@ -101,6 +101,7 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
       attachment: bootstrap.attachment,
       attachmentId: bootstrap.attachmentId,
       renderer: bootstrap.renderer,
+      rendererLease: bootstrap.rendererLease,
       correlation,
       dispatchEpoch,
       command: request.command,
@@ -161,7 +162,12 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
     }
     let response
     try {
-      response = await this.transport.invoke({ kind: 'release' })
+      const bootstrap = this.bootstrapValue
+      if (bootstrap === null) {
+        this.completeRelease()
+        return { state: 'released', failures: [] }
+      }
+      response = await this.transport.invoke({ kind: 'release', rendererLease: bootstrap.rendererLease })
       if (response.kind !== 'release') {
         throw contractError('protocol.malformed', 'ipc', 'electron-renderer.release-response')
       }
@@ -194,6 +200,14 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
     if (this.lifecycle === 'released') {
       return
     }
+    const bootstrap = this.bootstrapValue
+    if (
+      bootstrap === null ||
+      event.rendererLease?.leaseId !== bootstrap.rendererLease.leaseId ||
+      event.rendererLease?.generation !== bootstrap.rendererLease.generation
+    ) {
+      return
+    }
     const payload = Object.freeze({ streamId: event.streamId, item: event.item })
     this.eventsStream.emit(payload, serializedByteLength(payload))
     if (this.lifecycle === 'releasing') {
@@ -218,7 +232,11 @@ export class ElectronRendererBleClient<Attachment extends string, Renderer exten
     try {
       for (const eventId of this.pendingAcknowledgementIds) {
         try {
-          await this.transport.acknowledge(eventId)
+          const bootstrap = this.bootstrapValue
+          if (bootstrap === null) {
+            throw contractError('lifecycle.invariant-violation', 'ipc', 'electron-renderer.ack-bootstrap')
+          }
+          await this.transport.acknowledge(bootstrap.rendererLease, eventId)
           this.pendingAcknowledgementIds.delete(eventId)
         } catch (error) {
           console.error('[ElectronRendererBleClient] Event acknowledgement failed; retry scheduled:', {

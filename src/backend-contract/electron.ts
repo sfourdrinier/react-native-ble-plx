@@ -12,17 +12,27 @@ import type {
   IpcOperationCorrelation,
   IpcVersionAxes,
   NegotiatedVersion,
+  OpaqueId,
   OwnedBytes,
   SerializableRecord
 } from './primitives'
-import { byteLimit, ownBytes } from './primitives'
+import { byteLimit, opaqueId, ownBytes } from './primitives'
 import { snapshotSerializableRecord, utf8ByteLength } from './serializable'
 import type { BoundedAsyncStream } from './streams'
+
+/** Two overlapping bootstraps support React StrictMode handoff without permitting unbounded amplification. */
+export const ELECTRON_MAX_ACTIVE_RENDERER_LEASES_PER_IDENTITY = 2
 
 export interface RendererIdentity<Attachment extends string, Renderer extends string> {
   readonly clientId: ClientId<Attachment, Renderer>
   readonly windowScope: string
   readonly sessionScope: string
+}
+
+/** Main-issued lifetime identity for one renderer bootstrap, independent of authenticated sender identity. */
+export interface RendererLeaseIdentity {
+  readonly leaseId: OpaqueId<'renderer-lease'>
+  readonly generation: GenerationId<'renderer-lease-generation', string>
 }
 
 /** Main-process authentication facts derived from Electron's sender, never renderer input. */
@@ -48,6 +58,7 @@ export interface IpcEnvelope<Attachment extends string, Renderer extends string,
   readonly attachment: AttachmentRecord<Attachment>
   readonly attachmentId: AttachmentId<Attachment>
   readonly renderer: RendererIdentity<Attachment, Renderer>
+  readonly rendererLease: RendererLeaseIdentity
   readonly correlation: IpcOperationCorrelation<Attachment, Operation>
   readonly dispatchEpoch: GenerationId<'ipc-dispatch-epoch', `${Attachment}:${Operation}`>
   readonly command: string
@@ -79,20 +90,27 @@ export interface ElectronMainArbiterHandlers<Attachment extends string> {
   route<Renderer extends string, Operation extends string>(
     envelope: IpcEnvelope<Attachment, Renderer, Operation>
   ): Promise<SerializableRecord>
-  release<Renderer extends string>(identity: RendererIdentity<Attachment, Renderer>): Promise<CleanupRecord>
+  release<Renderer extends string>(
+    identity: RendererIdentity<Attachment, Renderer>,
+    lease: RendererLeaseIdentity
+  ): Promise<CleanupRecord>
 }
 
 export interface ElectronMainArbiter<Attachment extends string> {
-  registerRenderer<Renderer extends string>(identity: RendererIdentity<Attachment, Renderer>): void
+  registerRenderer<Renderer extends string>(identity: RendererIdentity<Attachment, Renderer>): RendererLeaseIdentity
   route<Renderer extends string, Operation extends string>(
     sender: TrustedIpcSender<Attachment, Renderer>,
     envelope: IpcEnvelope<Attachment, Renderer, Operation>
   ): Promise<SerializableRecord>
-  releaseRenderer<Renderer extends string>(sender: TrustedIpcSender<Attachment, Renderer>): Promise<CleanupRecord>
+  releaseRenderer<Renderer extends string>(
+    sender: TrustedIpcSender<Attachment, Renderer>,
+    lease: RendererLeaseIdentity
+  ): Promise<CleanupRecord>
 }
 
 interface RendererAccounting<Attachment extends string> {
   readonly identity: RendererIdentity<Attachment, string>
+  readonly lease: RendererLeaseIdentity
   /**
    * Bounded terminal replay ledger. In-flight entries are never evicted, while
    * settled entries remain long enough to reject a replay before LRU eviction.
@@ -125,49 +143,65 @@ export class ElectronMainArbiterContext<Attachment extends string> implements El
   private readonly renderers = new Map<string, RendererAccounting<Attachment>>()
   private readonly authority: ElectronMainArbiterAuthority<Attachment>
   private readonly handlers: ElectronMainArbiterHandlers<Attachment>
+  private nextRendererLease = 1
 
   constructor(authority: ElectronMainArbiterAuthority<Attachment>, handlers: ElectronMainArbiterHandlers<Attachment>) {
     this.authority = snapshotArbiterAuthority(authority)
     this.handlers = handlers
   }
 
-  registerRenderer<Renderer extends string>(identity: RendererIdentity<Attachment, Renderer>): void {
-    const existing = this.renderers.get(String(identity.clientId))
-    if (existing !== undefined && !rendererIdentitiesEqual(existing.identity, identity)) {
-      throw contractError('ownership.denied', 'ipc', 'electron-main-arbiter.renderer-registration')
+  registerRenderer<Renderer extends string>(identity: RendererIdentity<Attachment, Renderer>): RendererLeaseIdentity {
+    let matchingLeaseCount = 0
+    for (const accounting of this.renderers.values()) {
+      if (rendererIdentitiesEqual(accounting.identity, identity)) {
+        matchingLeaseCount += 1
+      }
     }
-    if (existing?.lifecycle === 'releasing') {
-      throw contractError('lifecycle.invalid-state', 'ipc', 'electron-main-arbiter.renderer-releasing')
+    if (matchingLeaseCount >= ELECTRON_MAX_ACTIVE_RENDERER_LEASES_PER_IDENTITY) {
+      throw contractError('stream.quota', 'ipc', 'electron-main-arbiter.renderer-leases')
     }
-    if (existing === undefined) {
-      this.renderers.set(String(identity.clientId), {
-        identity: snapshotRendererIdentity(identity),
-        replayLedger: new Map<string, ReplayLedgerEntry>(),
-        lifecycle: 'active',
-        outstandingOperations: 0,
-        releaseResult: null,
-        retainedBytes: 0
-      })
-    }
+    const ordinal = this.nextRendererLease
+    this.nextRendererLease += 1
+    const scope = `${String(this.authority.attachment.attachmentId)}:${String(identity.clientId)}`
+    const lease = Object.freeze({
+      leaseId: opaqueId(`renderer-lease-${ordinal}`, 'renderer-lease', scope),
+      generation: opaqueId(`renderer-lease-generation-${ordinal}`, 'renderer-lease-generation', scope)
+    })
+    this.renderers.set(String(lease.leaseId), {
+      identity: snapshotRendererIdentity(identity),
+      lease,
+      replayLedger: new Map<string, ReplayLedgerEntry>(),
+      lifecycle: 'active',
+      outstandingOperations: 0,
+      releaseResult: null,
+      retainedBytes: 0
+    })
+    return lease
   }
 
   async route<Renderer extends string, Operation extends string>(
     sender: TrustedIpcSender<Attachment, Renderer>,
     envelope: IpcEnvelope<Attachment, Renderer, Operation>
   ): Promise<SerializableRecord> {
+    assertRendererLeaseShape(envelope.rendererLease)
     this.assertRendererDoesNotSupplyAuthority(envelope)
     this.assertSender(sender, envelope.renderer)
-    this.assertRegisteredRenderer(envelope.renderer)
-    const accounting = this.requireAccounting(sender.authenticatedClientId)
+    const accounting = this.requireAccounting(envelope.rendererLease)
+    this.assertRegisteredRenderer(accounting, envelope.renderer, envelope.rendererLease)
     this.assertRendererActive(accounting)
     this.assertAttachment(envelope)
     this.assertVersions(envelope)
     const prepared = this.prepareEnvelope(envelope)
-    this.reserveOperation(accounting, prepared)
+    // A cancellation must remain admissible when normal work has filled the
+    // operation quota; it still receives full replay and byte accounting.
+    const reservesOperationSlot = prepared.envelope.command !== 'operation.cancel'
+    this.reserveOperation(accounting, prepared, reservesOperationSlot)
     try {
       return await this.handlers.route(prepared.envelope)
     } finally {
-      accounting.outstandingOperations -= 1
+      if (reservesOperationSlot) {
+        accounting.outstandingOperations -= 1
+      }
       accounting.retainedBytes -= prepared.totalBytes
       this.markReplayTerminal(accounting, prepared.replayKey)
       this.trimTerminalReplayLedger(accounting, 0, 0)
@@ -175,9 +209,15 @@ export class ElectronMainArbiterContext<Attachment extends string> implements El
   }
 
   async releaseRenderer<Renderer extends string>(
-    sender: TrustedIpcSender<Attachment, Renderer>
+    sender: TrustedIpcSender<Attachment, Renderer>,
+    lease: RendererLeaseIdentity
   ): Promise<CleanupRecord> {
-    const accounting = this.requireAccounting(sender.authenticatedClientId)
+    assertRendererLeaseShape(lease)
+    const accounting = this.renderers.get(String(lease.leaseId))
+    if (accounting === undefined) {
+      return { state: 'released', failures: [] }
+    }
+    assertRendererLeaseMatches(accounting.lease, lease)
     this.assertSender(sender, accounting.identity)
     if (accounting.lifecycle === 'releasing') {
       if (accounting.releaseResult === null) {
@@ -187,11 +227,11 @@ export class ElectronMainArbiterContext<Attachment extends string> implements El
     }
     accounting.lifecycle = 'releasing'
     const releaseResult = Promise.resolve()
-      .then(() => this.handlers.release(accounting.identity))
+      .then(() => this.handlers.release(accounting.identity, accounting.lease))
       .then(
         cleanup => {
           if (cleanup.state === 'released') {
-            this.renderers.delete(String(accounting.identity.clientId))
+            this.renderers.delete(String(accounting.lease.leaseId))
           } else {
             accounting.lifecycle = 'active'
             accounting.releaseResult = null
@@ -230,11 +270,15 @@ export class ElectronMainArbiterContext<Attachment extends string> implements El
     }
   }
 
-  private assertRegisteredRenderer<Renderer extends string>(identity: RendererIdentity<Attachment, Renderer>): void {
-    const registered = this.renderers.get(String(identity.clientId))
-    if (registered === undefined || !rendererIdentitiesEqual(registered.identity, identity)) {
+  private assertRegisteredRenderer<Renderer extends string>(
+    accounting: RendererAccounting<Attachment>,
+    identity: RendererIdentity<Attachment, Renderer>,
+    lease: RendererLeaseIdentity
+  ): void {
+    if (!rendererIdentitiesEqual(accounting.identity, identity)) {
       throw contractError('ownership.denied', 'ipc', 'electron-main-arbiter.renderer-registration')
     }
+    assertRendererLeaseMatches(accounting.lease, lease)
   }
 
   private assertRendererActive(accounting: RendererAccounting<Attachment>): void {
@@ -282,6 +326,7 @@ export class ElectronMainArbiterContext<Attachment extends string> implements El
         attachment: this.authority.attachment,
         versions: this.authority.versions,
         renderer: snapshotRendererIdentity(envelope.renderer),
+        rendererLease: snapshotRendererLease(envelope.rendererLease),
         payload: payload.value,
         binaryPayload
       }),
@@ -291,8 +336,8 @@ export class ElectronMainArbiterContext<Attachment extends string> implements El
     }
   }
 
-  private requireAccounting(clientId: ClientId<Attachment, string>): RendererAccounting<Attachment> {
-    const accounting = this.renderers.get(String(clientId))
+  private requireAccounting(lease: RendererLeaseIdentity): RendererAccounting<Attachment> {
+    const accounting = this.renderers.get(String(lease.leaseId))
     if (accounting === undefined) {
       throw contractError('ownership.denied', 'ipc', 'electron-main-arbiter.renderer-registration')
     }
@@ -301,12 +346,16 @@ export class ElectronMainArbiterContext<Attachment extends string> implements El
 
   private reserveOperation<Renderer extends string, Operation extends string>(
     accounting: RendererAccounting<Attachment>,
-    prepared: PreparedEnvelope<Attachment, Renderer, Operation>
+    prepared: PreparedEnvelope<Attachment, Renderer, Operation>,
+    reservesOperationSlot: boolean
   ): void {
     if (accounting.replayLedger.has(prepared.replayKey)) {
       throw contractError('protocol.violation', 'ipc', 'electron-main-arbiter.replay')
     }
-    if (accounting.outstandingOperations >= this.authority.quota.maximumOutstandingOperations) {
+    if (
+      reservesOperationSlot &&
+      accounting.outstandingOperations >= this.authority.quota.maximumOutstandingOperations
+    ) {
       throw contractError('stream.quota', 'ipc', 'electron-main-arbiter.outstanding-operations')
     }
     this.trimTerminalReplayLedger(accounting, prepared.totalBytes + prepared.replayKeyBytes, 1)
@@ -318,7 +367,9 @@ export class ElectronMainArbiterContext<Attachment extends string> implements El
       byteLength: prepared.replayKeyBytes,
       state: 'in-flight'
     })
-    accounting.outstandingOperations += 1
+    if (reservesOperationSlot) {
+      accounting.outstandingOperations += 1
+    }
     accounting.retainedBytes = retainedAfterReservation
   }
 
@@ -397,9 +448,9 @@ function snapshotRendererIdentity<Attachment extends string, Renderer extends st
 function operationReplayKey<Attachment extends string, Renderer extends string, Operation extends string>(
   envelope: IpcEnvelope<Attachment, Renderer, Operation>
 ): string {
-  return `${String(envelope.renderer.clientId)}\u0000${String(envelope.correlation)}\u0000${String(
-    envelope.dispatchEpoch
-  )}`
+  return `${String(envelope.rendererLease.leaseId)}\u0000${String(envelope.rendererLease.generation)}\u0000${String(
+    envelope.correlation
+  )}\u0000${String(envelope.dispatchEpoch)}`
 }
 
 function envelopeMetadataByteLength<Attachment extends string, Renderer extends string, Operation extends string>(
@@ -415,6 +466,8 @@ function envelopeMetadataByteLength<Attachment extends string, Renderer extends 
     String(envelope.renderer.clientId),
     envelope.renderer.windowScope,
     envelope.renderer.sessionScope,
+    String(envelope.rendererLease.leaseId),
+    String(envelope.rendererLease.generation),
     String(envelope.correlation),
     String(envelope.dispatchEpoch)
   ]
@@ -423,6 +476,32 @@ function envelopeMetadataByteLength<Attachment extends string, Renderer extends 
     byteLength += utf8ByteLength(value)
   }
   return byteLength + ipcVersionsByteLength(envelope.versions)
+}
+
+function assertRendererLeaseMatches(actual: RendererLeaseIdentity, expected: RendererLeaseIdentity): void {
+  if (actual.leaseId !== expected.leaseId || actual.generation !== expected.generation) {
+    throw contractError('ownership.denied', 'ipc', 'electron-main-arbiter.renderer-lease')
+  }
+}
+
+function assertRendererLeaseShape(lease: RendererLeaseIdentity): void {
+  if (
+    typeof lease !== 'object' ||
+    lease === null ||
+    typeof lease.leaseId !== 'string' ||
+    lease.leaseId.length === 0 ||
+    typeof lease.generation !== 'string' ||
+    lease.generation.length === 0
+  ) {
+    throw contractError('protocol.malformed', 'ipc', 'electron-main-arbiter.renderer-lease')
+  }
+}
+
+function snapshotRendererLease(lease: RendererLeaseIdentity): RendererLeaseIdentity {
+  return Object.freeze({
+    leaseId: lease.leaseId,
+    generation: lease.generation
+  })
 }
 
 function ipcVersionsByteLength(versions: IpcVersionAxes): number {

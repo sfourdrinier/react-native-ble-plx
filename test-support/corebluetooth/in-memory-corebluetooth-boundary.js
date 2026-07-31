@@ -1,7 +1,5 @@
 // test-support/corebluetooth/in-memory-corebluetooth-boundary.js
 
-// test-support/corebluetooth/in-memory-corebluetooth-boundary.js
-
 class InMemoryCoreBluetoothBoundary {
   constructor({ serviceUuid, characteristicUuid, descriptorUuid = '00002902-0000-1000-8000-00805f9b34fb' }) {
     this.serviceUuid = serviceUuid
@@ -40,7 +38,7 @@ class InMemoryCoreBluetoothBoundary {
     this.scanHandler = null
   }
 
-  emitAdvertisement() {
+  emitAdvertisement(overrides = {}) {
     const handler = this.scanHandler ?? this.stoppedScanHandler
     if (handler === null) {
       throw new Error('Advertisement emitted before the deterministic scan boundary was ready')
@@ -49,7 +47,8 @@ class InMemoryCoreBluetoothBoundary {
       nativePeerId: 'native-polar-h10',
       localName: 'Polar H10',
       rssi: -48,
-      serviceUuids: [this.serviceUuid]
+      serviceUuids: [this.serviceUuid],
+      ...overrides
     })
   }
 

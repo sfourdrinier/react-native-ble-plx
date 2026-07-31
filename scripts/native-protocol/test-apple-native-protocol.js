@@ -38,6 +38,7 @@ try {
     'swiftc',
     path.join(root, 'ios/Owned/OwnedCoreBluetoothProtocolRadioSupport.swift'),
     path.join(root, 'ios/Owned/OwnedCoreBluetoothProtocolRadio.swift'),
+    path.join(root, 'ios/Owned/OwnedCoreBluetoothProtocolRadioDescriptors.swift'),
     path.join(root, 'native/protocol/tests/AppleCoreBluetoothScanParserHarness.swift'),
     '-o',
     executable

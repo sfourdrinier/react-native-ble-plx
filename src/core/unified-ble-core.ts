@@ -1,8 +1,8 @@
 // src/core/unified-ble-core.ts
+
 import { BackendContractError, contractError } from '../backend-contract/errors'
 import {
   assertAttachedBackend,
-  assertBackendEvent,
   type BackendAttachment,
   type BackendEvent,
   type BleCentralBackend,
@@ -28,6 +28,7 @@ import type {
   PeerId
 } from '../backend-contract/primitives'
 import type { BoundedAsyncStream } from '../backend-contract/streams'
+import type { ConnectionLifecycleTerminalCause } from '../backend-contract/connection-lifecycle'
 import { AggregateStreamQuota } from './aggregate-stream-quota'
 import { CoreBoundedStream } from './bounded-stream'
 import { CoreOperationCoordinator } from './operation-coordinator'
@@ -51,9 +52,12 @@ import {
   cloneObservation,
   deactivateScanLifetime,
   retryableCleanup,
+  scheduleCoreDeadline,
   type CoreDeadlineHandle,
   type CoreDeadlineScheduler
 } from './unified-ble-core-helpers'
+import { forwardCoreBackendEvents } from './core-backend-event-stream'
+import { isConnectionLossCause, lifecycleCauseFromBackendDisconnect } from './connection-lifecycle-rules'
 export { DEFAULT_CORE_MAXIMUM_VALUE_BYTES } from './unified-ble-core-helpers'
 export type { CoreDeadlineHandle, CoreDeadlineScheduler } from './unified-ble-core-helpers'
 
@@ -182,6 +186,14 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
     return this.trace.snapshot()
   }
 
+  monotonicNow(): number {
+    return this.options.now()
+  }
+
+  scheduleDeadline(deadline: number, action: () => void): CoreDeadlineHandle {
+    return scheduleCoreDeadline(deadline, action, this.options.timer, this.options.now)
+  }
+
   localResourceCounters(): import('../backend-contract/backend').ResourceCounters {
     this.syncRetainedByteBuffers()
     return this.resourceLedger.snapshot()
@@ -308,14 +320,17 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
     return this.destroyResult
   }
 
-  async releaseResources(): Promise<CleanupRecord> {
+  async releaseResources(cause: ConnectionLifecycleTerminalCause = 'manager-destroyed'): Promise<CleanupRecord> {
     if (this.resourceReleaseResult !== null) {
       return this.resourceReleaseResult
     }
     this.admissionEpoch += 1
     this.coreState = 'destroying'
     this.operationCoordinator.destroy()
-    const release = this.destroyOwnedResources()
+    for (const connection of this.connections.values()) {
+      connection.finishLifecycle(cause, null)
+    }
+    const release = this.destroyOwnedResources(cause)
     this.resourceReleaseResult = retryableCleanup(release, () => {
       this.resourceReleaseResult = null
     })
@@ -457,7 +472,7 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
 
   async releaseConnection(
     connection: CoreConnection<Attachment, Identity>,
-    disconnect: boolean
+    cause: ConnectionLifecycleTerminalCause
   ): Promise<CleanupRecord> {
     const key = String(connection.resource.connectionId)
     const inFlight = this.connectionReleases.get(key)
@@ -467,7 +482,7 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
     if (connection.isReleased()) {
       return { state: 'released', failures: [] }
     }
-    const release = this.releaseConnectionCurrent(connection, disconnect)
+    const release = this.releaseConnectionCurrent(connection, cause)
     this.connectionReleases.set(key, release)
     try {
       return await release
@@ -480,10 +495,11 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
 
   private async releaseConnectionCurrent(
     connection: CoreConnection<Attachment, Identity>,
-    disconnect: boolean
+    cause: ConnectionLifecycleTerminalCause
   ): Promise<CleanupRecord> {
     this.operationCoordinator.cancelQueue(String(connection.resource.connectionId), 'disconnected')
-    const reason = connection.isCurrent() && !disconnect ? 'owner-released' : 'connection-lost'
+    const disconnect = cause === 'requested-disconnect'
+    const reason = isConnectionLossCause(cause) ? 'connection-lost' : 'owner-released'
     const cleanup = await connection.cleanupChildren(reason)
     if (cleanup.state === 'release-failed') {
       return cleanup
@@ -511,6 +527,7 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
     if (backendResult.state === 'release-failed') {
       return backendResult
     }
+    connection.finishLifecycle(cause, null)
     connection.markReleased()
     this.connections.delete(String(connection.resource.connectionId))
     this.resourceLedger.decrement('connectionLeases')
@@ -568,7 +585,18 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
     this.coreState = 'ready'
     const events = this.backend.events()
     this.backendEventStream = events
-    this.lifecycleObserver.observeBackground(this.forwardBackendEvents(events), 'manager', 'backend-event-pump')
+    this.lifecycleObserver.observeBackground(
+      forwardCoreBackendEvents({
+        events,
+        isReady: () => this.coreState === 'ready',
+        applyEvent: event => this.applyBackendEvent(event),
+        releaseAfterFailure: () => this.releaseResources('backend-failure'),
+        trace: this.trace,
+        now: this.options.now
+      }),
+      'manager',
+      'backend-event-pump'
+    )
   }
 
   private async forwardScanSource(
@@ -586,7 +614,7 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
             scan.stream,
             observation,
             advertisementByteLength(observation),
-            String(observation.peerId),
+            String(observation.device.id),
             advertisementPayloadByteLength(observation)
           )
           if (outcome.terminated) {
@@ -620,49 +648,10 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
     }
   }
 
-  private async forwardBackendEvents(events: BoundedAsyncStream<BackendEvent<Attachment>>): Promise<void> {
-    try {
-      for await (const item of events) {
-        if (this.coreState !== 'ready') {
-          return
-        }
-        if (item.kind !== 'value') {
-          this.trace.record({
-            timestamp: this.options.now(),
-            resource: 'manager',
-            transition: 'backend-event-stream-terminal',
-            operation: null,
-            cause: item.kind === 'overflow' ? 'stream.overflow' : 'platform.failure',
-            queuedOperations: 0,
-            dispatchedOperations: 0,
-            quarantinedOperations: 0
-          })
-          await this.releaseResources()
-          return
-        }
-        assertBackendEvent(item.value)
-        this.applyBackendEvent(item.value)
-      }
-    } catch (error) {
-      const code = error instanceof BackendContractError ? error.normalized.code : 'platform.failure'
-      this.trace.record({
-        timestamp: this.options.now(),
-        resource: 'manager',
-        transition: 'backend-event-source-failed',
-        operation: null,
-        cause: code,
-        queuedOperations: 0,
-        dispatchedOperations: 0,
-        quarantinedOperations: 0
-      })
-      await this.releaseResources()
-    }
-  }
-
   private applyBackendEvent(event: BackendEvent<Attachment>): void {
-    if (event.kind === 'backend-restarted') {
+    if (event.kind === 'backend-restarted' || event.kind === 'backend-restarting') {
       if (event.attachment.adapter.adapterId === this.requireAttachment().attachment.adapter.adapterId) {
-        this.lifecycleObserver.observeCleanup(this.releaseResources(), 'backend-restarted-cleanup')
+        this.lifecycleObserver.observeCleanup(this.releaseResources('backend-restart'), 'backend-restarted-cleanup')
       }
       return
     }
@@ -684,9 +673,45 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
     if (event.kind === 'connection-lost') {
       const connection = this.connections.get(String(event.connection.connectionId))
       if (connection !== undefined && connection.matchesConnectionPath(event.connection)) {
+        connection.finishLifecycle('peer-link-loss', event.ingressOrdinal)
         this.lifecycleObserver.observeCleanup(
-          this.releaseConnection(connection, false),
+          this.releaseConnection(connection, 'peer-link-loss'),
           'backend-event-connection-cleanup'
+        )
+      }
+      return
+    }
+    if (event.kind === 'connection-state-changed') {
+      const connection = this.connections.get(String(event.connection.connectionId))
+      if (connection !== undefined && connection.matchesConnectionPath(event.connection)) {
+        if (event.current === 'disconnected' || event.current === 'lost') {
+          if (event.reason === null) {
+            throw contractError(
+              'lifecycle.invariant-violation',
+              'connection',
+              'backend-event-terminal-transition-reason'
+            )
+          }
+          const cause = lifecycleCauseFromBackendDisconnect(event.reason)
+          connection.finishBackendLifecycle(event.previous, event.current, cause, event.ingressOrdinal)
+          this.lifecycleObserver.observeCleanup(
+            this.releaseConnection(connection, cause),
+            'backend-event-connection-state-cleanup'
+          )
+        } else {
+          connection.applyBackendTransition(event.previous, event.current, event.ingressOrdinal)
+        }
+      }
+      return
+    }
+    if (event.kind === 'disconnected') {
+      const connection = this.connections.get(String(event.connection.connectionId))
+      if (connection !== undefined && connection.matchesConnectionPath(event.connection)) {
+        const cause = lifecycleCauseFromBackendDisconnect(event.reason)
+        connection.finishLifecycle(cause, event.ingressOrdinal)
+        this.lifecycleObserver.observeCleanup(
+          this.releaseConnection(connection, cause),
+          'backend-event-disconnected-cleanup'
         )
       }
       return
@@ -699,7 +724,7 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
   private async applyAdapterStateEvent(): Promise<void> {
     const state = await this.backend.adapter.currentState()
     if (state.availability !== 'available' || state.authorization !== 'granted' || state.power !== 'on') {
-      await this.releaseResources()
+      await this.releaseResources('adapter-loss')
     }
   }
 
@@ -760,7 +785,7 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
     }
   }
 
-  private async destroyOwnedResources(): Promise<CleanupRecord> {
+  private async destroyOwnedResources(cause: ConnectionLifecycleTerminalCause): Promise<CleanupRecord> {
     const failures: CleanupFailure[] = []
     const eventClose = this.closeBackendEventStream()
     for (const scan of [...this.scans.values()]) {
@@ -769,7 +794,7 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
     }
     for (const connection of [...this.connections.values()]) {
       const result = await this.lifecycleObserver.captureCleanup(
-        this.releaseConnection(connection, false),
+        this.releaseConnection(connection, cause),
         'connection',
         'destroy-connection'
       )

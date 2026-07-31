@@ -83,6 +83,14 @@ export interface Characteristic<
   Occurrence extends string
 > {
   readonly path: CharacteristicPath<Attachment, Connection, Database, ServiceOccurrence, Occurrence>
+  readonly properties: CharacteristicProperties
+}
+/** Complete normalized operation metadata captured at GATT discovery time. */
+export interface CharacteristicProperties {
+  readonly read: boolean
+  readonly writeWithResponse: boolean
+  readonly writeWithoutResponse: boolean
+  readonly notify: boolean
 }
 export interface Descriptor<
   Attachment extends string,

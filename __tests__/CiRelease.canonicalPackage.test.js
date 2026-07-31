@@ -57,7 +57,9 @@ describe('ci-release canonical package (4.0)', () => {
     expect(w).toContain('package/unified-ble-manager/access')
     expect(w).toContain('package_published=${PACKAGE_PUBLISHED}')
     expect(w).toContain("steps.npm_status.outputs.package_published != 'true'")
-    expect(w).toContain('npm publish --provenance --access public --tag "${NPM_DIST_TAG}"')
+    expect(w).toContain(
+      'npm publish "${PUBLISH_TARBALL}" --provenance --access public --tag "${NPM_DIST_TAG}"'
+    )
     expect(w).toContain('echo "NPM_DIST_TAG=next" >> "$GITHUB_ENV"')
     expect(w).toContain('echo "NPM_DIST_TAG=latest" >> "$GITHUB_ENV"')
     expect(w).toMatch(

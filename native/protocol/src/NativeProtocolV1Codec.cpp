@@ -410,6 +410,10 @@ void validateCommandSemantics(const ProtocolRecord& record) {
   } else if (*kind == "write") {
     requireFieldSet(record, {1U, 2U, 3U, 6U, 13U}, {4U, 5U});
     requireExactlyOne(record, 4U, 5U);
+  } else if (*kind == "readDescriptor") {
+    requireFieldSet(record, {1U, 2U, 3U, 5U}, {});
+  } else if (*kind == "writeDescriptor") {
+    requireFieldSet(record, {1U, 2U, 3U, 5U, 6U}, {});
   } else if (*kind == "subscribe" || *kind == "unsubscribe") {
     requireFieldSet(record, {1U, 2U, 3U, 4U, 7U}, {});
   } else if (*kind == "cancel") {
@@ -438,6 +442,10 @@ void validateResultSemantics(const ProtocolRecord& record) {
     requireFieldSet(record, {1U, 2U, 3U, 4U, 12U}, {});
   } else if (*kind == "read") {
     requireFieldSet(record, {1U, 2U, 3U, 5U, 6U}, {});
+  } else if (*kind == "descriptorRead") {
+    requireFieldSet(record, {1U, 2U, 3U, 6U, 15U}, {});
+  } else if (*kind == "descriptorWrite") {
+    requireFieldSet(record, {1U, 2U, 3U, 15U}, {});
   } else if (*kind == "subscribed" || *kind == "unsubscribed") {
     requireFieldSet(record, {1U, 2U, 3U, 5U, 7U}, {});
   } else if (*kind == "cancelled") {

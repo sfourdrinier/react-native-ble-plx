@@ -42,6 +42,17 @@ function versions() {
   }
 }
 
+function rendererLease(value) {
+  return {
+    leaseId: opaqueId(`renderer-lease-${value}`, 'renderer-lease', `electron:${value}`),
+    generation: opaqueId(
+      `renderer-lease-generation-${value}`,
+      'renderer-lease-generation',
+      `electron:${value}`
+    )
+  }
+}
+
 function createSender(client, windowScope, sessionScope) {
   const destroyedListeners = []
   return {
@@ -57,11 +68,24 @@ function createSender(client, windowScope, sessionScope) {
         destroyedListeners.push(listener)
       }
     },
+    removeListener(event, listener) {
+      if (event !== 'destroyed') {
+        return
+      }
+      const index = destroyedListeners.indexOf(listener)
+      if (index >= 0) {
+        destroyedListeners.splice(index, 1)
+      }
+    },
     send(channel, event) {
       this.sent.push({ channel, event })
     },
+    destroyedListenerCount() {
+      return destroyedListeners.length
+    },
     destroy() {
-      for (const listener of destroyedListeners) {
+      const listeners = destroyedListeners.splice(0, destroyedListeners.length)
+      for (const listener of listeners) {
         listener()
       }
     }
@@ -213,7 +237,7 @@ function createMainFixture(managerOverrides = {}) {
   return { binding, currentAttachment, manager, port, router, versions: manager.identity.versions }
 }
 
-function routeRequest(current, renderer, ordinal) {
+function routeRequest(current, bootstrapValue, ordinal) {
   return {
     kind: 'route',
     envelope: {
@@ -223,7 +247,8 @@ function routeRequest(current, renderer, ordinal) {
       },
       attachment: current.currentAttachment,
       attachmentId: current.currentAttachment.attachmentId,
-      renderer,
+      renderer: bootstrapValue.renderer,
+      rendererLease: bootstrapValue.rendererLease,
       correlation: opaqueId(`operation-${ordinal}`, 'ipc-operation', `electron:operation-${ordinal}`),
       dispatchEpoch: opaqueId(`dispatch-${ordinal}`, 'ipc-dispatch-epoch', `electron:operation-${ordinal}`),
       command: 'scan.stop',
@@ -248,7 +273,7 @@ function commandRequest(current, renderer, ordinal, command, payload, binaryPayl
 async function bootstrap(current, sender) {
   const response = await current.port.handler({ sender }, { kind: 'bootstrap' })
   expect(response.kind).toBe('bootstrap')
-  return response.bootstrap.renderer
+  return response.bootstrap
 }
 
 async function flushAsyncWork() {
@@ -268,15 +293,160 @@ describe('Electron v4 IPC boundary', () => {
     expect(bootstrapA.kind).toBe('bootstrap')
     expect(bootstrapB.kind).toBe('bootstrap')
     await expect(
-      current.port.handler({ sender: senderB }, routeRequest(current, bootstrapA.bootstrap.renderer, 1))
-    ).rejects.toMatchObject({ normalized: { code: 'ownership.denied', operation: 'electron-main-arbiter.sender' } })
+      current.port.handler({ sender: senderB }, routeRequest(current, bootstrapA.bootstrap, 1))
+    ).rejects.toMatchObject({ normalized: { code: 'ownership.denied', operation: 'electron-main-binding.sender-binding' } })
 
     senderA.destroy()
     await Promise.resolve()
     await Promise.resolve()
     await expect(
-      current.port.handler({ sender: senderA }, routeRequest(current, bootstrapA.bootstrap.renderer, 2))
+      current.port.handler({ sender: senderA }, routeRequest(current, bootstrapA.bootstrap, 2))
     ).rejects.toMatchObject({ normalized: { code: 'lifecycle.invalid-state' } })
+    await current.binding.destroy()
+  })
+
+  test('keeps the successor lease active when StrictMode cleanup releases an overlapping bootstrap', async () => {
+    const scanStream = createControlledStream()
+    const scanStop = jest.fn(async () => {
+      scanStream.close()
+      return released()
+    })
+    const current = createMainFixture({
+      scan: jest.fn(async () => ({ observations: scanStream, stop: scanStop }))
+    })
+    const sender = createSender('client-strict-mode', 'window-strict-mode', 'session-strict-mode')
+    const firstBootstrap = await bootstrap(current, sender)
+    const successorBootstrap = await bootstrap(current, sender)
+
+    expect(successorBootstrap.rendererLease).not.toEqual(firstBootstrap.rendererLease)
+    await expect(bootstrap(current, sender)).rejects.toMatchObject({
+      normalized: { code: 'stream.quota', operation: 'electron-main-arbiter.renderer-leases' }
+    })
+    expect(current.router.resources).toHaveProperty('size', 2)
+    await expect(
+      current.port.handler(
+        { sender },
+        { kind: 'release', rendererLease: firstBootstrap.rendererLease }
+      )
+    ).resolves.toEqual({ kind: 'release', cleanup: released() })
+    expect(current.router.resources.has(String(firstBootstrap.rendererLease.leaseId))).toBe(false)
+    expect(current.router.resources.has(String(successorBootstrap.rendererLease.leaseId))).toBe(true)
+    const replacementBootstrap = await bootstrap(current, sender)
+    expect(current.router.resources).toHaveProperty('size', 2)
+
+    const scanResponse = await current.port.handler(
+      { sender },
+      commandRequest(current, successorBootstrap, 1, 'scan.start', {
+        serviceUuids: [],
+        manufacturerData: [],
+        localNamePrefix: null,
+        deadline: null
+      })
+    )
+    expect(scanResponse).toMatchObject({ kind: 'route', payload: { handle: expect.any(String) } })
+
+    await expect(
+      current.port.handler(
+        { sender },
+        { kind: 'release', rendererLease: firstBootstrap.rendererLease }
+      )
+    ).resolves.toEqual({ kind: 'release', cleanup: released() })
+    expect(
+      current.router.resources
+        .get(String(successorBootstrap.rendererLease.leaseId))
+        .scans.has(scanResponse.payload.handle)
+    ).toBe(true)
+    expect(current.router.resources.has(String(replacementBootstrap.rendererLease.leaseId))).toBe(true)
+
+    sender.destroy()
+    await flushAsyncWork()
+    await new Promise(resolve => setImmediate(resolve))
+    await flushAsyncWork()
+    expect(scanStop).toHaveBeenCalledTimes(1)
+    expect(current.router.resources).toHaveProperty('size', 0)
+    expect(current.binding.renderers).toHaveProperty('size', 0)
+    await current.binding.destroy()
+  })
+
+  test('removes exact lease destruction listeners across repeated handoffs and binding teardown', async () => {
+    const current = createMainFixture()
+    const sender = createSender('client-listener-handoff', 'window-listener-handoff', 'session-listener-handoff')
+    const releaseRenderer = jest.spyOn(current.router, 'releaseRenderer')
+
+    for (let index = 0; index < 12; index += 1) {
+      const renderer = await bootstrap(current, sender)
+      expect(sender.destroyedListenerCount()).toBe(1)
+      await expect(
+        current.port.handler({ sender }, { kind: 'release', rendererLease: renderer.rendererLease })
+      ).resolves.toEqual({ kind: 'release', cleanup: released() })
+      expect(sender.destroyedListenerCount()).toBe(0)
+    }
+
+    await bootstrap(current, sender)
+    expect(sender.destroyedListenerCount()).toBe(1)
+    await expect(current.binding.destroy()).resolves.toEqual(released())
+    expect(sender.destroyedListenerCount()).toBe(0)
+    const releasesBeforeDestroyedEvent = releaseRenderer.mock.calls.length
+    sender.destroy()
+    await flushAsyncWork()
+    expect(releaseRenderer).toHaveBeenCalledTimes(releasesBeforeDestroyedEvent)
+  })
+
+  test('releases the exact renderer lease when terminal delivery quota is exhausted', async () => {
+    const streams = Array.from({ length: 9 }, () => createControlledStream())
+    const stops = streams.map(stream =>
+      jest.fn(async () => {
+        stream.close()
+        return released()
+      })
+    )
+    let nextScan = 0
+    const current = createMainFixture({
+      scan: jest.fn(async () => {
+        const index = nextScan
+        nextScan += 1
+        return { observations: streams[index], stop: stops[index] }
+      })
+    })
+    const sender = createSender('client-terminal-quota', 'window-terminal-quota', 'session-terminal-quota')
+    const renderer = await bootstrap(current, sender)
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    for (let index = 0; index < streams.length; index += 1) {
+      await current.port.handler(
+        { sender },
+        commandRequest(current, renderer, index + 1, 'scan.start', {
+          serviceUuids: [],
+          manufacturerData: [],
+          localNamePrefix: null,
+          deadline: null
+        })
+      )
+      streams[index].push({
+        kind: 'terminal',
+        reason: 'closed',
+        droppedItems: 0,
+        droppedBytes: 0,
+        replacedItems: 0
+      })
+      await flushAsyncWork()
+    }
+    await new Promise(resolve => setImmediate(resolve))
+    await flushAsyncWork()
+
+    expect(sender.sent.filter(({ event }) => event.item.kind === 'terminal')).toHaveLength(8)
+    for (const stop of stops) {
+      expect(stop).toHaveBeenCalledTimes(1)
+    }
+    expect(current.router.resources).toHaveProperty('size', 0)
+    expect(current.binding.renderers).toHaveProperty('size', 0)
+    await expect(
+      current.port.handler({ sender }, routeRequest(current, renderer, 20))
+    ).rejects.toMatchObject({
+      normalized: { code: 'ownership.denied', operation: 'electron-main-arbiter.renderer-registration' }
+    })
+
+    errorLog.mockRestore()
     await current.binding.destroy()
   })
 
@@ -294,7 +464,8 @@ describe('Electron v4 IPC boundary', () => {
         clientId: opaqueId('renderer-client', 'client', 'renderer:client'),
         windowScope: 'renderer-window',
         sessionScope: 'renderer-session'
-      }
+      },
+      rendererLease: rendererLease('renderer-client')
     }
     const transport = {
       async invoke(request) {
@@ -311,7 +482,8 @@ describe('Electron v4 IPC boundary', () => {
       subscribe(listener) {
         listeners.push(listener)
         return () => listeners.splice(listeners.indexOf(listener), 1)
-      }
+      },
+      rendererLease: rendererLease('retry-client')
     }
     const client = new ElectronRendererBleClient(transport)
     const bytes = new Uint8Array([1, 2, 3])
@@ -322,6 +494,7 @@ describe('Electron v4 IPC boundary', () => {
     expect([...capturedEnvelope.binaryPayload]).toEqual([1, 2, 3])
 
     listeners[0]({
+      rendererLease: bootstrap.rendererLease,
       eventId: 'event-1',
       streamId: 'subscription-1',
       item: { kind: 'value', value: new Uint8Array([7]) }
@@ -330,6 +503,71 @@ describe('Electron v4 IPC boundary', () => {
     await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { kind: 'value' } })
     await expect(client.destroy()).resolves.toEqual({ state: 'released', failures: [] })
     expect(listeners).toEqual([])
+  })
+
+  test('preserves a complete rich advertisement observation through the renderer IPC boundary', async () => {
+    const scanStream = createControlledStream()
+    const scanStop = jest.fn(async () => {
+      scanStream.close()
+      return released()
+    })
+    const current = createMainFixture({ scan: jest.fn(async () => ({ observations: scanStream, stop: scanStop })) })
+    const sender = createSender('client-rich-advertisement', 'window-rich-advertisement', 'session-rich-advertisement')
+    const renderer = await bootstrap(current, sender)
+    const scan = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 1, 'scan.start', { serviceUuids: [], manufacturerData: [], localNamePrefix: null, deadline: null })
+    )
+    const present = (value, provenance = 'observed') => ({ state: 'present', value, provenance })
+    const unavailable = reason => ({ state: 'unavailable', reason, provenance: 'not-provided' })
+    scanStream.push({
+      kind: 'value',
+      value: {
+        device: {
+          id: 'peer-rich-advertisement',
+          backendInstanceId: 'electron-backend',
+          scope: 'backend',
+          stableAcrossRestarts: false,
+          address: { value: 'peer-rich-advertisement', type: 'opaque' }
+        },
+        provenance: 'platform-raw',
+        sourceTimestamp: unavailable('platform-clock-not-provided'),
+        receivedAtMonotonicMs: 99,
+        ingressOrdinal: 7,
+        scanSessionId: 'scan-rich-advertisement',
+        localName: present('Rich beacon'),
+        rssi: present(-47),
+        txPower: present(-8),
+        connectable: present(true),
+        appearance: present(961),
+        serviceUuids: present(['0000180d-0000-1000-8000-00805f9b34fb']),
+        solicitedServiceUuids: present(['0000180f-0000-1000-8000-00805f9b34fb']),
+        overflowServiceUuids: unavailable('platform-does-not-report-overflow'),
+        serviceData: present([{ serviceUuid: '0000180d-0000-1000-8000-00805f9b34fb', value: new Uint8Array([1, 2]) }]),
+        manufacturerData: present([{ companyIdentifier: 76, value: new Uint8Array([3, 4]) }]),
+        rawRecord: present(new Uint8Array([5, 6])),
+        scanResponseRecord: unavailable('scan-response-not-observed')
+      }
+    })
+    await flushAsyncWork()
+
+    const event = sender.sent.find(({ event: candidate }) => candidate.streamId === scan.payload.handle)
+    expect(event.event.item).toMatchObject({ kind: 'value' })
+    expect(event.event.item.value).toMatchObject({
+      txPower: { state: 'present', value: -8, provenance: 'observed' },
+      connectable: { state: 'present', value: true, provenance: 'observed' },
+      appearance: { state: 'present', value: 961, provenance: 'observed' },
+      solicitedServiceUuids: { state: 'present', provenance: 'observed' },
+      overflowServiceUuids: { state: 'unavailable', reason: 'platform-does-not-report-overflow' },
+      serviceData: { state: 'present', provenance: 'observed' },
+      manufacturerData: { state: 'present', provenance: 'observed' },
+      rawRecord: { state: 'present', provenance: 'observed' },
+      scanResponseRecord: { state: 'unavailable', reason: 'scan-response-not-observed' }
+    })
+    expect([...event.event.item.value.serviceData.value[0].value]).toEqual([1, 2])
+    expect([...event.event.item.value.manufacturerData.value[0].value]).toEqual([3, 4])
+    expect([...event.event.item.value.rawRecord.value]).toEqual([5, 6])
+    await current.binding.destroy()
   })
 
   test('disconnects only the selected connection descendants when two databases and subscriptions are live', async () => {
@@ -485,12 +723,14 @@ describe('Electron v4 IPC boundary', () => {
     const renderer = await bootstrap(current, sender)
     const scanResponse = await current.port.handler(
       { sender },
-      commandRequest(current, renderer, 1, 'scan.start', { serviceUuids: [], localNamePrefix: null, deadline: null })
+      commandRequest(current, renderer, 1, 'scan.start', { serviceUuids: [], manufacturerData: [], localNamePrefix: null, deadline: null })
     )
     scanStream.fail(new Error('native scan source failed'))
     await flushAsyncWork()
     expect(scanStop).toHaveBeenCalledTimes(1)
-    expect(current.router.resources.get('client-streams').scans.has(scanResponse.payload.handle)).toBe(false)
+    expect(
+      current.router.resources.get(String(renderer.rendererLease.leaseId)).scans.has(scanResponse.payload.handle)
+    ).toBe(false)
 
     const connectionResponse = await current.port.handler(
       { sender },
@@ -510,9 +750,11 @@ describe('Electron v4 IPC boundary', () => {
     subscriptionStream.push({ kind: 'value', value: { value: new Uint8Array(5000), indication: false } })
     await flushAsyncWork()
     expect(subscriptionRemove).toHaveBeenCalledTimes(1)
-    expect(current.router.resources.get('client-streams').subscriptions.has(subscriptionResponse.payload.handle)).toBe(
-      false
-    )
+    expect(
+      current.router.resources
+        .get(String(renderer.rendererLease.leaseId))
+        .subscriptions.has(subscriptionResponse.payload.handle)
+    ).toBe(false)
     const terminalEvents = sender.sent.filter(({ event }) => event.item.kind === 'terminal')
     expect(terminalEvents).toHaveLength(2)
     expect(terminalEvents.map(({ event }) => event.item.reason)).toEqual(
@@ -560,9 +802,11 @@ describe('Electron v4 IPC boundary', () => {
     expect(events.filter(event => event.item.kind === 'value')).toHaveLength(128)
     expect(events.filter(event => event.item.kind === 'terminal')).toHaveLength(1)
     expect(events.find(event => event.item.kind === 'terminal').item.reason).toBe('renderer-backpressure')
-    expect(current.router.resources.get('client-frozen').subscriptions.has(subscriptionResponse.payload.handle)).toBe(
-      false
-    )
+    expect(
+      current.router.resources
+        .get(String(renderer.rendererLease.leaseId))
+        .subscriptions.has(subscriptionResponse.payload.handle)
+    ).toBe(false)
     await current.binding.destroy()
   })
 
@@ -604,7 +848,7 @@ describe('Electron v4 IPC boundary', () => {
     expect(subscription.remove).toHaveBeenCalledTimes(1)
     expect(disconnect).toHaveBeenCalledTimes(1)
     await expect(current.binding.destroy()).resolves.toEqual(released())
-    expect(current.router.resources.has('client-delivery-failure')).toBe(false)
+    expect(current.router.resources.has(String(renderer.rendererLease.leaseId))).toBe(false)
     log.mockRestore()
   })
 
@@ -635,7 +879,7 @@ describe('Electron v4 IPC boundary', () => {
     const renderer = await bootstrap(current, sender)
     const scanResponse = await current.port.handler(
       { sender },
-      commandRequest(current, renderer, 1, 'scan.start', { serviceUuids: [], localNamePrefix: null, deadline: null })
+      commandRequest(current, renderer, 1, 'scan.start', { serviceUuids: [], manufacturerData: [], localNamePrefix: null, deadline: null })
     )
     await expect(
       current.port.handler(
@@ -643,12 +887,16 @@ describe('Electron v4 IPC boundary', () => {
         commandRequest(current, renderer, 2, 'scan.stop', { scanHandle: scanResponse.payload.handle })
       )
     ).resolves.toMatchObject({ kind: 'route', payload: { state: 'release-failed' } })
-    expect(current.router.resources.get('client-retry').scans.has(scanResponse.payload.handle)).toBe(true)
+    expect(current.router.resources.get(String(renderer.rendererLease.leaseId)).scans.has(scanResponse.payload.handle)).toBe(
+      true
+    )
     await current.port.handler(
       { sender },
       commandRequest(current, renderer, 3, 'scan.stop', { scanHandle: scanResponse.payload.handle })
     )
-    expect(current.router.resources.get('client-retry').scans.has(scanResponse.payload.handle)).toBe(false)
+    expect(current.router.resources.get(String(renderer.rendererLease.leaseId)).scans.has(scanResponse.payload.handle)).toBe(
+      false
+    )
 
     const connectionResponse = await current.port.handler(
       { sender },
@@ -673,18 +921,22 @@ describe('Electron v4 IPC boundary', () => {
         })
       )
     ).resolves.toMatchObject({ kind: 'route', payload: { state: 'release-failed' } })
-    expect(current.router.resources.get('client-retry').subscriptions.has(subscriptionResponse.payload.handle)).toBe(
-      true
-    )
+    expect(
+      current.router.resources
+        .get(String(renderer.rendererLease.leaseId))
+        .subscriptions.has(subscriptionResponse.payload.handle)
+    ).toBe(true)
     await current.port.handler(
       { sender },
       commandRequest(current, renderer, 8, 'gatt.unsubscribe', {
         subscriptionHandle: subscriptionResponse.payload.handle
       })
     )
-    expect(current.router.resources.get('client-retry').subscriptions.has(subscriptionResponse.payload.handle)).toBe(
-      false
-    )
+    expect(
+      current.router.resources
+        .get(String(renderer.rendererLease.leaseId))
+        .subscriptions.has(subscriptionResponse.payload.handle)
+    ).toBe(false)
     await current.binding.destroy()
   })
 
@@ -698,7 +950,8 @@ describe('Electron v4 IPC boundary', () => {
         clientId: opaqueId('retry-client', 'client', 'renderer:retry'),
         windowScope: 'retry-window',
         sessionScope: 'retry-session'
-      }
+      },
+      rendererLease: rendererLease('racing-client')
     }
     const transport = {
       invoke: jest
@@ -740,7 +993,7 @@ describe('Electron v4 IPC boundary', () => {
         if (request.kind === 'bootstrap') {
           return bootstrapResult.promise
         }
-        expect(request).toEqual({ kind: 'release' })
+        expect(request).toEqual({ kind: 'release', rendererLease: bootstrapValue.rendererLease })
         return { kind: 'release', cleanup: released() }
       }),
       async acknowledge() {},
@@ -775,7 +1028,8 @@ describe('Electron v4 IPC boundary', () => {
         clientId: opaqueId('event-race-client', 'client', 'renderer:event-race'),
         windowScope: 'event-race-window',
         sessionScope: 'event-race-session'
-      }
+      },
+      rendererLease: rendererLease('event-race-client')
     }
     const transport = {
       invoke: jest
@@ -792,12 +1046,20 @@ describe('Electron v4 IPC boundary', () => {
     const client = new ElectronRendererBleClient(transport)
     await client.initialize()
     const destruction = client.destroy()
-    listeners[0]({ eventId: 'event-during-release', streamId: 'scan-1', item: { kind: 'observation', rssi: -42 } })
+    listeners[0]({
+      rendererLease: bootstrapValue.rendererLease,
+      eventId: 'event-during-release',
+      streamId: 'scan-1',
+      item: { kind: 'observation', rssi: -42 }
+    })
     expect(transport.acknowledge).not.toHaveBeenCalled()
 
     releaseResult.resolve({ kind: 'release', cleanup: failed('renderer') })
     await expect(destruction).resolves.toEqual(failed('renderer'))
-    expect(transport.acknowledge).toHaveBeenCalledWith('event-during-release')
+    expect(transport.acknowledge).toHaveBeenCalledWith(
+      bootstrapValue.rendererLease,
+      'event-during-release'
+    )
     const iterator = client.events[Symbol.asyncIterator]()
     await expect(iterator.next()).resolves.toMatchObject({
       done: false,
@@ -819,7 +1081,8 @@ describe('Electron v4 IPC boundary', () => {
         clientId: opaqueId('released-event-client', 'client', 'renderer:released-event'),
         windowScope: 'released-event-window',
         sessionScope: 'released-event-session'
-      }
+      },
+      rendererLease: rendererLease('released-event-client')
     }
     const transport = {
       invoke: jest
@@ -835,7 +1098,12 @@ describe('Electron v4 IPC boundary', () => {
     const client = new ElectronRendererBleClient(transport)
     await client.initialize()
     const destruction = client.destroy()
-    listeners[0]({ eventId: 'released-event', streamId: 'scan-released', item: { kind: 'observation', rssi: -51 } })
+    listeners[0]({
+      rendererLease: bootstrapValue.rendererLease,
+      eventId: 'released-event',
+      streamId: 'scan-released',
+      item: { kind: 'observation', rssi: -51 }
+    })
     releaseResult.resolve({ kind: 'release', cleanup: released() })
 
     await expect(destruction).resolves.toEqual(released())

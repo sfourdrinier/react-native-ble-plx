@@ -258,11 +258,20 @@ export function rebindAttachmentBoundId<Kind extends string, Scope extends strin
   return id
 }
 export function canonicalUuid(value: string): Uuid {
-  const normalized = value.toLowerCase()
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(normalized)) {
-    throw new Error('UUID must be canonical lowercase 128-bit form')
+  const compact = value.replaceAll('-', '').toLowerCase()
+  if (!/^[0-9a-f]+$/.test(compact)) {
+    throw new Error('UUID must contain only hexadecimal digits and hyphens')
   }
-  return normalized as Uuid
+  if (compact.length === 4) {
+    return `0000${compact}-0000-1000-8000-00805f9b34fb` as Uuid
+  }
+  if (compact.length === 8) {
+    return `${compact}-0000-1000-8000-00805f9b34fb` as Uuid
+  }
+  if (compact.length !== 32) {
+    throw new Error('UUID must be a 16-bit, 32-bit, or 128-bit hexadecimal UUID')
+  }
+  return `${compact.slice(0, 8)}-${compact.slice(8, 12)}-${compact.slice(12, 16)}-${compact.slice(16, 20)}-${compact.slice(20)}` as Uuid
 }
 export function byteLimit(value: number): ByteLimit {
   assertNonNegativeSafeInteger(value, 'byte limit')

@@ -11,15 +11,27 @@ export {
   attachBleBackend,
   BleManager,
   Connection,
+  collectNotifications,
+  connectAndDiscover,
   createBleManager,
   createBleManagerFromProvider,
   createManagerOwnershipAuthority,
   DEFAULT_BLE_MANAGER_OPTIONS,
   DiscoveredGattDatabase,
+  find,
+  firstNotification,
   ScanSession,
-  Subscription
+  scanUntil,
+  Subscription,
+  withConnection
 } from './manager'
-export type { BleManagerOptions, ProviderBleManagerConstruction } from './manager'
+export type {
+  BleManagerOptions,
+  CollectNotificationsOptions,
+  ConnectedGattDatabase,
+  ProviderBleManagerConstruction,
+  ScanUntilOptions
+} from './manager'
 
 export { BackendContractError } from './backend-contract/errors'
 export type {
@@ -35,16 +47,23 @@ export type {
   AdvertisementField,
   AdvertisementInput,
   AdvertisementObservation,
+  DeviceAddress,
+  DeviceIdentity,
   FieldProvenance,
   JoinScanSharing,
   OwnerScanSharing,
+  ManufacturerDataFilter,
   ScanFilter,
   ScanOptions,
-  ScanSharing
+  ScanSharing,
+  SourceTimestamp
 } from './backend-contract/advertisement'
 export type {
   EvidenceLevel,
   EvidenceReceipt,
+  CapabilityDescriptor,
+  CapabilityLimit,
+  CapabilityLimits,
   FeatureId,
   FeatureRegistry,
   FeatureState,
@@ -52,6 +71,7 @@ export type {
 } from './backend-contract/capabilities'
 export type {
   Characteristic,
+  CharacteristicProperties,
   CharacteristicPath,
   DatabasePath,
   Descriptor,
@@ -72,6 +92,7 @@ export type {
   MtuNegotiation,
   RssiMeasurement
 } from './backend-contract/connection-controls'
+export type { ConnectionLifecycleCause, ConnectionLifecycleEvent } from './backend-contract/connection-lifecycle'
 export type { BackendIdentity } from './backend-contract/identity'
 export type {
   PublicOperationOptions,

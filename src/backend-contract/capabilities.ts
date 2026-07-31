@@ -2,7 +2,6 @@
 
 import { contractError } from './errors'
 import type { SerializableRecord, VersionRange } from './primitives'
-import { snapshotSerializableRecord } from './serializable'
 
 export type FeatureState = 'supported' | 'limited' | 'unsupported' | 'unavailable'
 export type EvidenceLevel = 'blocked' | 'deterministic' | 'live-preview' | 'supported' | 'reliability-qualified'
@@ -23,6 +22,17 @@ export interface EvidenceReceipt {
 export interface FeatureImplementation<Input, Output> {
   invoke(input: Input): Promise<Output>
 }
+/** A bounded operating limit with a unit that remains meaningful after serialization. */
+export interface CapabilityLimit {
+  readonly maximum: number
+  readonly minimum: number | null
+  readonly unit: string
+}
+/**
+ * Feature-specific limits are deliberately an open record: registered third-party features do
+ * not need a central union, while every value still has a bounded, machine-readable shape.
+ */
+export type CapabilityLimits = Readonly<Record<string, CapabilityLimit>>
 export interface TckBinding {
   readonly suiteId: string
   readonly requiredScenarioIds: readonly string[]
@@ -36,12 +46,24 @@ export interface FeatureRegistration<
 > {
   readonly id: Id
   readonly state: FeatureState
+  readonly selectedSchemaRange: VersionRange<'capability-schema'>
   readonly implementationOrigin: 'backend-native' | 'core-emulated'
   readonly implementation: Implementation
   readonly tck: TckBinding
   readonly evidence: EvidenceReceipt
   readonly limitations: readonly Limitation[]
-  readonly limits: SerializableRecord
+  readonly limits: CapabilityLimits
+}
+/** Serializable capability truth. Typed implementations are intentionally excluded. */
+export interface CapabilityDescriptor {
+  readonly id: FeatureId
+  readonly state: FeatureState
+  readonly selectedSchemaRange: VersionRange<'capability-schema'>
+  readonly implementationOrigin: 'backend-native' | 'core-emulated'
+  readonly tck: TckBinding
+  readonly evidence: EvidenceReceipt
+  readonly limitations: readonly Limitation[]
+  readonly limits: CapabilityLimits
 }
 export interface FeatureRegistry {
   readonly registrations: readonly FeatureRegistration<
@@ -50,6 +72,7 @@ export interface FeatureRegistry {
     SerializableRecord,
     FeatureImplementation<SerializableRecord, SerializableRecord>
   >[]
+  readonly descriptors: readonly CapabilityDescriptor[]
 }
 export function validateFeatureRegistration<
   Id extends FeatureId,
@@ -65,6 +88,7 @@ export function validateFeatureRegistration<
   if (typeof registration.implementation.invoke !== 'function') {
     throw contractError('protocol.malformed', 'capability', 'validateFeatureRegistration')
   }
+  assertCapabilitySchemaRange(registration.selectedSchemaRange, 'validateFeatureRegistration.selected-schema-range')
   if (
     registration.tck.suiteId.length === 0 ||
     registration.tck.requiredScenarioIds.length === 0 ||
@@ -77,11 +101,7 @@ export function validateFeatureRegistration<
   if (Object.keys(registration.limits).length === 0) {
     throw contractError('protocol.malformed', 'capability', 'validateFeatureRegistration')
   }
-  for (const limit of Object.values(registration.limits)) {
-    if (typeof limit !== 'number' || !Number.isFinite(limit) || limit < 0) {
-      throw contractError('protocol.malformed', 'capability', 'validateFeatureRegistration')
-    }
-  }
+  assertCapabilityLimits(registration.limits)
   if (registration.state === 'limited' && registration.limitations.length === 0) {
     throw contractError('capability.limited', 'capability', 'validateFeatureRegistration')
   }
@@ -139,15 +159,23 @@ export function createFeatureRegistry(
 ): FeatureRegistry {
   const ids = new Set<string>()
   const snapshots: FeatureRegistry['registrations'][number][] = []
+  const descriptors: CapabilityDescriptor[] = []
   for (const registration of registrations) {
     validateFeatureRegistration(registration)
     if (ids.has(registration.id)) {
       throw contractError('protocol.violation', 'capability', 'createFeatureRegistry')
     }
     ids.add(registration.id)
-    snapshots.push(snapshotFeatureRegistration(registration))
+    const snapshot = snapshotFeatureRegistration(registration)
+    snapshots.push(snapshot)
+    descriptors.push(describeFeatureRegistration(snapshot))
   }
-  return Object.freeze({ registrations: Object.freeze(snapshots) })
+  return Object.freeze({ registrations: Object.freeze(snapshots), descriptors: Object.freeze(descriptors) })
+}
+
+/** Returns the frozen descriptive projection suitable for capability handshakes and IPC. */
+export function describeFeatureRegistry(registry: FeatureRegistry): readonly CapabilityDescriptor[] {
+  return registry.descriptors
 }
 
 function limitationsEqual(left: readonly Limitation[], right: readonly Limitation[]): boolean {
@@ -172,6 +200,7 @@ function snapshotFeatureRegistration(
   return Object.freeze({
     id: registration.id,
     state: registration.state,
+    selectedSchemaRange: snapshotCapabilitySchemaRange(registration.selectedSchemaRange),
     implementationOrigin: registration.implementationOrigin,
     implementation,
     tck: Object.freeze({
@@ -188,8 +217,71 @@ function snapshotFeatureRegistration(
       limitations: snapshotLimitations(registration.evidence.limitations)
     }),
     limitations: snapshotLimitations(registration.limitations),
-    limits: snapshotSerializableRecord(registration.limits).value
+    limits: snapshotCapabilityLimits(registration.limits)
   })
+}
+
+function describeFeatureRegistration(registration: FeatureRegistry['registrations'][number]): CapabilityDescriptor {
+  return Object.freeze({
+    id: registration.id,
+    state: registration.state,
+    selectedSchemaRange: snapshotCapabilitySchemaRange(registration.selectedSchemaRange),
+    implementationOrigin: registration.implementationOrigin,
+    tck: Object.freeze({
+      suiteId: registration.tck.suiteId,
+      requiredScenarioIds: Object.freeze([...registration.tck.requiredScenarioIds]),
+      contractRange: snapshotCapabilitySchemaRange(registration.tck.contractRange)
+    }),
+    evidence: Object.freeze({
+      receiptId: registration.evidence.receiptId,
+      evidenceLevel: registration.evidence.evidenceLevel,
+      implementationVersion: registration.evidence.implementationVersion,
+      sourceDigest: registration.evidence.sourceDigest,
+      scenarioIds: Object.freeze([...registration.evidence.scenarioIds]),
+      limitations: snapshotLimitations(registration.evidence.limitations)
+    }),
+    limitations: snapshotLimitations(registration.limitations),
+    limits: snapshotCapabilityLimits(registration.limits)
+  })
+}
+
+function assertCapabilitySchemaRange(range: VersionRange<'capability-schema'>, operation: string): void {
+  if (
+    range === undefined ||
+    range === null ||
+    range.axis !== 'capability-schema' ||
+    range.minimum.axis !== 'capability-schema' ||
+    range.maximum.axis !== 'capability-schema' ||
+    !Number.isSafeInteger(range.minimum.value) ||
+    !Number.isSafeInteger(range.maximum.value) ||
+    range.minimum.value < 0 ||
+    range.minimum.value > range.maximum.value
+  ) {
+    throw contractError('protocol.malformed', 'capability', operation)
+  }
+}
+
+function assertCapabilityLimits(limits: CapabilityLimits): void {
+  for (const [name, limit] of Object.entries(limits)) {
+    if (
+      name.length === 0 ||
+      !Number.isFinite(limit.maximum) ||
+      limit.maximum < 0 ||
+      (limit.minimum !== null &&
+        (!Number.isFinite(limit.minimum) || limit.minimum < 0 || limit.minimum > limit.maximum)) ||
+      limit.unit.length === 0
+    ) {
+      throw contractError('protocol.malformed', 'capability', 'validateFeatureRegistration.limits')
+    }
+  }
+}
+
+function snapshotCapabilityLimits(limits: CapabilityLimits): CapabilityLimits {
+  const snapshot: Record<string, CapabilityLimit> = {}
+  for (const [name, limit] of Object.entries(limits)) {
+    snapshot[name] = Object.freeze({ maximum: limit.maximum, minimum: limit.minimum, unit: limit.unit })
+  }
+  return Object.freeze(snapshot)
 }
 
 function snapshotLimitations(limitations: readonly Limitation[]): readonly Limitation[] {

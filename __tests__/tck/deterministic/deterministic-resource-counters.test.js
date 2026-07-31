@@ -5,7 +5,7 @@ const { createDeterministicTestBackend } = require('../../../src/testing/determi
 
 function scanOptions() {
   return {
-    filter: { serviceUuids: [], localNamePrefix: null },
+    filter: { serviceUuids: [], manufacturerData: [], localNamePrefix: null },
     duplicatePolicy: 'all',
     timestampPolicy: 'receipt-monotonic',
     delivery: {

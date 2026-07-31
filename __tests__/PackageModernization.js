@@ -65,7 +65,9 @@ describe('canonical package modernization', () => {
     expect(workflow).toContain('registry-url: https://registry.npmjs.org')
     expect(workflow).toContain('npm view "unified-ble-manager@${VER}"')
     expect(workflow).toContain('package_published=${PACKAGE_PUBLISHED}')
-    expect(workflow).toContain('npm publish --provenance --access public --tag "${NPM_DIST_TAG}"')
+    expect(workflow).toContain(
+      'npm publish "${PUBLISH_TARBALL}" --provenance --access public --tag "${NPM_DIST_TAG}"'
+    )
     expect(workflow).toContain('gh release create')
     expect(workflow).toContain('unified-ble-manager@${VER}')
     expect(workflow).not.toMatch(/@sfourdrinier\/react-native-ble-plx|prepare-shim|dual packages|canonical \+ shim/i)

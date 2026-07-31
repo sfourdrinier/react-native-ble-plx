@@ -1,7 +1,12 @@
 // src/core/core-gatt-handles.ts
 
 import { BackendContractError, contractError } from '../backend-contract/errors'
-import type { BackendConnection, ConnectionLease } from '../backend-contract/backend'
+import type { BackendConnection, ConnectionLease, ConnectionState } from '../backend-contract/backend'
+import type {
+  ConnectionLifecycleCause,
+  ConnectionLifecycleEvent,
+  ConnectionLifecycleTerminalCause
+} from '../backend-contract/connection-lifecycle'
 import type { CleanupRecord } from '../backend-contract/errors'
 import type {
   CharacteristicPath,
@@ -18,9 +23,13 @@ import type {
   WritePolicy,
   WriteReceipt
 } from '../backend-contract/operations'
-import type { OwnedBytes } from '../backend-contract/primitives'
+import { capacity, type OwnedBytes } from '../backend-contract/primitives'
+import { utf8ByteLength } from '../backend-contract/serializable'
+import type { BoundedAsyncStream, StreamTerminalNotice } from '../backend-contract/streams'
+import { CoreBoundedStream } from './bounded-stream'
+import { assertBackendLifecycleTransition } from './connection-lifecycle-rules'
 import type { CoreSubscription } from './subscription-registry'
-import type { UnifiedBleCore } from './unified-ble-core'
+import type { CoreDeadlineHandle, UnifiedBleCore } from './unified-ble-core'
 import type { MtuNegotiation, RssiMeasurement } from '../backend-contract/connection-controls'
 import type { CoreConnectionControls } from './core-connection-controls'
 import { connectionPathsEqual, databasePathsEqual } from './gatt-path-equality'
@@ -44,20 +53,45 @@ type CurrentDescriptorPath<Attachment extends string> = DescriptorPath<
   'current'
 >
 
+const connectionLifecycleItemCapacity = 8
+const connectionLifecycleReservedControlCapacity = 256
+
 /** A generation-bound logical lease over one backend connection. */
 export class CoreConnection<Attachment extends string, Identity extends BackendIdentity<Attachment>> {
   private released = false
   private pendingDatabaseCleanup: CoreGattDatabase<Attachment, Identity> | null = null
+  private readonly lifecycleStream: CoreBoundedStream<ConnectionLifecycleEvent<Attachment>>
+  private lifecycleState: ConnectionState = 'connecting'
+  private lifecycleFinished = false
+  private nextLifecycleSequence = 1
+  private lastBackendIngressOrdinal: number | null = null
   database: CoreGattDatabase<Attachment, Identity> | null = null
 
   constructor(
     private readonly core: UnifiedBleCore<Attachment, Identity>,
     readonly lease: ConnectionLease<Attachment, string, string>,
     private readonly controls: CoreConnectionControls<Attachment, Identity>
-  ) {}
+  ) {
+    const maximumEventBytes = maximumConnectionLifecycleEventByteLength(lease)
+    this.lifecycleStream = new CoreBoundedStream<ConnectionLifecycleEvent<Attachment>>(
+      Object.freeze({
+        itemCapacity: capacity(connectionLifecycleItemCapacity),
+        byteCapacity: capacity(
+          maximumEventBytes * connectionLifecycleItemCapacity + connectionLifecycleReservedControlCapacity
+        ),
+        reservedControlCapacity: capacity(connectionLifecycleReservedControlCapacity)
+      }),
+      'drop-oldest'
+    )
+    this.emitLifecycle('connected', 'connected', null)
+  }
 
   get resource(): BackendConnection<Attachment, string> {
     return this.lease.connection
+  }
+
+  get events(): BoundedAsyncStream<ConnectionLifecycleEvent<Attachment>> {
+    return this.lifecycleStream
   }
 
   async discover(options: PublicOperationOptions): Promise<CoreGattDatabase<Attachment, Identity>> {
@@ -65,11 +99,11 @@ export class CoreConnection<Attachment extends string, Identity extends BackendI
   }
 
   release(): Promise<CleanupRecord> {
-    return this.core.releaseConnection(this, false)
+    return this.core.releaseConnection(this, 'released')
   }
 
   disconnect(): Promise<CleanupRecord> {
-    return this.core.releaseConnection(this, true)
+    return this.core.releaseConnection(this, 'requested-disconnect')
   }
 
   readRssi(options: PublicOperationOptions): Promise<RssiMeasurement<Attachment, string>> {
@@ -145,6 +179,74 @@ export class CoreConnection<Attachment extends string, Identity extends BackendI
     this.released = true
   }
 
+  applyBackendTransition(
+    previous: ConnectionState,
+    current: Exclude<ConnectionState, 'disconnected' | 'lost'>,
+    backendIngressOrdinal: number
+  ): void {
+    if (this.lifecycleFinished) {
+      return
+    }
+
+    assertBackendLifecycleTransition(
+      this.lifecycleState,
+      previous,
+      current,
+      backendIngressOrdinal,
+      this.lastBackendIngressOrdinal
+    )
+    this.acceptBackendIngressOrdinal(backendIngressOrdinal)
+    this.emitLifecycle(current, 'backend-transition', backendIngressOrdinal)
+  }
+
+  finishBackendLifecycle(
+    previous: ConnectionState,
+    current: Extract<ConnectionState, 'disconnected' | 'lost'>,
+    cause: ConnectionLifecycleTerminalCause,
+    backendIngressOrdinal: number
+  ): void {
+    if (this.lifecycleFinished) {
+      return
+    }
+
+    assertBackendLifecycleTransition(
+      this.lifecycleState,
+      previous,
+      current,
+      backendIngressOrdinal,
+      this.lastBackendIngressOrdinal
+    )
+    if (current !== lifecycleTerminalState(cause)) {
+      throw contractError('lifecycle.invariant-violation', 'connection', 'connection-lifecycle.terminal-cause')
+    }
+    this.acceptBackendIngressOrdinal(backendIngressOrdinal)
+    this.completeLifecycle(cause, backendIngressOrdinal)
+  }
+
+  finishLifecycle(cause: ConnectionLifecycleTerminalCause, backendIngressOrdinal: number | null): void {
+    if (this.lifecycleFinished) {
+      return
+    }
+    if (backendIngressOrdinal !== null) {
+      this.acceptBackendIngressOrdinal(backendIngressOrdinal)
+    }
+    this.completeLifecycle(cause, backendIngressOrdinal)
+  }
+
+  private acceptBackendIngressOrdinal(backendIngressOrdinal: number): void {
+    if (this.lastBackendIngressOrdinal !== null && backendIngressOrdinal <= this.lastBackendIngressOrdinal) {
+      throw contractError('lifecycle.invariant-violation', 'connection', 'connection-lifecycle.ingress-order')
+    }
+    this.lastBackendIngressOrdinal = backendIngressOrdinal
+  }
+
+  private completeLifecycle(cause: ConnectionLifecycleTerminalCause, backendIngressOrdinal: number | null): void {
+    const current = lifecycleTerminalState(cause)
+    this.emitLifecycle(current, cause, backendIngressOrdinal)
+    this.lifecycleFinished = true
+    this.lifecycleStream.finishWithReason(lifecycleTerminalReason(current))
+  }
+
   isPathCurrent(path: CurrentCharacteristicPath<Attachment>): boolean {
     return (
       this.isCurrent() &&
@@ -169,6 +271,79 @@ export class CoreConnection<Attachment extends string, Identity extends BackendI
       ownerLeaseId: this.lease.leaseId
     }
   }
+
+  private emitLifecycle(
+    current: ConnectionState,
+    cause: ConnectionLifecycleCause,
+    backendIngressOrdinal: number | null
+  ): void {
+    if (!Number.isSafeInteger(this.nextLifecycleSequence)) {
+      throw contractError('lifecycle.invariant-violation', 'connection', 'connection-lifecycle.sequence')
+    }
+    const previous = this.lifecycleState
+    this.lifecycleState = current
+    const event: ConnectionLifecycleEvent<Attachment> = Object.freeze({
+      kind: 'connection-lifecycle',
+      attachment: this.resource.attachment,
+      attachmentId: this.resource.attachmentId,
+      peerId: this.resource.peerId,
+      connectionId: this.resource.connectionId,
+      connectionGeneration: this.resource.connectionGeneration,
+      ownerLeaseId: this.lease.leaseId,
+      sequence: this.nextLifecycleSequence,
+      backendIngressOrdinal,
+      previous,
+      current,
+      cause
+    })
+    this.nextLifecycleSequence += 1
+    this.lifecycleStream.emit(event, connectionLifecycleEventByteLength(event))
+  }
+}
+
+function connectionLifecycleEventByteLength<Attachment extends string>(
+  event: ConnectionLifecycleEvent<Attachment>
+): number {
+  const serialized = JSON.stringify(event)
+  if (serialized === undefined) {
+    throw contractError('lifecycle.invariant-violation', 'connection', 'connection-lifecycle.serialize')
+  }
+  return utf8ByteLength(serialized)
+}
+
+function maximumConnectionLifecycleEventByteLength<Attachment extends string>(
+  lease: ConnectionLease<Attachment, string, string>
+): number {
+  return connectionLifecycleEventByteLength({
+    kind: 'connection-lifecycle',
+    attachment: lease.connection.attachment,
+    attachmentId: lease.connection.attachmentId,
+    peerId: lease.connection.peerId,
+    connectionId: lease.connection.connectionId,
+    connectionGeneration: lease.connection.connectionGeneration,
+    ownerLeaseId: lease.leaseId,
+    sequence: Number.MAX_SAFE_INTEGER,
+    backendIngressOrdinal: Number.MAX_SAFE_INTEGER,
+    previous: 'disconnecting',
+    current: 'disconnected',
+    cause: 'requested-disconnect'
+  })
+}
+
+function lifecycleTerminalState(cause: ConnectionLifecycleTerminalCause): 'disconnected' | 'lost' {
+  if (
+    cause === 'peer-link-loss' ||
+    cause === 'adapter-loss' ||
+    cause === 'backend-restart' ||
+    cause === 'backend-failure'
+  ) {
+    return 'lost'
+  }
+  return 'disconnected'
+}
+
+function lifecycleTerminalReason(current: 'disconnected' | 'lost'): StreamTerminalNotice['reason'] {
+  return current === 'lost' ? 'connection-lost' : 'owner-released'
 }
 
 /** A discovered database epoch; any invalidation requires a fresh discovery. */
@@ -183,6 +358,14 @@ export class CoreGattDatabase<Attachment extends string, Identity extends Backen
 
   get path(): DatabasePath<Attachment, string, string> {
     return this.backendDatabase.path
+  }
+
+  monotonicNow(): number {
+    return this.core.monotonicNow()
+  }
+
+  scheduleDeadline(deadline: number, action: () => void): CoreDeadlineHandle {
+    return this.core.scheduleDeadline(deadline, action)
   }
 
   async snapshot(): Promise<GattDatabaseSnapshot<Attachment, string, string>> {

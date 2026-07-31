@@ -236,7 +236,15 @@ export class DeterministicGattDatabase implements GattDatabase<string, string, s
           ),
           validity: 'current'
         }
-        characteristics.push({ path: characteristicPath })
+        characteristics.push({
+          path: characteristicPath,
+          properties: {
+            read: characteristic.readable,
+            writeWithResponse: characteristic.writableWithResponse,
+            writeWithoutResponse: characteristic.writableWithoutResponse,
+            notify: characteristic.notifying || characteristic.indicating
+          }
+        })
         for (const descriptor of characteristic.descriptors) {
           descriptors.push({
             path: {

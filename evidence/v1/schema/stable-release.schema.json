@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "unified-ble-manager/stable-release",
+  "title": "Unified BLE stable release evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema",
+    "packageName",
+    "version",
+    "tag",
+    "sourceCommit",
+    "packageArtifact",
+    "evidence",
+    "supportMatrix",
+    "section31",
+    "approvedCi",
+    "checks"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "evidence/v1/schema/stable-release.schema.json"
+    },
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "const": "unified-ble-manager/stable-release" },
+        "version": { "const": "1.0.0" }
+      }
+    },
+    "packageName": { "const": "unified-ble-manager" },
+    "version": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+    },
+    "tag": { "type": "string", "pattern": "^v(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$" },
+    "sourceCommit": { "$ref": "evidence-manifest.schema.json#/$defs/gitCommit" },
+    "packageArtifact": { "$ref": "#/$defs/packageArtifact" },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requiredClaims"],
+      "properties": {
+        "requiredClaims": {
+          "type": "array",
+          "minItems": 8,
+          "items": { "$ref": "#/$defs/requiredClaim" }
+        }
+      }
+    },
+    "supportMatrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generator", "version", "path", "sha256"],
+      "properties": {
+        "generator": { "const": "unified-ble-manager/stable-support-matrix" },
+        "version": { "const": 1 },
+        "path": { "$ref": "#/$defs/evidencePath" },
+        "sha256": { "$ref": "evidence-manifest.schema.json#/$defs/sha256" }
+      }
+    },
+    "section31": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan", "roadmap", "gaps", "items"],
+      "properties": {
+        "plan": { "$ref": "#/$defs/digestFile" },
+        "roadmap": { "$ref": "#/$defs/digestFile" },
+        "gaps": { "$ref": "#/$defs/digestFile" },
+        "items": {
+          "type": "array",
+          "minItems": 12,
+          "items": { "$ref": "#/$defs/section31Item" }
+        }
+      }
+    },
+    "approvedCi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workflowPath", "runId", "runUrl", "headCommit", "conclusion"],
+      "properties": {
+        "workflowPath": { "const": ".github/workflows/ci.yml" },
+        "runId": { "type": "integer", "minimum": 1 },
+        "runUrl": {
+          "type": "string",
+          "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/actions/runs/[0-9]+$"
+        },
+        "headCommit": { "$ref": "evidence-manifest.schema.json#/$defs/gitCommit" },
+        "conclusion": { "const": "success" }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["governance", "security", "sbom", "license", "provenance", "package-shape"],
+      "properties": {
+        "governance": { "$ref": "#/$defs/digestFile" },
+        "security": { "$ref": "#/$defs/digestFile" },
+        "sbom": { "$ref": "#/$defs/digestFile" },
+        "license": { "$ref": "#/$defs/digestFile" },
+        "provenance": { "$ref": "#/$defs/digestFile" },
+        "package-shape": { "$ref": "#/$defs/digestFile" }
+      }
+    }
+  },
+  "$defs": {
+    "evidencePath": {
+      "type": "string",
+      "pattern": "^evidence/v1/[A-Za-z0-9._/-]+$"
+    },
+    "digestFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "evidence-manifest.schema.json#/$defs/sha256" }
+      }
+    },
+    "packageArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "publishFileName", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "publishFileName": {
+          "type": "string",
+          "pattern": "^unified-ble-manager-(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.tgz$"
+        },
+        "sha256": { "$ref": "evidence-manifest.schema.json#/$defs/sha256" }
+      }
+    },
+    "requiredClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["area", "claimId", "revision", "backendId", "platformId", "hostId", "minimumSupportLabel"],
+      "properties": {
+        "area": {
+          "enum": [
+            "deterministic",
+            "react-native-android",
+            "react-native-apple",
+            "web-bluetooth",
+            "bluez",
+            "corebluetooth-desktop",
+            "winrt",
+            "electron-ipc"
+          ]
+        },
+        "claimId": { "$ref": "evidence-manifest.schema.json#/$defs/id" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "backendId": { "$ref": "evidence-manifest.schema.json#/$defs/id" },
+        "platformId": { "$ref": "evidence-manifest.schema.json#/$defs/id" },
+        "hostId": { "$ref": "evidence-manifest.schema.json#/$defs/id" },
+        "minimumSupportLabel": { "enum": ["Preview", "Live Preview", "Supported", "Reliability-qualified"] }
+      }
+    },
+    "section31Item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status"],
+      "properties": {
+        "id": {
+          "enum": [
+            "foundation-zero-diagnostics",
+            "evidence-label-truth",
+            "capability-documentation-parity",
+            "live-radio-reliability",
+            "build-packaging-release-gates",
+            "no-transitional-architecture",
+            "g6a-independent-hosts",
+            "g6b-bun-mono-consumer",
+            "independent-public-examples",
+            "published-policy-artifacts",
+            "beta-soak-resolution",
+            "roadmap-gap-reconciliation"
+          ]
+        },
+        "status": { "const": "passed" }
+      }
+    }
+  }
+}

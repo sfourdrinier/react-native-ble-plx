@@ -70,7 +70,10 @@ export const baseTckScenarios: readonly TckScenarioDefinition[] = [
     requiredFacts: [
       'connection-leases-are-owner-scoped',
       'connection-borrowing-cannot-destroy-or-cancel-owner-work',
-      'connection-transfer-and-revocation-are-authenticated'
+      'connection-transfer-and-revocation-are-authenticated',
+      'connection-lifecycle-peer-loss-is-generation-bound',
+      'connection-lifecycle-requested-disconnect-is-distinct',
+      'connection-lifecycle-stream-cleans-up'
     ],
     requiredControllerActions: ['force-disconnect']
   },

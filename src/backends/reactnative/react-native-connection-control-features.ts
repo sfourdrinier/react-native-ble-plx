@@ -2,6 +2,7 @@
 
 import {
   createFeatureRegistry,
+  type CapabilityLimits,
   type FeatureImplementation,
   type FeatureRegistry,
   type Limitation
@@ -29,7 +30,7 @@ export function createReactNativeConnectionControlFeatureRegistry(
     implementationVersion,
     `react-native-${platform}-rssi-dispatch-v1`,
     Object.freeze([rssiLimitation]),
-    Object.freeze({ minimumRssiIntegerPrecision: 1 })
+    Object.freeze({ minimumRssiIntegerPrecision: Object.freeze({ maximum: 1, minimum: 1, unit: 'dBm' }) })
   )
   const requestMtu =
     platform === 'android'
@@ -39,7 +40,13 @@ export function createReactNativeConnectionControlFeatureRegistry(
           implementationVersion,
           'react-native-android-request-mtu-dispatch-v1',
           Object.freeze([liveQualificationLimitation('ATT MTU negotiation')]),
-          Object.freeze({ minimumAttMtu: MINIMUM_ATT_MTU, maximumRequestedAttMtu: MAXIMUM_REQUESTED_ATT_MTU })
+          Object.freeze({
+            attMtu: Object.freeze({
+              maximum: MAXIMUM_REQUESTED_ATT_MTU,
+              minimum: MINIMUM_ATT_MTU,
+              unit: 'bytes'
+            })
+          })
         )
       : createFeatureRegistration(
           'connection:request-att-mtu',
@@ -53,7 +60,7 @@ export function createReactNativeConnectionControlFeatureRegistry(
               affectedGuarantee: 'caller-directed ATT MTU negotiation'
             })
           ]),
-          Object.freeze({ minimumAttMtu: MINIMUM_ATT_MTU, maximumRequestedAttMtu: 0 })
+          Object.freeze({ attMtu: Object.freeze({ maximum: 0, minimum: null, unit: 'bytes' }) })
         )
   return createFeatureRegistry(Object.freeze([rssi, requestMtu]))
 }
@@ -64,18 +71,20 @@ function createFeatureRegistration(
   implementationVersion: string,
   sourceDigest: string,
   limitations: readonly Limitation[],
-  limits: SerializableRecord
+  limits: CapabilityLimits
 ) {
   const evidenceLevel = state === 'limited' ? 'deterministic' : 'blocked'
+  const selectedSchemaRange = versionRange(version('capability-schema', 1), version('capability-schema', 1))
   return Object.freeze({
     id,
     state,
+    selectedSchemaRange,
     implementationOrigin: 'backend-native',
     implementation: connectionControlMetadataImplementation(id),
     tck: Object.freeze({
       suiteId: 'connection-controls',
       requiredScenarioIds: Object.freeze([connectionControlScenarioId]),
-      contractRange: versionRange(version('capability-schema', 1), version('capability-schema', 1))
+      contractRange: selectedSchemaRange
     }),
     evidence: Object.freeze({
       receiptId: `${sourceDigest}:${evidenceLevel}`,

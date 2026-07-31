@@ -127,7 +127,24 @@ describe('first-party deterministic backend TCK registry', () => {
       const report = await registry.run(registration.backendId)
       expect(report.backendId).toBe(registration.backendId)
       expect(report.standard.receipts.length).toBeGreaterThan(0)
-      expect(report.standard.receipts.every(receipt => receipt.error === null)).toBe(true)
+      const baseReceipts = report.standard.receipts.filter(receipt =>
+        report.standard.baseScenarioIds.includes(receipt.scenarioId)
+      )
+      expect(baseReceipts.map(receipt => receipt.scenarioId)).toEqual(report.standard.baseScenarioIds)
+      expect(baseReceipts).toEqual(
+        report.standard.baseScenarioIds.map(scenarioId =>
+          expect.objectContaining({
+            scenarioId,
+            error: null,
+            facts: expect.arrayContaining([expect.objectContaining({ holds: true })])
+          })
+        )
+      )
+      for (const receipt of report.standard.receipts) {
+        expect(receipt.error).toBeNull()
+        expect(receipt.facts.length).toBeGreaterThan(0)
+        expect(receipt.facts.every(fact => fact.holds)).toBe(true)
+      }
       expect(report.capabilityExclusions.map(exclusion => exclusion.featureId)).toEqual(registration.exclusions)
     }
   })
@@ -231,6 +248,8 @@ class DeterministicNativeControl {
       })
     }
     this.restorationConsumed = true
+    const handshake = this.handshakes[this.handshakes.length - 1]
+    if (handshake === undefined) throw new Error('Deterministic control has no active attachment')
     return Promise.resolve({
       receiptId: 'first-party-registry-restoration-receipt',
       outcome: 'adopted',
@@ -239,18 +258,20 @@ class DeterministicNativeControl {
       replayRecordCount: 1,
       records: [
         {
-          encodedRecord: Array.from(
-            encodeNativeProtocolRecord(
-              record('restorationRecord', [
-                field(1, 1),
-                field(2, request.namespaceValue),
-                field(3, this.activeAttachment()),
-                field(4, 1),
-                field(5, request.expectedEpoch),
-                field(6, 'adapter')
-              ])
-            )
-          )
+          recordVersion: 1,
+          namespaceValue: request.namespaceValue,
+          attachmentId: handshake.attachmentId,
+          backendInstanceId: handshake.backendInstanceId,
+          backendGeneration: handshake.backendGeneration,
+          adapterId: handshake.adapterId,
+          adapterGeneration: handshake.adapterGeneration,
+          ordinal: 1,
+          adoptionEpoch: request.expectedEpoch,
+          kind: 'adapter',
+          peerId: null,
+          connectionId: null,
+          ownerLeaseId: null,
+          connectionGeneration: null
         }
       ]
     })

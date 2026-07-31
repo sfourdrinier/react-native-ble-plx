@@ -224,8 +224,7 @@ function appleDirectGattIdentity(): DirectGattBackendIdentityOptions {
     adapterNativeId: REACT_NATIVE_APPLE_DEFAULT_ADAPTER_NATIVE_ID,
     adapterDisplayName: 'Apple CoreBluetooth central adapter',
     limitations: Object.freeze([
-      'Apple exposes the process-owned CoreBluetooth central through the canonical JSI protocol boundary',
-      'Descriptor operations are unavailable because Native Protocol v1 does not publish descriptor records'
+      'Apple exposes the process-owned CoreBluetooth central through the canonical JSI protocol boundary'
     ]),
     features: combineReactNativeFeatureRegistries(
       createReactNativeConnectionControlFeatureRegistry('apple', REACT_NATIVE_APPLE_IMPLEMENTATION_VERSION),

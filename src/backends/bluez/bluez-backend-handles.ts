@@ -162,7 +162,17 @@ export class BluezGattDatabase implements GattDatabase<string, string, string> {
           ),
           validity: 'current'
         }
-        characteristics.push(Object.freeze({ path: Object.freeze(characteristicPath) }))
+        characteristics.push(
+          Object.freeze({
+            path: Object.freeze(characteristicPath),
+            properties: Object.freeze({
+              read: characteristic.flags.includes('read'),
+              writeWithResponse: characteristic.flags.includes('write'),
+              writeWithoutResponse: characteristic.flags.includes('write-without-response'),
+              notify: characteristic.flags.includes('notify') || characteristic.flags.includes('indicate')
+            })
+          })
+        )
         for (const descriptor of characteristic.descriptors) {
           const descriptorPath: DescriptorPath<string, string, string, string, string, string, 'current'> = {
             ...characteristicPath,

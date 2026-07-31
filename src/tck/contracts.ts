@@ -1,6 +1,12 @@
 // src/tck/contracts.ts
 
-import type { EvidenceLevel, FeatureRegistry, FeatureState, Limitation } from '../backend-contract/capabilities'
+import type {
+  CapabilityLimits,
+  EvidenceLevel,
+  FeatureRegistry,
+  FeatureState,
+  Limitation
+} from '../backend-contract/capabilities'
 import type { BleCentralBackend } from '../backend-contract/backend'
 import type { CleanupRecord, NormalizedBleError } from '../backend-contract/errors'
 import type { AdapterSelection, BackendIdentity, BackendProvider, HostKind } from '../backend-contract/identity'
@@ -167,6 +173,9 @@ export type TckFactId =
   | 'connection-leases-are-owner-scoped'
   | 'connection-borrowing-cannot-destroy-or-cancel-owner-work'
   | 'connection-transfer-and-revocation-are-authenticated'
+  | 'connection-lifecycle-peer-loss-is-generation-bound'
+  | 'connection-lifecycle-requested-disconnect-is-distinct'
+  | 'connection-lifecycle-stream-cleans-up'
   | 'connection-second-client-arbitrates-without-stealing-link'
   | 'connection-rssi-is-measured-or-explicitly-unavailable'
   | 'connection-att-mtu-is-negotiated-or-explicitly-unavailable'
@@ -224,6 +233,8 @@ export type RegisteredFeature = FeatureRegistry['registrations'][number]
 export interface TckFeatureBinding {
   readonly featureId: string
   readonly state: FeatureState
+  readonly selectedSchemaMinimum: number
+  readonly selectedSchemaMaximum: number
   readonly implementationOrigin: RegisteredFeature['implementationOrigin']
   readonly suiteId: string
   readonly requiredScenarioIds: readonly TckScenarioId[]
@@ -237,7 +248,7 @@ export interface TckFeatureBinding {
   readonly sourceDigest: string
   readonly evidenceScenarioIds: readonly string[]
   readonly limitations: readonly Limitation[]
-  readonly limits: SerializableRecord
+  readonly limits: CapabilityLimits
 }
 
 /** Runtime-observed authority shared by every fixture in one TCK run. */

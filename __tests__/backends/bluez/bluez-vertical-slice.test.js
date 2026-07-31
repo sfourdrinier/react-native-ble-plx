@@ -45,7 +45,7 @@ function operation(signal = null) {
 
 function scanOptions() {
   return {
-    filter: { serviceUuids: [serviceUuid], localNamePrefix: 'Polar' },
+    filter: { serviceUuids: [serviceUuid], manufacturerData: [], localNamePrefix: 'Polar' },
     duplicatePolicy: 'all',
     timestampPolicy: 'receipt-monotonic',
     delivery: delivery(),
@@ -172,7 +172,7 @@ async function observedPeerId(backend) {
   if (observation.done || observation.value.kind !== 'value') {
     throw new Error('BlueZ test fixture did not emit a peer observation')
   }
-  return observation.value.value.peerId
+  return observation.value.value.device.id
 }
 
 async function managerFixture() {
@@ -263,7 +263,7 @@ describe('BlueZ contract-v1 vertical slice', () => {
     })
     await scan.stop()
 
-    const connection = await manager.connect(observation.value.value.peerId, operation())
+    const connection = await manager.connect(observation.value.value.device.id, operation())
     const database = await connection.discover(operation())
     const snapshot = await database.snapshot()
     const characteristic = snapshot.characteristics[0].path
@@ -870,13 +870,13 @@ describe('BlueZ contract-v1 vertical slice', () => {
     )
     const iterator = scan.observations[Symbol.asyncIterator]()
     const firstObservation = await iterator.next()
-    const firstPeerId = firstObservation.value.value.peerId
+    const firstPeerId = firstObservation.value.value.device.id
     expect(String(firstPeerId)).not.toContain('/org/bluez')
     boundary.objectManager.emitInterfacesRemoved(devicePath, [BLUEZ_DEVICE_INTERFACE])
     const device = managedObjects().find(object => object.path === devicePath)
     boundary.objectManager.emitInterfacesAdded(devicePath, device.interfaces)
     const secondObservation = await iterator.next()
-    const secondPeerId = secondObservation.value.value.peerId
+    const secondPeerId = secondObservation.value.value.device.id
     expect(secondPeerId).not.toBe(firstPeerId)
     await expect(
       backend.connections.connect(

@@ -55,6 +55,23 @@ Every passed L4/L5 live-radio scenario must name a physical peripheral, a concre
 
 Collections validate claim/revision uniqueness, contiguous in-claim revisions, reciprocal supersession references, cycle freedom, and the captured-at revalidation cadence. `nextDueAt` cannot exceed the declared cadence from capture.
 
+## Stable GA publication gate
+
+Final SemVer publication also requires a separately versioned manifest at
+`evidence/v1/releases/vX.Y.Z.json`, validated by
+`scripts/evidence/validate-stable-release.js`. The gate reuses the manifest
+validator for every required claim, then verifies that the release tarball,
+source commit, tag, approved successful `ci.yml` run, generated support matrix,
+Section 31 reconciliation, and governance, security, SBOM, license,
+provenance, and package-shape receipts are mutually bound. Every required claim
+must be clean, passed, receipt-backed, and meet its plan-bound floor (`Preview`
+for deterministic proof and at least `Supported` for platform/host claims); no
+blocked, skipped, failed, or `reported-unverified` scenario can satisfy GA.
+
+The stable manifest is intentionally absent until those artifacts genuinely
+exist. This makes a current final tag fail closed without changing the
+Experimental prerelease path or relabelling any current record.
+
 ## Current Phase 0 records
 
 - `records/local-macos-corebluetooth-baseline.json` is now blocked historical context. Its prior toolchain/build/load logs predate the receipt runner and cannot support any L1+ claim until rerun through the certified lane.

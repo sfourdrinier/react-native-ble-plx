@@ -1,7 +1,5 @@
 // ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm
 
-// ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm
-
 #import <Foundation/Foundation.h>
 #import <CoreBluetooth/CoreBluetooth.h>
 #import <ReactCommon/CallInvoker.h>
@@ -12,6 +10,8 @@
 
 #include "UnifiedBleProtocolAppleExecution.hpp"
 #include "UnifiedBleProtocolAppleBinaryDelivery.hpp"
+#include "UnifiedBleProtocolAppleExecutionState.hpp"
+#include "UnifiedBleProtocolAppleExecutionSupport.hpp"
 
 #include <jsi/jsi.h>
 
@@ -122,6 +122,8 @@ std::string resultKindFor(const std::string& commandKind) {
   if (commandKind == "read") return "read";
   if (commandKind == "readRssi") return "rssi";
   if (commandKind == "requestMtu") return "mtu";
+  if (commandKind == "readDescriptor") return "descriptorRead";
+  if (commandKind == "writeDescriptor") return "descriptorWrite";
   if (commandKind == "write") return "write";
   if (commandKind == "subscribe") return "subscribed";
   if (commandKind == "unsubscribe") return "unsubscribed";
@@ -165,22 +167,12 @@ void logNativeFailure(const char* context, const std::exception& error) {
 
 namespace unified_ble::apple_protocol {
 
-class AppleNativeProtocolExecution::State final : public std::enable_shared_from_this<State> {
- public:
-  State(std::shared_ptr<protocol::NativeProtocolControlRuntime> runtimeValue, void* radioValue)
-      : runtime(std::move(runtimeValue)), radio(radioValue) {}
+AppleNativeProtocolExecution::State::State(
+    std::shared_ptr<protocol::NativeProtocolControlRuntime> runtimeValue,
+    void* radioValue)
+    : runtime(std::move(runtimeValue)), radio(radioValue) {}
 
-  std::shared_ptr<protocol::NativeProtocolControlRuntime> runtime;
-  void* radio;
-  std::shared_ptr<facebook::react::CallInvoker> callInvoker;
-  std::unique_ptr<jsi::Function> eventSink;
-  std::vector<std::vector<std::uint8_t>> recordsAwaitingSink;
-  std::atomic<bool> closed{false};
-  std::atomic<std::uint64_t> nextIngressOrdinal{1U};
-  std::mutex mutex;
-  bool restorationAppended = false;
-  std::unordered_map<std::string, protocol::ProtocolRecord> connections;
-};
+AppleNativeProtocolExecution::State::~State() = default;
 
 namespace {
 
@@ -326,6 +318,26 @@ Endpoint endpointFor(const protocol::ProtocolRecord& path) {
   }
 }
 
+struct DescriptorEndpoint {
+  Endpoint characteristic;
+  std::string descriptorUuid;
+  NSInteger descriptorOccurrence;
+};
+
+DescriptorEndpoint descriptorEndpointFor(const protocol::ProtocolRecord& path) {
+  const auto& characteristic = requiredRecord(path, 1U);
+  const auto occurrence = requiredString(path, 3U);
+  try {
+    return {
+        .characteristic = endpointFor(characteristic),
+        .descriptorUuid = requiredString(path, 2U),
+        .descriptorOccurrence = static_cast<NSInteger>(std::stoll(occurrence)),
+    };
+  } catch (const std::exception&) {
+    throw protocol::ProtocolException(protocol::ProtocolFailure::invalidPath, "Apple native descriptor occurrence is invalid");
+  }
+}
+
 void dispatchCommand(
     const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
     const protocol::ProtocolRecord& command) {
@@ -418,6 +430,41 @@ void dispatchCommand(
   }
   if (kind == "requestMtu") {
     fail(state, command, "requestMtuUnsupported", nil);
+    return;
+  }
+  if (kind == "readDescriptor" || kind == "writeDescriptor") {
+    const auto& descriptorPath = requiredRecord(command, 5U);
+    const auto endpoint = descriptorEndpointFor(descriptorPath);
+    const auto peer = [NSString stringWithUTF8String:endpoint.characteristic.peer.c_str()];
+    const auto service = [NSString stringWithUTF8String:endpoint.characteristic.serviceUuid.c_str()];
+    const auto characteristic = [NSString stringWithUTF8String:endpoint.characteristic.characteristicUuid.c_str()];
+    const auto descriptor = [NSString stringWithUTF8String:endpoint.descriptorUuid.c_str()];
+    const auto operation = [NSString stringWithUTF8String:nonce.c_str()];
+    if (kind == "readDescriptor") {
+      [radio readDescriptorWithPeerIdentifier:peer serviceUUID:service serviceOccurrence:endpoint.characteristic.serviceOccurrence characteristicUUID:characteristic characteristicOccurrence:endpoint.characteristic.characteristicOccurrence descriptorUUID:descriptor descriptorOccurrence:endpoint.descriptorOccurrence operationIdentifier:operation completion:^(NSData* value, NSError* error) {
+        if (error != nil || value == nil) {
+          fail(state, command, "readDescriptorFailed", error);
+          return;
+        }
+        std::optional<protocol::OwnedBinaryReference> output;
+        try {
+          output = state->runtime->retainNativeBytes("apple-descriptor-read:" + nonce, bytesFromData(value));
+          if (!success(state, command, {field(15U, reference(descriptorPath)), field(6U, reference(binaryReferenceRecord(*output)))})) {
+            releaseRetainedBinary(state->runtime, *output, "descriptor read binary release after non-delivery");
+          }
+        } catch (const std::exception& error) {
+          logNativeFailure("descriptor read binary delivery", error);
+          if (output) releaseRetainedBinary(state->runtime, *output, "descriptor read binary release after delivery failure");
+          fail(state, command, "readDescriptorBinaryDeliveryFailed", nil);
+        }
+      }];
+      return;
+    }
+    const auto input = state->runtime->consumeCommandBinary(command);
+    [radio writeDescriptorWithPeerIdentifier:peer serviceUUID:service serviceOccurrence:endpoint.characteristic.serviceOccurrence characteristicUUID:characteristic characteristicOccurrence:endpoint.characteristic.characteristicOccurrence descriptorUUID:descriptor descriptorOccurrence:endpoint.descriptorOccurrence value:dataFromBytes(input) operationIdentifier:operation completion:^(NSError* error) {
+      if (error == nil) static_cast<void>(success(state, command, {field(15U, reference(descriptorPath))}));
+      else fail(state, command, "writeDescriptorFailed", error);
+    }];
     return;
   }
   const auto path = requiredRecord(command, 4U);
@@ -629,6 +676,36 @@ class BinaryRuntime final : public jsi::HostObject {
 
 } // namespace
 
+protocol::ProtocolField nativeProtocolField(std::uint16_t id, protocol::ProtocolFieldValue value) {
+  return field(id, std::move(value));
+}
+
+protocol::ProtocolRecordReference nativeProtocolReference(const protocol::ProtocolRecord& record) {
+  return reference(record);
+}
+
+protocol::ProtocolRecord nativeAttachmentRecord(const protocol::NativeAttachmentIdentity& attachment) {
+  return attachmentRecord(attachment);
+}
+
+std::uint64_t nativeMonotonicMilliseconds() {
+  return monotonicMilliseconds();
+}
+
+std::string nativeStringFromNSString(NSString* value, const char* name) {
+  return nsString(value, name);
+}
+
+bool deliverNativeEvent(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    const protocol::ProtocolRecord& event) {
+  return deliverEvent(state, event);
+}
+
+void logAppleNativeFailure(const char* context, const std::exception& error) {
+  logNativeFailure(context, error);
+}
+
 AppleNativeProtocolExecution::AppleNativeProtocolExecution(
     std::shared_ptr<protocol::NativeProtocolControlRuntime> runtime,
     void* radio)
@@ -735,98 +812,6 @@ void AppleNativeProtocolExecution::receiveAdapterState(void* snapshot) {
     static_cast<void>(deliverEvent(state_, event));
   } @catch (NSException* exception) {
     NSLog(@"[UnifiedBleProtocolAppleExecution] adapter-state serialization failed: %@", exception.reason);
-  }
-}
-
-void AppleNativeProtocolExecution::receiveAdvertisement(void* advertisement) {
-  if (state_->closed.load(std::memory_order_acquire)) return;
-  NSDictionary* value = (__bridge NSDictionary*)advertisement;
-  if (![value isKindOfClass:[NSDictionary class]]) return;
-  std::vector<protocol::OwnedBinaryReference> retained;
-  try {
-    const auto ordinal = state_->nextIngressOrdinal.fetch_add(1U);
-    const auto peer = nsString(value[@"peerIdentifier"], "advertisement peer");
-    const auto observedAt = [value[@"observedAt"] unsignedLongLongValue];
-    std::vector<protocol::ProtocolField> advertisementFields{
-        field(1U, peer), field(2U, static_cast<std::uint64_t>(observedAt)), field(3U, ordinal),
-        field(4U, std::string("corebluetooth")), field(17U, protocol::ProtocolStringList{"corebluetooth-advertisement"})};
-    const auto appendString = [&](NSString* key, std::uint16_t fieldId) {
-      if ([value[key] isKindOfClass:[NSString class]]) {
-        advertisementFields.push_back(field(fieldId, nsString(value[key], "advertisement string")));
-      }
-    };
-    const auto appendNumber = [&](NSString* key, std::uint16_t fieldId) {
-      if ([value[key] isKindOfClass:[NSNumber class]]) {
-        advertisementFields.push_back(field(fieldId, static_cast<std::int64_t>([value[key] longLongValue])));
-      }
-    };
-    const auto appendStrings = [&](NSString* key, std::uint16_t fieldId) {
-      if (![value[key] isKindOfClass:[NSArray class]]) return;
-      protocol::ProtocolStringList strings;
-      for (id item in value[key]) {
-        if (![item isKindOfClass:[NSString class]]) {
-          throw protocol::ProtocolException(protocol::ProtocolFailure::malformedRecord, "Apple advertisement UUID list is malformed");
-        }
-        strings.push_back(nsString(item, "advertisement UUID"));
-      }
-      advertisementFields.push_back(field(fieldId, std::move(strings)));
-    };
-    appendString(@"localName", 5U);
-    appendNumber(@"rssi", 6U);
-    appendNumber(@"txPower", 7U);
-    if ([value[@"connectable"] isKindOfClass:[NSNumber class]]) {
-      advertisementFields.push_back(field(8U, [value[@"connectable"] boolValue]));
-    }
-    appendStrings(@"serviceUUIDs", 10U);
-    appendStrings(@"solicitedServiceUUIDs", 11U);
-    appendStrings(@"overflowServiceUUIDs", 12U);
-    if ([value[@"serviceData"] isKindOfClass:[NSDictionary class]]) {
-      protocol::ProtocolRecordList serviceData;
-      for (NSString* key in value[@"serviceData"]) {
-        id item = value[@"serviceData"][key];
-        if (![item isKindOfClass:[NSData class]]) {
-          throw protocol::ProtocolException(protocol::ProtocolFailure::malformedRecord, "Apple service data is malformed");
-        }
-        const auto binary = state_->runtime->retainNativeBytes(
-            "apple-advertisement-service-data:" + std::to_string(ordinal), bytesFromData(item));
-        retained.push_back(binary);
-        const auto entry = protocol::ProtocolRecord{.kind = protocol::RecordKind::serviceDataEntry, .fields = {
-            field(1U, nsString(key, "service data UUID")), field(2U, reference(binaryReferenceRecord(binary)))} };
-        serviceData.push_back(reference(entry));
-      }
-      advertisementFields.push_back(field(13U, std::move(serviceData)));
-    }
-    if ([value[@"manufacturerData"] isKindOfClass:[NSData class]] && [value[@"manufacturerData"] length] >= 2U) {
-      NSData* manufacturer = value[@"manufacturerData"];
-      const auto* source = static_cast<const std::uint8_t*>(manufacturer.bytes);
-      const auto companyIdentifier = static_cast<std::uint64_t>(source[0]) |
-          (static_cast<std::uint64_t>(source[1]) << 8U);
-      NSData* payload = [manufacturer subdataWithRange:NSMakeRange(2U, manufacturer.length - 2U)];
-      const auto binary = state_->runtime->retainNativeBytes(
-          "apple-advertisement-manufacturer-data:" + std::to_string(ordinal), bytesFromData(payload));
-      retained.push_back(binary);
-      const auto entry = protocol::ProtocolRecord{.kind = protocol::RecordKind::manufacturerDataEntry, .fields = {
-          field(1U, companyIdentifier), field(2U, reference(binaryReferenceRecord(binary)))} };
-      advertisementFields.push_back(field(14U, protocol::ProtocolRecordList{reference(entry)}));
-    }
-    const auto advertisementRecord = protocol::ProtocolRecord{
-        .kind = protocol::RecordKind::advertisement, .fields = std::move(advertisementFields)};
-    const auto event = protocol::ProtocolRecord{.kind = protocol::RecordKind::event, .fields = {
-        field(1U, std::uint64_t{1U}), field(2U, std::string("apple-advertisement:") + std::to_string(ordinal)),
-        field(3U, std::string("advertisement")), field(4U, reference(attachmentRecord(state_->runtime->attachmentIdentity()))),
-        field(5U, ordinal), field(6U, monotonicMilliseconds()), field(12U, reference(advertisementRecord))}};
-    if (!deliverEvent(state_, event)) {
-      for (const auto& binary : retained) static_cast<void>(state_->runtime->releaseBinary(binary));
-    }
-  } catch (const std::exception& error) {
-    logNativeFailure("advertisement serialization", error);
-    for (const auto& binary : retained) {
-      try {
-        static_cast<void>(state_->runtime->releaseBinary(binary));
-      } catch (const std::exception& releaseError) {
-        logNativeFailure("advertisement binary release", releaseError);
-      }
-    }
   }
 }
 

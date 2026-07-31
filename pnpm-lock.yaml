@@ -72,9 +72,6 @@ importers:
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.6
-      '@types/react-native-base64':
-        specifier: ^0.2.2
-        version: 0.2.2
       '@types/web-bluetooth':
         specifier: 0.0.21
         version: 0.0.21
@@ -150,9 +147,6 @@ importers:
       react-native:
         specifier: ~0.86.0
         version: 0.86.0(@babel/core@7.28.0)(@react-native/jest-preset@0.86.0(@babel/core@7.28.0)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.28.0))(@types/react@19.2.6)(react@19.2.3)
-      react-native-base64:
-        specifier: ^0.2.1
-        version: 0.2.1
       react-native-builder-bob:
         specifier: ^0.43.0
         version: 0.43.0
@@ -2531,9 +2525,6 @@ packages:
   '@types/parse-path@7.1.0':
     resolution: {integrity: sha512-EULJ8LApcVEPbrfND0cRQqutIOdiIgJ1Mgrhpy755r14xMohPTEpkV/k28SJvuOs9bHRFW8x+KeDAEPiGQPB9Q==}
     deprecated: This is a stub types definition. parse-path provides its own type definitions, so you do not need this installed.
-
-  '@types/react-native-base64@0.2.2':
-    resolution: {integrity: sha512-obr+/L9Jaxdr+xCVS/IQcYgreg5xtnui4Wqw/G1acBUtW2CnqVJj6lK6F/5F3+5d2oZEo5xDDLqy8GVn2HbEmw==}
 
   '@types/react@19.2.6':
     resolution: {integrity: sha512-p/jUvulfgU7oKtj6Xpk8cA2Y1xKTtICGpJYeJXz2YVO2UcvjQgeRMLDGfDeqeRW2Ta+0QNFwcc8X3GH8SxZz6w==}
@@ -6880,9 +6871,6 @@ packages:
 
   react-is@19.2.0:
     resolution: {integrity: sha512-x3Ax3kNSMIIkyVYhWPyO09bu0uttcAIoecO/um/rKGQ4EltYWVYtyiGkS/3xMynrbVQdS69Jhlv8FXUEZehlzA==}
-
-  react-native-base64@0.2.1:
-    resolution: {integrity: sha512-eHgt/MA8y5ZF0aHfZ1aTPcIkDWxza9AaEk4GcpIX+ZYfZ04RcaNahO+527KR7J44/mD3efYfM23O2C1N44ByWA==}
 
   react-native-builder-bob@0.43.0:
     resolution: {integrity: sha512-suE1OYf0umMQvzzQ+4Ba+5xMc8jLu60ILQi85x8SCBaBtVUSJfcaGvlv6+34xxXgy+a2PuyNzoOXr9STEweLrQ==}
@@ -12147,8 +12135,6 @@ snapshots:
   '@types/parse-path@7.1.0':
     dependencies:
       parse-path: 7.1.0
-
-  '@types/react-native-base64@0.2.2': {}
 
   '@types/react@19.2.6':
     dependencies:
@@ -17486,8 +17472,6 @@ snapshots:
   react-is@18.3.1: {}
 
   react-is@19.2.0: {}
-
-  react-native-base64@0.2.1: {}
 
   react-native-builder-bob@0.43.0:
     dependencies:

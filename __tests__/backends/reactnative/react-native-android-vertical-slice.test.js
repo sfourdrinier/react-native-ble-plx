@@ -44,7 +44,7 @@ function operation() {
 
 function scanOptions() {
   return {
-    filter: { serviceUuids: [serviceUuid], localNamePrefix: 'Polar' },
+    filter: { serviceUuids: [serviceUuid], manufacturerData: [], localNamePrefix: 'Polar' },
     duplicatePolicy: 'all',
     timestampPolicy: 'receipt-monotonic',
     delivery: delivery(),
@@ -121,7 +121,7 @@ describe('React Native Android canonical protocol vertical slice', () => {
             requiredScenarioIds: ['connection.rssi-and-att-mtu-capability-contract']
           }),
           evidence: expect.objectContaining({ evidenceLevel: 'deterministic' }),
-          limits: { minimumAttMtu: 23, maximumRequestedAttMtu: 517 }
+          limits: { attMtu: { maximum: 517, minimum: 23, unit: 'bytes' } }
         })
       ])
     )
@@ -144,7 +144,7 @@ describe('React Native Android canonical protocol vertical slice', () => {
     })
     await scan.stop()
 
-    const connection = await manager.connect(observation.value.value.peerId, operation())
+    const connection = await manager.connect(observation.value.value.device.id, operation())
     await expect(connection.readRssi(operation())).resolves.toMatchObject({ rssi: -47 })
     await expect(connection.requestMtu(300, operation())).resolves.toMatchObject({
       requestedMtu: 300,
@@ -495,7 +495,7 @@ describe('React Native Android canonical protocol vertical slice', () => {
     }
     expect(runtime.commandKinds.filter(kind => kind === 'scanStart')).toHaveLength(2)
 
-    const connection = await manager.connect(restartedObservation.value.value.peerId, operation())
+    const connection = await manager.connect(restartedObservation.value.value.device.id, operation())
     const database = await connection.discover(operation())
     const snapshot = await database.snapshot()
     const subscription = await database.subscribe(snapshot.characteristics[0].path, {
@@ -515,7 +515,7 @@ describe('React Native Android canonical protocol vertical slice', () => {
     })
     await connection.release()
 
-    const reconnected = await manager.connect(restartedObservation.value.value.peerId, operation())
+    const reconnected = await manager.connect(restartedObservation.value.value.device.id, operation())
     await reconnected.release()
     await restartedScan.stop()
     await expect(manager.destroy()).resolves.toEqual({ state: 'released', failures: [] })
@@ -630,7 +630,7 @@ describe('React Native Android canonical protocol vertical slice', () => {
       throw new Error('Apple canonical JSI boundary did not deliver a scan observation')
     }
     await scan.stop()
-    const connection = await manager.connect(observation.value.value.peerId, operation())
+    const connection = await manager.connect(observation.value.value.device.id, operation())
     expect(manager.features.registrations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'connection:rssi-measurement', state: 'limited' }),
@@ -638,7 +638,7 @@ describe('React Native Android canonical protocol vertical slice', () => {
           id: 'connection:request-att-mtu',
           state: 'unsupported',
           evidence: expect.objectContaining({ evidenceLevel: 'blocked' }),
-          limits: { minimumAttMtu: 23, maximumRequestedAttMtu: 0 }
+          limits: { attMtu: { maximum: 0, minimum: null, unit: 'bytes' } }
         })
       ])
     )
@@ -825,6 +825,8 @@ class DeterministicAndroidControl {
         })
       }
       this.restorationConsumed = true
+      const handshake = this.handshakes[this.handshakes.length - 1]
+      if (handshake === undefined) throw new Error('The deterministic control has no active attachment')
       return Promise.resolve({
         receiptId: 'deterministic-restoration-receipt',
         outcome: 'adopted',
@@ -833,18 +835,20 @@ class DeterministicAndroidControl {
         replayRecordCount: 1,
         records: [
           {
-            encodedRecord: Array.from(
-              encodeNativeProtocolRecord(
-                record('restorationRecord', [
-                  field(1, 1),
-                  field(2, request.namespaceValue),
-                  field(3, this.activeAttachment()),
-                  field(4, 1),
-                  field(5, request.expectedEpoch),
-                  field(6, 'adapter')
-                ])
-              )
-            )
+            recordVersion: 1,
+            namespaceValue: request.namespaceValue,
+            attachmentId: handshake.attachmentId,
+            backendInstanceId: handshake.backendInstanceId,
+            backendGeneration: handshake.backendGeneration,
+            adapterId: handshake.adapterId,
+            adapterGeneration: handshake.adapterGeneration,
+            ordinal: 1,
+            adoptionEpoch: request.expectedEpoch,
+            kind: 'adapter',
+            peerId: null,
+            connectionId: null,
+            ownerLeaseId: null,
+            connectionGeneration: null
           }
         ]
       })

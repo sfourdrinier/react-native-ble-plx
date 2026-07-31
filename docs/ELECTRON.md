@@ -19,10 +19,10 @@ There is no Noble dependency, renderer Web Bluetooth fallback, legacy
 `BlePort`, `PortBleManager`, or mock-radio production fallback in these
 entrypoints.
 
-The published `4.0.0-alpha.14` Electron surface is Experimental. The release
+The published `4.0.0-alpha.15` Electron surface is Experimental. The release
 workflow's packed Electron smoke is deterministic L1 package/IPC proof, not an
 Electron host, adapter, or peripheral support claim. No current evidence record
-binds alpha.14 to a physical Electron radio journey.
+binds alpha.15 to a physical Electron radio journey.
 
 ## Main-process backend selection
 

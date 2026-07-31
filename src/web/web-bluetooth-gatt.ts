@@ -286,7 +286,17 @@ export class WebBluetoothGattRuntime {
           ),
           validity: 'current'
         }
-        characteristics.push({ path })
+        characteristics.push(
+          Object.freeze({
+            path: Object.freeze(path),
+            properties: Object.freeze({
+              read: nativeCharacteristic.properties.read,
+              writeWithResponse: nativeCharacteristic.properties.write,
+              writeWithoutResponse: nativeCharacteristic.properties.writeWithoutResponse,
+              notify: nativeCharacteristic.properties.notify || nativeCharacteristic.properties.indicate
+            })
+          })
+        )
         characteristicBoundaries.set(characteristicKey(path), nativeCharacteristic)
         const nativeDescriptors = await this.host.runAbortable(
           record,

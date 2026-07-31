@@ -46,7 +46,7 @@ Older RN/Expo versions should stay on upstream or an older fork tag.
 ## What this fork adds
 
 - TypeScript-first public API
-- RN 0.86 codegen TurboModule (`NativeBlePlx` / `BlePlxSpec`)
+- RN 0.86 codegen TurboModule (`NativeUnifiedBleProtocolControl` / `UnifiedBleProtocolSpec`)
 - Expo config plugin for permissions, background modes, restoration, Android FGS, debug logging
 - `ConnectionManager` for retries, timeouts, auto-reconnect, and **`attemptConnectOnce`** (3.9+ host-owned single attempt)
 - Optional iOS BLE state restoration subspec (**true opt-in** from 3.9.1 — [#32](https://github.com/sfourdrinier/react-native-ble-plx/issues/32)) with **reporting-only** restore (3.9+ D5) and **`getRestoredState()`** late handoff

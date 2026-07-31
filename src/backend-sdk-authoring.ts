@@ -1,10 +1,15 @@
 // src/backend-sdk-authoring.ts
 
-import { validateFeatureRegistration, type FeatureRegistry, type Limitation } from './backend-contract/capabilities'
+import {
+  describeFeatureRegistry,
+  validateFeatureRegistration,
+  type CapabilityLimits,
+  type FeatureRegistry,
+  type Limitation
+} from './backend-contract/capabilities'
 import type { BleCentralBackend } from './backend-contract/backend'
 import { contractError } from './backend-contract/errors'
 import type { BackendIdentity } from './backend-contract/identity'
-import { snapshotSerializableRecord } from './backend-contract/serializable'
 import type { BackendAuthorMetadata } from './backend-contract/backend-sdk'
 import { runBackendTck } from './tck/runner'
 import type { BackendTckFactory, TckFeatureSuite, TckRunReport } from './tck/contracts'
@@ -34,6 +39,8 @@ export interface BackendCapabilityReport {
 export interface BackendCapabilityReportEntry {
   readonly id: string
   readonly state: 'supported' | 'limited' | 'unsupported' | 'unavailable'
+  readonly selectedSchemaMinimum: number
+  readonly selectedSchemaMaximum: number
   readonly implementationOrigin: 'backend-native' | 'core-emulated'
   readonly tck: {
     readonly suiteId: string
@@ -51,7 +58,7 @@ export interface BackendCapabilityReportEntry {
     readonly scenarioIds: readonly string[]
   }
   readonly limitations: readonly Limitation[]
-  readonly limits: ReturnType<typeof snapshotSerializableRecord>['value']
+  readonly limits: CapabilityLimits
 }
 
 /** Validates immutable author metadata before a backend reaches an SDK runner. */
@@ -104,30 +111,34 @@ export async function runBackendAuthorTck<
 export function inspectBackendCapabilities<Attachment extends string, Identity extends BackendIdentity<Attachment>>(
   backend: BleCentralBackend<Attachment, Identity>
 ): BackendCapabilityReport {
-  const capabilities: BackendCapabilityReportEntry[] = []
   for (const registration of backend.features.registrations) {
     validateFeatureRegistration(registration)
+  }
+  const capabilities: BackendCapabilityReportEntry[] = []
+  for (const descriptor of describeFeatureRegistry(backend.features)) {
     capabilities.push(
       Object.freeze({
-        id: registration.id,
-        state: registration.state,
-        implementationOrigin: registration.implementationOrigin,
+        id: descriptor.id,
+        state: descriptor.state,
+        selectedSchemaMinimum: descriptor.selectedSchemaRange.minimum.value,
+        selectedSchemaMaximum: descriptor.selectedSchemaRange.maximum.value,
+        implementationOrigin: descriptor.implementationOrigin,
         tck: Object.freeze({
-          suiteId: registration.tck.suiteId,
-          requiredScenarioIds: Object.freeze([...registration.tck.requiredScenarioIds]),
-          contractMinimum: registration.tck.contractRange.minimum.value,
-          contractMaximum: registration.tck.contractRange.maximum.value
+          suiteId: descriptor.tck.suiteId,
+          requiredScenarioIds: Object.freeze([...descriptor.tck.requiredScenarioIds]),
+          contractMinimum: descriptor.tck.contractRange.minimum.value,
+          contractMaximum: descriptor.tck.contractRange.maximum.value
         }),
         evidence: Object.freeze({
           verification: 'author-declared',
-          receiptId: registration.evidence.receiptId,
-          evidenceLevel: registration.evidence.evidenceLevel,
-          implementationVersion: registration.evidence.implementationVersion,
-          sourceDigest: registration.evidence.sourceDigest,
-          scenarioIds: Object.freeze([...registration.evidence.scenarioIds])
+          receiptId: descriptor.evidence.receiptId,
+          evidenceLevel: descriptor.evidence.evidenceLevel,
+          implementationVersion: descriptor.evidence.implementationVersion,
+          sourceDigest: descriptor.evidence.sourceDigest,
+          scenarioIds: Object.freeze([...descriptor.evidence.scenarioIds])
         }),
         limitations: Object.freeze(
-          registration.limitations.map(limitation =>
+          descriptor.limitations.map(limitation =>
             Object.freeze({
               code: limitation.code,
               explanation: limitation.explanation,
@@ -135,7 +146,7 @@ export function inspectBackendCapabilities<Attachment extends string, Identity e
             })
           )
         ),
-        limits: snapshotSerializableRecord(registration.limits).value
+        limits: descriptor.limits
       })
     )
   }

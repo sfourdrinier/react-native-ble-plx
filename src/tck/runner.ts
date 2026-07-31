@@ -394,6 +394,8 @@ function snapshotFeatureBinding(registration: RegisteredFeature): TckFeatureBind
   return Object.freeze({
     featureId: registration.id,
     state: registration.state,
+    selectedSchemaMinimum: registration.selectedSchemaRange.minimum.value,
+    selectedSchemaMaximum: registration.selectedSchemaRange.maximum.value,
     implementationOrigin: registration.implementationOrigin,
     suiteId: registration.tck.suiteId,
     requiredScenarioIds: Object.freeze(requiredScenarioIds),
@@ -406,7 +408,7 @@ function snapshotFeatureBinding(registration: RegisteredFeature): TckFeatureBind
     sourceDigest: registration.evidence.sourceDigest,
     evidenceScenarioIds: Object.freeze([...registration.evidence.scenarioIds]),
     limitations,
-    limits: snapshotSerializableRecord(registration.limits).value
+    limits: registration.limits
   })
 }
 
@@ -449,6 +451,8 @@ function featureBindingsEqual(left: TckFeatureBinding, right: TckFeatureBinding)
   return (
     left.featureId === right.featureId &&
     left.state === right.state &&
+    left.selectedSchemaMinimum === right.selectedSchemaMinimum &&
+    left.selectedSchemaMaximum === right.selectedSchemaMaximum &&
     left.implementationOrigin === right.implementationOrigin &&
     left.suiteId === right.suiteId &&
     stringArraysEqual(left.requiredScenarioIds, right.requiredScenarioIds) &&
@@ -461,7 +465,24 @@ function featureBindingsEqual(left: TckFeatureBinding, right: TckFeatureBinding)
     left.sourceDigest === right.sourceDigest &&
     stringArraysEqual(left.evidenceScenarioIds, right.evidenceScenarioIds) &&
     limitationsEqual(left.limitations, right.limitations) &&
-    serializableRecordsEqual(left.limits, right.limits)
+    capabilityLimitsEqual(left.limits, right.limits)
+  )
+}
+
+function capabilityLimitsEqual(left: TckFeatureBinding['limits'], right: TckFeatureBinding['limits']): boolean {
+  const leftEntries = Object.entries(left)
+  const rightEntries = Object.entries(right)
+  return (
+    leftEntries.length === rightEntries.length &&
+    leftEntries.every(([name, limit]) => {
+      const candidate = right[name]
+      return (
+        candidate !== undefined &&
+        candidate.maximum === limit.maximum &&
+        candidate.minimum === limit.minimum &&
+        candidate.unit === limit.unit
+      )
+    })
   )
 }
 

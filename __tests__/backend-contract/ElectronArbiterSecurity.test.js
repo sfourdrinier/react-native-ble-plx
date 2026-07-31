@@ -79,17 +79,27 @@ function fixture(maximumMessageBytes = 4096, maximumOutstandingOperations = 2, m
 }
 
 function envelope(current, renderer, ordinal, payload = {}, binaryPayload = null) {
+  if (renderer.rendererLease === undefined) {
+    throw new Error('Renderer lease must be registered before constructing an envelope')
+  }
   return {
     versions: current.versions,
     attachment: current.attachment,
     attachmentId: current.attachment.attachmentId,
     renderer,
+    rendererLease: renderer.rendererLease,
     correlation: opaqueId(`correlation-${ordinal}`, 'ipc-operation', `desktop:operation-${ordinal}`),
     dispatchEpoch: opaqueId(`epoch-${ordinal}`, 'ipc-dispatch-epoch', `desktop:operation-${ordinal}`),
     command: 'read',
     payload,
     binaryPayload
   }
+}
+
+function registerRenderer(arbiter, renderer) {
+  const lease = arbiter.registerRenderer(renderer)
+  renderer.rendererLease = lease
+  return lease
 }
 
 function deferred() {
@@ -132,7 +142,7 @@ describe('ElectronMainArbiterContext security accounting', () => {
       },
       release: async () => ({ state: 'released', failures: [] })
     })
-    arbiter.registerRenderer(current.rendererA)
+    registerRenderer(arbiter, current.rendererA)
     const request = envelope(current, current.rendererA, 1, {
       nested: [{ bytes: ownBytes(inputBytes, byteLimit(3)) }]
     })
@@ -167,7 +177,7 @@ describe('ElectronMainArbiterContext security accounting', () => {
       },
       release: async () => ({ state: 'released', failures: [] })
     })
-    arbiter.registerRenderer(current.rendererA)
+    registerRenderer(arbiter, current.rendererA)
     const pending = arbiter.route(current.senderA, envelope(current, current.rendererA, 1))
     await expect(arbiter.route(current.senderA, envelope(current, current.rendererA, 2))).rejects.toMatchObject({
       normalized: { code: 'stream.quota', operation: 'electron-main-arbiter.outstanding-operations' }
@@ -185,7 +195,7 @@ describe('ElectronMainArbiterContext security accounting', () => {
       },
       release: async () => ({ state: 'released', failures: [] })
     })
-    retainedArbiter.registerRenderer(retainedFixture.rendererA)
+    registerRenderer(retainedArbiter, retainedFixture.rendererA)
     const payload = { bytes: ownBytes(new Uint8Array(400), byteLimit(400)) }
     const retainedPending = retainedArbiter.route(
       retainedFixture.senderA,
@@ -204,6 +214,7 @@ describe('ElectronMainArbiterContext security accounting', () => {
     const current = fixture()
     const pendingRoute = deferred()
     let releaseIdentity = null
+    let releasedLease = null
     const arbiter = new ElectronMainArbiterContext(current.authority, {
       route: async routed => {
         if (String(routed.correlation) === 'correlation-1') {
@@ -211,32 +222,87 @@ describe('ElectronMainArbiterContext security accounting', () => {
         }
         return {}
       },
-      release: async identity => {
+      release: async (identity, lease) => {
         releaseIdentity = identity
+        releasedLease = lease
         return { state: 'released', failures: [] }
       }
     })
-    arbiter.registerRenderer(current.rendererA)
-    arbiter.registerRenderer(current.rendererB)
+    registerRenderer(arbiter, current.rendererA)
+    registerRenderer(arbiter, current.rendererB)
     const request = envelope(current, current.rendererA, 1)
     const pending = arbiter.route(current.senderA, request)
     await expect(arbiter.route(current.senderA, request)).rejects.toMatchObject({
       normalized: { code: 'protocol.violation', operation: 'electron-main-arbiter.replay' }
     })
-    await expect(arbiter.releaseRenderer(current.senderA)).resolves.toEqual({ state: 'released', failures: [] })
     await expect(
-      arbiter.releaseRenderer({
-        authenticatedClientId: current.rendererB.clientId,
-        authenticatedWindowScope: current.rendererA.windowScope,
-        authenticatedSessionScope: current.rendererA.sessionScope
-      })
+      arbiter.releaseRenderer(current.senderA, current.rendererA.rendererLease)
+    ).resolves.toEqual({ state: 'released', failures: [] })
+    await expect(
+      arbiter.releaseRenderer(
+        {
+          authenticatedClientId: current.rendererB.clientId,
+          authenticatedWindowScope: current.rendererA.windowScope,
+          authenticatedSessionScope: current.rendererA.sessionScope
+        },
+        current.rendererB.rendererLease
+      )
     ).rejects.toMatchObject({
       normalized: { code: 'ownership.denied', operation: 'electron-main-arbiter.sender' }
     })
     pendingRoute.resolve()
     await pending
-    expect(releaseIdentity).toEqual(current.rendererA)
+    expect(releaseIdentity).toEqual({
+      clientId: current.rendererA.clientId,
+      windowScope: current.rendererA.windowScope,
+      sessionScope: current.rendererA.sessionScope
+    })
+    expect(releasedLease).toEqual(current.rendererA.rendererLease)
     await expect(arbiter.route(current.senderB, envelope(current, current.rendererB, 2))).resolves.toEqual({})
+  })
+
+  test('routes a successor generation after stale release of an overlapping renderer lease', async () => {
+    const current = fixture()
+    const releaseHandler = jest.fn(async () => ({ state: 'released', failures: [] }))
+    const arbiter = new ElectronMainArbiterContext(current.authority, {
+      route: async () => ({}),
+      release: releaseHandler
+    })
+    const firstRenderer = { ...current.rendererA }
+    const successorRenderer = { ...current.rendererA }
+    const firstLease = registerRenderer(arbiter, firstRenderer)
+    const successorLease = registerRenderer(arbiter, successorRenderer)
+
+    expect(successorLease).not.toEqual(firstLease)
+    expect(() => registerRenderer(arbiter, { ...current.rendererA })).toThrow(
+      expect.objectContaining({
+        normalized: expect.objectContaining({
+          code: 'stream.quota',
+          operation: 'electron-main-arbiter.renderer-leases'
+        })
+      })
+    )
+    await expect(arbiter.route(current.senderA, envelope(current, successorRenderer, 1))).resolves.toEqual({})
+    await expect(arbiter.releaseRenderer(current.senderA, firstLease)).resolves.toEqual({
+      state: 'released',
+      failures: []
+    })
+    expect(() => registerRenderer(arbiter, { ...current.rendererA })).not.toThrow()
+    await expect(arbiter.route(current.senderA, envelope(current, successorRenderer, 2))).resolves.toEqual({})
+    await expect(arbiter.releaseRenderer(current.senderA, firstLease)).resolves.toEqual({
+      state: 'released',
+      failures: []
+    })
+    await expect(arbiter.route(current.senderA, envelope(current, successorRenderer, 3))).resolves.toEqual({})
+    expect(releaseHandler).toHaveBeenCalledTimes(1)
+    expect(releaseHandler).toHaveBeenCalledWith(
+      {
+        clientId: current.rendererA.clientId,
+        windowScope: current.rendererA.windowScope,
+        sessionScope: current.rendererA.sessionScope
+      },
+      firstLease
+    )
   })
 
   test('atomically blocks route admission and coalesces concurrent renderer release', async () => {
@@ -248,10 +314,10 @@ describe('ElectronMainArbiterContext security accounting', () => {
       route: routeHandler,
       release: releaseHandler
     })
-    arbiter.registerRenderer(current.rendererA)
+    registerRenderer(arbiter, current.rendererA)
 
-    const firstRelease = arbiter.releaseRenderer(current.senderA)
-    const secondRelease = arbiter.releaseRenderer(current.senderA)
+    const firstRelease = arbiter.releaseRenderer(current.senderA, current.rendererA.rendererLease)
+    const secondRelease = arbiter.releaseRenderer(current.senderA, current.rendererA.rendererLease)
     await expect(arbiter.route(current.senderA, envelope(current, current.rendererA, 1))).rejects.toMatchObject({
       normalized: { code: 'lifecycle.invalid-state', operation: 'electron-main-arbiter.renderer-releasing' }
     })
@@ -280,9 +346,9 @@ describe('ElectronMainArbiterContext security accounting', () => {
       route: async () => ({}),
       release: releaseHandler
     })
-    arbiter.registerRenderer(current.rendererA)
+    registerRenderer(arbiter, current.rendererA)
 
-    const failed = arbiter.releaseRenderer(current.senderA)
+    const failed = arbiter.releaseRenderer(current.senderA, current.rendererA.rendererLease)
     await expect(arbiter.route(current.senderA, envelope(current, current.rendererA, 1))).rejects.toMatchObject({
       normalized: { code: 'lifecycle.invalid-state', operation: 'electron-main-arbiter.renderer-releasing' }
     })
@@ -291,25 +357,27 @@ describe('ElectronMainArbiterContext security accounting', () => {
     await expect(failed).resolves.toEqual(failedReleaseRecord)
     await expect(arbiter.route(current.senderA, envelope(current, current.rendererA, 2))).resolves.toEqual({})
 
-    const rejected = arbiter.releaseRenderer(current.senderA)
+    const rejected = arbiter.releaseRenderer(current.senderA, current.rendererA.rendererLease)
     secondRelease.reject(new Error('release transport failed'))
     await expect(rejected).rejects.toThrow('release transport failed')
     expect(log).toHaveBeenCalled()
     await expect(arbiter.route(current.senderA, envelope(current, current.rendererA, 3))).resolves.toEqual({})
-    await expect(arbiter.releaseRenderer(current.senderA)).resolves.toEqual({ state: 'released', failures: [] })
+    await expect(
+      arbiter.releaseRenderer(current.senderA, current.rendererA.rendererLease)
+    ).resolves.toEqual({ state: 'released', failures: [] })
     expect(releaseHandler).toHaveBeenCalledTimes(3)
 
     log.mockRestore()
   })
 
   test('retains exactly the active 128-entry terminal replay window and evicts older settled requests', async () => {
-    const current = fixture(4096, 2, 8192)
+    const current = fixture(4096, 2, 65536)
     const routeHandler = jest.fn(async () => ({}))
     const arbiter = new ElectronMainArbiterContext(current.authority, {
       route: routeHandler,
       release: async () => ({ state: 'released', failures: [] })
     })
-    arbiter.registerRenderer(current.rendererA)
+    registerRenderer(arbiter, current.rendererA)
 
     for (let ordinal = 1; ordinal <= 300; ordinal += 1) {
       await expect(arbiter.route(current.senderA, envelope(current, current.rendererA, ordinal))).resolves.toEqual({})

@@ -70,7 +70,20 @@ export interface NativeRestorationAdoptionRequest {
 }
 
 export interface NativeRestorationReplayRecord {
-  encodedRecord: number[]
+  recordVersion: number
+  namespaceValue: string
+  attachmentId: string
+  backendInstanceId: string
+  backendGeneration: string
+  adapterId: string
+  adapterGeneration: string
+  ordinal: number
+  adoptionEpoch: string
+  kind: 'adapter' | 'connection'
+  peerId: string | null
+  connectionId: string | null
+  ownerLeaseId: string | null
+  connectionGeneration: string | null
 }
 
 export interface NativeRestorationAdoptionControlResult {

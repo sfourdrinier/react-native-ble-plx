@@ -55,7 +55,7 @@ function scenarioController(availableControls, overrides) {
     availableControls,
     now: () => 20,
     scanOptions: (itemCapacity, byteCapacity) => ({
-      filter: { serviceUuids: [], localNamePrefix: null },
+      filter: { serviceUuids: [], manufacturerData: [], localNamePrefix: null },
       duplicatePolicy: 'all',
       timestampPolicy: 'receipt-monotonic',
       delivery: {

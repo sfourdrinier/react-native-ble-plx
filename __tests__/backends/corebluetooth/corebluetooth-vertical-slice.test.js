@@ -47,7 +47,7 @@ function operation(signal = null) {
 
 function scanOptions(signal = null, deadline = null) {
   return {
-    filter: { serviceUuids: [serviceUuid], localNamePrefix: 'Polar' },
+    filter: { serviceUuids: [serviceUuid], manufacturerData: [], localNamePrefix: 'Polar' },
     duplicatePolicy: 'all',
     timestampPolicy: 'receipt-monotonic',
     delivery: delivery(),
@@ -84,7 +84,7 @@ async function observedPeerId(backend) {
   if (observation.done || observation.value.kind !== 'value') {
     throw new Error('CoreBluetooth deterministic boundary did not emit a scan observation')
   }
-  return observation.value.value.peerId
+  return observation.value.value.device.id
 }
 
 describe('CoreBluetooth contract-v1 vertical slice', () => {
@@ -129,6 +129,38 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
     expect(boundary.destroyed).toBe(true)
   })
 
+  test('applies the canonical manufacturer predicate before delivering CoreBluetooth observations', async () => {
+    const { backend, boundary } = await backendFixture()
+    const scan = await backend.scanner.start(
+      {
+        ...scanOptions(),
+        filter: {
+          serviceUuids: [serviceUuid],
+          localNamePrefix: 'Polar',
+          manufacturerData: [{ companyIdentifier: 0x004c, dataPrefix: new Uint8Array([1, 2]) }]
+        }
+      },
+      opaqueId('manufacturer-filter', 'client', 'corebluetooth:manufacturer-filter')
+    )
+    const iterator = scan.observations[Symbol.asyncIterator]()
+    const next = iterator.next()
+
+    boundary.emitAdvertisement({ manufacturerData: [{ companyIdentifier: 0x004c, value: new Uint8Array([1, 9]) }] })
+    boundary.emitAdvertisement({ manufacturerData: [{ companyIdentifier: 0x004c, value: new Uint8Array([1, 2, 3]) }] })
+
+    const observed = await next
+    expect(observed).toMatchObject({
+      done: false,
+      value: { kind: 'value', value: { manufacturerData: { state: 'present' } } }
+    })
+    if (observed.done || observed.value.kind !== 'value') {
+      throw new Error('CoreBluetooth manufacturer-filter scan did not yield an observation')
+    }
+    expect(observed.value.value.manufacturerData.value[0].value).toEqual(new Uint8Array([1, 2, 3]))
+    await expect(scan.stop()).resolves.toEqual({ state: 'released', failures: [] })
+    await backend.destroy()
+  })
+
   test('runs scan, connect, duplicate-occurrence discovery, bytes GATT, notify, and zero-counter destroy through the public manager', async () => {
     let boundary = null
     const provider = createCoreBluetoothBackendProvider({
@@ -158,7 +190,7 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
     expect(observation).toMatchObject({ value: { kind: 'value', value: { localName: { value: 'Polar H10' } } } })
     await scan.stop()
 
-    const connection = await manager.connect(observation.value.value.peerId, operation())
+    const connection = await manager.connect(observation.value.value.device.id, operation())
     const database = await connection.discover(operation())
     const snapshot = await database.snapshot()
     expect(snapshot.services).toHaveLength(2)
@@ -543,7 +575,7 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
       throw new Error('CoreBluetooth authorization-loss fixture did not emit a scan observation')
     }
     await backend.connections.connect(
-      observation.value.value.peerId,
+      observation.value.value.device.id,
       opaqueId('authorization-loss-connection', 'client', 'corebluetooth:authorization-loss'),
       operation()
     )
@@ -573,7 +605,7 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
       throw new Error('CoreBluetooth adapter-loss fixture did not emit a scan observation')
     }
     const lease = await backend.connections.connect(
-      observation.value.value.peerId,
+      observation.value.value.device.id,
       opaqueId('loss-connection', 'client', 'corebluetooth:loss'),
       operation()
     )
@@ -608,7 +640,7 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
       throw new Error('CoreBluetooth powered-off fixture did not emit a scan observation')
     }
     const lease = await backend.connections.connect(
-      observation.value.value.peerId,
+      observation.value.value.device.id,
       opaqueId('powered-off-connection', 'client', 'corebluetooth:off'),
       operation()
     )

@@ -27,7 +27,7 @@ export async function executePublicVerticalSlice<
     throw new TckAssertionError(definition.id, 'public manager scan did not receive an advertisement')
   }
 
-  const connection = await fixture.controller.settle(manager.connect(observed.value.value.peerId, operationOptions))
+  const connection = await fixture.controller.settle(manager.connect(observed.value.value.device.id, operationOptions))
   const database = await fixture.controller.settle(connection.discover(operationOptions))
   const snapshot = await database.snapshot()
   const characteristic = snapshot.characteristics[0]

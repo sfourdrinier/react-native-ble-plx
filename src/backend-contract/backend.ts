@@ -10,14 +10,8 @@ import {
   type BackendIdentity,
   type BackendRuntimeMetadata
 } from './identity'
-import type {
-  CharacteristicPath,
-  ConnectionPath,
-  DatabasePath,
-  DescriptorPath,
-  GattDatabase,
-  NotificationValue
-} from './gatt'
+import type { CharacteristicPath, ConnectionPath, DatabasePath, DescriptorPath, GattDatabase } from './gatt'
+import type { NotificationValue } from './gatt'
 import type {
   BackendOperationDispatch,
   OperationOptions,
@@ -45,7 +39,8 @@ import type {
   ResourceCount,
   ScanShareToken,
   ScanSessionId,
-  SubscriptionId
+  SubscriptionId,
+  SerializableRecord
 } from './primitives'
 import { applicableVersionAxesEqual, assertCoreVersionsAccepted, snapshotApplicableVersionAxes } from './primitives'
 import { serializableRecordsEqual, snapshotSerializableRecord } from './serializable'
@@ -221,11 +216,122 @@ export interface BackendConnectionLostEvent<Attachment extends string> extends B
 export interface BackendGenericEvent<Attachment extends string> extends BackendEventBase<Attachment> {
   readonly kind: 'adapter-state' | 'backend-restarted' | 'diagnostic'
 }
+/** Normalized scan delivery, separate from a stream's bounded overflow accounting record. */
+export interface BackendScanResultEvent<Attachment extends string> extends BackendEventBase<Attachment> {
+  readonly kind: 'scan-result'
+  readonly observation: AdvertisementObservation<Attachment>
+}
+export interface BackendScanOverflowEvent<Attachment extends string> extends BackendEventBase<Attachment> {
+  readonly kind: 'scan-overflow'
+  readonly scanSessionId: ScanSessionId<Attachment, string>
+  readonly policy: import('./streams').OverflowPolicy
+  readonly droppedItems: ResourceCount
+  readonly droppedBytes: ResourceCount
+  readonly replacedItems: ResourceCount
+}
+export type BackendDisconnectReason = 'local' | 'peer' | 'adapter' | 'backend-restart'
+const backendDisconnectReasons: readonly BackendDisconnectReason[] = Object.freeze([
+  'local',
+  'peer',
+  'adapter',
+  'backend-restart'
+])
+const connectionStates: readonly ConnectionState[] = Object.freeze([
+  'connecting',
+  'connected',
+  'disconnecting',
+  'disconnected',
+  'lost'
+])
+export interface BackendConnectionStateChangedEvent<Attachment extends string> extends BackendEventBase<Attachment> {
+  readonly kind: 'connection-state-changed'
+  readonly connection: ConnectionPath<Attachment, string>
+  readonly previous: ConnectionState
+  readonly current: ConnectionState
+  readonly reason: BackendDisconnectReason | null
+}
+export interface BackendDisconnectedEvent<Attachment extends string> extends BackendEventBase<Attachment> {
+  readonly kind: 'disconnected'
+  readonly connection: ConnectionPath<Attachment, string>
+  readonly reason: BackendDisconnectReason
+}
+export interface BackendCharacteristicValueChangedEvent<Attachment extends string>
+  extends BackendEventBase<Attachment> {
+  readonly kind: 'characteristic-value-changed'
+  readonly path: CharacteristicPath<Attachment, string, string, string, string, 'current'>
+  readonly value: NotificationValue
+}
+export interface BackendNotificationOverflowEvent<Attachment extends string> extends BackendEventBase<Attachment> {
+  readonly kind: 'notification-overflow'
+  readonly subscriptionId: SubscriptionId<Attachment, string, string, string, string, string>
+  readonly policy: import('./streams').OverflowPolicy
+  readonly droppedItems: ResourceCount
+  readonly droppedBytes: ResourceCount
+  readonly replacedItems: ResourceCount
+}
+export interface BackendMtuChangedEvent<Attachment extends string> extends BackendEventBase<Attachment> {
+  readonly kind: 'mtu-changed'
+  readonly connection: ConnectionPath<Attachment, string>
+  readonly mtu: number
+  readonly maximumWriteLength: number
+}
+export interface BackendBondSecurityEvent<Attachment extends string> extends BackendEventBase<Attachment> {
+  readonly kind: 'bond-security-changed'
+  readonly peerId: PeerId<Attachment>
+  readonly bond: 'none' | 'bonding' | 'bonded' | 'failed' | 'unavailable'
+  readonly security: 'unencrypted' | 'encrypted' | 'authenticated' | 'unavailable'
+}
+export interface BackendPhyChangedEvent<Attachment extends string> extends BackendEventBase<Attachment> {
+  readonly kind: 'phy-changed'
+  readonly connection: ConnectionPath<Attachment, string>
+  readonly txPhy: '1m' | '2m' | 'coded' | 'unavailable'
+  readonly rxPhy: '1m' | '2m' | 'coded' | 'unavailable'
+}
+export interface BackendPermissionStateChangedEvent<Attachment extends string> extends BackendEventBase<Attachment> {
+  readonly kind: 'permission-state-changed'
+  readonly state: AdapterStateSnapshot<Attachment>
+}
+export interface BackendRestorationEvent<Attachment extends string> extends BackendEventBase<Attachment> {
+  readonly kind: 'restoration-received'
+  readonly record: SerializableRecord
+}
+export interface BackendRestartingEvent<Attachment extends string> extends BackendEventBase<Attachment> {
+  readonly kind: 'backend-restarting'
+  readonly reason: string
+}
+export interface BackendDiagnosticEvent<Attachment extends string> extends BackendEventBase<Attachment> {
+  readonly kind: 'diagnostic-warning'
+  readonly code: string
+  readonly message: string
+  readonly detail: SerializableRecord
+}
+/** Open extension lane: namespaced event kinds retain typed serializable payloads without central-union edits. */
+export interface BackendExtensionEvent<Attachment extends string> extends BackendEventBase<Attachment> {
+  readonly kind: `extension:${string}`
+  readonly payload: SerializableRecord
+}
 export type BackendEvent<Attachment extends string> =
   | BackendDatabaseChangedEvent<Attachment>
   | BackendConnectionLostEvent<Attachment>
   | BackendGenericEvent<Attachment>
+  | BackendScanResultEvent<Attachment>
+  | BackendScanOverflowEvent<Attachment>
+  | BackendConnectionStateChangedEvent<Attachment>
+  | BackendDisconnectedEvent<Attachment>
+  | BackendCharacteristicValueChangedEvent<Attachment>
+  | BackendNotificationOverflowEvent<Attachment>
+  | BackendMtuChangedEvent<Attachment>
+  | BackendBondSecurityEvent<Attachment>
+  | BackendPhyChangedEvent<Attachment>
+  | BackendPermissionStateChangedEvent<Attachment>
+  | BackendRestorationEvent<Attachment>
+  | BackendRestartingEvent<Attachment>
+  | BackendDiagnosticEvent<Attachment>
+  | BackendExtensionEvent<Attachment>
 export function assertBackendEvent<Attachment extends string>(event: BackendEvent<Attachment>): void {
+  if (!Number.isSafeInteger(event.ingressOrdinal) || event.ingressOrdinal < 0) {
+    throw contractError('protocol.malformed', 'core', 'backend.assert-event.ingress-ordinal')
+  }
   if (event.attachment.attachmentId !== event.attachmentId) {
     throw contractError('protocol.malformed', 'core', 'backend.assert-event.attachment-id')
   }
@@ -237,11 +343,23 @@ export function assertBackendEvent<Attachment extends string>(event: BackendEven
     throw contractError('protocol.violation', 'core', 'backend.assert-event.database-attachment')
   }
   if (
-    event.kind === 'connection-lost' &&
+    (event.kind === 'connection-lost' || event.kind === 'connection-state-changed' || event.kind === 'disconnected') &&
     (event.connection.attachmentId !== event.attachmentId ||
       !attachmentRecordsEqual(event.connection.attachment, event.attachment))
   ) {
     throw contractError('protocol.violation', 'core', 'backend.assert-event.connection-attachment')
+  }
+  if (
+    event.kind === 'connection-state-changed' &&
+    (!connectionStates.includes(event.previous) ||
+      !connectionStates.includes(event.current) ||
+      (event.reason !== null && !backendDisconnectReasons.includes(event.reason)) ||
+      (event.current === 'disconnected' || event.current === 'lost') === (event.reason === null))
+  ) {
+    throw contractError('protocol.malformed', 'core', 'backend.assert-event.connection-transition-reason')
+  }
+  if (event.kind === 'disconnected' && !backendDisconnectReasons.includes(event.reason)) {
+    throw contractError('protocol.malformed', 'core', 'backend.assert-event.disconnect-reason')
   }
 }
 export interface BleCentralBackend<Attachment extends string, Identity extends BackendIdentity<Attachment>> {

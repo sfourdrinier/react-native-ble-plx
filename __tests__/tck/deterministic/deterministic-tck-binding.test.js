@@ -44,6 +44,11 @@ function featureRegistration(overrides = {}) {
   return {
     id: 'deterministic:feature',
     state: 'limited',
+    selectedSchemaRange: {
+      axis: 'capability-schema',
+      minimum: { axis: 'capability-schema', value: 1 },
+      maximum: { axis: 'capability-schema', value: 1 }
+    },
     implementationOrigin: 'core-emulated',
     implementation: { invoke: async input => input },
     tck: {
@@ -64,7 +69,13 @@ function featureRegistration(overrides = {}) {
       limitations: [deterministicLimitation]
     },
     limitations: [deterministicLimitation],
-    limits: { maximumRecords: 64 },
+    limits: {
+      maximumRecords: {
+        maximum: 64,
+        minimum: 1,
+        unit: 'records'
+      }
+    },
     ...overrides
   }
 }

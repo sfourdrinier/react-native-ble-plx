@@ -120,6 +120,15 @@ export class CoreBoundedStream<Value> implements BoundedAsyncStream<Value> {
     this.flushPendingConsumers()
   }
 
+  /** Appends a terminal control record after already accepted values drain. */
+  finishWithReason(reason: CoreStreamTerminalReason): void {
+    if (this.isTerminal()) {
+      return
+    }
+    this.terminalNotice = this.makeTerminal(reason)
+    this.flushPendingConsumers()
+  }
+
   retainedBytes(): number {
     return this.retainedValueBytes + this.controlReservationBytes()
   }

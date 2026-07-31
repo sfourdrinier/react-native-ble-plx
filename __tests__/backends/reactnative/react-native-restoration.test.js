@@ -1,7 +1,6 @@
 // __tests__/backends/reactnative/react-native-restoration.test.js
 
 const { opaqueId, negotiateVersion, version, versionRange } = require('../../../src/backend-contract/primitives')
-const { encodeNativeProtocolRecord } = require('../../../src/native-protocol/v1-codec')
 const {
   ReactNativeRestorationCoordinator,
   createReactNativeRestorationFeatureRegistry
@@ -68,31 +67,22 @@ function request(target, epoch = 'restoration-epoch-1') {
 }
 
 function nativeRecord(target, epoch = 'restoration-epoch-1') {
-  return Array.from(
-    encodeNativeProtocolRecord({
-      kind: 'restorationRecord',
-      fields: [
-        { id: 1, value: 1 },
-        { id: 2, value: namespace },
-        {
-          id: 3,
-          value: {
-            kind: 'attachment',
-            fields: [
-              { id: 1, value: String(target.attachmentId) },
-              { id: 2, value: String(target.backendInstanceId) },
-              { id: 3, value: String(target.backendGeneration) },
-              { id: 4, value: String(target.adapter.adapterId) },
-              { id: 5, value: String(target.adapter.adapterGeneration) }
-            ]
-          }
-        },
-        { id: 4, value: 1 },
-        { id: 5, value: epoch },
-        { id: 6, value: 'adapter' }
-      ]
-    })
-  )
+  return {
+    recordVersion: 1,
+    namespaceValue: namespace,
+    attachmentId: String(target.attachmentId),
+    backendInstanceId: String(target.backendInstanceId),
+    backendGeneration: String(target.backendGeneration),
+    adapterId: String(target.adapter.adapterId),
+    adapterGeneration: String(target.adapter.adapterGeneration),
+    ordinal: 1,
+    adoptionEpoch: epoch,
+    kind: 'adapter',
+    peerId: null,
+    connectionId: null,
+    ownerLeaseId: null,
+    connectionGeneration: null
+  }
 }
 
 function adoptedResult(target, epoch = 'restoration-epoch-1') {
@@ -102,7 +92,7 @@ function adoptedResult(target, epoch = 'restoration-epoch-1') {
     boundClientId: 'restoration-client',
     adoptionEpoch: epoch,
     replayRecordCount: 1,
-    records: [{ encodedRecord: nativeRecord(target, epoch) }]
+    records: [nativeRecord(target, epoch)]
   }
 }
 
@@ -220,7 +210,10 @@ describe('React Native restoration provider TCK', () => {
         evidenceLevel: 'deterministic',
         scenarioIds: ['restoration.provider-journal-adoption-and-rejection']
       },
-      limits: { maximumRestorationRecords: 1024, maximumRestorationBytes: 262144 }
+      limits: {
+        restorationRecords: { maximum: 1024, minimum: null, unit: 'items' },
+        restorationBytes: { maximum: 262144, minimum: null, unit: 'bytes' }
+      }
     })
 
     const android = createReactNativeRestorationFeatureRegistry('android', '4.0.0-test')

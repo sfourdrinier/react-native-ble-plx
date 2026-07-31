@@ -34,7 +34,7 @@ function operation(signal = null, deadline = null) {
 
 function scanOptions(signal = null) {
   return {
-    filter: { serviceUuids: [serviceUuid], localNamePrefix: 'Polar' },
+    filter: { serviceUuids: [serviceUuid], manufacturerData: [], localNamePrefix: 'Polar' },
     duplicatePolicy: 'all',
     timestampPolicy: 'receipt-monotonic',
     delivery: delivery(),
@@ -396,7 +396,7 @@ async function observedPeerId(backend, boundary) {
   if (observation.done || observation.value.kind !== 'value') {
     throw new Error('WinRT deterministic boundary did not produce an observation')
   }
-  return observation.value.value.peerId
+  return observation.value.value.device.id
 }
 
 describe('WinRT contract-v1 deterministic native-boundary vertical slice', () => {
@@ -453,7 +453,7 @@ describe('WinRT contract-v1 deterministic native-boundary vertical slice', () =>
     boundary.emitAdvertisement()
     const observation = await scan.observations[Symbol.asyncIterator]().next()
     await scan.stop()
-    const connection = await manager.connect(observation.value.value.peerId, operation())
+    const connection = await manager.connect(observation.value.value.device.id, operation())
     const database = await connection.discover(operation())
     const snapshot = await database.snapshot()
     expect(snapshot.services).toHaveLength(2)
@@ -617,7 +617,7 @@ describe('WinRT contract-v1 deterministic native-boundary vertical slice', () =>
       throw new Error('WinRT deterministic boundary did not produce an adapter-loss observation')
     }
     const lease = await backend.connections.connect(
-      observation.value.value.peerId,
+      observation.value.value.device.id,
       opaqueId('loss-connection', 'client', 'winrt:loss-retry'),
       operation()
     )
@@ -637,7 +637,7 @@ describe('WinRT contract-v1 deterministic native-boundary vertical slice', () =>
     ).rejects.toMatchObject({ normalized: { code: 'lifecycle.invalid-state' } })
     await expect(
       backend.connections.connect(
-        observation.value.value.peerId,
+        observation.value.value.device.id,
         opaqueId('blocked-connection-client', 'client', 'winrt:loss-retry'),
         operation()
       )

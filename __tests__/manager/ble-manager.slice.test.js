@@ -44,7 +44,7 @@ function operation(signal = null) {
 
 function scanOptions(deliveryOptions = delivery()) {
   return {
-    filter: { serviceUuids: [], localNamePrefix: null },
+    filter: { serviceUuids: [], manufacturerData: [], localNamePrefix: null },
     duplicatePolicy: 'all',
     timestampPolicy: 'receipt-monotonic',
     delivery: deliveryOptions,
@@ -57,10 +57,18 @@ function scanOptions(deliveryOptions = delivery()) {
 function advertisement(rawRecord) {
   const absent = { state: 'absent', reason: 'test-not-observed', provenance: 'not-provided' }
   return {
-    peerId: opaqueId('deterministic-peer', 'peer', 'deterministic'),
-    observedAt: monotonicTimestamp(1),
-    source: 'platform-raw',
+    device: {
+      id: opaqueId('deterministic-peer', 'peer', 'deterministic'),
+      backendInstanceId: opaqueId('deterministic-backend', 'backend-instance', 'deterministic'),
+      scope: 'backend',
+      stableAcrossRestarts: false,
+      address: null
+    },
+    provenance: 'platform-raw',
+    sourceTimestamp: absent,
+    receivedAtMonotonicMs: monotonicTimestamp(1),
     ingressOrdinal: 1,
+    scanSessionId: opaqueId('deterministic-scan', 'scan-session', 'deterministic'),
     localName: absent,
     rssi: absent,
     txPower: absent,
@@ -261,6 +269,190 @@ describe('BleManager production core slice', () => {
     await Promise.resolve()
     await expect(database.read(characteristic, operation())).rejects.toMatchObject({
       normalized: { code: 'gatt.stale-handle' }
+    })
+    await settle(fixture.controller, manager.destroy())
+    expectZeroCounters(manager.localResourceCounters())
+    expectZeroCounters(fixture.backend.resourceCounters())
+  })
+
+  test('publishes generation-bound connection lifecycle events and quarantines stale peer loss', async () => {
+    const { fixture, attachedBackend, authority } = await createAttachedFixture()
+    const manager = await createManager(attachedBackend, authority, 1, 'owning')
+    const peerId = opaqueId('deterministic-peer', 'peer', 'deterministic')
+
+    const first = await settle(fixture.controller, manager.connect(peerId, operation()))
+    const firstEvents = first.events[Symbol.asyncIterator]()
+    await expect(firstEvents.next()).resolves.toMatchObject({
+      done: false,
+      value: {
+        kind: 'value',
+        value: {
+          cause: 'connected',
+          previous: 'connecting',
+          current: 'connected',
+          peerId,
+          connectionId: first.connectionId,
+          connectionGeneration: first.connectionGeneration,
+          backendIngressOrdinal: null
+        }
+      }
+    })
+    const stalePath = fixture.controller.forceDisconnect(peerId)
+    await expect(settle(fixture.controller, firstEvents.next())).resolves.toMatchObject({
+      done: false,
+      value: {
+        kind: 'value',
+        value: {
+          cause: 'peer-link-loss',
+          previous: 'connected',
+          current: 'lost',
+          backendIngressOrdinal: expect.any(Number)
+        }
+      }
+    })
+    await expect(firstEvents.next()).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'terminal', reason: 'connection-lost' }
+    })
+    await settle(fixture.controller, first.release())
+    expectZeroCounters(manager.localResourceCounters())
+
+    const second = await settle(fixture.controller, manager.connect(peerId, operation()))
+    const secondEvents = second.events[Symbol.asyncIterator]()
+    await expect(secondEvents.next()).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'value', value: { cause: 'connected', connectionId: second.connectionId } }
+    })
+    fixture.controller.replayConnectionLoss(stalePath)
+    await settle(fixture.controller, second.disconnect())
+    await expect(secondEvents.next()).resolves.toMatchObject({
+      done: false,
+      value: {
+        kind: 'value',
+        value: {
+          cause: 'requested-disconnect',
+          previous: 'connected',
+          current: 'disconnected',
+          connectionId: second.connectionId,
+          backendIngressOrdinal: null
+        }
+      }
+    })
+    await expect(secondEvents.next()).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'terminal', reason: 'owner-released' }
+    })
+    expectZeroCounters(manager.localResourceCounters())
+
+    const third = await settle(fixture.controller, manager.connect(peerId, operation()))
+    const thirdEvents = third.events[Symbol.asyncIterator]()
+    await thirdEvents.next()
+    const database = await settle(fixture.controller, third.discover(operation()))
+    const characteristic = (await database.snapshot()).characteristics[0].path
+    const subscription = await settle(
+      fixture.controller,
+      database.subscribe(characteristic, { ...operation(), delivery: delivery() })
+    )
+    const subscriptionTerminal = subscription.values[Symbol.asyncIterator]().next()
+    fixture.controller.forceDisconnect(peerId)
+    await expect(settle(fixture.controller, thirdEvents.next())).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'value', value: { cause: 'peer-link-loss', current: 'lost' } }
+    })
+    await expect(settle(fixture.controller, subscriptionTerminal)).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'terminal', reason: 'connection-lost' }
+    })
+    await expect(settle(fixture.controller, third.release())).resolves.toEqual({ state: 'released', failures: [] })
+    expectZeroCounters(manager.localResourceCounters())
+
+    const raced = await settle(fixture.controller, manager.connect(peerId, operation()))
+    const racedEvents = raced.events[Symbol.asyncIterator]()
+    await racedEvents.next()
+    const racedDatabase = await settle(fixture.controller, raced.discover(operation()))
+    const racedCharacteristic = (await racedDatabase.snapshot()).characteristics[0].path
+    const racedSubscription = await settle(
+      fixture.controller,
+      racedDatabase.subscribe(racedCharacteristic, { ...operation(), delivery: delivery() })
+    )
+    fixture.controller.queueCompletion('unsubscribe', {
+      delayMs: 10,
+      failure: null,
+      cancellable: false,
+      deadlineOrder: 'completion-first'
+    })
+    const racedRemoval = racedSubscription.remove()
+    await flushMicrotasks()
+    fixture.controller.forceDisconnect(peerId)
+    await expect(settle(fixture.controller, racedRemoval)).resolves.toEqual({ state: 'released', failures: [] })
+    await expect(settle(fixture.controller, racedEvents.next())).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'value', value: { cause: 'peer-link-loss' } }
+    })
+    await settle(fixture.controller, raced.release())
+    expectZeroCounters(manager.localResourceCounters())
+
+    const cancelled = await settle(fixture.controller, manager.connect(peerId, operation()))
+    const cancelledEvents = cancelled.events[Symbol.asyncIterator]()
+    await cancelledEvents.next()
+    await expect(cancelled.events.close()).resolves.toEqual({ state: 'released', failures: [] })
+    fixture.controller.forceDisconnect(peerId)
+    await expect(cancelledEvents.next()).resolves.toEqual({
+      done: false,
+      value: expect.objectContaining({ kind: 'terminal', reason: 'closed' })
+    })
+    await expect(cancelledEvents.next()).resolves.toEqual({ done: true, value: undefined })
+    await settle(fixture.controller, cancelled.release())
+    expectZeroCounters(manager.localResourceCounters())
+
+    await settle(fixture.controller, manager.destroy())
+    expectZeroCounters(manager.localResourceCounters())
+    expectZeroCounters(fixture.backend.resourceCounters())
+  })
+
+  test.each([
+    ['released', async (fixture, manager, connection) => settle(fixture.controller, connection.release())],
+    ['manager-destroyed', async (fixture, manager) => settle(fixture.controller, manager.destroy())],
+    [
+      'adapter-loss',
+      async (fixture) => {
+        fixture.controller.setAdapterState('available', 'granted', 'off', 'deterministic adapter loss')
+      }
+    ],
+    [
+      'backend-restart',
+      async (fixture) => {
+        fixture.controller.reset()
+      }
+    ]
+  ])('publishes the %s connection lifecycle cause before cleanup', async (expectedCause, terminate) => {
+    const { fixture, attachedBackend, authority } = await createAttachedFixture()
+    const manager = await createManager(attachedBackend, authority, 1, 'owning')
+    const peerId = opaqueId('deterministic-peer', 'peer', 'deterministic')
+    const connection = await settle(fixture.controller, manager.connect(peerId, operation()))
+    const events = connection.events[Symbol.asyncIterator]()
+    await events.next()
+
+    await terminate(fixture, manager, connection)
+    await expect(settle(fixture.controller, events.next())).resolves.toMatchObject({
+      done: false,
+      value: {
+        kind: 'value',
+        value: {
+          cause: expectedCause,
+          previous: 'connected',
+          current: expectedCause === 'released' || expectedCause === 'manager-destroyed' ? 'disconnected' : 'lost'
+        }
+      }
+    })
+    await expect(events.next()).resolves.toMatchObject({
+      done: false,
+      value: {
+        kind: 'terminal',
+        reason: expectedCause === 'released' || expectedCause === 'manager-destroyed'
+          ? 'owner-released'
+          : 'connection-lost'
+      }
     })
     await settle(fixture.controller, manager.destroy())
     expectZeroCounters(manager.localResourceCounters())

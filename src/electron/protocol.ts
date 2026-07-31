@@ -1,7 +1,7 @@
 // src/electron/protocol.ts
 
 import type { CleanupRecord } from '../backend-contract/errors'
-import type { IpcEnvelope, RendererIdentity } from '../backend-contract/electron'
+import type { IpcEnvelope, RendererIdentity, RendererLeaseIdentity } from '../backend-contract/electron'
 import type {
   AttachmentId,
   IpcOperationCorrelation,
@@ -19,10 +19,13 @@ export interface ElectronRendererBootstrap<Attachment extends string, Renderer e
   readonly attachmentId: AttachmentId<Attachment>
   readonly versions: IpcVersionAxes
   readonly renderer: RendererIdentity<Attachment, Renderer>
+  readonly rendererLease: RendererLeaseIdentity
 }
 
 /** Main-to-renderer bounded stream item. The preload must forward this unchanged. */
 export interface ElectronBleIpcEvent {
+  /** Exact bootstrap lifetime that owns this event. */
+  readonly rendererLease: RendererLeaseIdentity
   /** Main-issued opaque identifier acknowledged after preload delivers this event. */
   readonly eventId: string
   readonly streamId: string
@@ -40,11 +43,13 @@ export interface ElectronRouteRequest<Attachment extends string, Renderer extend
 
 export interface ElectronReleaseRequest {
   readonly kind: 'release'
+  readonly rendererLease: RendererLeaseIdentity
 }
 
 /** Acknowledges a main-to-renderer event after the preload has delivered it. */
 export interface ElectronEventAcknowledgeRequest {
   readonly kind: 'event.ack'
+  readonly rendererLease: RendererLeaseIdentity
   readonly eventId: string
 }
 
@@ -88,7 +93,7 @@ export interface ElectronRendererIpcTransport<Attachment extends string, Rendere
     request: ElectronBleIpcRequest<Attachment, Renderer, Operation>
   ): Promise<ElectronBleIpcResponse<Attachment, Renderer>>
   subscribe(listener: (event: ElectronBleIpcEvent) => void): () => void
-  acknowledge(eventId: string): Promise<void>
+  acknowledge(rendererLease: RendererLeaseIdentity, eventId: string): Promise<void>
 }
 
 export interface ElectronIpcOperationRequest {

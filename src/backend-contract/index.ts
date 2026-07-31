@@ -4,13 +4,17 @@ export type {
   AdvertisementField,
   AdvertisementInput,
   AdvertisementObservation,
+  DeviceAddress,
+  DeviceIdentity,
   FieldProvenance,
   JoinScanSharing,
   OwnerScanOptions,
   OwnerScanSharing,
+  ManufacturerDataFilter,
   ScanFilter,
   ScanOptions,
-  ScanSharing
+  ScanSharing,
+  SourceTimestamp
 } from './advertisement'
 export type {
   AdapterBackend,
@@ -20,8 +24,24 @@ export type {
   BackendAttachmentRequest,
   BackendEvent,
   BackendEventBase,
+  BackendBondSecurityEvent,
+  BackendCharacteristicValueChangedEvent,
+  BackendConnectionLostEvent,
+  BackendConnectionStateChangedEvent,
   BackendDatabaseChangedEvent,
+  BackendDiagnosticEvent,
+  BackendDisconnectReason,
+  BackendDisconnectedEvent,
+  BackendExtensionEvent,
   BackendGenericEvent,
+  BackendMtuChangedEvent,
+  BackendNotificationOverflowEvent,
+  BackendPermissionStateChangedEvent,
+  BackendPhyChangedEvent,
+  BackendRestorationEvent,
+  BackendRestartingEvent,
+  BackendScanOverflowEvent,
+  BackendScanResultEvent,
   BackendSubscription,
   BleCentralBackend,
   BorrowingManagerConstruction,
@@ -42,6 +62,9 @@ export { assertAttachedBackend, assertBackendEvent, attachBackend } from './back
 export type {
   EvidenceLevel,
   EvidenceReceipt,
+  CapabilityDescriptor,
+  CapabilityLimit,
+  CapabilityLimits,
   FeatureId,
   FeatureImplementation,
   FeatureRegistration,
@@ -50,7 +73,12 @@ export type {
   Limitation,
   TckBinding
 } from './capabilities'
-export { createFeatureRegistry, validateFeatureRegistration } from './capabilities'
+export { createFeatureRegistry, describeFeatureRegistry, validateFeatureRegistration } from './capabilities'
+export type {
+  ConnectionLifecycleCause,
+  ConnectionLifecycleEvent,
+  ConnectionLifecycleTerminalCause
+} from './connection-lifecycle'
 export type {
   BleErrorCode,
   BleErrorDomain,
@@ -62,6 +90,7 @@ export type {
 export { BackendContractError, contractError } from './errors'
 export type {
   Characteristic,
+  CharacteristicProperties,
   CharacteristicPath,
   ConnectionPath,
   DatabasePath,

@@ -44,7 +44,7 @@ function delivery() {
 
 function scanOptions() {
   return {
-    filter: { serviceUuids: [serviceUuid], localNamePrefix: 'Polar' },
+    filter: { serviceUuids: [serviceUuid], manufacturerData: [], localNamePrefix: 'Polar' },
     duplicatePolicy: 'all',
     timestampPolicy: 'receipt-monotonic',
     delivery: delivery(),
@@ -79,7 +79,7 @@ async function observedPeerId(backend) {
   if (observation.done || observation.value.kind !== 'value') {
     throw new Error('CoreBluetooth deterministic boundary did not emit a scan observation')
   }
-  return observation.value.value.peerId
+  return observation.value.value.device.id
 }
 
 async function flushMicrotasks() {

@@ -23,9 +23,10 @@ import type { AttachmentId, BackendCompatibilityOffer, OwnedBytes, PeerId } from
 import type { MtuNegotiation, RssiMeasurement } from '../backend-contract/connection-controls'
 import type { AttachedBackend, BleCentralBackend, OwningManagerConstruction } from '../backend-contract/backend'
 import type { BoundedAsyncStream } from '../backend-contract/streams'
+import type { ConnectionLifecycleEvent } from '../backend-contract/connection-lifecycle'
 import type { RestorationAdoptionRequest, RestorationAdoptionResult } from '../backend-contract/restoration'
 import { DEFAULT_CORE_MAXIMUM_VALUE_BYTES, UnifiedBleCore } from '../core/unified-ble-core'
-import type { CoreScanSession, UnifiedBleCoreOptions } from '../core/unified-ble-core'
+import type { CoreDeadlineHandle, CoreScanSession, UnifiedBleCoreOptions } from '../core/unified-ble-core'
 import { CoreConnection, CoreGattDatabase } from '../core/core-gatt-handles'
 import { CoreSubscription } from '../core/subscription-registry'
 import {
@@ -64,6 +65,7 @@ type CurrentDescriptorPath<Attachment extends string> = DescriptorPath<
 
 export interface BleManagerOptions {
   readonly now: () => number
+  readonly timer?: UnifiedBleCoreOptions['timer']
   readonly maximumValueBytes: UnifiedBleCoreOptions['maximumValueBytes']
   readonly maximumAggregateRetainedBytes: number
   readonly traceMaximumRecords: number
@@ -205,6 +207,14 @@ export class BleManager<Attachment extends string, Identity extends BackendIdent
 
   traces() {
     return this.core.traces()
+  }
+
+  monotonicNow(): number {
+    return this.core.monotonicNow()
+  }
+
+  scheduleDeadline(deadline: number, action: () => void): CoreDeadlineHandle {
+    return this.core.scheduleDeadline(deadline, action)
   }
 
   localResourceCounters() {
@@ -454,6 +464,10 @@ export class Connection<Attachment extends string, Identity extends BackendIdent
     return this.connection.resource.connectionGeneration
   }
 
+  get events(): BoundedAsyncStream<ConnectionLifecycleEvent<Attachment>> {
+    return this.connection.events
+  }
+
   async discover(options: PublicOperationOptions): Promise<DiscoveredGattDatabase<Attachment, Identity>> {
     return new DiscoveredGattDatabase(await this.connection.discover(options))
   }
@@ -480,6 +494,14 @@ export class DiscoveredGattDatabase<Attachment extends string, Identity extends 
 
   get path() {
     return this.database.path
+  }
+
+  monotonicNow(): number {
+    return this.database.monotonicNow()
+  }
+
+  scheduleDeadline(deadline: number, action: () => void): CoreDeadlineHandle {
+    return this.database.scheduleDeadline(deadline, action)
   }
 
   snapshot(): ReturnType<GattDatabase<Attachment, string, string>['snapshot']> {

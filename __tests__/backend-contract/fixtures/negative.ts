@@ -48,6 +48,7 @@ const featureWithoutImplementation: FeatureRegistration<
 > = {
   id: 'example:feature',
   state: 'supported',
+  selectedSchemaRange: capabilityRange,
   implementationOrigin: 'backend-native',
   tck: { suiteId: 'example-suite', requiredScenarioIds: ['s'], contractRange: capabilityRange },
   evidence: {
@@ -59,7 +60,7 @@ const featureWithoutImplementation: FeatureRegistration<
     limitations: []
   },
   limitations: [],
-  limits: { maximumBytes: 1 }
+  limits: { maximumBytes: { maximum: 1, minimum: null, unit: 'bytes' } }
 }
 // @ts-expect-error normal BLE output must be owned bytes.
 const wrongByteType: OwnedBytes = byteBuffer

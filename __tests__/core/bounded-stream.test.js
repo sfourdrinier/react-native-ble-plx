@@ -49,6 +49,28 @@ describe('CoreBoundedStream', () => {
     await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined })
   })
 
+  test('finishes after retained values and preserves overflow visibility before the terminal', async () => {
+    const stream = new CoreBoundedStream(limits(2, 5, 1), 'drop-oldest')
+    stream.emit('first', 2)
+    stream.emit('second', 2)
+    stream.emit('third', 2)
+    stream.finishWithReason('connection-lost')
+    expect(stream.emit('late', 2)).toMatchObject({ accepted: false, terminated: true })
+    const iterator = stream[Symbol.asyncIterator]()
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'overflow', droppedItems: 1, droppedBytes: 2 }
+    })
+    await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { kind: 'value', value: 'second' } })
+    await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { kind: 'value', value: 'third' } })
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'terminal', reason: 'connection-lost' }
+    })
+    await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined })
+  })
+
   test.each(['closed', 'overflow', 'source-failed'])(
     'delivers one %s terminal then settles every concurrent remaining reader',
     async reason => {

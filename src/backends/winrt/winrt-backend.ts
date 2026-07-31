@@ -14,7 +14,11 @@ import type {
   ScanLease,
   ScannerBackend
 } from '../../backend-contract/backend'
-import type { AdvertisementObservation, OwnerScanOptions } from '../../backend-contract/advertisement'
+import {
+  deviceIdentity,
+  type AdvertisementObservation,
+  type OwnerScanOptions
+} from '../../backend-contract/advertisement'
 import { createFeatureRegistry } from '../../backend-contract/capabilities'
 import {
   BackendContractError,
@@ -660,13 +664,19 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
       return
     }
     const peerId = this.peerIdForNativeId(advertisement.nativePeerId)
+    const owner = group.consumers.get(String(group.ownerLeaseId))
+    if (owner === undefined) {
+      throw contractError('lifecycle.invariant-violation', 'scan', 'winrt.advertisement.scan-owner')
+    }
     const absent = (reason: string) =>
       Object.freeze({ state: 'absent' as const, reason, provenance: 'not-provided' as const })
     const observation: AdvertisementObservation<string> = Object.freeze({
-      peerId,
-      observedAt: monotonicTimestamp(this.now()),
-      source: 'platform-raw',
+      device: deviceIdentity(peerId, this.backendInstanceId, null),
+      provenance: 'platform-raw',
+      sourceTimestamp: absent('winrt-source-timestamp-not-provided'),
+      receivedAtMonotonicMs: monotonicTimestamp(this.now()),
       ingressOrdinal: this.nextIngressOrdinal,
+      scanSessionId: owner.scanSessionId,
       localName:
         advertisement.localName === null
           ? absent('winrt-not-provided')

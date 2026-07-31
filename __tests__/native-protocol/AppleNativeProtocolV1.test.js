@@ -17,7 +17,11 @@ describe('Apple Native Protocol v1 radio boundary', () => {
   test('owns direct CoreBluetooth bytes, duplicate-aware paths, and direct restoration', () => {
     const radio = read('ios/Owned/OwnedCoreBluetoothProtocolRadio.swift')
     const control = read('ios/UnifiedBleProtocolControl.mm')
-    const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
+    const execution = [
+      read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm'),
+      read('ios/NativeProtocol/UnifiedBleProtocolAppleAdvertisement.mm')
+    ].join('\n')
+    const descriptors = read('ios/Owned/OwnedCoreBluetoothProtocolRadioDescriptors.swift')
     const support = read('ios/Owned/OwnedCoreBluetoothProtocolRadioSupport.swift')
 
     expect(radio).toContain('OwnedCoreBluetoothProtocolRadio')
@@ -157,13 +161,9 @@ describe('Apple Native Protocol v1 radio boundary', () => {
 
   test('carries every CoreBluetooth-provided rich advertisement field through owned protocol binary references', () => {
     const support = read('ios/Owned/OwnedCoreBluetoothProtocolRadioSupport.swift')
-    const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
+    const advertisement = read('ios/NativeProtocol/UnifiedBleProtocolAppleAdvertisement.mm')
     const sharedBoundary = read('src/native-protocol/rn-android-boundary.ts')
     const appleBoundary = read('src/native-protocol/rn-apple-boundary.ts')
-    const advertisement = execution.slice(
-      execution.indexOf('void AppleNativeProtocolExecution::receiveAdvertisement'),
-      execution.indexOf('void AppleNativeProtocolExecution::receiveDisconnect')
-    )
 
     expect(support).toContain('CBAdvertisementDataTxPowerLevelKey')
     expect(support).toContain('CBAdvertisementDataIsConnectable')
@@ -172,11 +172,11 @@ describe('Apple Native Protocol v1 radio boundary', () => {
     expect(support).toContain('CBAdvertisementDataServiceDataKey')
     expect(support).toContain('CBAdvertisementDataManufacturerDataKey')
     expect(advertisement).toContain('appendNumber(@"txPower", 7U)')
-    expect(advertisement).toContain('field(8U, [value[@"connectable"] boolValue])')
+    expect(advertisement).toContain('nativeProtocolField(8U, [value[@"connectable"] boolValue])')
     expect(advertisement).toContain('appendStrings(@"solicitedServiceUUIDs", 11U)')
     expect(advertisement).toContain('appendStrings(@"overflowServiceUUIDs", 12U)')
-    expect(advertisement).toContain('field(13U, std::move(serviceData))')
-    expect(advertisement).toContain('field(14U, protocol::ProtocolRecordList{reference(entry)})')
+    expect(advertisement).toContain('nativeProtocolField(13U, std::move(serviceData))')
+    expect(advertisement).toContain('nativeProtocolField(14U, protocol::ProtocolRecordList{nativeProtocolReference(entry)})')
     expect(advertisement).toContain('retainNativeBytes(')
     expect(advertisement).toContain('releaseBinary(binary)')
     expect(advertisement).toContain('static_cast<std::uint64_t>(source[1]) << 8U')
@@ -186,17 +186,38 @@ describe('Apple Native Protocol v1 radio boundary', () => {
   })
 
   test('does not manufacture advertisement fields CoreBluetooth does not expose', () => {
-    const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
-    const advertisement = execution.slice(
-      execution.indexOf('void AppleNativeProtocolExecution::receiveAdvertisement'),
-      execution.indexOf('void AppleNativeProtocolExecution::receiveDisconnect')
-    )
+    const advertisement = read('ios/NativeProtocol/UnifiedBleProtocolAppleAdvertisement.mm')
 
     expect(advertisement).not.toContain('field(9U')
     expect(advertisement).not.toContain('field(15U')
     expect(advertisement).not.toContain('field(16U')
     expect(advertisement).not.toContain('rawRecord')
     expect(advertisement).not.toContain('scanResponseRecord')
+  })
+
+  test('publishes duplicate-safe descriptor discovery and descriptor read/write over the canonical binary boundary', () => {
+    const radio = read('ios/Owned/OwnedCoreBluetoothProtocolRadio.swift')
+    const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
+    const descriptors = read('ios/Owned/OwnedCoreBluetoothProtocolRadioDescriptors.swift')
+    const boundary = read('src/native-protocol/rn-apple-boundary.ts')
+    const provider = read('src/backends/reactnative/react-native-apple-provider.ts')
+
+    expect(descriptors).toContain('struct OwnedCoreBluetoothDescriptorAddress: Hashable')
+    expect(descriptors).toContain('pendingReads')
+    expect(descriptors).toContain('pendingWrites')
+    expect(descriptors).toContain('readDescriptor(')
+    expect(descriptors).toContain('writeDescriptor(')
+    expect(descriptors).toContain('didUpdateValueFor descriptor')
+    expect(descriptors).toContain('didWriteValueFor descriptor')
+    expect(radio).toContain('"descriptors": descriptors')
+    expect(execution).toContain('if (kind == "readDescriptor")')
+    expect(execution).toContain('kind == "readDescriptor" || kind == "writeDescriptor"')
+    expect(execution).toContain('descriptorEndpointFor')
+    expect(execution).toContain('field(15U, reference(descriptorPath))')
+    expect(execution).toContain('return "descriptorRead"')
+    expect(execution).toContain('return "descriptorWrite"')
+    expect(boundary).not.toContain('descriptorOperationsAvailable = false')
+    expect(provider).not.toContain('Descriptor operations are unavailable')
   })
 
   executesOnAppleHost('executes canonical 128-bit UUID parsing through the native startScan path', () => {
@@ -209,6 +230,7 @@ describe('Apple Native Protocol v1 radio boundary', () => {
           'swiftc',
           path.join(root, 'ios/Owned/OwnedCoreBluetoothProtocolRadioSupport.swift'),
           path.join(root, 'ios/Owned/OwnedCoreBluetoothProtocolRadio.swift'),
+          path.join(root, 'ios/Owned/OwnedCoreBluetoothProtocolRadioDescriptors.swift'),
           path.join(root, 'native/protocol/tests/AppleCoreBluetoothScanParserHarness.swift'),
           '-o',
           executable

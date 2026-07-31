@@ -40,7 +40,7 @@ function delivery() {
 
 function scanOptions(deadline = null) {
   return {
-    filter: { serviceUuids: [serviceUuid], localNamePrefix: 'Polar' },
+    filter: { serviceUuids: [serviceUuid], manufacturerData: [], localNamePrefix: 'Polar' },
     duplicatePolicy: 'all',
     timestampPolicy: 'receipt-monotonic',
     delivery: delivery(),
@@ -141,7 +141,7 @@ async function observedPeerId(backend) {
   if (observation.done || observation.value.kind !== 'value') {
     throw new Error('BlueZ lifecycle regression fixture did not emit an observation')
   }
-  return observation.value.value.peerId
+  return observation.value.value.device.id
 }
 
 describe('BlueZ lifecycle regressions', () => {

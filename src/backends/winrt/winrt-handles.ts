@@ -171,7 +171,17 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
             validity: 'current'
           }
         )
-        characteristics.push(Object.freeze({ path: characteristicPath }))
+        characteristics.push(
+          Object.freeze({
+            path: characteristicPath,
+            properties: Object.freeze({
+              read: characteristic.readable,
+              writeWithResponse: characteristic.writableWithResponse,
+              writeWithoutResponse: characteristic.writableWithoutResponse,
+              notify: characteristic.notifiable || characteristic.indicatable
+            })
+          })
+        )
         for (const descriptor of characteristic.descriptors) {
           const descriptorPath: DescriptorPath<string, string, string, string, string, string, 'current'> =
             Object.freeze({

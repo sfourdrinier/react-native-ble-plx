@@ -102,7 +102,11 @@ class CanonicalBleExampleService {
     await this.stopScan()
     const manager = await this.ensureManager()
     const scan = await manager.scan({
-      filter: { serviceUuids: serviceUuids.map(canonicalUuid), localNamePrefix: null },
+      filter: {
+        serviceUuids: serviceUuids.map(canonicalUuid),
+        manufacturerData: [],
+        localNamePrefix: null
+      },
       duplicatePolicy: 'merged',
       timestampPolicy: 'receipt-monotonic',
       delivery: {
@@ -447,7 +451,7 @@ function monotonicNow(): number {
 
 function peerFromObservation(observation: AdvertisementObservation<string>): ExamplePeer {
   return Object.freeze({
-    peerId: observation.peerId,
+    peerId: observation.device.id,
     label: observation.localName.state === 'present' ? observation.localName.value : null,
     rssi: observation.rssi.state === 'present' ? observation.rssi.value : null,
     isConnectable: observation.connectable.state === 'present' ? observation.connectable.value : null,

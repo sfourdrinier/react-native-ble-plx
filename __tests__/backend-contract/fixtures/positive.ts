@@ -36,7 +36,7 @@ declare const alphaBinding: AttachmentBinding<'alpha'>
 declare function observe<Value>(value: Value): void
 
 const exclusiveScan: OwnerScanOptions<'alpha', 'lease-one'> = {
-  filter: { serviceUuids: [], localNamePrefix: null },
+  filter: { serviceUuids: [], manufacturerData: [], localNamePrefix: null },
   duplicatePolicy: 'merged',
   timestampPolicy: 'source-then-receipt',
   delivery: {
@@ -57,6 +57,7 @@ const completeFeature: FeatureRegistration<
 > = {
   id: 'example:complete',
   state: 'supported',
+  selectedSchemaRange: schemaRange,
   implementationOrigin: 'backend-native',
   implementation,
   tck: { suiteId: 'example-suite', requiredScenarioIds: ['example-scenario'], contractRange: schemaRange },
@@ -69,7 +70,7 @@ const completeFeature: FeatureRegistration<
     limitations: []
   },
   limitations: [],
-  limits: { maximumBytes: 1024 }
+  limits: { maximumBytes: { maximum: 1024, minimum: null, unit: 'bytes' } }
 }
 observe(exclusiveScan)
 observe(completeFeature)

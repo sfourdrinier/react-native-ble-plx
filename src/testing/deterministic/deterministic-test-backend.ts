@@ -10,6 +10,7 @@ import type {
 } from '../../backend-contract/backend'
 import type { HostNeutralBackendIdentity } from '../../backend-contract/identity'
 import type { CharacteristicPath, DescriptorPath, GattDatabase, NotificationValue } from '../../backend-contract/gatt'
+import type { ConnectionPath } from '../../backend-contract/gatt'
 import type {
   OperationOptions,
   OperationTerminalRecord,
@@ -149,15 +150,20 @@ export class DeterministicTestBackend
     }
   }
 
-  forceDisconnect(peerId: PeerId<string>): void {
+  forceDisconnect(peerId: PeerId<string>): ConnectionPath<string, string> {
     const record = this.connectionsByPeer.get(String(peerId))
     if (record === undefined || !record.active) {
-      return
+      throw contractError('connection.not-found', 'connection', 'deterministic.force-disconnect')
     }
     const connection = connectionPathForRecord(record, this.attachment())
     this.invalidateConnection(record, 'connection-lost')
     this.recordTrace('resource', 'connection-lost', 'connection.lost')
-    const attachment = this.attachment()
+    this.replayConnectionLoss(connection)
+    return connection
+  }
+
+  replayConnectionLoss(connection: ConnectionPath<string, string>): void {
+    const attachment = connection.attachment
     this.broadcastEvent({
       attachment,
       attachmentId: attachment.attachmentId,

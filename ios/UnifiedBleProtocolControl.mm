@@ -16,7 +16,7 @@
 #include "NativeProtocol/UnifiedBleProtocolAppleExecution.hpp"
 
 #ifdef RCT_NEW_ARCH_ENABLED
-#import <BlePlxSpec/BlePlxSpec.h>
+#import <UnifiedBleProtocolSpec/UnifiedBleProtocolSpec.h>
 #endif
 
 namespace {
@@ -108,6 +108,108 @@ unified_ble::native_protocol::v1::NativeAttachmentIdentity nativeAttachment(
 void rejectControl(RCTPromiseRejectBlock reject, NSString *code, NSString *message) {
   RCTLogError(@"[UnifiedBleProtocolControl] %@ failed: %@", code, message);
   reject(code, message, nil);
+}
+
+const unified_ble::native_protocol::v1::ProtocolField* restorationField(
+    const unified_ble::native_protocol::v1::ProtocolRecord& record,
+    std::uint16_t id) {
+  for (const auto& candidate : record.fields) {
+    if (candidate.id == id) return &candidate;
+  }
+  return nullptr;
+}
+
+const std::string& requiredRestorationString(
+    const unified_ble::native_protocol::v1::ProtocolRecord& record,
+    std::uint16_t id,
+    const char* name) {
+  const auto* candidate = restorationField(record, id);
+  const auto* value = candidate == nullptr
+      ? nullptr
+      : std::get_if<std::string>(&candidate->value);
+  if (value == nullptr || value->empty()) {
+    throw unified_ble::native_protocol::v1::ProtocolException(
+        unified_ble::native_protocol::v1::ProtocolFailure::malformedRecord,
+        std::string("Apple restoration record is missing ") + name);
+  }
+  return *value;
+}
+
+std::uint64_t requiredRestorationUnsigned(
+    const unified_ble::native_protocol::v1::ProtocolRecord& record,
+    std::uint16_t id,
+    const char* name) {
+  const auto* candidate = restorationField(record, id);
+  const auto* value = candidate == nullptr
+      ? nullptr
+      : std::get_if<std::uint64_t>(&candidate->value);
+  if (value == nullptr || *value == 0U) {
+    throw unified_ble::native_protocol::v1::ProtocolException(
+        unified_ble::native_protocol::v1::ProtocolFailure::malformedRecord,
+        std::string("Apple restoration record is missing ") + name);
+  }
+  return *value;
+}
+
+const unified_ble::native_protocol::v1::ProtocolRecord& requiredRestorationRecord(
+    const unified_ble::native_protocol::v1::ProtocolRecord& record,
+    std::uint16_t id,
+    const char* name) {
+  const auto* candidate = restorationField(record, id);
+  const auto* value = candidate == nullptr
+      ? nullptr
+      : std::get_if<unified_ble::native_protocol::v1::ProtocolRecordReference>(&candidate->value);
+  if (value == nullptr || !*value) {
+    throw unified_ble::native_protocol::v1::ProtocolException(
+        unified_ble::native_protocol::v1::ProtocolFailure::malformedRecord,
+        std::string("Apple restoration record is missing ") + name);
+  }
+  return **value;
+}
+
+NSString* restorationNSString(const std::string& value) {
+  return [NSString stringWithUTF8String:value.c_str()];
+}
+
+NSDictionary* structuredRestorationReplayRecord(
+    const unified_ble::native_protocol::v1::ProtocolRecord& record) {
+  const auto recordVersion = requiredRestorationUnsigned(record, 1U, "recordVersion");
+  const auto& namespaceValue = requiredRestorationString(record, 2U, "namespace");
+  const auto& attachment = requiredRestorationRecord(record, 3U, "attachment");
+  const auto ordinal = requiredRestorationUnsigned(record, 4U, "ordinal");
+  const auto& adoptionEpoch = requiredRestorationString(record, 5U, "adoptionEpoch");
+  const auto& kind = requiredRestorationString(record, 6U, "kind");
+  id peerId = [NSNull null];
+  id connectionId = [NSNull null];
+  id ownerLeaseId = [NSNull null];
+  id connectionGeneration = [NSNull null];
+  if (kind == "connection") {
+    peerId = restorationNSString(requiredRestorationString(record, 7U, "peerId"));
+    const auto& path = requiredRestorationRecord(record, 8U, "connectionPath");
+    connectionId = restorationNSString(requiredRestorationString(path, 3U, "connectionId"));
+    ownerLeaseId = restorationNSString(requiredRestorationString(path, 4U, "ownerLeaseId"));
+    connectionGeneration = restorationNSString(requiredRestorationString(path, 5U, "connectionGeneration"));
+  } else if (kind != "adapter") {
+    throw unified_ble::native_protocol::v1::ProtocolException(
+        unified_ble::native_protocol::v1::ProtocolFailure::malformedRecord,
+        "Apple restoration transport supports adapter and connection records only");
+  }
+  return @{
+    @"recordVersion": @(recordVersion),
+    @"namespaceValue": restorationNSString(namespaceValue),
+    @"attachmentId": restorationNSString(requiredRestorationString(attachment, 1U, "attachmentId")),
+    @"backendInstanceId": restorationNSString(requiredRestorationString(attachment, 2U, "backendInstanceId")),
+    @"backendGeneration": restorationNSString(requiredRestorationString(attachment, 3U, "backendGeneration")),
+    @"adapterId": restorationNSString(requiredRestorationString(attachment, 4U, "adapterId")),
+    @"adapterGeneration": restorationNSString(requiredRestorationString(attachment, 5U, "adapterGeneration")),
+    @"ordinal": @(ordinal),
+    @"adoptionEpoch": restorationNSString(adoptionEpoch),
+    @"kind": restorationNSString(kind),
+    @"peerId": peerId,
+    @"connectionId": connectionId,
+    @"ownerLeaseId": ownerLeaseId,
+    @"connectionGeneration": connectionGeneration,
+  };
 }
 
 } // namespace
@@ -353,14 +455,8 @@ RCT_EXPORT_MODULE(UnifiedBleProtocolControl)
     }
     NSMutableArray<NSDictionary*>* replayRecords =
         [NSMutableArray arrayWithCapacity:receipt.records.size()];
-    const unified_ble::native_protocol::v1::NativeProtocolV1Codec codec;
     for (const auto& entry : receipt.records) {
-      const auto encoded = codec.encode(entry.record);
-      NSMutableArray<NSNumber*>* bytes = [NSMutableArray arrayWithCapacity:encoded.size()];
-      for (const std::uint8_t byte : encoded) {
-        [bytes addObject:@(byte)];
-      }
-      [replayRecords addObject:@{@"encodedRecord": bytes}];
+      [replayRecords addObject:structuredRestorationReplayRecord(entry.record)];
     }
     resolve(@{
       @"receiptId": [NSString stringWithUTF8String:receipt.receiptId.c_str()],

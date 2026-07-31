@@ -10,6 +10,7 @@ import {
   ElectronMainArbiterContext,
   type IpcEnvelope,
   type RendererIdentity,
+  type RendererLeaseIdentity,
   type TrustedIpcSender
 } from '../backend-contract/electron'
 import type { CharacteristicPath } from '../backend-contract/gatt'
@@ -69,6 +70,7 @@ export interface ElectronMainBleRouterOptions {
 }
 
 interface RendererResources {
+  readonly rendererLease: RendererLeaseIdentity
   readonly scans: Map<string, ManagedScan>
   readonly connections: Map<string, MainConnection>
   readonly databases: Map<string, ManagedDatabase>
@@ -117,8 +119,8 @@ export class ElectronMainBleRouter {
     this.maximumMessageBytes = options.maximumMessageBytes
     this.streams = new ElectronRendererStreamRegistry({
       maximumMessageBytes: this.maximumMessageBytes,
-      publish: (rendererClientId, event) => this.publish(rendererClientId, event),
-      createEvent: (streamId, item) => this.event(streamId, item)
+      publish: (rendererLeaseId, event) => this.publish(rendererLeaseId, event),
+      createEvent: (rendererLease, streamId, item) => this.event(rendererLease, streamId, item)
     })
     const attachment = this.manager.attachedBackend.attachment.attachment
     const versions = createElectronIpcVersionAxes(this.manager.identity.versions)
@@ -134,7 +136,7 @@ export class ElectronMainBleRouter {
       },
       {
         route: envelope => this.route(envelope),
-        release: identity => this.releaseResources(identity.clientId)
+        release: (_identity, lease) => this.releaseResources(lease.leaseId)
       }
     )
   }
@@ -145,11 +147,11 @@ export class ElectronMainBleRouter {
   ): Promise<ElectronBleIpcResponse<string, Renderer>> {
     if (request.kind === 'bootstrap') {
       const renderer = rendererIdentity(sender)
-      this.arbiter.registerRenderer(renderer)
-      this.resourcesFor(renderer.clientId)
+      const rendererLease = this.arbiter.registerRenderer(renderer)
+      this.resourcesFor(rendererLease)
       return {
         kind: 'bootstrap',
-        bootstrap: this.bootstrap(renderer)
+        bootstrap: this.bootstrap(renderer, rendererLease)
       }
     }
     if (request.kind === 'route') {
@@ -157,10 +159,7 @@ export class ElectronMainBleRouter {
       return { kind: 'route', payload }
     }
     if (request.kind === 'release') {
-      if (!this.resources.has(String(sender.authenticatedClientId))) {
-        return { kind: 'release', cleanup: { state: 'released', failures: [] } }
-      }
-      const cleanup = await this.arbiter.releaseRenderer(sender)
+      const cleanup = await this.arbiter.releaseRenderer(sender, request.rendererLease)
       return { kind: 'release', cleanup }
     }
     throw contractError('protocol.violation', 'ipc', 'electron-main-router.event-ack-binding-required')
@@ -177,8 +176,11 @@ export class ElectronMainBleRouter {
   }
 
   /** Releases the authenticated renderer after a host-owned WebContents lifetime event. */
-  releaseRenderer<Renderer extends string>(sender: TrustedIpcSender<string, Renderer>): Promise<CleanupRecord> {
-    return this.arbiter.releaseRenderer(sender)
+  releaseRenderer<Renderer extends string>(
+    sender: TrustedIpcSender<string, Renderer>,
+    rendererLease: RendererLeaseIdentity
+  ): Promise<CleanupRecord> {
+    return this.arbiter.releaseRenderer(sender, rendererLease)
   }
 
   /**
@@ -186,15 +188,16 @@ export class ElectronMainBleRouter {
    * events. The owning binding calls this only for its own renderer identity.
    */
   async terminateStream(
-    rendererClientId: string,
+    rendererLease: RendererLeaseIdentity,
     streamId: string,
     reason: 'renderer-backpressure' | 'renderer-unavailable'
   ): Promise<void> {
-    const resources = this.resources.get(rendererClientId)
+    const rendererLeaseId = String(rendererLease.leaseId)
+    const resources = this.resources.get(rendererLeaseId)
     if (resources === undefined) {
       return
     }
-    await this.streams.terminate(resources, rendererClientId, streamId, reason)
+    await this.streams.terminate(resources, rendererLease, streamId, reason)
   }
 
   async destroy(): Promise<CleanupRecord> {
@@ -231,21 +234,23 @@ export class ElectronMainBleRouter {
   }
 
   private bootstrap<Renderer extends string>(
-    renderer: RendererIdentity<string, Renderer>
+    renderer: RendererIdentity<string, Renderer>,
+    rendererLease: RendererLeaseIdentity
   ): ElectronRendererBootstrap<string, Renderer> {
     const attachment = this.manager.attachedBackend.attachment.attachment
     return Object.freeze({
       attachment,
       attachmentId: attachment.attachmentId,
       versions: createElectronIpcVersionAxes(this.manager.identity.versions),
-      renderer
+      renderer,
+      rendererLease
     })
   }
 
   private async route<Renderer extends string, Operation extends string>(
     envelope: IpcEnvelope<string, Renderer, Operation>
   ): Promise<SerializableRecord> {
-    const resources = this.resourcesFor(envelope.renderer.clientId)
+    const resources = this.resourcesFor(envelope.rendererLease)
     if (resources.lifecycle !== 'active') {
       throw contractError('lifecycle.invalid-state', 'ipc', 'electron-main-router.renderer-releasing')
     }
@@ -302,9 +307,10 @@ export class ElectronMainBleRouter {
     controller: AbortController
   ): Promise<SerializableRecord> {
     const serviceUuids = requiredStringArray(envelope.payload, 'serviceUuids').map(canonicalUuid)
+    const manufacturerData = requiredManufacturerFilters(envelope.payload)
     const localNamePrefix = nullableString(envelope.payload, 'localNamePrefix')
     const scan = await this.manager.scan({
-      filter: { serviceUuids, localNamePrefix },
+      filter: { serviceUuids, manufacturerData, localNamePrefix },
       duplicatePolicy: 'all',
       timestampPolicy: 'receipt-monotonic',
       delivery: DEFAULT_DELIVERY,
@@ -313,7 +319,7 @@ export class ElectronMainBleRouter {
       sharing: { mode: 'owner', allowSharing: false }
     })
     const handle = this.allocateHandle('scan')
-    this.streams.registerScan(resources, String(envelope.renderer.clientId), handle, scan)
+    this.streams.registerScan(resources, envelope.rendererLease, handle, scan)
     return Object.freeze({ handle })
   }
 
@@ -409,7 +415,7 @@ export class ElectronMainBleRouter {
     const handle = this.allocateHandle('subscription')
     this.streams.registerSubscription(
       resources,
-      String(envelope.renderer.clientId),
+      envelope.rendererLease,
       handle,
       requiredString(envelope.payload, 'databaseHandle'),
       subscription
@@ -666,13 +672,14 @@ export class ElectronMainBleRouter {
     }
   }
 
-  private resourcesFor(clientId: string): RendererResources {
-    const key = clientId
+  private resourcesFor(rendererLease: RendererLeaseIdentity): RendererResources {
+    const key = String(rendererLease.leaseId)
     const existing = this.resources.get(key)
     if (existing !== undefined) {
       return existing
     }
     const resources: RendererResources = {
+      rendererLease,
       scans: new Map(),
       connections: new Map(),
       databases: new Map(),
@@ -689,8 +696,9 @@ export class ElectronMainBleRouter {
     return `${kind}-${this.nextHandle++}`
   }
 
-  private event(streamId: string, item: SerializableRecord): ElectronBleIpcEvent {
+  private event(rendererLease: RendererLeaseIdentity, streamId: string, item: SerializableRecord): ElectronBleIpcEvent {
     return Object.freeze({
+      rendererLease,
       eventId: `event-${this.nextEvent++}`,
       streamId,
       item
@@ -772,6 +780,39 @@ function requiredStringArray(payload: SerializableRecord, key: string): readonly
     strings.push(item)
   }
   return Object.freeze(strings)
+}
+
+function requiredManufacturerFilters(
+  payload: SerializableRecord
+): readonly { readonly companyIdentifier: number; readonly dataPrefix: Uint8Array | null }[] {
+  const value = payload.manufacturerData
+  if (!Array.isArray(value)) {
+    throw contractError('protocol.malformed', 'ipc', 'electron-main-router.manufacturerData')
+  }
+  const filters: { readonly companyIdentifier: number; readonly dataPrefix: Uint8Array | null }[] = []
+  for (const entry of value) {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry) || entry instanceof Uint8Array) {
+      throw contractError('protocol.malformed', 'ipc', 'electron-main-router.manufacturerData')
+    }
+    const companyIdentifier = entry.companyIdentifier
+    const dataPrefix = entry.dataPrefix
+    if (
+      typeof companyIdentifier !== 'number' ||
+      !Number.isSafeInteger(companyIdentifier) ||
+      companyIdentifier < 0 ||
+      companyIdentifier > 0xffff ||
+      (dataPrefix !== null && !(dataPrefix instanceof Uint8Array))
+    ) {
+      throw contractError('protocol.malformed', 'ipc', 'electron-main-router.manufacturerData')
+    }
+    filters.push(
+      Object.freeze({
+        companyIdentifier,
+        dataPrefix: dataPrefix === null ? null : new Uint8Array(dataPrefix)
+      })
+    )
+  }
+  return Object.freeze(filters)
 }
 
 function deadlineFromPayload(payload: SerializableRecord) {

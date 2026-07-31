@@ -1,6 +1,10 @@
 // src/backends/corebluetooth/corebluetooth-handles.ts
 
-import type { AdvertisementObservation, OwnerScanOptions } from '../../backend-contract/advertisement'
+import {
+  advertisementMatchesFilter,
+  type AdvertisementObservation,
+  type OwnerScanOptions
+} from '../../backend-contract/advertisement'
 import type { BackendConnection, BackendSubscription, ConnectionLease, ScanLease } from '../../backend-contract/backend'
 import { contractError, type CleanupFailure, type CleanupRecord } from '../../backend-contract/errors'
 import type {
@@ -179,7 +183,17 @@ export class CoreBluetoothGattDatabase implements GattDatabase<string, string, s
             validity: 'current'
           }
         )
-        characteristics.push(Object.freeze({ path: characteristicPath }))
+        characteristics.push(
+          Object.freeze({
+            path: characteristicPath,
+            properties: Object.freeze({
+              read: characteristic.readable,
+              writeWithResponse: characteristic.writableWithResponse,
+              writeWithoutResponse: characteristic.writableWithoutResponse,
+              notify: characteristic.notifiable
+            })
+          })
+        )
         for (const descriptor of characteristic.descriptors) {
           const descriptorPath: DescriptorPath<string, string, string, string, string, string, 'current'> =
             Object.freeze({
@@ -420,21 +434,7 @@ export function matchesScan(
   options: OwnerScanOptions<string, string>,
   observation: AdvertisementObservation<string>
 ): boolean {
-  if (
-    options.filter.localNamePrefix !== null &&
-    (observation.localName.state !== 'present' ||
-      !observation.localName.value.startsWith(options.filter.localNamePrefix))
-  ) {
-    return false
-  }
-  if (options.filter.serviceUuids.length === 0) {
-    return true
-  }
-  const advertisedServices = observation.serviceUuids
-  return (
-    advertisedServices.state === 'present' &&
-    options.filter.serviceUuids.every(uuid => advertisedServices.value.includes(uuid))
-  )
+  return advertisementMatchesFilter(options.filter, observation)
 }
 
 export function advertisementByteLength(observation: AdvertisementObservation<string>): number {

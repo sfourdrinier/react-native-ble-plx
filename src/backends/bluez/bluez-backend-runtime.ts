@@ -581,13 +581,25 @@ export class BluezBackendRuntime implements BluezObjectStoreObserver {
     if (group === null || !this.store.hasInterface(path, BLUEZ_DEVICE_INTERFACE)) {
       return
     }
-    const observation = createObservation(this.store, path, this.peerIdForPath(path), this.now(), this.ingressOrdinal)
+    const owner = group.consumers.get(String(group.ownerLeaseId))
+    if (owner === undefined) {
+      throw contractError('lifecycle.invariant-violation', 'scan', 'bluez.advertisement.scan-owner')
+    }
+    const observation = createObservation(
+      this.store,
+      path,
+      this.peerIdForPath(path),
+      this.attachment().backendInstanceId,
+      owner.scanSessionId,
+      this.now(),
+      this.ingressOrdinal
+    )
     this.ingressOrdinal += 1
     for (const consumer of group.consumers.values()) {
       if (!matchesScan(consumer.options, observation)) {
         continue
       }
-      const result = consumer.stream.emit(observation, advertisementSize(observation), String(observation.peerId))
+      const result = consumer.stream.emit(observation, advertisementSize(observation), String(observation.device.id))
       if (result.terminated) {
         observeBluezCleanup(
           this.stopScan(consumer),

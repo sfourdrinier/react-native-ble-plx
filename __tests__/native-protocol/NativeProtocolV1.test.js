@@ -78,7 +78,7 @@ describe('Native Protocol v1 schema authority', () => {
       const generatedFiles = listFiles(output)
       const androidSpec = generatedFiles.find(file => file.endsWith('NativeUnifiedBleProtocolControlSpec.java'))
       const appleHeader = generatedFiles.find(
-        file => file.endsWith('BlePlxSpec.h') && file.includes(`${path.sep}ios${path.sep}`)
+        file => file.endsWith('UnifiedBleProtocolSpec.h') && file.includes(`${path.sep}ios${path.sep}`)
       )
       expect(androidSpec).toBeDefined()
       expect(appleHeader).toBeDefined()

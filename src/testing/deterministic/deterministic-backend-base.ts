@@ -1,6 +1,10 @@
 // src/testing/deterministic/deterministic-backend-base.ts
 
-import type { AdvertisementObservation, OwnerScanOptions } from '../../backend-contract/advertisement'
+import {
+  advertisementMatchesFilter,
+  type AdvertisementObservation,
+  type OwnerScanOptions
+} from '../../backend-contract/advertisement'
 import {
   createFeatureRegistry,
   type FeatureImplementation,
@@ -218,7 +222,8 @@ export abstract class DeterministicBackendBase {
       if (!this.matchesScan(consumer.options, observation)) {
         continue
       }
-      const peerKey = String(observation.peerId)
+      const sessionObservation = Object.freeze({ ...observation, scanSessionId: consumer.scanSessionId })
+      const peerKey = String(sessionObservation.device.id)
       const previousPayload = consumer.observedPayloads.get(peerKey)
       if (consumer.options.duplicatePolicy === 'first' && previousPayload !== undefined) {
         continue
@@ -226,21 +231,21 @@ export abstract class DeterministicBackendBase {
       if (
         consumer.options.duplicatePolicy === 'merged' &&
         previousPayload !== undefined &&
-        observation.rawRecord.state === 'present' &&
-        equalBytes(previousPayload, observation.rawRecord.value)
+        sessionObservation.rawRecord.state === 'present' &&
+        equalBytes(previousPayload, sessionObservation.rawRecord.value)
       ) {
         continue
       }
-      if (observation.rawRecord.state === 'present') {
-        consumer.observedPayloads.set(peerKey, new Uint8Array(observation.rawRecord.value))
+      if (sessionObservation.rawRecord.state === 'present') {
+        consumer.observedPayloads.set(peerKey, new Uint8Array(sessionObservation.rawRecord.value))
       } else if (consumer.options.duplicatePolicy === 'first') {
         consumer.observedPayloads.set(peerKey, new Uint8Array())
       }
       const outcome = this.pushWithinAggregateQuota(
         consumer.stream,
-        observation,
-        advertisementByteLength(observation),
-        String(observation.peerId)
+        sessionObservation,
+        advertisementByteLength(sessionObservation),
+        String(sessionObservation.device.id)
       )
       if (outcome.terminated) {
         this.recordTrace('stream', 'scan-overflow-terminal', outcome.quotaExceeded ? 'stream.quota' : 'stream.overflow')
@@ -647,21 +652,7 @@ export abstract class DeterministicBackendBase {
     optionsValue: OwnerScanOptions<string, string>,
     observation: AdvertisementObservation<string>
   ): boolean {
-    if (
-      optionsValue.filter.localNamePrefix !== null &&
-      (observation.localName.state !== 'present' ||
-        !observation.localName.value.startsWith(optionsValue.filter.localNamePrefix))
-    ) {
-      return false
-    }
-    if (optionsValue.filter.serviceUuids.length === 0) {
-      return true
-    }
-    if (observation.serviceUuids.state !== 'present') {
-      return false
-    }
-    const advertisedServices = observation.serviceUuids
-    return optionsValue.filter.serviceUuids.every(requested => advertisedServices.value.includes(requested))
+    return advertisementMatchesFilter(optionsValue.filter, observation)
   }
 
   private createStateWatch(): AdapterStateWatch<string> {
@@ -756,6 +747,10 @@ function noOperationOptions(): PublicOperationOptions {
 function scanSignature(optionsValue: OwnerScanOptions<string, string>): string {
   return JSON.stringify({
     serviceUuids: optionsValue.filter.serviceUuids.map(value => String(value)).sort(),
+    manufacturerData: optionsValue.filter.manufacturerData.map(filter => ({
+      companyIdentifier: filter.companyIdentifier,
+      dataPrefix: filter.dataPrefix === null ? null : Array.from(filter.dataPrefix)
+    })),
     localNamePrefix: optionsValue.filter.localNamePrefix,
     duplicatePolicy: optionsValue.duplicatePolicy,
     timestampPolicy: optionsValue.timestampPolicy,

@@ -1,6 +1,7 @@
 // src/testing/deterministic/deterministic-test-backend-controller.ts
 
 import type { AdvertisementObservation } from '../../backend-contract/advertisement'
+import type { ConnectionPath } from '../../backend-contract/gatt'
 import type { AdapterStateSnapshot } from '../../backend-contract/identity'
 import type { PeerId } from '../../backend-contract/primitives'
 import type { DeterministicBackendTraceRecord, DeterministicTestBackend } from './deterministic-test-backend'
@@ -14,7 +15,8 @@ export interface DeterministicBackendController {
   queueCompletion(stage: DeterministicCompletionStage, completion: ProgrammableCompletion): void
   emitAdvertisement(observation: AdvertisementObservation<string>): void
   emitNotification(address: VirtualCharacteristicAddress, value: Uint8Array, indication?: boolean): void
-  forceDisconnect(peerId: PeerId<string>): void
+  forceDisconnect(peerId: PeerId<string>): ConnectionPath<string, string>
+  replayConnectionLoss(connection: ConnectionPath<string, string>): void
   triggerServicesChanged(peerId: PeerId<string>): void
   setAdapterState(
     availability: AdapterStateSnapshot<string>['availability'],

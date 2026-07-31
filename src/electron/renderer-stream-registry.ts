@@ -10,9 +10,16 @@ import { byteLimit, ownBytes, type SerializableRecord } from '../backend-contrac
 import { snapshotSerializableRecord } from '../backend-contract/serializable'
 import type { StreamItem } from '../backend-contract/streams'
 import type { HostNeutralBackendIdentity } from '../backend-contract/identity'
+import type { RendererLeaseIdentity } from '../backend-contract/electron'
 import type { ScanSession, Subscription } from '../manager/ble-manager'
 import type { ElectronBleIpcEvent } from './protocol'
+import { assertAdvertisementObservation, snapshotAdvertisementObservation } from './advertisement-observation'
+import type { AdvertisementObservation } from '../backend-contract/advertisement'
 
+/**
+ * `terminalized` means main has terminalized the exact stream or made the
+ * exact renderer lease release-required because delivery was impossible.
+ */
 export type ElectronEventDelivery = 'delivered' | 'terminalized'
 const cleanupRetryDelayMilliseconds = 100
 
@@ -40,8 +47,12 @@ export interface RendererStreamResources {
 
 export interface ElectronRendererStreamRegistryOptions {
   readonly maximumMessageBytes: number
-  readonly publish: (rendererClientId: string, event: ElectronBleIpcEvent) => Promise<ElectronEventDelivery>
-  readonly createEvent: (streamId: string, item: SerializableRecord) => ElectronBleIpcEvent
+  readonly publish: (rendererLeaseId: string, event: ElectronBleIpcEvent) => Promise<ElectronEventDelivery>
+  readonly createEvent: (
+    rendererLease: RendererLeaseIdentity,
+    streamId: string,
+    item: SerializableRecord
+  ) => ElectronBleIpcEvent
 }
 
 /**
@@ -54,7 +65,7 @@ export class ElectronRendererStreamRegistry {
 
   registerScan(
     resources: RendererStreamResources,
-    rendererClientId: string,
+    rendererLease: RendererLeaseIdentity,
     handle: string,
     scan: ScanSession<string>
   ): ManagedScan {
@@ -67,11 +78,11 @@ export class ElectronRendererStreamRegistry {
     }
     resources.scans.set(handle, resource)
     resource.pump = this.forwardStream(
-      rendererClientId,
+      rendererLease,
       handle,
       scan.observations,
-      reason => this.terminalizeScan(resources, rendererClientId, handle, resource, reason),
-      () => this.completeTerminalScan(resources, handle, resource),
+      reason => this.terminalizeScan(resources, rendererLease, handle, resource, reason),
+      () => this.completeTerminalScan(resources, rendererLease, handle, resource),
       () => resource.cleanupRequested
     )
     return resource
@@ -79,7 +90,7 @@ export class ElectronRendererStreamRegistry {
 
   registerSubscription(
     resources: RendererStreamResources,
-    rendererClientId: string,
+    rendererLease: RendererLeaseIdentity,
     handle: string,
     databaseHandle: string,
     subscription: Subscription<string, HostNeutralBackendIdentity<string>>
@@ -94,11 +105,11 @@ export class ElectronRendererStreamRegistry {
     }
     resources.subscriptions.set(handle, resource)
     resource.pump = this.forwardStream(
-      rendererClientId,
+      rendererLease,
       handle,
       subscription.values,
-      reason => this.terminalizeSubscription(resources, rendererClientId, handle, resource, reason),
-      () => this.completeTerminalSubscription(resources, handle, resource),
+      reason => this.terminalizeSubscription(resources, rendererLease, handle, resource, reason),
+      () => this.completeTerminalSubscription(resources, rendererLease, handle, resource),
       () => resource.cleanupRequested
     )
     return resource
@@ -146,25 +157,25 @@ export class ElectronRendererStreamRegistry {
 
   async terminate(
     resources: RendererStreamResources,
-    rendererClientId: string,
+    rendererLease: RendererLeaseIdentity,
     streamId: string,
     reason: 'renderer-backpressure' | 'renderer-unavailable'
   ): Promise<boolean> {
     const scan = resources.scans.get(streamId)
     if (scan !== undefined) {
-      await this.terminalizeScan(resources, rendererClientId, streamId, scan, reason)
+      await this.terminalizeScan(resources, rendererLease, streamId, scan, reason)
       return true
     }
     const subscription = resources.subscriptions.get(streamId)
     if (subscription !== undefined) {
-      await this.terminalizeSubscription(resources, rendererClientId, streamId, subscription, reason)
+      await this.terminalizeSubscription(resources, rendererLease, streamId, subscription, reason)
       return true
     }
     return false
   }
 
   private async forwardStream<Value>(
-    rendererClientId: string,
+    rendererLease: RendererLeaseIdentity,
     streamId: string,
     stream: AsyncIterable<StreamItem<Value>>,
     terminalize: (reason: 'ipc-message-too-large' | 'source-failed') => Promise<void>,
@@ -174,9 +185,13 @@ export class ElectronRendererStreamRegistry {
     try {
       for await (const item of stream) {
         const itemRecord = streamItemRecord(item)
-        const event = this.options.createEvent(streamId, itemRecord)
+        const event = this.options.createEvent(rendererLease, streamId, itemRecord)
         if (
           snapshotSerializableRecord({
+            rendererLease: Object.freeze({
+              leaseId: String(event.rendererLease.leaseId),
+              generation: String(event.rendererLease.generation)
+            }),
             eventId: event.eventId,
             streamId: event.streamId,
             item: event.item
@@ -188,8 +203,8 @@ export class ElectronRendererStreamRegistry {
           await terminalize('ipc-message-too-large')
           return
         }
-        const delivery = await this.options.publish(rendererClientId, event)
-        if (delivery === 'terminalized') {
+        const delivery = await this.options.publish(String(rendererLease.leaseId), event)
+        if (delivery !== 'delivered') {
           return
         }
         if (item.kind === 'terminal') {
@@ -210,6 +225,7 @@ export class ElectronRendererStreamRegistry {
 
   private async completeTerminalScan(
     resources: RendererStreamResources,
+    rendererLease: RendererLeaseIdentity,
     handle: string,
     resource: ManagedScan
   ): Promise<void> {
@@ -224,12 +240,13 @@ export class ElectronRendererStreamRegistry {
         cleanup
       })
       resource.terminalPublished = false
-      this.scheduleScanRetry(resources, '', handle, resource, null)
+      this.scheduleScanRetry(resources, rendererLease, handle, resource, null)
     }
   }
 
   private async completeTerminalSubscription(
     resources: RendererStreamResources,
+    rendererLease: RendererLeaseIdentity,
     handle: string,
     resource: ManagedSubscription
   ): Promise<void> {
@@ -244,13 +261,13 @@ export class ElectronRendererStreamRegistry {
         cleanup
       })
       resource.terminalPublished = false
-      this.scheduleSubscriptionRetry(resources, '', handle, resource, null)
+      this.scheduleSubscriptionRetry(resources, rendererLease, handle, resource, null)
     }
   }
 
   private async terminalizeScan(
     resources: RendererStreamResources,
-    rendererClientId: string,
+    rendererLease: RendererLeaseIdentity,
     handle: string,
     resource: ManagedScan,
     reason: 'ipc-message-too-large' | 'source-failed' | 'renderer-backpressure' | 'renderer-unavailable'
@@ -267,15 +284,15 @@ export class ElectronRendererStreamRegistry {
         cleanup
       })
       resource.terminalPublished = false
-      this.scheduleScanRetry(resources, rendererClientId, handle, resource, reason)
+      this.scheduleScanRetry(resources, rendererLease, handle, resource, reason)
       return
     }
-    await this.publishTerminal(rendererClientId, handle, reason)
+    await this.publishTerminal(rendererLease, handle, reason)
   }
 
   private async terminalizeSubscription(
     resources: RendererStreamResources,
-    rendererClientId: string,
+    rendererLease: RendererLeaseIdentity,
     handle: string,
     resource: ManagedSubscription,
     reason: 'ipc-message-too-large' | 'source-failed' | 'renderer-backpressure' | 'renderer-unavailable'
@@ -292,15 +309,15 @@ export class ElectronRendererStreamRegistry {
         cleanup
       })
       resource.terminalPublished = false
-      this.scheduleSubscriptionRetry(resources, rendererClientId, handle, resource, reason)
+      this.scheduleSubscriptionRetry(resources, rendererLease, handle, resource, reason)
       return
     }
-    await this.publishTerminal(rendererClientId, handle, reason)
+    await this.publishTerminal(rendererLease, handle, reason)
   }
 
   private scheduleScanRetry(
     resources: RendererStreamResources,
-    rendererClientId: string,
+    rendererLease: RendererLeaseIdentity,
     handle: string,
     resource: ManagedScan,
     reason: 'ipc-message-too-large' | 'source-failed' | 'renderer-backpressure' | 'renderer-unavailable' | null
@@ -312,18 +329,18 @@ export class ElectronRendererStreamRegistry {
       resource.retryHandle = null
       const retry =
         reason === null
-          ? this.completeTerminalScan(resources, handle, resource)
-          : this.terminalizeScan(resources, rendererClientId, handle, resource, reason)
+          ? this.completeTerminalScan(resources, rendererLease, handle, resource)
+          : this.terminalizeScan(resources, rendererLease, handle, resource, reason)
       retry.catch(error => {
         console.error('[ElectronRendererStreamRegistry] Scheduled scan cleanup retry rejected:', { handle, error })
-        this.scheduleScanRetry(resources, rendererClientId, handle, resource, reason)
+        this.scheduleScanRetry(resources, rendererLease, handle, resource, reason)
       })
     }, cleanupRetryDelayMilliseconds)
   }
 
   private scheduleSubscriptionRetry(
     resources: RendererStreamResources,
-    rendererClientId: string,
+    rendererLease: RendererLeaseIdentity,
     handle: string,
     resource: ManagedSubscription,
     reason: 'ipc-message-too-large' | 'source-failed' | 'renderer-backpressure' | 'renderer-unavailable' | null
@@ -335,14 +352,14 @@ export class ElectronRendererStreamRegistry {
       resource.retryHandle = null
       const retry =
         reason === null
-          ? this.completeTerminalSubscription(resources, handle, resource)
-          : this.terminalizeSubscription(resources, rendererClientId, handle, resource, reason)
+          ? this.completeTerminalSubscription(resources, rendererLease, handle, resource)
+          : this.terminalizeSubscription(resources, rendererLease, handle, resource, reason)
       retry.catch(error => {
         console.error('[ElectronRendererStreamRegistry] Scheduled subscription cleanup retry rejected:', {
           handle,
           error
         })
-        this.scheduleSubscriptionRetry(resources, rendererClientId, handle, resource, reason)
+        this.scheduleSubscriptionRetry(resources, rendererLease, handle, resource, reason)
       })
     }, cleanupRetryDelayMilliseconds)
   }
@@ -355,15 +372,21 @@ export class ElectronRendererStreamRegistry {
   }
 
   private async publishTerminal(
-    rendererClientId: string,
+    rendererLease: RendererLeaseIdentity,
     streamId: string,
     reason: 'ipc-message-too-large' | 'source-failed' | 'renderer-backpressure' | 'renderer-unavailable'
   ): Promise<void> {
     try {
-      await this.options.publish(
-        rendererClientId,
-        this.options.createEvent(streamId, Object.freeze({ kind: 'terminal', reason }))
+      const delivery = await this.options.publish(
+        String(rendererLease.leaseId),
+        this.options.createEvent(rendererLease, streamId, Object.freeze({ kind: 'terminal', reason }))
       )
+      if (delivery === 'terminalized') {
+        console.error(
+          '[ElectronRendererStreamRegistry] Terminal event could not be delivered; exact renderer lease cleanup was required:',
+          { streamId, reason, rendererLeaseId: String(rendererLease.leaseId) }
+        )
+      }
     } catch (error) {
       console.error('[ElectronRendererStreamRegistry] Terminal event delivery failed after source cleanup:', {
         streamId,
@@ -423,7 +446,7 @@ function snapshotStreamValue(value: unknown): SerializableRecord {
     })
   }
   if (isAdvertisementValue(value)) {
-    return snapshotAdvertisement(value)
+    return snapshotAdvertisementObservation(value)
   }
   throw contractError('protocol.malformed', 'ipc', 'electron-renderer-stream-registry.stream-value')
 }
@@ -438,84 +461,16 @@ function isNotificationValue(value: unknown): value is { readonly value: Uint8Ar
   )
 }
 
-function isAdvertisementValue(value: unknown): value is {
-  readonly peerId: string
-  readonly observedAt: number
-  readonly source: 'platform-raw' | 'platform-derived' | 'core-merged'
-  readonly ingressOrdinal: number
-  readonly localName: AdvertisementField<string>
-  readonly rssi: AdvertisementField<number>
-  readonly serviceUuids: AdvertisementField<readonly string[]>
-} {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'peerId' in value &&
-    typeof value.peerId === 'string' &&
-    'observedAt' in value &&
-    typeof value.observedAt === 'number' &&
-    'source' in value &&
-    (value.source === 'platform-raw' || value.source === 'platform-derived' || value.source === 'core-merged') &&
-    'ingressOrdinal' in value &&
-    typeof value.ingressOrdinal === 'number' &&
-    'localName' in value &&
-    isAdvertisementField(value.localName) &&
-    'rssi' in value &&
-    isAdvertisementField(value.rssi) &&
-    'serviceUuids' in value &&
-    isAdvertisementField(value.serviceUuids)
-  )
-}
-
-interface AdvertisementField<Value> {
-  readonly state: 'present' | 'absent' | 'unavailable'
-  readonly provenance: string
-  readonly reason?: string
-  readonly value?: Value
-}
-
-function isAdvertisementField(value: unknown): value is AdvertisementField<unknown> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'state' in value &&
-    (value.state === 'present' || value.state === 'absent' || value.state === 'unavailable') &&
-    'provenance' in value &&
-    typeof value.provenance === 'string'
-  )
-}
-
-function snapshotAdvertisement(value: {
-  readonly peerId: string
-  readonly observedAt: number
-  readonly source: 'platform-raw' | 'platform-derived' | 'core-merged'
-  readonly ingressOrdinal: number
-  readonly localName: AdvertisementField<string>
-  readonly rssi: AdvertisementField<number>
-  readonly serviceUuids: AdvertisementField<readonly string[]>
-}): SerializableRecord {
-  return Object.freeze({
-    peerId: value.peerId,
-    observedAt: value.observedAt,
-    source: value.source,
-    ingressOrdinal: value.ingressOrdinal,
-    localName: snapshotField(value.localName, fieldValue => fieldValue),
-    rssi: snapshotField(value.rssi, fieldValue => fieldValue),
-    serviceUuids: snapshotField(value.serviceUuids, fieldValue => Object.freeze(fieldValue))
-  })
-}
-
-function snapshotField<Value>(
-  field: AdvertisementField<Value>,
-  snapshot: (value: Value) => SerializableRecord | string | number | readonly string[]
-): SerializableRecord {
-  if (field.state === 'present') {
-    if (field.value === undefined) {
-      throw contractError('protocol.malformed', 'ipc', 'electron-renderer-stream-registry.advertisement-field')
+function isAdvertisementValue(value: unknown): value is AdvertisementObservation<string> {
+  try {
+    assertAdvertisementObservation(value)
+    return true
+  } catch (error) {
+    if (error instanceof BackendContractError) {
+      return false
     }
-    return Object.freeze({ state: field.state, provenance: field.provenance, value: snapshot(field.value) })
+    throw error
   }
-  return Object.freeze({ state: field.state, reason: field.reason ?? 'unavailable', provenance: field.provenance })
 }
 
 function normalizedCleanupError(error: unknown) {

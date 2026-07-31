@@ -6,16 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Documentation
+## [4.0.0-alpha.15] - 2026-07-30
 
-- Clarified that `4.0.0-alpha.14` is an Experimental npm `next` prerelease with
-  GitHub Actions trusted publishing and npm SLSA provenance, not a live-radio
-  platform promotion.
-- Documented the exact public host entrypoints, repository fixture boundaries,
-  package/release verification, and the absence of a currently published private
-  vulnerability-reporting route.
-- Documented that Meta Quest and an nRF52840-based controllable
-  fault-injection controller remain deferred to 4.1.
+### Added
+
+- Completed the versioned backend contract with canonical device identity,
+  advertisement provenance and timestamps, structured capabilities, typed backend
+  events, characteristic properties, manufacturer filters, and connection
+  lifecycle diagnostics.
+- Added public bounded-stream helpers, deterministic lifecycle scenarios, expanded
+  first-party TCK coverage, and descriptor operations across the Apple binary JSI
+  boundary.
+
+### Changed
+
+- Made Electron renderer ownership an exact main-issued lease and generation
+  protocol across requests, events, acknowledgements, release, and cleanup.
+- Made stable release qualification fail closed by requiring exact agreement
+  between source, tag, approved CI commit, and the published tarball digest.
+- Clarified the Experimental support evidence for every current host and retained
+  Meta Quest and controllable fault-injection hardware in the 4.1 roadmap.
+
+### Fixed
+
+- Prevented React Strict Mode cleanup from deleting a successor Electron renderer
+  registration and causing `ownership.denied` during BLE operations.
+- Quarantined late stream values after cancellation or deadline and made terminal
+  Electron cleanup retryable without allowing further IPC.
 
 ## [4.0.0-alpha.14] - 2026-07-30
 

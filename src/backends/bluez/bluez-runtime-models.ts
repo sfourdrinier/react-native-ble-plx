@@ -1,9 +1,21 @@
 // src/backends/bluez/bluez-runtime-models.ts
 
-import type { AdvertisementObservation, OwnerScanOptions } from '../../backend-contract/advertisement'
+import {
+  advertisementMatchesFilter,
+  deviceIdentity,
+  type AdvertisementObservation,
+  type OwnerScanOptions
+} from '../../backend-contract/advertisement'
 import { contractError, type CleanupFailure, type CleanupRecord } from '../../backend-contract/errors'
 import type { OperationOptions, OperationTerminalRecord } from '../../backend-contract/operations'
-import { canonicalUuid, monotonicTimestamp, type LeaseId, type PeerId } from '../../backend-contract/primitives'
+import {
+  canonicalUuid,
+  monotonicTimestamp,
+  type BackendInstanceId,
+  type LeaseId,
+  type PeerId,
+  type ScanSessionId
+} from '../../backend-contract/primitives'
 import {
   BLUEZ_DEVICE_INTERFACE,
   BLUEZ_GATT_CHARACTERISTIC_INTERFACE,
@@ -87,6 +99,8 @@ export function createObservation(
   store: BluezObjectStore,
   path: string,
   peerId: PeerId<string>,
+  backendInstanceId: BackendInstanceId<string>,
+  scanSessionId: ScanSessionId<string, string>,
   observedAt: number,
   ingressOrdinal: number
 ): AdvertisementObservation<string> {
@@ -102,10 +116,12 @@ export function createObservation(
     ? store.stringsProperty(path, BLUEZ_DEVICE_INTERFACE, 'UUIDs').map(canonicalUuid)
     : null
   return Object.freeze({
-    peerId,
-    observedAt: monotonicTimestamp(observedAt),
-    source: 'platform-derived',
+    device: deviceIdentity(peerId, backendInstanceId, bluezAddress(store, path)),
+    provenance: 'platform-derived',
+    sourceTimestamp: absent,
+    receivedAtMonotonicMs: monotonicTimestamp(observedAt),
     ingressOrdinal,
+    scanSessionId,
     localName:
       localName === null ? absent : Object.freeze({ state: 'present', value: localName, provenance: 'observed' }),
     rssi: rssi === null ? absent : Object.freeze({ state: 'present', value: rssi, provenance: 'observed' }),
@@ -129,21 +145,19 @@ export function matchesScan(
   options: OwnerScanOptions<string, string>,
   observation: AdvertisementObservation<string>
 ): boolean {
-  if (
-    options.filter.localNamePrefix !== null &&
-    (observation.localName.state !== 'present' ||
-      !observation.localName.value.startsWith(options.filter.localNamePrefix))
-  ) {
-    return false
+  return advertisementMatchesFilter(options.filter, observation)
+}
+
+function bluezAddress(store: BluezObjectStore, path: string) {
+  const value = store.optionalStringProperty(path, BLUEZ_DEVICE_INTERFACE, 'Address')
+  if (value === null) {
+    return null
   }
-  if (options.filter.serviceUuids.length === 0) {
-    return true
+  const addressType = store.optionalStringProperty(path, BLUEZ_DEVICE_INTERFACE, 'AddressType')
+  if (addressType === 'public') {
+    return Object.freeze({ value, type: 'public' })
   }
-  const observedServiceUuids = observation.serviceUuids
-  return (
-    observedServiceUuids.state === 'present' &&
-    options.filter.serviceUuids.every(uuid => observedServiceUuids.value.includes(uuid))
-  )
+  return Object.freeze({ value, type: 'random' })
 }
 
 export function advertisementSize(observation: AdvertisementObservation<string>): number {

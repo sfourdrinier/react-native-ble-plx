@@ -6,7 +6,7 @@
 
 **Architecture and sequencing authority:** [`docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)
 
-`unified-ble-manager@4.0.0-alpha.14` is the current public 4.0 prerelease. 4.0
+`unified-ble-manager@4.0.0-alpha.15` is the current public 4.0 prerelease. 4.0
 started as a new package with no released 4.0 consumer baseline. This is an
 adoption guide for a project that chooses to move from another BLE integration,
 not a supported in-place upgrade from `@sfourdrinier/react-native-ble-plx`.
@@ -18,13 +18,13 @@ Install the exact currently supported package line with your application's
 package manager:
 
 ```sh
-pnpm add unified-ble-manager@4.0.0-alpha.14
+pnpm add unified-ble-manager@4.0.0-alpha.15
 ```
 
-`next` is the mutable prerelease dist-tag; it currently resolves to alpha.14.
+`next` is the mutable prerelease dist-tag; it currently resolves to alpha.15.
 Pin the exact version you evaluate, and do not use a bare install or `@latest`
 to select the 4.0 alpha train. The prerelease package is Experimental: no
-current evidence record links alpha.14's package artifact to a hardware-backed
+current evidence record links alpha.15's package artifact to a hardware-backed
 backend support claim. See [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
 
 Use only documented package subpaths. The root export is host-neutral; import
@@ -143,6 +143,53 @@ Pass `signal: null` when an operation is intentionally not cancellable. The
 manager normalizes abort, deadline, and backend failures; callers must handle
 the resulting error and still perform their lifecycle cleanup.
 
+## Connection lifecycle migration
+
+Do not infer connection loss from a failed GATT operation, a notification
+stream ending, or adapter state. Every `Connection` owns a bounded,
+generation-bound `connection.events` stream. Start consuming it as soon as
+`connect()` returns:
+
+```ts
+async function observeConnection(connection: Connection<string, HostNeutralBackendIdentity<string>>) {
+  for await (const item of connection.events) {
+    if (item.kind === 'overflow') {
+      // The stream is lossy by contract. Reconcile application state from the
+      // newest retained event and the terminal notice; do not invent history.
+      continue
+    }
+    if (item.kind === 'terminal') {
+      return
+    }
+
+    const event = item.value
+    if (event.cause === 'peer-link-loss') {
+      // Stop product-level work for this exact connectionGeneration.
+    } else if (event.cause === 'requested-disconnect') {
+      // The application requested the disconnect.
+    }
+  }
+}
+```
+
+The stream distinguishes `requested-disconnect`, `peer-link-loss`,
+`adapter-loss`, `backend-restart`, `released`, `manager-destroyed`, and
+`backend-failure`. Each event carries the exact attachment, peer, connection
+ID, connection generation, and owner lease. Reject or ignore cached
+application work whose generation does not equal the event's
+`connectionGeneration`; a late event from an older connection cannot describe
+the replacement connection.
+
+A terminal lifecycle event is delivered before the stream's terminal notice.
+`peer-link-loss`, `adapter-loss`, `backend-restart`, and `backend-failure` end
+the stream with `connection-lost`; requested disconnect, explicit release, and
+manager destruction end it with `owner-released`. Active notification streams
+are also terminated and their physical subscription ownership is released.
+Call `await connection.events.close()` only to cancel lifecycle observation; it
+does not disconnect or release the connection. Continue to await
+`connection.disconnect()`, `connection.release()`, or `manager.destroy()` for
+resource ownership cleanup.
+
 ## Adoption checklist
 
 1. Replace any older BLE integration imports and constructors with the explicit
@@ -158,7 +205,10 @@ the resulting error and still perform their lifecycle cleanup.
    restoration behavior the application has not validated.
 6. Await scan, connection, subscription, renderer, binding, and manager cleanup
    before the relevant owner is replaced or destroyed.
-7. Validate the packed package artifact and the selected host's native/runtime
+7. Consume each connection's bounded lifecycle stream and branch on its typed
+   cause and exact `connectionGeneration`; do not infer peer loss from
+   notification completion or a failed GATT call.
+8. Validate the packed package artifact and the selected host's native/runtime
    integration before shipping. Hardware-backed claims additionally need the
    host's current physical evidence; a successful build or deterministic test
    is not live-radio proof.
