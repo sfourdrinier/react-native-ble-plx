@@ -251,7 +251,18 @@ jobs:
           set -euo pipefail
           VER="$(node -p "require('./package.json').version")"
           LOCAL_TARBALL_SHA256="$(node -e "const crypto = require('crypto'); const fs = require('fs'); process.stdout.write(crypto.createHash('sha256').update(fs.readFileSync(process.argv[1])).digest('hex'))" "${PUBLISH_TARBALL}")"
-          REGISTRY_TARBALL="$(npm view "unified-ble-manager@${VER}" dist.tarball --json | node -e "let body = ''; process.stdin.setEncoding('utf8'); process.stdin.on('data', chunk => { body += chunk }); process.stdin.on('end', () => { const value = JSON.parse(body); if (typeof value !== 'string' || !value.startsWith('https://')) { throw new Error('npm dist.tarball must be an HTTPS URL'); } process.stdout.write(value) })")"
+          REGISTRY_TARBALL=""
+          for ATTEMPT in $(seq 1 12); do
+            if REGISTRY_TARBALL="$(npm view "unified-ble-manager@${VER}" dist.tarball --json 2>/dev/null | node -e "let body = ''; process.stdin.setEncoding('utf8'); process.stdin.on('data', chunk => { body += chunk }); process.stdin.on('end', () => { const value = JSON.parse(body); if (typeof value !== 'string' || !value.startsWith('https://')) { throw new Error('npm dist.tarball must be an HTTPS URL'); } process.stdout.write(value) })")"; then
+              break
+            fi
+            echo "npm registry metadata is not visible yet (attempt ${ATTEMPT}/12)"
+            sleep 5
+          done
+          if [ -z "${REGISTRY_TARBALL}" ]; then
+            echo "npm registry metadata did not become visible within the bounded retry window"
+            exit 1
+          fi
           REGISTRY_TARBALL_SHA256="$(curl --fail --location --silent --show-error --proto '=https' "${REGISTRY_TARBALL}" | node -e "const crypto = require('crypto'); const hash = crypto.createHash('sha256'); process.stdin.on('data', chunk => hash.update(chunk)); process.stdin.on('end', () => process.stdout.write(hash.digest('hex')))")"
           if [ "${REGISTRY_TARBALL_SHA256}" != "${LOCAL_TARBALL_SHA256}" ]; then
             echo "Registry tarball SHA-256 does not match the exact generated publish tarball"

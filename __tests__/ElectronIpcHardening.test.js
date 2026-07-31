@@ -346,6 +346,103 @@ describe('Electron IPC hardening', () => {
     errorLog.mockRestore()
   })
 
+  test('forwards complete advertisements with fractional monotonic timestamps and owned binary fields', async () => {
+    const lease = rendererLease('advertisement-stream')
+    const stream = createControlledStream()
+    const stop = jest.fn(async () => {
+      stream.close()
+      return released()
+    })
+    const resources = { scans: new Map(), subscriptions: new Map() }
+    const events = []
+    let nextEvent = 1
+    const registry = new ElectronRendererStreamRegistry({
+      maximumMessageBytes: 16 * 1024,
+      publish: async (_rendererLeaseId, event) => {
+        events.push(event)
+        return 'delivered'
+      },
+      createEvent: (rendererLease, streamId, item) => ({
+        rendererLease,
+        eventId: `advertisement-event-${nextEvent++}`,
+        streamId,
+        item
+      })
+    })
+    const unavailable = {
+      state: 'unavailable',
+      reason: 'CoreBluetooth boundary did not provide this advertisement field',
+      provenance: 'not-provided'
+    }
+    const observation = {
+      device: {
+        id: 'peer-advertisement',
+        backendInstanceId: 'backend-advertisement',
+        scope: 'backend',
+        stableAcrossRestarts: false,
+        address: null
+      },
+      provenance: 'platform-derived',
+      sourceTimestamp: {
+        state: 'present',
+        value: { monotonicMs: 12.25, origin: 'platform' },
+        provenance: 'observed'
+      },
+      receivedAtMonotonicMs: 42.75,
+      ingressOrdinal: 1,
+      scanSessionId: 'scan-advertisement',
+      localName: { state: 'present', value: 'Test sensor', provenance: 'observed' },
+      rssi: { state: 'present', value: -42, provenance: 'observed' },
+      txPower: unavailable,
+      connectable: { state: 'present', value: true, provenance: 'observed' },
+      appearance: unavailable,
+      serviceUuids: { state: 'present', value: ['180d'], provenance: 'observed' },
+      solicitedServiceUuids: unavailable,
+      overflowServiceUuids: unavailable,
+      serviceData: {
+        state: 'present',
+        value: [{ serviceUuid: '180d', value: new Uint8Array([1, 2]) }],
+        provenance: 'observed'
+      },
+      manufacturerData: {
+        state: 'present',
+        value: [{ companyIdentifier: 0x006b, value: new Uint8Array([3, 4]) }],
+        provenance: 'observed'
+      },
+      rawRecord: { state: 'present', value: new Uint8Array([5, 6]), provenance: 'observed' },
+      scanResponseRecord: unavailable
+    }
+
+    registry.registerScan(resources, lease, 'scan-advertisement', { observations: stream, stop })
+    stream.push({ kind: 'value', value: observation })
+    await flushAsyncWork()
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      item: {
+        kind: 'value',
+        value: {
+          receivedAtMonotonicMs: 42.75,
+          manufacturerData: {
+            state: 'present',
+            value: [{ companyIdentifier: 0x006b, value: new Uint8Array([3, 4]) }]
+          },
+          rawRecord: { state: 'present', value: new Uint8Array([5, 6]) }
+        }
+      }
+    })
+
+    stream.push({
+      kind: 'terminal',
+      reason: 'completed',
+      droppedItems: 0,
+      droppedBytes: 0,
+      replacedItems: 0
+    })
+    await flushAsyncWork()
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
   test('rejects oversized responses and removes newly allocated discovery handles', async () => {
     const characteristics = Array.from({ length: 64 }, (_, index) => ({
       path: {

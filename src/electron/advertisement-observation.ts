@@ -76,7 +76,7 @@ export function assertAdvertisementObservation(value: unknown): asserts value is
     !isDeviceIdentity(value.device) ||
     !isObservationSource(value.provenance) ||
     !isField(value.sourceTimestamp, isSourceTimestamp) ||
-    !isNonNegativeSafeInteger(value.receivedAtMonotonicMs) ||
+    !isNonNegativeFiniteNumber(value.receivedAtMonotonicMs) ||
     !isNonNegativeSafeInteger(value.ingressOrdinal) ||
     !isNonEmptyString(value.scanSessionId) ||
     !isField(value.localName, isNonEmptyString) ||
@@ -214,7 +214,7 @@ function isSourceTimestamp(
   return (
     isRecord(value) &&
     hasExactKeys(value, Object.freeze(['monotonicMs', 'origin'])) &&
-    isNonNegativeSafeInteger(value.monotonicMs) &&
+    isNonNegativeFiniteNumber(value.monotonicMs) &&
     (value.origin === 'platform' || value.origin === 'backend')
   )
 }
@@ -237,6 +237,10 @@ function isSafeInteger(value: unknown): value is number {
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
   return isSafeInteger(value) && value >= 0
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
 }
 
 function isBoolean(value: unknown): value is boolean {

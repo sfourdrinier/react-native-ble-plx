@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.16] - 2026-07-30
+
+### Fixed
+
+- Accepted finite fractional monotonic timestamps when validating canonical
+  advertisement observations for Electron IPC, so live CoreBluetooth scan
+  results retain their full timestamps and binary fields instead of
+  terminalizing the stream as malformed.
+- Added bounded npm registry propagation retries before the release workflow's
+  fail-closed tarball digest binding.
+
 ## [4.0.0-alpha.15] - 2026-07-30
 
 ### Added

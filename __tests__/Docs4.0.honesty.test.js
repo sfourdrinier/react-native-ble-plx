@@ -215,7 +215,7 @@ describe('4.0 documentation honesty', () => {
     const release = read('RELEASE.md')
 
     expect(migration).toContain('current public 4.0 package line')
-    expect(migration).toContain('unified-ble-manager@4.0.0-alpha.15')
+    expect(migration).toContain('unified-ble-manager@4.0.0-alpha.16')
     expect(migration).toContain('stable `hostSessionScope`')
     expect(migration).toContain('`Uint8Array`')
     expect(migration).toContain('`AbortSignal`')
@@ -236,8 +236,8 @@ describe('4.0 documentation honesty', () => {
     const readme = read('README.md')
     const changelog = read('CHANGELOG.md')
 
-    expect(readme).toContain('unified-ble-manager@4.0.0-alpha.15')
-    expect(readme).toContain('pnpm add unified-ble-manager@4.0.0-alpha.15')
+    expect(readme).toContain('unified-ble-manager@4.0.0-alpha.16')
+    expect(readme).toContain('pnpm add unified-ble-manager@4.0.0-alpha.16')
     expect(readme).toContain('createReactNativeBleManager')
     expect(readme).toContain('stable `hostSessionScope`')
     expect(readme).toContain('`Uint8Array`')
@@ -248,7 +248,7 @@ describe('4.0 documentation honesty', () => {
     )
     expect(readme).not.toMatch(/new\s+BleManager\s*\(/)
     expect(readme).not.toMatch(/npm install/)
-    expect(changelog).toContain('## [4.0.0-alpha.15] - 2026-07-30')
+    expect(changelog).toContain('## [4.0.0-alpha.16] - 2026-07-30')
     expect(changelog).toContain('node-addon-api')
     expect(changelog).toContain('hostSessionScope')
   })
@@ -260,7 +260,7 @@ describe('4.0 documentation honesty', () => {
 
     expect(readme).toContain('`next` dist-tag')
     expect(readme).toMatch(/Do not install\s+the bare package name or `@latest`/)
-    expect(release).toContain('v4.0.0-alpha.15')
+    expect(release).toContain('v4.0.0-alpha.16')
     expect(release).toContain('GitHub Actions trusted publishing')
     expect(release).toContain('SLSA provenance')
     expect(platforms).toContain('No current evidence record binds the published alpha.15 artifact')
