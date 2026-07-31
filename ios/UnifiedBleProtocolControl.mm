@@ -327,6 +327,7 @@ RCT_EXPORT_MODULE(UnifiedBleProtocolControl)
         range(request.capabilitySchema()),
         range(request.eventSchema()),
         range(request.traceFormat())));
+    _execution->beginAttachment();
   } catch (const std::exception& error) {
     rejectControl(reject, @"nativeProtocolHandshake", [NSString stringWithUTF8String:error.what()]);
     return;

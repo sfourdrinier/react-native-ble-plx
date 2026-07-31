@@ -107,6 +107,7 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
   private nativeDestroyCompleted = false
   private destroyRequested = false
   private destroyResult: Promise<void> | null = null
+  private preJavaScriptEventBufferOverflowed = false
 
   constructor(
     private readonly control: NativeProtocolControl,
@@ -144,6 +145,7 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
       throw contractError('lifecycle.invalid-state', 'boundary', 'rn-android-boundary.open')
     }
     const attachment = this.requireAttachmentRecord('open')
+    this.preJavaScriptEventBufferOverflowed = false
     try {
       const handshake = await this.control.handshake({
         nativeProtocol: { minimum: protocolVersion, maximum: protocolVersion },
@@ -161,17 +163,33 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
       this.maximumInputPayloadBytes = Math.min(maximumNativePayloadBytes, handshake.maximumBinaryPayloadBytes)
       await this.control.installExecutionRuntime()
       setNativeProtocolEventSink(bytes => this.receiveRecord(bytes))
+      if (this.preJavaScriptEventBufferOverflowed) {
+        throw contractError('stream.overflow', 'boundary', 'rn-android-boundary.open.pre-js-event-buffer')
+      }
       this.opened = true
     } catch (error) {
       this.maximumInputPayloadBytes = 0
+      let closeFailure: Error | null = null
       if (this.nativeAttachmentOpened) {
         try {
           await this.closeNativeAttachment(attachment)
         } catch (closeError) {
           console.error('[ReactNativeAndroidProtocolBoundary.open] Handshake-open cleanup failed:', closeError)
+          closeFailure =
+            closeError instanceof Error
+              ? closeError
+              : new Error('Native attachment close failed with a non-Error value during boundary open rollback')
         }
       }
       this.destroyRequested = true
+      if (closeFailure !== null) {
+        const primaryFailure =
+          error instanceof Error ? error : new Error('Native protocol boundary open failed with a non-Error value')
+        throw new AggregateError(
+          [primaryFailure, closeFailure],
+          'Native protocol boundary open failed and its attachment cleanup remains retryable'
+        )
+      }
       throw error
     }
   }
@@ -574,7 +592,18 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
     if (kind === 'diagnostic') {
       const error = optionalRecord(event, 14)
       const code = error === null ? null : optionalString(error, 1)
+      const operation = error === null ? null : optionalString(error, 3)
       const safeMessage = error === null ? null : optionalString(error, 7)
+      if (code === 'stream.overflow' && operation === 'pre-js-event-buffer') {
+        this.preJavaScriptEventBufferOverflowed = true
+        console.error(
+          '[ReactNativeAndroidProtocolBoundary.receiveEvent] Native pre-JavaScript event buffer overflowed:',
+          {
+            safeMessage
+          }
+        )
+        return
+      }
       if (code === 'scanFailed') {
         const message = safeMessage ?? 'Android scan failed'
         this.scanListeners.clear()

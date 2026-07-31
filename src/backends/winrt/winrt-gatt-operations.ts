@@ -64,8 +64,15 @@ export class WinRtGattOperations {
     return this.backend.dispatcher.dispatch(request.operation, 'winrt.gatt.read', () => {
       const native = this.backend.boundary.read(address)
       return {
-        completion: native.completion.then(value =>
-          Object.freeze({ value: ownBytes(value, maximumValueBytes), terminal: successfulTerminal(request.operation) })
+        completion: native.completion.then(
+          value =>
+            Object.freeze({
+              value: ownBytes(value, maximumValueBytes),
+              terminal: successfulTerminal(request.operation)
+            }),
+          error => {
+            throw winRtPlatformError('gatt.read-failed', 'gatt', 'winrt.gatt.read', error)
+          }
         ),
         cancel: () => native.cancel()
       }
@@ -85,7 +92,15 @@ export class WinRtGattOperations {
     })
     return this.backend.dispatcher.dispatch(request.operation, 'winrt.gatt.write', () => {
       const native = this.backend.boundary.write(address, new Uint8Array(copied), request.mode)
-      return { completion: native.completion.then(() => result), cancel: () => native.cancel() }
+      return {
+        completion: native.completion.then(
+          () => result,
+          error => {
+            throw winRtPlatformError('gatt.write-failed', 'gatt', 'winrt.gatt.write', error)
+          }
+        ),
+        cancel: () => native.cancel()
+      }
     })
   }
 
@@ -104,8 +119,11 @@ export class WinRtGattOperations {
         terminal: successfulTerminal(request.operation)
       })
       return {
-        completion: native.completion.then(value =>
-          Object.freeze({ ...result, value: ownBytes(value, maximumValueBytes) })
+        completion: native.completion.then(
+          value => Object.freeze({ ...result, value: ownBytes(value, maximumValueBytes) }),
+          error => {
+            throw winRtPlatformError('gatt.read-failed', 'gatt', 'winrt.gatt.read-descriptor', error)
+          }
         ),
         cancel: () => native.cancel()
       }
@@ -127,7 +145,15 @@ export class WinRtGattOperations {
     })
     return this.backend.dispatcher.dispatch(request.operation, 'winrt.gatt.write-descriptor', () => {
       const native = this.backend.boundary.writeDescriptor(address, new Uint8Array(copied), request.mode)
-      return { completion: native.completion.then(() => result), cancel: () => native.cancel() }
+      return {
+        completion: native.completion.then(
+          () => result,
+          error => {
+            throw winRtPlatformError('gatt.write-failed', 'gatt', 'winrt.gatt.write-descriptor', error)
+          }
+        ),
+        cancel: () => native.cancel()
+      }
     })
   }
 
@@ -178,7 +204,11 @@ export class WinRtGattOperations {
     const dispatch = this.backend.dispatcher.dispatch(options, 'winrt.gatt.database-read', () =>
       this.backend.boundary.read(address)
     )
-    return ownBytes(await dispatch.completion, maximumValueBytes)
+    try {
+      return ownBytes(await dispatch.completion, maximumValueBytes)
+    } catch (error) {
+      throw winRtPlatformError('gatt.read-failed', 'gatt', 'winrt.gatt.database-read', error)
+    }
   }
 
   async writeFromDatabase(
@@ -191,7 +221,11 @@ export class WinRtGattOperations {
     const dispatch = this.backend.dispatcher.dispatch(options, 'winrt.gatt.database-write', () =>
       this.backend.boundary.write(address, new Uint8Array(copied), options.mode)
     )
-    await dispatch.completion
+    try {
+      await dispatch.completion
+    } catch (error) {
+      throw winRtPlatformError('gatt.write-failed', 'gatt', 'winrt.gatt.database-write', error)
+    }
     return this.databaseWriteReceipt('winrt-database-write')
   }
 
@@ -203,7 +237,11 @@ export class WinRtGattOperations {
     const dispatch = this.backend.dispatcher.dispatch(options, 'winrt.gatt.database-read-descriptor', () =>
       this.backend.boundary.readDescriptor(address)
     )
-    return ownBytes(await dispatch.completion, maximumValueBytes)
+    try {
+      return ownBytes(await dispatch.completion, maximumValueBytes)
+    } catch (error) {
+      throw winRtPlatformError('gatt.read-failed', 'gatt', 'winrt.gatt.database-read-descriptor', error)
+    }
   }
 
   async writeDescriptorFromDatabase(
@@ -216,7 +254,11 @@ export class WinRtGattOperations {
     const dispatch = this.backend.dispatcher.dispatch(options, 'winrt.gatt.database-write-descriptor', () =>
       this.backend.boundary.writeDescriptor(address, new Uint8Array(copied), options.mode)
     )
-    await dispatch.completion
+    try {
+      await dispatch.completion
+    } catch (error) {
+      throw winRtPlatformError('gatt.write-failed', 'gatt', 'winrt.gatt.database-write-descriptor', error)
+    }
     return this.databaseWriteReceipt('winrt-database-write-descriptor')
   }
 
@@ -255,7 +297,7 @@ export class WinRtGattOperations {
           this.backend.subscriptions.delete(key)
         }
         console.error('[WinRtGattOperations.enableSubscription] WinRT CCCD enable failed:', error)
-        throw error
+        throw winRtPlatformError('gatt.subscribe-failed', 'gatt', 'winrt.gatt.subscribe', error)
       }
       if (this.backend.subscriptions.get(key) !== enabling) {
         const cleanup = await stopWinRtPhysicalSubscription(this.backend, enabling)

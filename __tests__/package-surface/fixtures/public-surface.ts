@@ -133,7 +133,6 @@ declare const webChooser: WebChooser<string>
 declare const webChooserRequest: ChooserRequest
 declare const navigatorWebManagerOptions: NavigatorWebBleManagerOptions
 declare const webManagerOptions: WebBleManagerOptions
-declare const browserBluetooth: Bluetooth
 declare const browserTimer: WebBluetoothTimerHandle
 declare const connectionOneDatabasePath: DatabasePath<'scope-test', 'connection-one', 'database-one'>
 declare const connectionTwoDatabasePath: DatabasePath<'scope-test', 'connection-two', 'database-one'>
@@ -195,7 +194,7 @@ const browserNavigatorManagerOptions: NavigatorWebBleManagerOptions = {
   environment: {
     implementationVersion: '4.0.0',
     browserEngine: 'test',
-    bluetooth: browserBluetooth,
+    bluetooth: navigator.bluetooth,
     isSecureContext: () => true,
     hasTransientUserActivation: () => true,
     now: () => 0,

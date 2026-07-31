@@ -56,6 +56,18 @@ describe('WinRT native boundary source contract', () => {
     expect(addon).not.toContain('descriptor.Set("writable", Napi::Boolean::New(env, true))')
   })
 
+  test('attaches WinRT GATT communication status and HRESULT details to rejected native operations', () => {
+    const addon = read('native/electron/winrt/src/addon.cpp')
+
+    expect(addon).toContain('class WinRtNativeStatusError final')
+    expect(addon).toContain('GattCommunicationStatusCode')
+    expect(addon).toContain('native_error_details_')
+    expect(addon).toContain('error_object.Set("winRtCode"')
+    expect(addon).toContain('error_object.Set("winRtGattStatus"')
+    expect(addon).toContain('error_object.Set("winRtHresult"')
+    expect(addon).toContain("std::setfill('0') << std::setw(8)")
+  })
+
   test('uses complete current C++/WinRT APIs without default-constructing projected GATT values', () => {
     const addon = read('native/electron/winrt/src/addon.cpp')
     const boundary = read('native/electron/winrt/src/winrt-boundary.inc')

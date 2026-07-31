@@ -2,7 +2,12 @@
 
 import type { AdvertisementObservation, OwnerScanOptions } from '../../backend-contract/advertisement'
 import type { BackendConnection, BackendSubscription, ConnectionLease, ScanLease } from '../../backend-contract/backend'
-import { contractError, type CleanupFailure, type CleanupRecord } from '../../backend-contract/errors'
+import {
+  BackendContractError,
+  contractError,
+  type CleanupFailure,
+  type CleanupRecord
+} from '../../backend-contract/errors'
 import type {
   Characteristic,
   CharacteristicPath,
@@ -462,14 +467,18 @@ export function advertisementByteLength(observation: AdvertisementObservation<st
 
 export function cleanupFailure(resourceKind: string, operation: string, error: unknown): CleanupRecord {
   const safeMessage = error instanceof Error ? error.message : 'WinRT cleanup rejected with a non-Error value'
+  const platform =
+    error instanceof BackendContractError
+      ? error.normalized.platform
+      : {
+          domain: 'winrt',
+          code: 'native-cleanup-failed',
+          safeMessage,
+          metadata: Object.freeze({})
+        }
   const failure: CleanupFailure = Object.freeze({
     resourceKind,
-    error: contractError('platform.failure', 'cleanup', operation, {
-      domain: 'winrt',
-      code: 'native-cleanup-failed',
-      safeMessage,
-      metadata: Object.freeze({})
-    }).normalized
+    error: contractError('platform.failure', 'cleanup', operation, platform).normalized
   })
   return Object.freeze({ state: 'release-failed', failures: Object.freeze([failure]) })
 }

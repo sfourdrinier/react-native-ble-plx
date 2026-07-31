@@ -45,6 +45,29 @@ describe('Apple Native Protocol v1 radio boundary', () => {
     expect(execution).toContain('runtime->settleResult(result)')
   })
 
+  test('fails the pre-JavaScript stream closed with generation-safe sink ownership and observable counters', () => {
+    const control = read('ios/UnifiedBleProtocolControl.mm')
+    const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
+    const state = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecutionState.hpp')
+    const buffer = read('native/protocol/include/BoundedNativeEventBuffer.hpp')
+
+    expect(control).toContain('_execution->beginAttachment();')
+    expect(state).toContain('std::shared_ptr<facebook::jsi::Function> eventSink;')
+    expect(state).toContain('std::recursive_mutex mutex;')
+    expect(state).toContain('std::uint64_t attachmentGeneration')
+    expect(state).toContain('bool attachmentActive = false;')
+    expect(state).toContain('bool ingressClosed = false;')
+    expect(execution).toContain('state->attachmentGeneration != attachmentGeneration')
+    expect(execution).toContain('if (!admitted) state->ingressClosed = true;')
+    expect(execution).toContain('eventSinksAwaitingJavaScriptRelease')
+    expect(execution).toContain('retainedRecordCount=')
+    expect(execution).toContain('droppedByteCount=')
+    expect(execution).toContain('overflowCount=')
+    expect(buffer).toContain('struct OverflowSnapshot final')
+    expect(buffer).toContain('saturatingAdd')
+    expect(buffer).not.toContain('overflowed_ = false')
+  })
+
   test('requires the complete persisted five-field restoration identity before native append or adoption', () => {
     const control = read('ios/UnifiedBleProtocolControl.mm')
     const configuration = read('native/protocol/include/NativeRestorationConfiguration.hpp')

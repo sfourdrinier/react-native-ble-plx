@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <functional>
+#include <iomanip>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -202,6 +203,48 @@ Result AwaitWinRt(const winrt::Windows::Foundation::IAsyncOperation<Result>& ope
   }
 }
 
+struct NativeErrorDetails {
+  std::string code;
+  std::optional<std::string> hresult;
+  std::optional<std::string> gatt_status;
+};
+
+std::string HresultCode(const winrt::hresult& value) {
+  std::ostringstream stream;
+  stream << "0x" << std::hex << std::uppercase << std::setfill('0') << std::setw(8)
+         << static_cast<uint32_t>(value.value);
+  return stream.str();
+}
+
+std::string GattCommunicationStatusCode(GattCommunicationStatus status) {
+  switch (status) {
+    case GattCommunicationStatus::Success:
+      return "success";
+    case GattCommunicationStatus::ProtocolError:
+      return "protocol-error";
+    case GattCommunicationStatus::AccessDenied:
+      return "access-denied";
+    case GattCommunicationStatus::Unreachable:
+      return "unreachable";
+    default:
+      return "unknown";
+  }
+}
+
+class WinRtNativeStatusError final : public std::runtime_error {
+ public:
+  WinRtNativeStatusError(const char* operation, GattCommunicationStatus status)
+      : std::runtime_error(std::string(operation) + " was rejected by the Windows GATT stack"),
+        status_(GattCommunicationStatusCode(status)) {}
+
+  const std::string& Status() const {
+    return status_;
+  }
+
+ private:
+  std::string status_;
+};
+
 template <typename Result>
 class PromiseWorker final : public Napi::AsyncWorker {
  public:
@@ -226,8 +269,13 @@ class PromiseWorker final : public Napi::AsyncWorker {
       current_operation_status = status_;
       result_ = execute_();
       status_->terminal.store(true);
+    } catch (const WinRtNativeStatusError& error) {
+      status_->terminal.store(true);
+      native_error_details_ = NativeErrorDetails{"gatt-status", std::nullopt, error.Status()};
+      SetError(error.what());
     } catch (const winrt::hresult_error& error) {
       status_->terminal.store(true);
+      native_error_details_ = NativeErrorDetails{"hresult", HresultCode(error.code()), std::nullopt};
       SetError(ToUtf8(error.message()));
     } catch (const std::exception& error) {
       status_->terminal.store(true);
@@ -243,6 +291,17 @@ class PromiseWorker final : public Napi::AsyncWorker {
 
   void OnError(const Napi::Error& error) override {
     status_->terminal.store(true);
+    if (native_error_details_.has_value()) {
+      const NativeErrorDetails& detail = *native_error_details_;
+      Napi::Object error_object = error.Value().As<Napi::Object>();
+      error_object.Set("winRtCode", Napi::String::New(Env(), detail.code));
+      if (detail.gatt_status.has_value()) {
+        error_object.Set("winRtGattStatus", Napi::String::New(Env(), *detail.gatt_status));
+      }
+      if (detail.hresult.has_value()) {
+        error_object.Set("winRtHresult", Napi::String::New(Env(), *detail.hresult));
+      }
+    }
     deferred_.Reject(error.Value());
   }
 
@@ -252,6 +311,7 @@ class PromiseWorker final : public Napi::AsyncWorker {
   std::function<Result()> execute_;
   std::function<Napi::Value(Napi::Env, const Result&)> to_js_;
   std::optional<Result> result_;
+  std::optional<NativeErrorDetails> native_error_details_;
 };
 
 template <typename Result>
@@ -306,7 +366,7 @@ winrt::Windows::Storage::Streams::IBuffer ToBuffer(const std::vector<uint8_t>& b
 
 void RequireSuccess(GattCommunicationStatus status, const char* operation) {
   if (status != GattCommunicationStatus::Success) {
-    throw std::runtime_error(std::string(operation) + " was rejected by the Windows GATT stack");
+    throw WinRtNativeStatusError(operation, status);
   }
 }
 

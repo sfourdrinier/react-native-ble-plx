@@ -126,6 +126,11 @@ class DeterministicWinRtBoundary {
     this.databaseListeners = new Set()
     this.adapterListeners = new Set()
     this.readGate = null
+    this.nextReadError = null
+    this.nextWriteError = null
+    this.nextDescriptorReadError = null
+    this.nextDescriptorWriteError = null
+    this.nextStopNotifyError = null
     this.connectGate = null
     this.writeValues = []
     this.descriptorWriteValues = []
@@ -275,19 +280,39 @@ class DeterministicWinRtBoundary {
     if (this.readGate !== null) {
       return pending(this.readGate)
     }
+    if (this.nextReadError !== null) {
+      const error = this.nextReadError
+      this.nextReadError = null
+      return pending(Promise.reject(error))
+    }
     return completed(new Uint8Array([address.serviceOccurrence, address.characteristicOccurrence]))
   }
 
   write(address, bytes, mode) {
+    if (this.nextWriteError !== null) {
+      const error = this.nextWriteError
+      this.nextWriteError = null
+      return pending(Promise.reject(error))
+    }
     this.writeValues.push({ address, bytes: new Uint8Array(bytes), mode })
     return completed(undefined)
   }
 
   readDescriptor(address) {
+    if (this.nextDescriptorReadError !== null) {
+      const error = this.nextDescriptorReadError
+      this.nextDescriptorReadError = null
+      return pending(Promise.reject(error))
+    }
     return completed(new Uint8Array([address.serviceOccurrence, address.characteristicOccurrence, address.descriptorOccurrence]))
   }
 
   writeDescriptor(address, bytes, mode) {
+    if (this.nextDescriptorWriteError !== null) {
+      const error = this.nextDescriptorWriteError
+      this.nextDescriptorWriteError = null
+      return pending(Promise.reject(error))
+    }
     this.descriptorWriteValues.push({ address, bytes: new Uint8Array(bytes), mode })
     return completed(undefined)
   }
@@ -300,6 +325,11 @@ class DeterministicWinRtBoundary {
 
   stopNotify(address) {
     this.stopNotifyCalls += 1
+    if (this.nextStopNotifyError !== null) {
+      const error = this.nextStopNotifyError
+      this.nextStopNotifyError = null
+      return pending(Promise.reject(error))
+    }
     if (this.stopNotifyGate !== null) {
       return pending(
         this.stopNotifyGate.then(() => {
@@ -527,6 +557,147 @@ describe('WinRT contract-v1 deterministic native-boundary vertical slice', () =>
     expect(boundary.stopNotifyCalls).toBe(2)
     await backend.destroy()
     expect(Object.values(backend.resourceCounters()).every(value => Number(value) === 0)).toBe(true)
+  })
+
+  test('normalizes native WinRT GATT status details instead of leaking raw boundary errors', async () => {
+    const { backend, boundary } = await backendFixture()
+    const peerId = await observedPeerId(backend, boundary)
+    const lease = await backend.connections.connect(peerId, opaqueId('status-client', 'client', 'winrt:status'), operation())
+    const database = await backend.gatt.discover(lease.connection, operation())
+    const characteristic = (await database.snapshot()).characteristics[0].path
+    const readError = new Error('Windows denied the uncached characteristic read')
+    Object.assign(readError, { winRtCode: 'gatt-status', winRtGattStatus: 'access-denied' })
+    boundary.nextReadError = readError
+
+    const read = backend.gatt.read(characteristic, {
+      operation: { ...operation(), correlation: opaqueId('status-read', 'core-operation', 'winrt:status') }
+    })
+    await expect(read.completion).rejects.toMatchObject({
+      normalized: {
+        code: 'gatt.read-failed',
+        domain: 'gatt',
+        operation: 'winrt.gatt.read',
+        platform: {
+          domain: 'winrt',
+          code: 'gatt-status',
+          safeMessage: 'Windows denied the uncached characteristic read',
+          metadata: { gattStatus: 'access-denied' }
+        }
+      }
+    })
+
+    const writeError = new Error('Windows GATT write was unavailable')
+    Object.assign(writeError, { winRtCode: 'hresult', winRtHresult: '0x80070490' })
+    boundary.nextWriteError = writeError
+    const write = backend.gatt.write(characteristic, {
+      bytes: new Uint8Array([5]),
+      mode: 'with-response',
+      operation: { ...operation(), correlation: opaqueId('status-write', 'core-operation', 'winrt:status') }
+    })
+    await expect(write.completion).rejects.toMatchObject({
+      normalized: {
+        code: 'gatt.write-failed',
+        domain: 'gatt',
+        operation: 'winrt.gatt.write',
+        platform: {
+          domain: 'winrt',
+          code: 'hresult',
+          safeMessage: 'Windows GATT write was unavailable',
+          metadata: { hresult: '0x80070490' }
+        }
+      }
+    })
+
+    await lease.release()
+    await backend.destroy()
+  })
+
+  test('normalizes every database-handle GATT failure and preserves native CCCD cleanup details', async () => {
+    const { backend, boundary } = await backendFixture()
+    const peerId = await observedPeerId(backend, boundary)
+    const lease = await backend.connections.connect(
+      peerId,
+      opaqueId('database-status-client', 'client', 'winrt:database-status'),
+      operation()
+    )
+    const database = await backend.gatt.discover(lease.connection, operation())
+    const snapshot = await database.snapshot()
+    const characteristic = snapshot.characteristics[0].path
+    const descriptor = snapshot.descriptors[0].path
+
+    const databaseReadError = new Error('Windows database read failed')
+    Object.assign(databaseReadError, { winRtCode: 'gatt-status', winRtGattStatus: 'unreachable' })
+    boundary.nextReadError = databaseReadError
+    await expect(database.read(characteristic, operation())).rejects.toMatchObject({
+      normalized: {
+        code: 'gatt.read-failed',
+        operation: 'winrt.gatt.database-read',
+        platform: { code: 'gatt-status', metadata: { gattStatus: 'unreachable' } }
+      }
+    })
+
+    const databaseWriteError = new Error('Windows database write failed')
+    Object.assign(databaseWriteError, { winRtCode: 'hresult', winRtHresult: '0x80070490' })
+    boundary.nextWriteError = databaseWriteError
+    await expect(
+      database.write(characteristic, new Uint8Array([1]), { ...operation(), mode: 'with-response' })
+    ).rejects.toMatchObject({
+      normalized: {
+        code: 'gatt.write-failed',
+        operation: 'winrt.gatt.database-write',
+        platform: { code: 'hresult', metadata: { hresult: '0x80070490' } }
+      }
+    })
+
+    const descriptorReadError = new Error('Windows descriptor read failed')
+    Object.assign(descriptorReadError, { winRtCode: 'gatt-status', winRtGattStatus: 'access-denied' })
+    boundary.nextDescriptorReadError = descriptorReadError
+    await expect(database.readDescriptor(descriptor, operation())).rejects.toMatchObject({
+      normalized: {
+        code: 'gatt.read-failed',
+        operation: 'winrt.gatt.database-read-descriptor',
+        platform: { code: 'gatt-status', metadata: { gattStatus: 'access-denied' } }
+      }
+    })
+
+    const descriptorWriteError = new Error('Windows descriptor write failed')
+    Object.assign(descriptorWriteError, { winRtCode: 'hresult', winRtHresult: '0x80070005' })
+    boundary.nextDescriptorWriteError = descriptorWriteError
+    await expect(
+      database.writeDescriptor(descriptor, new Uint8Array([1]), { ...operation(), mode: 'with-response' })
+    ).rejects.toMatchObject({
+      normalized: {
+        code: 'gatt.write-failed',
+        operation: 'winrt.gatt.database-write-descriptor',
+        platform: { code: 'hresult', metadata: { hresult: '0x80070005' } }
+      }
+    })
+
+    const subscription = await database.subscribe(characteristic, { ...operation(), delivery: delivery() })
+    const stopNotifyError = new Error('Windows CCCD disable failed')
+    Object.assign(stopNotifyError, { winRtCode: 'gatt-status', winRtGattStatus: 'protocol-error' })
+    boundary.nextStopNotifyError = stopNotifyError
+    await expect(subscription.remove()).resolves.toMatchObject({
+      state: 'release-failed',
+      failures: [{
+        resourceKind: 'subscription',
+        error: {
+          code: 'platform.failure',
+          domain: 'cleanup',
+          operation: 'winrt.gatt.stop-notify',
+          platform: {
+            domain: 'winrt',
+            code: 'gatt-status',
+            safeMessage: 'Windows CCCD disable failed',
+            metadata: { gattStatus: 'protocol-error' }
+          }
+        }
+      }]
+    })
+    await expect(subscription.remove()).resolves.toEqual({ state: 'released', failures: [] })
+
+    await lease.release()
+    await backend.destroy()
   })
 
   test.each([

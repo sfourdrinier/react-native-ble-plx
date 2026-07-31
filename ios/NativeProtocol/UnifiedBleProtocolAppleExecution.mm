@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cstring>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -180,20 +181,38 @@ OwnedCoreBluetoothProtocolRadio* radioFor(const std::shared_ptr<AppleNativeProto
   return (__bridge OwnedCoreBluetoothProtocolRadio*)state->radio;
 }
 
-bool scheduleRecord(const std::shared_ptr<AppleNativeProtocolExecution::State>& state, std::vector<std::uint8_t> bytes) {
+bool scheduleRecord(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    std::vector<std::uint8_t> bytes,
+    std::uint64_t attachmentGeneration) {
   std::shared_ptr<facebook::react::CallInvoker> invoker;
   {
     std::scoped_lock lock(state->mutex);
-    if (state->closed.load(std::memory_order_acquire)) return false;
+    if (
+        state->closed.load(std::memory_order_acquire) ||
+        !state->attachmentActive ||
+        state->ingressClosed ||
+        state->attachmentGeneration != attachmentGeneration) {
+      return false;
+    }
     if (!state->eventSink) {
-      state->recordsAwaitingSink.push_back(std::move(bytes));
-      return true;
+      const auto admitted = state->recordsAwaitingSink.enqueue(std::move(bytes));
+      if (!admitted) state->ingressClosed = true;
+      return admitted;
     }
     invoker = state->callInvoker;
   }
   if (!invoker) return false;
-  invoker->invokeAsync([state, bytes = std::move(bytes)](jsi::Runtime& runtime) {
-    if (state->closed.load(std::memory_order_acquire) || !state->eventSink) return;
+  invoker->invokeAsync([state, bytes = std::move(bytes), attachmentGeneration](jsi::Runtime& runtime) {
+    std::scoped_lock lock(state->mutex);
+    if (
+        state->closed.load(std::memory_order_acquire) ||
+        !state->attachmentActive ||
+        state->ingressClosed ||
+        state->attachmentGeneration != attachmentGeneration ||
+        !state->eventSink) {
+      return;
+    }
     jsi::Uint8Array output(runtime, bytes.size());
     const auto buffer = output.buffer(runtime);
     auto* destination = buffer.data(runtime);
@@ -211,16 +230,75 @@ bool scheduleRecord(const std::shared_ptr<AppleNativeProtocolExecution::State>& 
 bool deliverResult(
   const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
   const protocol::ProtocolRecord& result) {
-  if (state->closed.load(std::memory_order_acquire) || !state->runtime->settleResult(result)) return false;
-  return scheduleRecord(state, protocol::NativeProtocolV1Codec{}.encode(result));
+  std::uint64_t attachmentGeneration = 0U;
+  {
+    std::scoped_lock lock(state->mutex);
+    if (state->closed.load(std::memory_order_acquire) || !state->attachmentActive || state->ingressClosed) return false;
+    attachmentGeneration = state->attachmentGeneration;
+  }
+  if (!state->runtime->settleResult(result)) return false;
+  return scheduleRecord(state, protocol::NativeProtocolV1Codec{}.encode(result), attachmentGeneration);
 }
 
 bool deliverEvent(
     const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
-    const protocol::ProtocolRecord& event) {
-  if (state->closed.load(std::memory_order_acquire)) return false;
+    const protocol::ProtocolRecord& event,
+    std::uint64_t attachmentGeneration) {
+  {
+    std::scoped_lock lock(state->mutex);
+    if (
+        state->closed.load(std::memory_order_acquire) ||
+        !state->attachmentActive ||
+        state->ingressClosed ||
+        state->attachmentGeneration != attachmentGeneration) {
+      return false;
+    }
+  }
   state->runtime->validateEvent(event);
-  return scheduleRecord(state, protocol::NativeProtocolV1Codec{}.encode(event));
+  return scheduleRecord(state, protocol::NativeProtocolV1Codec{}.encode(event), attachmentGeneration);
+}
+
+protocol::ProtocolRecord preJavaScriptEventBufferOverflow(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    const protocol::BoundedNativeEventBuffer::OverflowSnapshot& counters) {
+  if (state->nextIngressOrdinal == std::numeric_limits<std::uint64_t>::max()) {
+    throw std::overflow_error(
+        "Apple native ingress ordinal exhausted before the pre-JavaScript overflow terminal");
+  }
+  const auto ordinal = state->nextIngressOrdinal;
+  state->nextIngressOrdinal += 1U;
+  const auto safeMessage =
+      std::string("Native Protocol v1 pre-JavaScript event buffer overflowed after retaining ") +
+      std::to_string(counters.retainedRecordCount) + " records and " +
+      std::to_string(counters.retainedByteCount) + " bytes";
+  const auto error = protocol::ProtocolRecord{
+      .kind = protocol::RecordKind::error,
+      .fields = {
+          field(1U, std::string("stream.overflow")),
+          field(2U, std::string("native-protocol")),
+          field(3U, std::string("pre-js-event-buffer")),
+          field(4U, std::string("notRetryable")),
+          field(7U, safeMessage),
+          field(11U, protocol::ProtocolStringList{
+              "retainedRecordCount=" + std::to_string(counters.retainedRecordCount),
+              "retainedByteCount=" + std::to_string(counters.retainedByteCount),
+              "rejectedRecordByteCount=" + std::to_string(counters.rejectedRecordByteCount),
+              "droppedRecordCount=" + std::to_string(counters.droppedRecordCount),
+              "droppedByteCount=" + std::to_string(counters.droppedByteCount),
+              "overflowCount=" + std::to_string(counters.overflowCount),
+          }),
+      }};
+  return {
+      .kind = protocol::RecordKind::event,
+      .fields = {
+          field(1U, std::uint64_t{1U}),
+          field(2U, std::string("apple-pre-js-event-buffer-overflow:") + std::to_string(ordinal)),
+          field(3U, std::string("diagnostic")),
+          field(4U, reference(attachmentRecord(state->runtime->attachmentIdentity()))),
+          field(5U, ordinal),
+          field(6U, monotonicMilliseconds()),
+          field(14U, reference(error)),
+      }};
 }
 
 protocol::ProtocolRecord failureResult(
@@ -646,21 +724,41 @@ class BinaryRuntime final : public jsi::HostObject {
     return jsi::Function::createFromHostFunction(runtime, name, 1U, [self = state_](jsi::Runtime& inner, const jsi::Value&, const jsi::Value* arguments, std::size_t count) {
       if (count != 1U || !arguments[0].isObject() || !arguments[0].asObject(inner).isFunction(inner)) throw jsi::JSError(inner, "Native Protocol v1 setEventSink requires a function");
       if (self->closed.load(std::memory_order_acquire)) throw jsi::JSError(inner, "Native Protocol v1 runtime is closed");
+      std::vector<std::shared_ptr<jsi::Function>> retiredSinks;
       std::vector<std::vector<std::uint8_t>> buffered;
       {
         std::scoped_lock lock(self->mutex);
-        self->eventSink = std::make_unique<jsi::Function>(arguments[0].asObject(inner).asFunction(inner));
-        buffered = std::move(self->recordsAwaitingSink);
-      }
-      for (const auto& bytes : buffered) {
-        jsi::Uint8Array output(inner, bytes.size());
-        const auto buffer = output.buffer(inner);
-        auto* destination = buffer.data(inner);
-        if (!bytes.empty() && destination == nullptr) {
-          throw jsi::JSError(inner, "Apple native protocol could not allocate buffered event bytes");
+        if (self->closed.load(std::memory_order_acquire) || !self->attachmentActive) {
+          throw jsi::JSError(inner, "Native Protocol v1 runtime closed while installing its event sink");
         }
-        if (!bytes.empty()) std::memcpy(destination, bytes.data(), bytes.size());
-        self->eventSink->call(inner, output);
+        if (self->eventSink) {
+          self->eventSinksAwaitingJavaScriptRelease.push_back(std::move(self->eventSink));
+        }
+        retiredSinks.swap(self->eventSinksAwaitingJavaScriptRelease);
+        self->eventSink = std::make_shared<jsi::Function>(arguments[0].asObject(inner).asFunction(inner));
+        if (self->recordsAwaitingSink.overflowed()) {
+          self->ingressClosed = true;
+          const auto& overflowSnapshot = self->recordsAwaitingSink.overflowSnapshot();
+          if (!overflowSnapshot.has_value()) {
+            throw jsi::JSError(inner, "Native Protocol v1 overflow accounting is unavailable");
+          }
+          const auto overflow = preJavaScriptEventBufferOverflow(self, *overflowSnapshot);
+          self->runtime->validateEvent(overflow);
+          buffered.push_back(protocol::NativeProtocolV1Codec{}.encode(overflow));
+        } else {
+          buffered = self->recordsAwaitingSink.drain();
+        }
+        const auto sink = self->eventSink;
+        for (const auto& bytes : buffered) {
+          jsi::Uint8Array output(inner, bytes.size());
+          const auto buffer = output.buffer(inner);
+          auto* destination = buffer.data(inner);
+          if (!bytes.empty() && destination == nullptr) {
+            throw jsi::JSError(inner, "Apple native protocol could not allocate buffered event bytes");
+          }
+          if (!bytes.empty()) std::memcpy(destination, bytes.data(), bytes.size());
+          sink->call(inner, output);
+        }
       }
       return jsi::Value::undefined();
     });
@@ -696,10 +794,31 @@ std::string nativeStringFromNSString(NSString* value, const char* name) {
   return nsString(value, name);
 }
 
+std::optional<AppleNativeIngressReservation> reserveNativeIngressOrdinal(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state) {
+  std::scoped_lock lock(state->mutex);
+  if (
+      state->closed.load(std::memory_order_acquire) ||
+      !state->attachmentActive ||
+      state->ingressClosed) {
+    return std::nullopt;
+  }
+  if (state->nextIngressOrdinal == std::numeric_limits<std::uint64_t>::max()) {
+    state->ingressClosed = true;
+    return std::nullopt;
+  }
+  const auto reservation = AppleNativeIngressReservation{
+      state->nextIngressOrdinal,
+      state->attachmentGeneration};
+  state->nextIngressOrdinal += 1U;
+  return reservation;
+}
+
 bool deliverNativeEvent(
     const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
-    const protocol::ProtocolRecord& event) {
-  return deliverEvent(state, event);
+    const protocol::ProtocolRecord& event,
+    std::uint64_t attachmentGeneration) {
+  return deliverEvent(state, event, attachmentGeneration);
 }
 
 void logAppleNativeFailure(const char* context, const std::exception& error) {
@@ -726,6 +845,22 @@ void AppleNativeProtocolExecution::install(
   }
   state_->callInvoker = callInvoker;
   runtime.global().setProperty(runtime, kRuntimeName, jsi::Object::createFromHostObject(runtime, std::make_shared<BinaryRuntime>(state_)));
+}
+
+void AppleNativeProtocolExecution::beginAttachment() {
+  std::scoped_lock lock(state_->mutex);
+  if (state_->closed.load(std::memory_order_acquire) || state_->attachmentActive) {
+    throw std::logic_error("Apple Native Protocol v1 attachment admission is unavailable");
+  }
+  if (state_->attachmentGeneration == std::numeric_limits<std::uint64_t>::max()) {
+    state_->ingressClosed = true;
+    throw std::overflow_error("Apple Native Protocol v1 attachment generation exhausted");
+  }
+  state_->attachmentGeneration += 1U;
+  state_->attachmentActive = true;
+  state_->ingressClosed = false;
+  state_->nextIngressOrdinal = 1U;
+  state_->recordsAwaitingSink.reset();
 }
 
 void AppleNativeProtocolExecution::cancel(const protocol::NativeOperationIdentity& operation) {
@@ -772,17 +907,31 @@ void AppleNativeProtocolExecution::appendRestorationRecords(const protocol::Nati
 void AppleNativeProtocolExecution::rollbackRestorationBootstrap() noexcept {
   std::scoped_lock lock(state_->mutex);
   state_->restorationAppended = false;
+  state_->attachmentActive = false;
+  state_->ingressClosed = true;
+  if (state_->attachmentGeneration != std::numeric_limits<std::uint64_t>::max()) {
+    state_->attachmentGeneration += 1U;
+  }
+  state_->nextIngressOrdinal = 1U;
+  state_->recordsAwaitingSink.reset();
 }
 
 void AppleNativeProtocolExecution::detachAttachment() {
   const auto state = state_;
   if (!state || state->closed.load(std::memory_order_acquire)) return;
   std::scoped_lock lock(state->mutex);
-  state->recordsAwaitingSink.clear();
-  state->eventSink.reset();
+  state->attachmentActive = false;
+  state->ingressClosed = true;
+  if (state->attachmentGeneration != std::numeric_limits<std::uint64_t>::max()) {
+    state->attachmentGeneration += 1U;
+  }
+  state->recordsAwaitingSink.reset();
+  if (state->eventSink) {
+    state->eventSinksAwaitingJavaScriptRelease.push_back(std::move(state->eventSink));
+  }
   state->connections.clear();
   state->restorationAppended = false;
-  state->nextIngressOrdinal.store(1U, std::memory_order_release);
+  state->nextIngressOrdinal = 1U;
 }
 
 void AppleNativeProtocolExecution::receiveAdapterState(void* snapshot) {
@@ -790,7 +939,9 @@ void AppleNativeProtocolExecution::receiveAdapterState(void* snapshot) {
   NSDictionary* value = (__bridge NSDictionary*)snapshot;
   if (![value isKindOfClass:[NSDictionary class]]) return;
   @try {
-    const auto ordinal = state_->nextIngressOrdinal.fetch_add(1U);
+    const auto ingress = reserveNativeIngressOrdinal(state_);
+    if (!ingress.has_value()) return;
+    const auto ordinal = ingress->ordinal;
     const auto availability = nsString(value[@"availability"], "adapter availability");
     const auto authorization = nsString(value[@"authorization"], "adapter authorization");
     const auto power = nsString(value[@"power"], "adapter power");
@@ -809,7 +960,7 @@ void AppleNativeProtocolExecution::receiveAdapterState(void* snapshot) {
             field(3U, std::string("adapterState")),
             field(4U, reference(attachmentRecord(state_->runtime->attachmentIdentity()))),
             field(5U, ordinal), field(6U, monotonicMilliseconds()), field(15U, reference(stateSnapshot))}};
-    static_cast<void>(deliverEvent(state_, event));
+    static_cast<void>(deliverEvent(state_, event, ingress->attachmentGeneration));
   } @catch (NSException* exception) {
     NSLog(@"[UnifiedBleProtocolAppleExecution] adapter-state serialization failed: %@", exception.reason);
   }
@@ -830,7 +981,9 @@ void AppleNativeProtocolExecution::receiveDisconnect(void* peerIdentifier, void*
       connection = found->second;
       state_->connections.erase(found);
     }
-    const auto ordinal = state_->nextIngressOrdinal.fetch_add(1U);
+    const auto ingress = reserveNativeIngressOrdinal(state_);
+    if (!ingress.has_value()) return;
+    const auto ordinal = ingress->ordinal;
     std::vector<protocol::ProtocolField> fields{
         field(1U, std::uint64_t{1U}), field(2U, std::string("apple-connection-lost:") + std::to_string(ordinal)),
         field(3U, std::string("connectionLost")), field(4U, reference(attachmentRecord(state_->runtime->attachmentIdentity()))),
@@ -842,7 +995,10 @@ void AppleNativeProtocolExecution::receiveDisconnect(void* peerIdentifier, void*
           field(10U, static_cast<std::int64_t>(nativeError.code))}};
       fields.push_back(field(14U, reference(eventError)));
     }
-    static_cast<void>(deliverEvent(state_, {.kind = protocol::RecordKind::event, .fields = std::move(fields)}));
+    static_cast<void>(deliverEvent(
+        state_,
+        {.kind = protocol::RecordKind::event, .fields = std::move(fields)},
+        ingress->attachmentGeneration));
   } catch (const std::exception& error) {
     logNativeFailure("disconnect serialization", error);
   }
@@ -859,7 +1015,9 @@ void AppleNativeProtocolExecution::receiveNotification(void* subscriptionIdentif
     auto command = state_->runtime->subscriptionCommandFor(subscriptionValue);
     if (!command) command = state_->runtime->pendingSubscriptionCommandFor(subscriptionValue);
     if (!command) return;
-    const auto ordinal = state_->nextIngressOrdinal.fetch_add(1U);
+    const auto ingress = reserveNativeIngressOrdinal(state_);
+    if (!ingress.has_value()) return;
+    const auto ordinal = ingress->ordinal;
     output = state_->runtime->retainNativeBytes(
         "apple-notification:" + subscriptionValue + ":" + std::to_string(ordinal), bytesFromData(bytes));
     const auto event = protocol::ProtocolRecord{.kind = protocol::RecordKind::event, .fields = {
@@ -868,7 +1026,9 @@ void AppleNativeProtocolExecution::receiveNotification(void* subscriptionIdentif
         field(5U, ordinal), field(6U, monotonicMilliseconds()), field(9U, reference(requiredRecord(*command, 4U))),
         field(10U, reference(requiredRecord(*command, 2U))), field(11U, subscriptionValue),
         field(13U, reference(binaryReferenceRecord(*output)))} };
-    if (!deliverEvent(state_, event)) static_cast<void>(state_->runtime->releaseBinary(*output));
+    if (!deliverEvent(state_, event, ingress->attachmentGeneration)) {
+      static_cast<void>(state_->runtime->releaseBinary(*output));
+    }
   } catch (const std::exception& error) {
     logNativeFailure("notification serialization", error);
     if (output) {
@@ -884,15 +1044,23 @@ void AppleNativeProtocolExecution::receiveNotification(void* subscriptionIdentif
 void AppleNativeProtocolExecution::close() {
   const auto state = state_;
   if (!state || state->closed.exchange(true, std::memory_order_acq_rel)) return;
+  auto sinksToRelease = std::make_shared<std::vector<std::shared_ptr<jsi::Function>>>();
   {
     std::scoped_lock lock(state->mutex);
-    state->recordsAwaitingSink.clear();
+    state->attachmentActive = false;
+    state->ingressClosed = true;
+    if (state->attachmentGeneration != std::numeric_limits<std::uint64_t>::max()) {
+      state->attachmentGeneration += 1U;
+    }
+    state->recordsAwaitingSink.reset();
+    sinksToRelease->swap(state->eventSinksAwaitingJavaScriptRelease);
+    if (state->eventSink) sinksToRelease->push_back(std::move(state->eventSink));
   }
   const auto invoker = state->callInvoker;
   if (invoker) {
-    invoker->invokeAsync([state](jsi::Runtime& runtime) {
-      state->eventSink.reset();
+    invoker->invokeAsync([state, sinksToRelease](jsi::Runtime& runtime) {
       if (!runtime.global().getProperty(runtime, kRuntimeName).isUndefined()) runtime.global().deleteProperty(runtime, kRuntimeName);
+      sinksToRelease->clear();
     });
   }
 }

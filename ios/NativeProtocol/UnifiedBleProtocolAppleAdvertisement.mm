@@ -21,7 +21,9 @@ void AppleNativeProtocolExecution::receiveAdvertisement(void* advertisement) {
   if (![value isKindOfClass:[NSDictionary class]]) return;
   std::vector<protocol::OwnedBinaryReference> retained;
   try {
-    const auto ordinal = state_->nextIngressOrdinal.fetch_add(1U);
+    const auto ingress = reserveNativeIngressOrdinal(state_);
+    if (!ingress.has_value()) return;
+    const auto ordinal = ingress->ordinal;
     const auto peer = nativeStringFromNSString(value[@"peerIdentifier"], "advertisement peer");
     const auto observedAt = [value[@"observedAt"] unsignedLongLongValue];
     std::vector<protocol::ProtocolField> advertisementFields{
@@ -92,7 +94,7 @@ void AppleNativeProtocolExecution::receiveAdvertisement(void* advertisement) {
         nativeProtocolField(1U, std::uint64_t{1U}), nativeProtocolField(2U, std::string("apple-advertisement:") + std::to_string(ordinal)),
         nativeProtocolField(3U, std::string("advertisement")), nativeProtocolField(4U, nativeProtocolReference(nativeAttachmentRecord(state_->runtime->attachmentIdentity()))),
         nativeProtocolField(5U, ordinal), nativeProtocolField(6U, nativeMonotonicMilliseconds()), nativeProtocolField(12U, nativeProtocolReference(advertisementRecord))}};
-    if (!deliverNativeEvent(state_, event)) {
+    if (!deliverNativeEvent(state_, event, ingress->attachmentGeneration)) {
       for (const auto& binary : retained) static_cast<void>(state_->runtime->releaseBinary(binary));
     }
   } catch (const std::exception& error) {

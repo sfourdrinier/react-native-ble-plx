@@ -8,6 +8,7 @@ import { CoreBoundedStream } from '../../core/bounded-stream'
 import { WinRtBackendSubscription, characteristicAddressKey, cleanupFailure, releasedCleanup } from './winrt-handles'
 import type { WinRtBackend, WinRtPhysicalSubscription } from './winrt-backend'
 import type { WinRtCharacteristicAddress } from './winrt-boundary'
+import { winRtPlatformError } from './winrt-backend-helpers'
 
 const maximumValueBytes = byteLimit(512 * 1024)
 
@@ -30,7 +31,11 @@ export function stopWinRtPhysicalSubscription(
     error => {
       physical.state = 'ready'
       physical.removal = null
-      return cleanupFailure('subscription', 'winrt.gatt.stop-notify', error)
+      return cleanupFailure(
+        'subscription',
+        'winrt.gatt.stop-notify',
+        winRtPlatformError('gatt.subscribe-failed', 'gatt', 'winrt.gatt.stop-notify', error)
+      )
     }
   )
   physical.removal = removal

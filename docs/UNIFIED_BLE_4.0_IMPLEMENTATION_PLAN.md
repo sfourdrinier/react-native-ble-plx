@@ -10,7 +10,7 @@
 
 **Audience:** users, external backend authors, maintainers, reviewers, CI owners, and platform lab operators
 
-**Last updated:** 2026-07-25
+**Last updated:** 2026-07-31
 
 **Related product roadmap:** [`../ROADMAP.4.0.md`](../ROADMAP.4.0.md)
 
@@ -185,6 +185,28 @@ The accepted production authorities are `src/backend-contract/**`,
 first-party platform backends and their final public/core vertical slices.
 Progress is reported by dependency gate achieved and executable behavior added,
 not by document count.
+
+The 2026-07-31 platform-hardening milestone closed three contradictions found by
+real consumer and backend integration. The Web environment now accepts the
+standard DOM `navigator.bluetooth` object directly without a consumer cast or
+adapter. Apple Native Protocol v1 now bounds its pre-JavaScript event buffer at
+64 records and 256 KiB, discards the entire retained prefix on overflow, and
+reports one counter-bearing `stream.overflow` terminal before closing ingress,
+so JavaScript cannot claim a partial restoration replay. Attachment generations
+quarantine queued callbacks, sink lifetime is serialized with detach/close, and
+overflow plus close failure preserves both errors while retaining exact cleanup
+retry ownership. WinRT GATT failures now preserve validated HRESULT or
+GATT-status data inside normalized serializable platform errors across direct
+operations, every public `GattDatabase` read/write path, and retryable CCCD
+disable cleanup instead of leaking or flattening raw native errors.
+
+That milestone passed strict lint/typecheck, 76 package suites and 630 tests,
+30 plugin tests, native-protocol host tests, Android protocol JVM tests, the iOS
+simulator build, evidence validation, and the canonical packed CJS/ESM/Web/CLI/
+BlueZ/Electron/third-party-TCK/TypeScript consumer matrix. It advances G3/G4
+implementation but does not claim G4A or G4B: Windows native compile/ABI/live
+proof, Linux BlueZ live proof, the complete Web live scenario, and the complete
+Apple/Android physical-radio and lifecycle evidence remain separate gates.
 
 ---
 

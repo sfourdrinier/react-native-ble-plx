@@ -5,6 +5,7 @@
 #include "../include/NativeRestorationConfiguration.hpp"
 #include "../include/NativeProtocolV1Registry.hpp"
 #include "../include/OwnedBinaryPayloadStore.hpp"
+#include "../include/BoundedNativeEventBuffer.hpp"
 
 #include <cassert>
 #include <cstdint>
@@ -176,6 +177,41 @@ void testVersionNegotiation() {
     static_cast<void>(protocol::NativeProtocolV1Codec::negotiate(
         {2U, 3U}, {1U, 1U}, {1U, 1U}, {1U, 1U}, {1U, 1U}, {1U, 1U}));
   });
+}
+
+void testPreJavaScriptEventBufferFailsClosedWithoutPartialReplay() {
+  protocol::BoundedNativeEventBuffer buffer(2U, 4U);
+  assert(buffer.enqueue({0x01U, 0x02U}));
+  assert(buffer.enqueue({0x03U, 0x04U}));
+  assert(buffer.recordCount() == 2U);
+  assert(buffer.byteCount() == 4U);
+
+  assert(!buffer.enqueue({0x05U}));
+  assert(buffer.overflowed());
+  assert(buffer.recordCount() == 0U);
+  assert(buffer.byteCount() == 0U);
+  assert(buffer.drain().empty());
+  assert(buffer.overflowSnapshot().has_value());
+  assert(buffer.overflowSnapshot()->retainedRecordCount == 2U);
+  assert(buffer.overflowSnapshot()->retainedByteCount == 4U);
+  assert(buffer.overflowSnapshot()->rejectedRecordByteCount == 1U);
+  assert(buffer.overflowSnapshot()->droppedRecordCount == 3U);
+  assert(buffer.overflowSnapshot()->droppedByteCount == 5U);
+  assert(buffer.overflowSnapshot()->overflowCount == 1U);
+
+  assert(!buffer.enqueue({0x06U}));
+  assert(buffer.overflowed());
+  assert(buffer.overflowSnapshot()->droppedRecordCount == 4U);
+  assert(buffer.overflowSnapshot()->droppedByteCount == 6U);
+
+  buffer.reset();
+  assert(!buffer.overflowed());
+  assert(buffer.enqueue({0x07U, 0x08U, 0x09U, 0x0AU}));
+  const auto replay = buffer.drain();
+  assert(replay.size() == 1U);
+  assert(replay.front() == std::vector<std::uint8_t>({0x07U, 0x08U, 0x09U, 0x0AU}));
+  assert(buffer.recordCount() == 0U);
+  assert(buffer.byteCount() == 0U);
 }
 
 void testRoundTripAndAdversarialRecords() {
@@ -829,6 +865,7 @@ void testRuntimeRestorationAuthorityAppendAndAdoption() {
 
 int main() {
   testVersionNegotiation();
+  testPreJavaScriptEventBufferFailsClosedWithoutPartialReplay();
   testRoundTripAndAdversarialRecords();
   testTerminalAndRichAdvertisementParity();
   testBinaryOwnership();

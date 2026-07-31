@@ -31,6 +31,7 @@ class AppleNativeProtocolExecution final {
   void install(
       facebook::jsi::Runtime& runtime,
       const std::shared_ptr<facebook::react::CallInvoker>& callInvoker);
+  void beginAttachment();
   void cancel(const native_protocol::v1::NativeOperationIdentity& operation);
   void appendRestorationRecords(const native_protocol::v1::NativeRestorationJournalAuthority& authority);
   void rollbackRestorationBootstrap() noexcept;

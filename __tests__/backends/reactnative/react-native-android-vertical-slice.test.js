@@ -584,6 +584,54 @@ describe('React Native Android canonical protocol vertical slice', () => {
     expect(sinkControl.closedAttachments).toHaveLength(1)
   })
 
+  test('Apple boundary rejects and closes its attachment when the native pre-JavaScript buffer overflows during sink installation', async () => {
+    const control = new DeterministicAndroidControl(null, 1)
+    const runtime = new DeterministicAndroidProtocolRuntime(control)
+    const installSink = runtime.setEventSink.bind(runtime)
+    const nativeOverflowMessage = 'Native pre-JavaScript event buffer exceeded its restoration capacity.'
+    const sinkSpy = jest.spyOn(runtime, 'setEventSink').mockImplementation(listener => {
+      installSink(listener)
+      runtime.emitDiagnostic('stream.overflow', nativeOverflowMessage, 'pre-js-event-buffer')
+    })
+    global.__unifiedBleNativeProtocolV1 = runtime
+    const boundary = new ReactNativeAppleProtocolBoundary(control, 'deterministic-apple-pre-js-overflow-owner')
+    const attachment = deterministicAttachment()
+    boundary.bindAttachment(attachment)
+
+    let openFailure = null
+    try {
+      openFailure = await rejectedError(() => boundary.open())
+    } finally {
+      sinkSpy.mockRestore()
+    }
+
+    expect(openFailure).toBeInstanceOf(AggregateError)
+    expect(openFailure.errors).toHaveLength(2)
+    expect(openFailure.errors[0]).toMatchObject({
+      normalized: {
+          code: 'stream.overflow',
+          operation: 'rn-android-boundary.open.pre-js-event-buffer'
+      }
+    })
+    expect(openFailure.errors[1]).toMatchObject({ message: 'Native attachment close failed' })
+
+    expectConsoleErrorMatching(
+      '[ReactNativeAndroidProtocolBoundary.receiveEvent] Native pre-JavaScript event buffer overflowed:',
+      { safeMessage: nativeOverflowMessage }
+    )
+    expectConsoleErrorMatching(
+      '[ReactNativeAndroidProtocolBoundary.open] Handshake-open cleanup failed:',
+      expect.objectContaining({ message: 'Native attachment close failed' })
+    )
+    expect(control.closeAttachmentAttempts).toEqual([attachment])
+    expect(control.closedAttachments).toEqual([])
+    expect(runtime.commandKinds).toEqual([])
+
+    await expect(boundary.destroy()).resolves.toBeUndefined()
+    expect(control.closeAttachmentAttempts).toEqual([attachment, attachment])
+    expect(control.closedAttachments).toEqual([attachment])
+  })
+
   test.each([
     ['Android', createReactNativeAndroidBackendProvider, 'deterministic-react-native-android-probe-cleanup'],
     ['Apple', createReactNativeAppleBackendProvider, 'deterministic-react-native-apple-probe-cleanup']
@@ -722,7 +770,12 @@ describe('React Native Android canonical protocol vertical slice', () => {
 
     expect(failure).toBeInstanceOf(AggregateError)
     expect(failure.errors).toHaveLength(2)
-    expect(failure.errors[0]).toBe(initializationFailure)
+    const openFailure = failure.errors[0]
+    expect(openFailure).toBeInstanceOf(AggregateError)
+    expect(openFailure.errors).toEqual([
+      initializationFailure,
+      expect.objectContaining({ message: 'Native attachment close failed' })
+    ])
     const cleanupFailure = failure.errors[1]
     expectCleanupRetryFailure(cleanupFailure, 'release-failed')
     expect(control.closedAttachments).toHaveLength(0)
@@ -818,7 +871,12 @@ describe('React Native Android canonical protocol vertical slice', () => {
     const boundary = new Boundary(control, 'deterministic-setup-close-retry-owner')
     boundary.bindAttachment(deterministicAttachment())
 
-    await expect(boundary.open()).rejects.toThrow('runtime installation failed')
+    const openFailure = await rejectedError(() => boundary.open())
+    expect(openFailure).toBeInstanceOf(AggregateError)
+    expect(openFailure.errors).toEqual([
+      control.installFailure,
+      expect.objectContaining({ message: 'Native attachment close failed' })
+    ])
     expectConsoleErrorMatching(
       '[ReactNativeAndroidProtocolBoundary.open] Handshake-open cleanup failed:',
       expect.objectContaining({ message: 'Native attachment close failed' })
@@ -1421,14 +1479,14 @@ class DeterministicAndroidProtocolRuntime {
     ])
   }
 
-  emitDiagnostic(code, message) {
+  emitDiagnostic(code, message, operation = 'scan') {
     this.emitEvent('diagnostic', [
       field(
         14,
         record('error', [
           field(1, code),
           field(2, 'android'),
-          field(3, 'scan'),
+          field(3, operation),
           field(4, 'notRetryable'),
           field(7, message)
         ])

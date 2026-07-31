@@ -90,7 +90,7 @@ type BrowserBluetoothRequestOptions =
         readonly services?: string[]
         readonly manufacturerData?: Array<{
           readonly companyIdentifier: number
-          readonly dataPrefix?: Uint8Array
+          readonly dataPrefix?: Uint8Array<ArrayBuffer>
         }>
         readonly namePrefix?: string
       }>
@@ -339,7 +339,7 @@ function browserRequestFilter(filter: WebBluetoothRequestFilter): {
   readonly services?: string[]
   readonly manufacturerData?: Array<{
     readonly companyIdentifier: number
-    readonly dataPrefix?: Uint8Array
+    readonly dataPrefix?: Uint8Array<ArrayBuffer>
   }>
   readonly namePrefix?: string
 } {
