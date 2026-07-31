@@ -51,7 +51,11 @@ function rendererLease(value) {
 
 function createSender(client, windowScope, sessionScope) {
   const destroyedListeners = []
+  const navigationStartListeners = []
+  const navigationRedirectListeners = []
   const navigationListeners = []
+  const navigationFailureListeners = []
+  const provisionalNavigationFailureListeners = []
   const renderProcessGoneListeners = []
   const mainFrame = Object.freeze({ processId: 10, routingId: 20 })
   let destroyed = false
@@ -70,8 +74,16 @@ function createSender(client, windowScope, sessionScope) {
       }
     },
     on(event, listener) {
-      if (event === 'did-navigate') {
+      if (event === 'did-start-navigation') {
+        navigationStartListeners.push(listener)
+      } else if (event === 'did-redirect-navigation') {
+        navigationRedirectListeners.push(listener)
+      } else if (event === 'did-navigate') {
         navigationListeners.push(listener)
+      } else if (event === 'did-fail-load') {
+        navigationFailureListeners.push(listener)
+      } else if (event === 'did-fail-provisional-load') {
+        provisionalNavigationFailureListeners.push(listener)
       } else if (event === 'render-process-gone') {
         renderProcessGoneListeners.push(listener)
       }
@@ -80,11 +92,19 @@ function createSender(client, windowScope, sessionScope) {
       const listeners =
         event === 'destroyed'
           ? destroyedListeners
-          : event === 'did-navigate'
-            ? navigationListeners
-            : event === 'render-process-gone'
-              ? renderProcessGoneListeners
-              : null
+          : event === 'did-start-navigation'
+            ? navigationStartListeners
+            : event === 'did-redirect-navigation'
+              ? navigationRedirectListeners
+              : event === 'did-navigate'
+                ? navigationListeners
+                : event === 'did-fail-load'
+                  ? navigationFailureListeners
+                  : event === 'did-fail-provisional-load'
+                    ? provisionalNavigationFailureListeners
+                    : event === 'render-process-gone'
+                      ? renderProcessGoneListeners
+                      : null
       if (listeners === null) return
       const index = listeners.indexOf(listener)
       if (index >= 0) {
@@ -98,12 +118,37 @@ function createSender(client, windowScope, sessionScope) {
       return destroyedListeners.length
     },
     navigationListenerCount() {
-      return navigationListeners.length
+      return (
+        navigationStartListeners.length +
+        navigationRedirectListeners.length +
+        navigationListeners.length +
+        navigationFailureListeners.length +
+        provisionalNavigationFailureListeners.length
+      )
     },
     renderProcessGoneListenerCount() {
       return renderProcessGoneListeners.length
     },
-    startNavigation() {},
+    startNavigation({ url = 'app://bundle/replacement', isSameDocument = false, isMainFrame = true } = {}) {
+      const details = { url, isSameDocument, isMainFrame }
+      for (const listener of [...navigationStartListeners]) {
+        listener(details)
+      }
+    },
+    redirectNavigation(url) {
+      const details = { url, isSameDocument: false, isMainFrame: true }
+      for (const listener of [...navigationRedirectListeners]) listener(details)
+    },
+    finishInitialNavigation() {
+      for (const listener of [...navigationListeners]) listener()
+    },
+    failNavigation(event, url = 'app://bundle/replacement') {
+      const args = [{}, -3, 'ERR_ABORTED', url, true, 10, 20]
+      const listeners = event === 'did-fail-provisional-load'
+        ? provisionalNavigationFailureListeners
+        : navigationFailureListeners
+      for (const listener of [...listeners]) listener(...args)
+    },
     commitNavigation(mainFrame) {
       this.mainFrame = Object.freeze(mainFrame)
       for (const listener of [...navigationListeners]) listener()
@@ -325,6 +370,39 @@ async function flushAsyncWork() {
 }
 
 describe('Electron v4 IPC boundary', () => {
+  test('does not retire a lease when the initial document commits after renderer bootstrap', async () => {
+    const current = createMainFixture()
+    const sender = createSender('client-initial-navigation', 'window-initial-navigation', 'session-initial-navigation')
+    const renderer = await bootstrap(current, sender)
+
+    sender.finishInitialNavigation()
+    await flushAsyncWork()
+
+    await expect(current.port.handler({ sender }, routeRequest(current, renderer, 1))).rejects.toMatchObject({
+      normalized: { code: 'ownership.denied', operation: 'electron-main-router.scan-ownership' }
+    })
+    expect(current.router.resources.has(String(renderer.rendererLease.leaseId))).toBe(true)
+    await current.binding.destroy()
+  })
+
+  test('does not arm lease retirement for same-document or child-frame navigation starts', async () => {
+    const current = createMainFixture()
+    const sender = createSender('client-non-replacing-navigation', 'window-non-replacing', 'session-non-replacing')
+    const renderer = await bootstrap(current, sender)
+
+    sender.startNavigation({ isSameDocument: true })
+    sender.finishInitialNavigation()
+    sender.startNavigation({ isMainFrame: false })
+    sender.finishInitialNavigation()
+    await flushAsyncWork()
+
+    await expect(current.port.handler({ sender }, routeRequest(current, renderer, 1))).rejects.toMatchObject({
+      normalized: { code: 'ownership.denied', operation: 'electron-main-router.scan-ownership' }
+    })
+    expect(current.router.resources.has(String(renderer.rendererLease.leaseId))).toBe(true)
+    await current.binding.destroy()
+  })
+
   test('rejects malformed host frame identity before authentication, validation, or routing', async () => {
     const current = createMainFixture()
     const sender = createSender('client-malformed-frame', 'window-malformed-frame', 'session-malformed-frame')
@@ -511,8 +589,111 @@ describe('Electron v4 IPC boundary', () => {
     expect(current.router.resources).toHaveProperty('size', 1)
     expect(current.router.resources.has(String(replacementBootstrap.rendererLease.leaseId))).toBe(true)
     expect(sender.destroyedListenerCount()).toBe(1)
-    expect(sender.navigationListenerCount()).toBe(1)
+    expect(sender.navigationListenerCount()).toBe(5)
     expect(sender.renderProcessGoneListenerCount()).toBe(1)
+    await current.binding.destroy()
+  })
+
+  test('retires a lease bootstrapped after replacement navigation already started', async () => {
+    const scanStream = createControlledStream()
+    const scanStop = jest.fn(async () => {
+      scanStream.close()
+      return released()
+    })
+    const current = createMainFixture({
+      scan: jest.fn(async () => ({ observations: scanStream, stop: scanStop }))
+    })
+    const sender = createSender('client-navigation-bootstrap-race', 'window-navigation-race', 'session-navigation-race')
+    await bootstrap(current, sender)
+
+    sender.startNavigation()
+    const admittedDuringNavigation = await bootstrap(current, sender)
+    await current.port.handler(
+      { sender },
+      commandRequest(current, admittedDuringNavigation, 1, 'scan.start', {
+        serviceUuids: [],
+        manufacturerData: [],
+        localNamePrefix: null,
+        deadline: null
+      })
+    )
+    sender.commitNavigation({ processId: 11, routingId: 21 })
+    await flushAsyncWork()
+    await new Promise(resolve => setImmediate(resolve))
+    await flushAsyncWork()
+
+    expect(scanStop).toHaveBeenCalledTimes(1)
+    expect(current.router.resources).toHaveProperty('size', 0)
+    expect(current.binding.renderers).toHaveProperty('size', 0)
+    await current.binding.destroy()
+  })
+
+  test('preserves a replacement-document lease bootstrapped before its navigation commit', async () => {
+    const current = createMainFixture()
+    const sender = createSender('client-replacement-document', 'window-replacement-document', 'session-replacement-document')
+    const outgoing = await bootstrap(current, sender)
+
+    sender.startNavigation()
+    const replacementFrame = Object.freeze({ processId: 11, routingId: 21 })
+    sender.mainFrame = replacementFrame
+    const replacement = await bootstrap(current, sender)
+    sender.commitNavigation(replacementFrame)
+    await flushAsyncWork()
+
+    expect(current.router.resources.has(String(outgoing.rendererLease.leaseId))).toBe(false)
+    expect(current.router.resources.has(String(replacement.rendererLease.leaseId))).toBe(true)
+    await expect(current.port.handler({ sender }, routeRequest(current, replacement, 1))).rejects.toMatchObject({
+      normalized: { code: 'ownership.denied', operation: 'electron-main-router.scan-ownership' }
+    })
+    await current.binding.destroy()
+  })
+
+  test.each([
+    ['provisional cancellation', 'did-fail-provisional-load'],
+    ['load failure', 'did-fail-load']
+  ])('clears pending replacement state after a redirected main-frame %s', async (_failureKind, failureEvent) => {
+    const current = createMainFixture()
+    const sender = createSender('client-failed-navigation', 'window-failed-navigation', 'session-failed-navigation')
+    await bootstrap(current, sender)
+
+    sender.startNavigation()
+    sender.redirectNavigation('app://bundle/redirected-failure')
+    sender.failNavigation(failureEvent, 'app://bundle/redirected-failure')
+    const admittedAfterFailure = await bootstrap(current, sender)
+
+    await expect(
+      current.port.handler({ sender }, routeRequest(current, admittedAfterFailure, 1))
+    ).rejects.toMatchObject({
+      normalized: { code: 'ownership.denied', operation: 'electron-main-router.scan-ownership' }
+    })
+    expect(current.router.resources.has(String(admittedAfterFailure.rendererLease.leaseId))).toBe(true)
+    await current.binding.destroy()
+  })
+
+  test('keeps a usable conservative retirement latch for ambiguous same-target failure pairs', async () => {
+    const current = createMainFixture()
+    const sender = createSender('client-superseded-navigation', 'window-superseded-navigation', 'session-superseded-navigation')
+    const firstRenderer = await bootstrap(current, sender)
+    await bootstrap(current, sender)
+
+    sender.startNavigation({ url: 'app://bundle/repeated-target' })
+    sender.startNavigation({ url: 'app://bundle/repeated-target' })
+    sender.failNavigation('did-fail-provisional-load', 'app://bundle/repeated-target')
+    sender.failNavigation('did-fail-load', 'app://bundle/repeated-target')
+    await expect(
+      current.port.handler({ sender }, { kind: 'release', rendererLease: firstRenderer.rendererLease })
+    ).resolves.toEqual({ kind: 'release', cleanup: released() })
+    const outgoingLease = await bootstrap(current, sender)
+    await expect(current.port.handler({ sender }, routeRequest(current, outgoingLease, 1))).rejects.toMatchObject({
+      normalized: { code: 'ownership.denied', operation: 'electron-main-router.scan-ownership' }
+    })
+    sender.commitNavigation({ processId: 11, routingId: 21 })
+    await flushAsyncWork()
+
+    expect(current.router.resources.has(String(outgoingLease.rendererLease.leaseId))).toBe(false)
+    await expect(current.port.handler({ sender }, routeRequest(current, outgoingLease, 2))).rejects.toMatchObject({
+      normalized: { code: 'ownership.denied', operation: 'electron-main-arbiter.renderer-registration' }
+    })
     await current.binding.destroy()
   })
 
@@ -543,6 +724,7 @@ describe('Electron v4 IPC boundary', () => {
       })
     )
 
+    sender.startNavigation()
     sender.commitNavigation({ processId: 11, routingId: 21 })
     scanStream.push({
       kind: 'terminal',
@@ -897,7 +1079,7 @@ describe('Electron v4 IPC boundary', () => {
     await current.binding.destroy()
   })
 
-  test('removes exact lease destruction listeners across repeated handoffs and binding teardown', async () => {
+  test('removes every exact lease lifetime listener across repeated handoffs and binding teardown', async () => {
     const current = createMainFixture()
     const sender = createSender('client-listener-handoff', 'window-listener-handoff', 'session-listener-handoff')
     const releaseRenderer = jest.spyOn(current.router, 'releaseRenderer')
@@ -905,16 +1087,24 @@ describe('Electron v4 IPC boundary', () => {
     for (let index = 0; index < 12; index += 1) {
       const renderer = await bootstrap(current, sender)
       expect(sender.destroyedListenerCount()).toBe(1)
+      expect(sender.navigationListenerCount()).toBe(5)
+      expect(sender.renderProcessGoneListenerCount()).toBe(1)
       await expect(
         current.port.handler({ sender }, { kind: 'release', rendererLease: renderer.rendererLease })
       ).resolves.toEqual({ kind: 'release', cleanup: released() })
       expect(sender.destroyedListenerCount()).toBe(0)
+      expect(sender.navigationListenerCount()).toBe(0)
+      expect(sender.renderProcessGoneListenerCount()).toBe(0)
     }
 
     await bootstrap(current, sender)
     expect(sender.destroyedListenerCount()).toBe(1)
+    expect(sender.navigationListenerCount()).toBe(5)
+    expect(sender.renderProcessGoneListenerCount()).toBe(1)
     await expect(current.binding.destroy()).resolves.toEqual(released())
     expect(sender.destroyedListenerCount()).toBe(0)
+    expect(sender.navigationListenerCount()).toBe(0)
+    expect(sender.renderProcessGoneListenerCount()).toBe(0)
     const releasesBeforeDestroyedEvent = releaseRenderer.mock.calls.length
     sender.destroy()
     await flushAsyncWork()

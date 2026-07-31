@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.22] - 2026-07-31
+
+### Changed
+
+- Electron renderer ownership now tracks replacement navigation with Electron's
+  structured navigation details and one sender-scoped navigation epoch shared
+  by overlapping renderer leases.
+- Added compiler proof that Electron 43 `WebContents` satisfies the public
+  main-process binding contract.
+
+### Fixed
+
+- Prevented the initial document's late `did-navigate` event from retiring the
+  renderer lease that document had just bootstrapped.
+- Quarantined every lease admitted after a replacement navigation starts,
+  including Strict Mode overlap, so the committed replacement document cannot
+  inherit stale scans, connections, subscriptions, or acknowledgements.
+
 ## [4.0.0-alpha.21] - 2026-07-31
 
 ### Added

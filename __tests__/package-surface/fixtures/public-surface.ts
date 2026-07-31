@@ -1,5 +1,6 @@
 // __tests__/package-surface/fixtures/public-surface.ts
 
+import type { WebContents } from 'electron'
 import {
   BleManager,
   capacity,
@@ -86,6 +87,7 @@ import type { BluezBusKind } from 'unified-ble-manager/node/bluez'
 import { createNativeWinRtBackendProvider } from 'unified-ble-manager/node/winrt'
 import type { NativeWinRtProviderOptions } from 'unified-ble-manager/node/winrt'
 import { createElectronMainWinRtBackendProvider } from 'unified-ble-manager/electron/main'
+import type { ElectronMainBleBinding } from 'unified-ble-manager/electron/main'
 import {
   assertElectronAdvertisementObservation,
   ElectronRendererBleClient
@@ -103,6 +105,7 @@ import type {
 } from 'unified-ble-manager/react-native'
 
 declare const operation: PublicOperationOptions
+declare const electronMainBinding: ElectronMainBleBinding<WebContents>
 declare const scan: ScanOptions<string, string>
 declare const stream: BoundedAsyncStream<CleanupRecord>
 declare const streamIterator: BoundedAsyncStreamIterator<CleanupRecord>
@@ -468,6 +471,7 @@ observe(DeterministicVirtualClock)
 observe(capacity(1))
 observe(deadline(1))
 observe(operation)
+observe(electronMainBinding)
 observe(scan)
 observe(stream)
 observe(stream[Symbol.asyncIterator]().return())

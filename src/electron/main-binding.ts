@@ -26,12 +26,20 @@ export interface ElectronMainIpcSender {
   isDestroyed?(): boolean
   once(event: 'destroyed', listener: () => void): void
   on: {
+    (event: 'did-start-navigation', listener: ElectronNavigationStartListener): void
+    (event: 'did-redirect-navigation', listener: ElectronNavigationStartListener): void
     (event: 'did-navigate', listener: () => void): void
+    (event: 'did-fail-load', listener: ElectronNavigationFailureListener): void
+    (event: 'did-fail-provisional-load', listener: ElectronNavigationFailureListener): void
     (event: 'render-process-gone', listener: () => void): void
   }
   removeListener: {
     (event: 'destroyed', listener: () => void): void
+    (event: 'did-start-navigation', listener: ElectronNavigationStartListener): void
+    (event: 'did-redirect-navigation', listener: ElectronNavigationStartListener): void
     (event: 'did-navigate', listener: () => void): void
+    (event: 'did-fail-load', listener: ElectronNavigationFailureListener): void
+    (event: 'did-fail-provisional-load', listener: ElectronNavigationFailureListener): void
     (event: 'render-process-gone', listener: () => void): void
   }
 }
@@ -85,8 +93,41 @@ interface BoundRenderer<Sender extends ElectronMainIpcSender> {
   retryHandle: ReturnType<typeof setTimeout> | null
   releaseResult: Promise<CleanupRecord> | null
   destroyedListener: (() => void) | null
+  navigationStartListener: ElectronNavigationStartListener | null
+  navigationRedirectListener: ElectronNavigationStartListener | null
   navigationListener: (() => void) | null
+  navigationFailureListener: ElectronNavigationFailureListener | null
+  navigationProvisionalFailureListener: ElectronNavigationFailureListener | null
   renderProcessGoneListener: (() => void) | null
+}
+
+interface ElectronNavigationStartDetails {
+  readonly url: string
+  readonly isSameDocument: boolean
+  readonly isMainFrame: boolean
+}
+
+type ElectronNavigationStartListener = (details: ElectronNavigationStartDetails) => void
+
+type ElectronNavigationFailureListener = (
+  event: object,
+  errorCode: number,
+  errorDescription: string,
+  validatedUrl: string,
+  isMainFrame: boolean,
+  frameProcessId: number,
+  frameRoutingId: number
+) => void
+
+interface ElectronNavigationState {
+  epoch: number
+  pendingReplacement: boolean
+  lastStartDetails: ElectronNavigationStartDetails | null
+  readonly supersededTargetUrls: string[]
+  readonly unmatchedProvisionalFailures: Map<string, number>
+  lastProvisionalFailureEvent: object | null
+  lastLoadFailureEvent: object | null
+  sourceFrame: ElectronMainFrameIdentity | null
 }
 
 interface PendingOutboundEvent {
@@ -103,6 +144,7 @@ interface PendingOutboundEvent {
 export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
   private readonly renderers = new Map<string, BoundRenderer<Sender>>()
   private readonly bootstrapAdmissionTails = new Map<Sender, Promise<void>>()
+  private readonly navigationStates = new WeakMap<Sender, ElectronNavigationState>()
   private installed = false
   private lifecycle: 'active' | 'destroying' | 'release-required' | 'destroyed' = 'active'
   private destroyResult: Promise<CleanupRecord> | null = null
@@ -285,6 +327,12 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
     this.assertMainFrame(event)
     this.assertTrustedSenderCurrent(event, trusted)
     this.assertBootstrapSender(event.sender, trusted)
+    const navigationState = this.navigationState(event.sender)
+    const navigationEpochAtAdmission = navigationState.epoch
+    const replacementWasPendingForAdmittedFrame =
+      navigationState.pendingReplacement &&
+      navigationState.sourceFrame?.processId === event.processId &&
+      navigationState.sourceFrame.routingId === event.frameId
     const response = await this.options.router.dispatch(trusted, { kind: 'bootstrap' })
     if (response.kind !== 'bootstrap') {
       throw contractError('lifecycle.invariant-violation', 'ipc', 'electron-main-binding.bootstrap-response')
@@ -295,17 +343,133 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
     const destroyedListener = () => {
       this.retireRenderer(rendererLeaseId, renderer, true, 'destroyed')
     }
+    let replacementNavigationStarted =
+      replacementWasPendingForAdmittedFrame || navigationState.epoch !== navigationEpochAtAdmission
+    const navigationStartListener: ElectronNavigationStartListener = details => {
+      if (details.isMainFrame && !details.isSameDocument) {
+        if (navigationState.lastStartDetails !== details) {
+          if (navigationState.pendingReplacement && navigationState.lastStartDetails !== null) {
+            navigationState.supersededTargetUrls.push(navigationState.lastStartDetails.url)
+          }
+          navigationState.epoch += 1
+          navigationState.pendingReplacement = true
+          navigationState.lastStartDetails = details
+          navigationState.sourceFrame = Object.freeze({
+            processId: renderer.frame.processId,
+            routingId: renderer.frame.routingId
+          })
+        }
+        replacementNavigationStarted = true
+      }
+    }
+    const navigationRedirectListener: ElectronNavigationStartListener = details => {
+      if (details.isMainFrame && !details.isSameDocument && navigationState.pendingReplacement) {
+        navigationState.lastStartDetails = details
+      }
+    }
     const navigationListener = () => {
-      this.retireRenderer(rendererLeaseId, renderer, false, 'navigation')
+      navigationState.pendingReplacement = false
+      navigationState.lastStartDetails = null
+      navigationState.supersededTargetUrls.length = 0
+      navigationState.unmatchedProvisionalFailures.clear()
+      navigationState.lastProvisionalFailureEvent = null
+      navigationState.lastLoadFailureEvent = null
+      navigationState.sourceFrame = null
+      if (replacementNavigationStarted) {
+        this.retireRenderer(rendererLeaseId, renderer, false, 'navigation')
+      }
+    }
+    const applyNavigationFailure = (validatedUrl: string, isMainFrame: boolean): void => {
+      if (!isMainFrame || !navigationState.pendingReplacement) {
+        return
+      }
+      const supersededTargetIndex = navigationState.supersededTargetUrls.indexOf(validatedUrl)
+      if (navigationState.lastStartDetails?.url !== validatedUrl || supersededTargetIndex >= 0) {
+        if (supersededTargetIndex >= 0) {
+          navigationState.supersededTargetUrls.splice(supersededTargetIndex, 1)
+        }
+        return
+      }
+      navigationState.pendingReplacement = false
+      navigationState.lastStartDetails = null
+      navigationState.supersededTargetUrls.length = 0
+      navigationState.unmatchedProvisionalFailures.clear()
+      navigationState.sourceFrame = null
+    }
+    const navigationProvisionalFailureListener: ElectronNavigationFailureListener = (
+      failureEvent,
+      errorCode,
+      _errorDescription,
+      validatedUrl,
+      isMainFrame,
+      frameProcessId,
+      frameRoutingId
+    ) => {
+      if (navigationState.lastProvisionalFailureEvent === failureEvent) {
+        return
+      }
+      navigationState.lastProvisionalFailureEvent = failureEvent
+      const fingerprint = navigationFailureFingerprint(
+        errorCode,
+        validatedUrl,
+        isMainFrame,
+        frameProcessId,
+        frameRoutingId
+      )
+      const unmatchedCount = navigationState.unmatchedProvisionalFailures.get(fingerprint) ?? 0
+      navigationState.unmatchedProvisionalFailures.set(fingerprint, unmatchedCount + 1)
+      applyNavigationFailure(validatedUrl, isMainFrame)
+    }
+    const navigationFailureListener: ElectronNavigationFailureListener = (
+      failureEvent,
+      errorCode,
+      _errorDescription,
+      validatedUrl,
+      isMainFrame,
+      frameProcessId,
+      frameRoutingId
+    ) => {
+      if (navigationState.lastLoadFailureEvent === failureEvent) {
+        return
+      }
+      navigationState.lastLoadFailureEvent = failureEvent
+      const fingerprint = navigationFailureFingerprint(
+        errorCode,
+        validatedUrl,
+        isMainFrame,
+        frameProcessId,
+        frameRoutingId
+      )
+      const unmatchedCount = navigationState.unmatchedProvisionalFailures.get(fingerprint) ?? 0
+      if (unmatchedCount > 0) {
+        // Electron exposes no navigation ID that can distinguish two same-target failures.
+        // Consume the possible provisional/load pair without disarming the current navigation;
+        // the renderer remains usable and is retired only if a later document actually commits.
+        if (unmatchedCount === 1) {
+          navigationState.unmatchedProvisionalFailures.delete(fingerprint)
+        } else {
+          navigationState.unmatchedProvisionalFailures.set(fingerprint, unmatchedCount - 1)
+        }
+        return
+      }
+      applyNavigationFailure(validatedUrl, isMainFrame)
     }
     const renderProcessGoneListener = () => {
       this.retireRenderer(rendererLeaseId, renderer, true, 'render-process-gone')
     }
     renderer.destroyedListener = destroyedListener
+    renderer.navigationStartListener = navigationStartListener
+    renderer.navigationRedirectListener = navigationRedirectListener
     renderer.navigationListener = navigationListener
+    renderer.navigationFailureListener = navigationFailureListener
+    renderer.navigationProvisionalFailureListener = navigationProvisionalFailureListener
     renderer.renderProcessGoneListener = renderProcessGoneListener
     event.sender.once('destroyed', destroyedListener)
+    event.sender.on('did-start-navigation', navigationStartListener)
+    event.sender.on('did-redirect-navigation', navigationRedirectListener)
     event.sender.on('did-navigate', navigationListener)
+    event.sender.on('did-fail-load', navigationFailureListener)
+    event.sender.on('did-fail-provisional-load', navigationProvisionalFailureListener)
     event.sender.on('render-process-gone', renderProcessGoneListener)
     try {
       this.assertActiveLifecycle()
@@ -321,6 +485,25 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
       throw error
     }
     return response
+  }
+
+  private navigationState(sender: Sender): ElectronNavigationState {
+    const existing = this.navigationStates.get(sender)
+    if (existing !== undefined) {
+      return existing
+    }
+    const created: ElectronNavigationState = {
+      epoch: 0,
+      pendingReplacement: false,
+      lastStartDetails: null,
+      supersededTargetUrls: [],
+      unmatchedProvisionalFailures: new Map(),
+      lastProvisionalFailureEvent: null,
+      lastLoadFailureEvent: null,
+      sourceFrame: null
+    }
+    this.navigationStates.set(sender, created)
+    return created
   }
 
   private assertMainFrame(event: ElectronMainIpcEvent<Sender>): void {
@@ -658,11 +841,37 @@ export class ElectronMainBleBinding<Sender extends ElectronMainIpcSender> {
       renderer.sender.removeListener('did-navigate', renderer.navigationListener)
       renderer.navigationListener = null
     }
+    if (renderer.navigationStartListener !== null) {
+      renderer.sender.removeListener('did-start-navigation', renderer.navigationStartListener)
+      renderer.navigationStartListener = null
+    }
+    if (renderer.navigationRedirectListener !== null) {
+      renderer.sender.removeListener('did-redirect-navigation', renderer.navigationRedirectListener)
+      renderer.navigationRedirectListener = null
+    }
+    if (renderer.navigationFailureListener !== null) {
+      renderer.sender.removeListener('did-fail-load', renderer.navigationFailureListener)
+      renderer.navigationFailureListener = null
+    }
+    if (renderer.navigationProvisionalFailureListener !== null) {
+      renderer.sender.removeListener('did-fail-provisional-load', renderer.navigationProvisionalFailureListener)
+      renderer.navigationProvisionalFailureListener = null
+    }
     if (renderer.renderProcessGoneListener !== null) {
       renderer.sender.removeListener('render-process-gone', renderer.renderProcessGoneListener)
       renderer.renderProcessGoneListener = null
     }
   }
+}
+
+function navigationFailureFingerprint(
+  errorCode: number,
+  validatedUrl: string,
+  isMainFrame: boolean,
+  frameProcessId: number,
+  frameRoutingId: number
+): string {
+  return JSON.stringify([errorCode, validatedUrl, isMainFrame, frameProcessId, frameRoutingId])
 }
 
 function createBoundRenderer<Sender extends ElectronMainIpcSender>(
@@ -688,7 +897,11 @@ function createBoundRenderer<Sender extends ElectronMainIpcSender>(
     retryHandle: null,
     releaseResult: null,
     destroyedListener: null,
+    navigationStartListener: null,
+    navigationRedirectListener: null,
     navigationListener: null,
+    navigationFailureListener: null,
+    navigationProvisionalFailureListener: null,
     renderProcessGoneListener: null
   }
 }

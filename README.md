@@ -2,7 +2,7 @@
 
 # unified-ble-manager
 
-`unified-ble-manager@4.0.0-alpha.21` is the current public 4.0 prerelease for
+`unified-ble-manager@4.0.0-alpha.22` is the current public 4.0 prerelease for
 explicit, bytes-first Bluetooth Low Energy management across React Native, Web,
 Electron, and Node hosts. 4.0 is a new package line with no released 4.0
 consumer baseline; adopting it is an explicit integration, not a source-
@@ -16,14 +16,14 @@ The controlling architecture and sequencing record is
 
 ## Release status and evidence boundary
 
-`v4.0.0-alpha.21` is published to npm under the `next` dist-tag and has a
-[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.21).
+`v4.0.0-alpha.22` is published to npm under the `next` dist-tag and has a
+[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.22).
 It was published by GitHub Actions trusted publishing with an npm SLSA
 provenance attestation. This proves the package release path, not Bluetooth
 behavior.
 
 The package and deterministic contract surface are **Experimental**. No current
-evidence record binds the published alpha.21 artifact to a hardware-backed
+evidence record binds the published alpha.22 artifact to a hardware-backed
 backend scenario, so no React Native, Web, Node, or Electron backend is
 Preview, Live Preview, Supported, or Reliability-qualified. Missing hardware
 evidence blocks those labels only; it does not invalidate deterministic or
@@ -47,10 +47,10 @@ validation substitute.
 Pin the exact prerelease you validated. pnpm is used in this repository:
 
 ```sh
-pnpm add unified-ble-manager@4.0.0-alpha.21
+pnpm add unified-ble-manager@4.0.0-alpha.22
 ```
 
-`next` is the mutable prerelease dist-tag. It currently resolves to alpha.21,
+`next` is the mutable prerelease dist-tag. It currently resolves to alpha.22,
 but a later alpha can change it without changing your lockfile intent. Do not install
 the bare package name or `@latest` when adopting 4.0 alpha: those do not select
 the 4.0 prerelease train. Use your package manager's exact-version syntax when
@@ -300,10 +300,10 @@ final version uses npm `latest` and a normal GitHub Release.
 Check an installed-release candidate against npm metadata before integrating it:
 
 ```sh
-npm view unified-ble-manager@4.0.0-alpha.21 version dist-tags dist.integrity dist.attestations _npmUser --json
+npm view unified-ble-manager@4.0.0-alpha.22 version dist-tags dist.integrity dist.attestations _npmUser --json
 ```
 
-For alpha.21, the result must identify the exact version, `next` dist-tag,
+For alpha.22, the result must identify the exact version, `next` dist-tag,
 package integrity, a SLSA provenance attestation, and GitHub Actions as the npm
 trusted publisher. Cross-check the tag and release notes at the GitHub Release
 linked above. Provenance and integrity do not verify live Bluetooth behavior;
