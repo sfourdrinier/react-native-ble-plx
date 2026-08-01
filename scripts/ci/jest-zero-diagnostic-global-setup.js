@@ -535,11 +535,17 @@ function findProhibitedJestProjectTestFiles(projectConfig) {
     .filter(testPath => hasProhibitedJestSyntax(fs.readFileSync(testPath, 'utf8'), testPath))
 }
 
+function formatJestPolicyDiagnosticPath(filePath) {
+  return filePath.replaceAll('\\', '/')
+}
+
 async function enforceZeroDiagnosticJestPolicy(_globalConfig, projectConfig) {
   const prohibitedTests = findProhibitedJestProjectTestFiles(projectConfig)
   if (prohibitedTests.length > 0) {
     const projectRoot = resolveProjectRoot(projectConfig)
-    const relativePaths = prohibitedTests.map(testPath => path.relative(projectRoot, testPath)).join(', ')
+    const relativePaths = prohibitedTests
+      .map(testPath => formatJestPolicyDiagnosticPath(path.relative(projectRoot, testPath)))
+      .join(', ')
     throw new Error(`Focused, skipped, todo, or concurrent Jest tests are prohibited: ${relativePaths}`)
   }
 }
@@ -549,3 +555,4 @@ module.exports.findJestPolicyViolations = findJestPolicyViolations
 module.exports.findProhibitedJestProjectTestFiles = findProhibitedJestProjectTestFiles
 module.exports.findProhibitedJestTestFiles = findProhibitedJestTestFiles
 module.exports.hasProhibitedJestSyntax = hasProhibitedJestSyntax
+module.exports.formatJestPolicyDiagnosticPath = formatJestPolicyDiagnosticPath

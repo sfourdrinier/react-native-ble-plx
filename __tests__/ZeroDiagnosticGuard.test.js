@@ -9,6 +9,7 @@ const {
   findJestPolicyViolations,
   findProhibitedJestProjectTestFiles,
   findProhibitedJestTestFiles,
+  formatJestPolicyDiagnosticPath,
   hasProhibitedJestSyntax
 } = require('../scripts/ci/jest-zero-diagnostic-global-setup')
 
@@ -222,6 +223,13 @@ describe('zero-diagnostic Jest guard', () => {
     } finally {
       fs.rmSync(temporaryRoot, { recursive: true, force: true })
     }
+  })
+
+  test('formats policy diagnostic paths with POSIX separators from either platform spelling', () => {
+    const canonicalPath = 'scripts/ci/zero-diagnostic-focused-fixture/focused.test.js'
+
+    expect(formatJestPolicyDiagnosticPath(canonicalPath)).toBe(canonicalPath)
+    expect(formatJestPolicyDiagnosticPath(canonicalPath.replaceAll('/', '\\'))).toBe(canonicalPath)
   })
 
   test('fails a nested Jest process when a timer emits a diagnostic after final teardown', () => {
