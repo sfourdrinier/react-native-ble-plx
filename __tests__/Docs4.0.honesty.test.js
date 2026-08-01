@@ -86,6 +86,17 @@ describe('4.0 documentation honesty', () => {
     expect(platforms).not.toContain('| Host/backend |')
   })
 
+  test('gap inventory separates implemented code from missing physical proof', () => {
+    const gaps = read('docs/GAPS.4.0.md')
+
+    expect(gaps).toContain('Current implementation and release-proof inventory')
+    expect(gaps).toContain('Implementation/package state')
+    expect(gaps).toContain('Remaining evidence or release work')
+    expect(gaps).toContain('Implemented contract/core/TCK path')
+    expect(gaps).not.toContain('WinRT remains incomplete')
+    expect(gaps).not.toContain('The pre-4.0 source tree contains a transitional')
+  })
+
   test('plan keeps Quest out of the 4.0 execution graph and Android acceptance checklist', () => {
     const plan = read('docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
     const graphStart = plan.indexOf('### 24.1 Hard dependency graph')
@@ -287,7 +298,8 @@ describe('4.0 documentation honesty', () => {
     expect(platforms).toContain('not a static 4.0 capability matrix')
     expect(platforms).toContain('typed capabilities of its instantiated backend')
     expect(gaps).toContain('not architecture authority')
-    expect(gaps).toContain('current-state characterization and migration input')
+    expect(gaps).toContain('implementation proof')
+    expect(gaps).toContain('do not become physical-radio support evidence')
     expect(gaps).toContain('must never be presented as live-radio proof')
   })
 

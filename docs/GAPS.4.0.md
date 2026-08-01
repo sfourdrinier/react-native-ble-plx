@@ -2,7 +2,7 @@
 
 # Unified BLE 4.0 platform, CI, and evidence inventory
 
-**Status:** Phase 0 proof inventory; not architecture authority
+**Status:** Current implementation and release-proof inventory; not architecture authority
 
 **Architecture and sequencing authority:** [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)
 
@@ -12,7 +12,12 @@
 
 This file tracks platform code, CI, package, lab, and live-radio evidence. It does not define the public API, backend contract, compatibility policy, host selection, or implementation sequence. Those decisions belong only to the controlling implementation plan and accepted ADRs.
 
-The pre-4.0 source tree contains a transitional `BleManager`, `BlePort`, `PortBleManager`, Base64 bridge, byte convenience methods, static capability helpers, Noble-era code, and host examples. Any statement below about that source is current-state characterization and migration input. It is not proof that a clean-baseline 4.0 replacement exists.
+The clean-baseline contract, unified core, public manager, deterministic backend,
+TCK, native protocol, first-party backend implementations, host-isolated package
+exports, SDK/CLI, and legacy-absence gates exist in the current 4.0 source. Their
+passing deterministic, compile, or package tests are implementation proof; they
+do not become physical-radio support evidence unless a retained evidence record
+binds the exact source and package artifact.
 
 `unified-ble-manager@4.0.0-alpha.29` is the published Experimental prerelease,
 and no current record in `evidence/v1/records/` binds that artifact to a passed
@@ -34,42 +39,33 @@ A label may claim only the evidence it has. Deterministic injection, mocks, a sy
 
 Deterministic fault injection must never be presented as live-radio proof.
 
-## Required 4.0 evidence matrix
+## Current code and required 4.0 evidence matrix
 
-| Backend or environment | Minimum stable-4.0 proof | Phase 0 inventory focus |
-| --- | --- | --- |
-| Deterministic test backend | Full TCK, virtual-time scenarios, complete deterministic fault injection | Establish new contract and scenario evidence |
-| React Native Android | Native protocol, TCK, package/compile, live radio, background evidence for its label | Audit the current Kotlin/bridge input and capture baseline evidence |
-| React Native Apple | Native protocol, TCK, package/compile, live radio, restoration evidence for its label | Audit current CoreBluetooth/restore input and capture baseline evidence |
-| Web Bluetooth | Browser build, TCK, declared live Chromium proof | Characterize chooser limitations without treating them as continuous scan |
-| BlueZ | Mock D-Bus TCK, system probe, live radio | Capture current owned BlueZ evidence; rebuild against contract v1 |
-| CoreBluetooth desktop | Native mock/TCK, Node and Electron ABI, live radio | Capture current owned CoreBluetooth evidence; rebuild against contract v1 |
-| WinRT | Mock TCK, native compile/Electron ABI, live radio | Compile/ABI proof is L2/L3 only; alpha.29 makes no Windows live-radio claim |
-| Electron IPC | Versioned main/renderer handshake, bounded streams, reload/rebind scenarios | No renderer-owned radio or implicit legacy bridge |
-| Meta Quest | Not a 4.0 evidence target | Deferred to 4.1 with no 4.0 claim or gate |
-| nRF52840-based controllable physical fault-injection controller | Not a 4.0 delivery item | Explicit 4.1 feasibility, selection, procurement, and physical-radio decision |
+| Backend or environment | Implementation/package state | Minimum stable-4.0 proof | Remaining evidence or release work |
+| --- | --- | --- | --- |
+| Deterministic test backend | Implemented contract/core/TCK path with virtual time, programmable peripheral behavior, fault injection, scenarios, and zero-resource cleanup assertions | Full TCK, virtual-time scenarios, complete deterministic fault injection, package binding | Capture a current clean, package-bound L1/L2 record after the release source freezes |
+| React Native Android | JSI binary protocol, owned Android radio, descriptors, cancellation, generations, restoration limitation, TCK registration, and Android/Expo compile lanes implemented | Native protocol, TCK, package/compile, live radio, background evidence for its label | Physical Android vertical slice, lifecycle/background/Doze and declared OEM matrix evidence |
+| React Native Apple | JSI binary protocol, owned CoreBluetooth radio, descriptors, bounded pre-JS ingress, cancellation cleanup, restoration adoption, TCK registration, iOS simulator and tvOS compile lanes implemented | Native protocol, TCK, package/compile, live radio, restoration evidence for its label | Physical iPhone/iPad vertical slice plus restoration/background evidence on declared systems |
+| Web Bluetooth | Chooser-specific backend, authorization semantics, notifications, lifecycle hardening, browser-safe bundle, TCK and public scenarios implemented | Browser build, TCK, declared live Chromium proof | Physical Web Bluetooth chooser/connect/discover/read/notify/cleanup evidence on declared browser/OS |
+| BlueZ | Owned ObjectManager/D-Bus backend, adapter/scan/GATT/descriptor/notification lifecycle, cancellation, mock TCK, system probe and package surface implemented | Mock D-Bus TCK, system probe, live radio | Live non-Noble Node/Electron scenario on each declared Linux distribution/adapter plus reliability evidence |
+| CoreBluetooth desktop | Owned Node-API backend, public/core adapter, descriptor and advertisement mapping, cancellation quarantine, Node/Electron ABI gates and IPC integration implemented | Native mock/TCK, Node and Electron ABI, live radio | Artifact-bound physical macOS Node/Electron vertical slice, packaging/signing and declared reliability coverage |
+| WinRT | Owned TypeScript backend and protocol-v2 Node-API boundary implement adapter/scan/connect/GATT/descriptors/CCCD, cancellation, terminal records, TCK registration and fail-closed loading | Mock TCK, native compile/Electron ABI, live radio | Current Windows compile/ABI evidence, physical Node/Electron radio slice, packaging/signing and declared architecture matrix |
+| Electron IPC | Versioned main/renderer handshake, sender authorization, renderer leases, ownership, bounded payload/stream handling, reload/rebind and cleanup scenarios implemented | Deterministic IPC scenarios plus the selected desktop backend's package/live proof | Bind current packed consumer and physical desktop runs; expand reload/crash/restart reliability evidence |
+| Meta Quest | Not a 4.0 implementation or evidence target | None for 4.0 | Deferred to 4.1 with no 4.0 claim or gate |
+| Controllable physical fault-injection peripheral | Deterministic controller remains implemented; physical controller is not a 4.0 delivery item | Deterministic proof only in 4.0 | 4.1 feasibility, provider selection, procurement, and physical-radio scenarios; nRF52840 is not assumed |
 
-## Current transitional baseline: evidence to preserve and re-prove
+## Remaining evidence and release work
 
-The following are historical/current characterization facts. They are migration inputs only:
-
-| Area | Characterization | Required 4.0 treatment |
-| --- | --- | --- |
-| React Native bridge | Existing code uses a Base64 boundary and has byte convenience paths | Prove the bytes-only native protocol; do not retain a dual public API |
-| Legacy managers and ports | `BleManager`, `BlePort`, and `PortBleManager` contain overlapping policy | Audit behavior, then remove the architecture at the named deletion gates |
-| Desktop | Owned CoreBluetooth and BlueZ work has been exercised; WinRT remains incomplete | Re-run evidence through the shared core and TCK; no Noble fallback |
-| Capability helpers | Current static host-oriented helpers exist | Replace with typed capabilities bound to the instantiated backend |
-| Tests and examples | Existing suites characterize legacy behavior and platform work | Keep only as characterization until replacement TCK/scenarios and absence checks pass |
-
-## Phase 0 evidence work packages
-
-| ID | Required result |
-| --- | --- |
-| `UB4-EVIDENCE-BASELINE` | Machine-readable baseline evidence for owned RN, CoreBluetooth, BlueZ, Web, packaging, and prior live runs |
-| `UB4-LAB-PROCUREMENT` | Version-controlled hardware matrix, owners, budget, acquisition state, access, replacements, and release gates |
-| `UB4-AUDIT-RN` | Full native method/event/data/handle/cancellation/restoration inventory |
-| `UB4-AUDIT-HOSTS` | Web, BlueZ, CoreBluetooth, test, and WinRT behavior/data-loss inventory |
-| `UB4-PERF-BASELINE` | Reproducible bridge, IPC, throughput, latency, memory, resource, and artifact baselines |
+- Freeze a release source commit, build its exact tarball, and capture current
+  receipt-backed L1/L2 records instead of promoting historical Phase 0 logs.
+- Run the physical Web, macOS, Linux, Windows, Android, and Apple scenarios shown
+  above. Hardware availability blocks only each associated label.
+- Capture required background, restoration, reconnect, renderer-restart, and soak
+  records for the support labels declared at stable release.
+- Complete the beta soak and the Section 31 stable manifest after bun-mono and
+  independent-consumer evidence bind the final packed artifact.
+- Keep generated platform support documentation synchronized with those records;
+  never edit a support label by hand.
 
 ## Release-proof rules
 
