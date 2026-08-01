@@ -199,6 +199,8 @@ class DeterministicWinRtBoundary {
     this.emitAdapterLossDuringNextStartNotify = false
     this.throwNextScanStart = false
     this.throwNextConnect = false
+    this.throwNextConnectAfterCleanupFailure = false
+    this.cleanupPendingConnections = new Set()
     this.writeValues = []
     this.descriptorWriteValues = []
     this.startNotifyCalls = 0
@@ -211,6 +213,7 @@ class DeterministicWinRtBoundary {
     this.failNextStopScan = false
     this.throwNextStopScan = false
     this.stopScanGate = null
+    this.stopScanCalls = 0
     this.failNextDisconnect = false
     this.throwNextDisconnect = false
     this.disconnectGate = null
@@ -277,6 +280,7 @@ class DeterministicWinRtBoundary {
   }
 
   stopScan(scanToken) {
+    this.stopScanCalls += 1
     if (this.scanToken !== scanToken) {
       return pending(Promise.reject(new Error('Deterministic WinRT scan token mismatch during stop')))
     }
@@ -342,6 +346,14 @@ class DeterministicWinRtBoundary {
       return pending(Promise.reject(new Error('Unknown deterministic WinRT peer')))
     }
     this.connectionGenerations.set(nativePeerId, connectionGeneration)
+    if (this.cleanupPendingConnections.has(nativePeerId)) {
+      return pending(Promise.reject(new Error('Deterministic WinRT connection cleanup remains retryable')))
+    }
+    if (this.throwNextConnectAfterCleanupFailure) {
+      this.throwNextConnectAfterCleanupFailure = false
+      this.cleanupPendingConnections.add(nativePeerId)
+      throw new Error('Deterministic WinRT connect rollback cleanup failure')
+    }
     if (this.throwNextConnect) {
       this.throwNextConnect = false
       throw new Error('Deterministic synchronous WinRT connect failure')
@@ -379,6 +391,10 @@ class DeterministicWinRtBoundary {
 
   disconnect(nativePeerId) {
     this.disconnectCalls += 1
+    if (this.cleanupPendingConnections.delete(nativePeerId)) {
+      this.connectionGenerations.delete(nativePeerId)
+      return completed(undefined)
+    }
     if (this.throwNextDisconnect) {
       this.throwNextDisconnect = false
       throw new Error('Deterministic synchronous WinRT disconnect failure')
@@ -764,27 +780,28 @@ describe('WinRT contract-v2 deterministic native-boundary vertical slice', () =>
     expect(boundary.destroyed).toBe(true)
   })
 
-  test('requires the v2 terminal record model and ignores malformed terminal ingress', async () => {
+  test('requires the v2 terminal record model and reconciles malformed terminal ingress', async () => {
     const { backend, boundary } = await backendFixture()
     const scan = await backend.scanner.start(scanOptions(), opaqueId('terminal-model-client', 'client', 'winrt:tck'))
-    for (const record of [
-      { scanToken: boundary.scanToken, status: 'aborted', error: 'not-a-winrt-error' },
-      { scanToken: boundary.scanToken, status: 'stopped', error: 'other' },
-      { scanToken: boundary.scanToken, status: 'aborted', error: 'success' },
-      { scanToken: boundary.scanToken, status: 'aborted', error: 'other', unexpected: true }
-    ]) {
-      boundary.emitScanTerminal(record)
-      expectConsoleErrorMatching(
-        '[WinRtBackend.handleScanTerminal] Dropped malformed native scan terminal:',
-        expect.any(Error)
-      )
-    }
-    boundary.emitAdvertisement()
-    await expect(scan.observations[Symbol.asyncIterator]().next()).resolves.toMatchObject({
-      done: false,
-      value: { kind: 'value' }
+    const terminal = scan.observations[Symbol.asyncIterator]().next()
+
+    boundary.emitScanTerminal({
+      scanToken: boundary.scanToken,
+      status: 'aborted',
+      error: 'not-a-winrt-error'
     })
-    await expect(scan.stop()).resolves.toEqual({ state: 'released', failures: [] })
+    expectConsoleErrorMatching(
+      '[WinRtBackend.handleScanTerminal] Malformed native scan terminal terminalized the active scan:',
+      expect.any(Error)
+    )
+
+    await expect(terminal).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'terminal', reason: 'source-failed' }
+    })
+    await flushMicrotasks()
+    expect(boundary.stopScanCalls).toBe(1)
+    expect(Object.values(backend.resourceCounters()).every(value => Number(value) === 0)).toBe(true)
     await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
   })
 
@@ -814,7 +831,8 @@ describe('WinRT contract-v2 deterministic native-boundary vertical slice', () =>
     await expect(starting).rejects.toMatchObject({ normalized: { code: 'scan.start-failed' } })
     await flushMicrotasks()
     expectConsoleInfo('[WinRtBackend] Late WinRT completion quarantined: winrt.scan.start')
-    expect(boundary.scanHandler).toBeNull()
+    expect(boundary.stopScanCalls).toBe(0)
+    expect(Object.values(backend.resourceCounters()).every(value => Number(value) === 0)).toBe(true)
 
     const first = await backend.scanner.start(
       scanOptions(),
@@ -855,6 +873,82 @@ describe('WinRT contract-v2 deterministic native-boundary vertical slice', () =>
     })
     await expect(second.stop()).resolves.toEqual({ state: 'released', failures: [] })
     expect(boundary.scanHandler).toBeNull()
+    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+  })
+
+  test.each([
+    ['stopped', 'success'],
+    ['aborted', 'other']
+  ])('terminalizes an active matching %s scan without a compensating native stop', async (status, error) => {
+    const { backend, boundary } = await backendFixture()
+    const scan = await backend.scanner.start(scanOptions(), opaqueId(`active-${status}`, 'client', 'winrt:scan-terminal'))
+    const terminal = scan.observations[Symbol.asyncIterator]().next()
+
+    boundary.emitScanTerminal({ scanToken: boundary.scanToken, status, error })
+    expectConsoleErrorMatching(
+      '[WinRtBackend.handleScanTerminal] Native scan terminated:',
+      expect.objectContaining({ status, error })
+    )
+
+    await expect(terminal).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'terminal', reason: 'source-failed' }
+    })
+    expect(boundary.stopScanCalls).toBe(0)
+    expect(Object.values(backend.resourceCounters()).every(value => Number(value) === 0)).toBe(true)
+    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+  })
+
+  test.each(['scan stop', 'backend destroy'])(
+    'does not convert an expected %s terminal into source-failed',
+    async termination => {
+      const { backend, boundary } = await backendFixture()
+      const scan = await backend.scanner.start(
+        scanOptions(),
+        opaqueId(`expected-${termination}`, 'client', 'winrt:expected-scan-terminal')
+      )
+      const terminal = scan.observations[Symbol.asyncIterator]().next()
+
+      if (termination === 'scan stop') {
+        await expect(scan.stop()).resolves.toEqual({ state: 'released', failures: [] })
+      } else {
+        await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+      }
+
+      await expect(terminal).resolves.toMatchObject({
+        done: false,
+        value: { kind: 'terminal', reason: 'owner-released' }
+      })
+      expect(boundary.stopScanCalls).toBe(1)
+      if (termination === 'scan stop') {
+        await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+      }
+    }
+  )
+
+  test('lets adapter-loss cleanup own a matching terminal once adapter cleanup has begun', async () => {
+    const { backend, boundary } = await backendFixture()
+    const scan = await backend.scanner.start(
+      scanOptions(),
+      opaqueId('adapter-loss-terminal', 'client', 'winrt:adapter-loss-terminal')
+    )
+    const scanToken = boundary.scanToken
+    const terminal = scan.observations[Symbol.asyncIterator]().next()
+    const stopGate = deferred()
+    boundary.setStopScanGate(stopGate.promise)
+
+    boundary.emitAdapterLoss()
+    boundary.emitScanTerminal({ scanToken, status: 'aborted', error: 'radio-not-available' })
+
+    await expect(terminal).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'terminal', reason: 'connection-lost' }
+    })
+    expect(boundary.stopScanCalls).toBe(1)
+    stopGate.resolve()
+    boundary.setStopScanGate(null)
+    await flushMicrotasks()
+    expect(Object.values(backend.resourceCounters()).every(value => Number(value) === 0)).toBe(true)
     await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
   })
 
@@ -3351,6 +3445,22 @@ describe('WinRT contract-v2 deterministic native-boundary vertical slice', () =>
       operation()
     )
     await expect(retry.release()).resolves.toEqual({ state: 'released', failures: [] })
+    await backend.destroy()
+  })
+
+  test('models a pre-registration Connect rollback owner as cleanup-pending until Disconnect retries it', async () => {
+    const { backend, boundary } = await backendFixture()
+    const peerId = 'C0FFEE000001'
+    boundary.throwNextConnectAfterCleanupFailure = true
+
+    expect(() => boundary.connect(peerId, 'rollback-generation')).toThrow('connect rollback cleanup failure')
+    expect(boundary.cleanupPendingConnections).toEqual(new Set([peerId]))
+    await expect(boundary.connect(peerId, 'replacement-generation').completion).rejects.toThrow('cleanup remains retryable')
+
+    await expect(boundary.disconnect(peerId).completion).resolves.toBeUndefined()
+    expect(boundary.cleanupPendingConnections).toEqual(new Set())
+    await expect(boundary.connect(peerId, 'replacement-generation').completion).resolves.toBeUndefined()
+    await expect(boundary.disconnect(peerId).completion).resolves.toBeUndefined()
     await backend.destroy()
   })
 

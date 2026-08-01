@@ -32,6 +32,7 @@ import java.util.ArrayDeque
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 internal data class OwnedRadioTeardownFailure(
   val operation: String,
@@ -104,6 +105,10 @@ class OwnedAndroidGattRadio(private val context: Context) {
   private val scanSeenDeviceIds = ConcurrentHashMap.newKeySet<String>()
 
   private val gatts = ConcurrentHashMap<String, BluetoothGatt>()
+  private val gattGenerations = ConcurrentHashMap<String, Long>()
+  private val gattGenerationByInstance = ConcurrentHashMap<BluetoothGatt, Long>()
+  private val pendingGattTeardowns = ConcurrentHashMap<String, GattTeardownOwner>()
+  private val nextGattGeneration = AtomicLong(1L)
   private val discovered = ConcurrentHashMap<String, MutableList<android.bluetooth.BluetoothGattService>>()
   private val charCache = ConcurrentHashMap<String, BluetoothGattCharacteristic>()
   private val pending = ConcurrentHashMap<String, (Result<ByteArray?>) -> Unit>()
@@ -122,14 +127,21 @@ class OwnedAndroidGattRadio(private val context: Context) {
    */
   private data class ExactBytePending(
     val deviceKeyUpper: String,
+    val gatt: BluetoothGatt,
+    val gattGeneration: Long,
+    val token: GattSerialQueue.GattOperationToken,
     val callback: (Result<ByteArray?>) -> Unit,
     val done: () -> Unit
   )
 
   private data class ExactUnitPending(
     val deviceKeyUpper: String,
+    val gatt: BluetoothGatt,
+    val gattGeneration: Long,
+    val token: GattSerialQueue.GattOperationToken,
     val callback: (Result<Unit>) -> Unit,
-    val done: () -> Unit
+    val done: () -> Unit,
+    val physicalCleanup: (() -> OwnedRadioTeardownFailure?)? = null
   )
 
   private val exactReadPending = ConcurrentHashMap<BluetoothGattCharacteristic, ExactBytePending>()
@@ -145,12 +157,17 @@ class OwnedAndroidGattRadio(private val context: Context) {
 
   /** Per-device FIFO for outstanding GATT ops. */
   private val deviceQueues = ConcurrentHashMap<String, GattSerialQueue>()
+  private val nextGattOperationId = AtomicLong(1L)
 
   /**
    * autoConnect flag for a reconnect that must wait until the prior GATT reports
    * [BluetoothProfile.STATE_DISCONNECTED] before [BluetoothDevice.connectGatt] (R3-F003).
    */
   private val pendingReconnect = ConcurrentHashMap<String, Boolean>()
+  private val pendingDisconnectCallbacks = ConcurrentHashMap<String, (OwnedRadioTeardownFailure?) -> Unit>()
+
+  /** Physical cleanup that failed after public cancellation or a remote rejection. */
+  private val retryableCleanups = ConcurrentHashMap<String, () -> OwnedRadioTeardownFailure?>()
 
   /** Safety-timeout runnables that force-close a GATT if DISCONNECTED never arrives (R3-F003). */
   private val closeTimeouts = ConcurrentHashMap<String, Runnable>()
@@ -178,6 +195,12 @@ class OwnedAndroidGattRadio(private val context: Context) {
   var onServicesChanged: ((deviceId: String) -> Unit)? = null
   /** Runtime scan failures (permissions, internal errors) — not start exceptions. */
   var onScanFailed: ((errorCode: Int) -> Unit)? = null
+  internal var onCleanupFailure: ((OwnedRadioTeardownFailure) -> Unit)? = null
+
+  private data class GattTeardownOwner(
+    val gatt: BluetoothGatt,
+    val generation: Long
+  )
 
   fun currentState(): String = mapAdapterState(adapter?.state)
 
@@ -286,7 +309,8 @@ class OwnedAndroidGattRadio(private val context: Context) {
     legacyScan: Boolean = true,
     allowDuplicates: Boolean = true
   ) {
-    stopScan()
+    val normalizedServiceUuids = normalizeScanServiceUuids(serviceUuids?.toList() ?: emptyList())
+    check(scanCallback == null) { "Android scan cleanup is still owned by a prior scan" }
     scanSeenDeviceIds.clear()
     val a = adapter ?: throw IllegalStateException("Bluetooth adapter unavailable")
     scanner = a.bluetoothLeScanner ?: throw IllegalStateException("LE scanner unavailable")
@@ -306,15 +330,12 @@ class OwnedAndroidGattRadio(private val context: Context) {
     }
     val settings = builder.build()
     val filters = mutableListOf<ScanFilter>()
-    serviceUuids?.forEach { u ->
-      try {
-        filters.add(ScanFilter.Builder().setServiceUuid(ParcelUuid.fromString(normalizeUuid(u))).build())
-      } catch (throwable: Exception) {
-        OwnedAndroidLog.e("startScan ignored invalid service UUID: $u", throwable)
-      }
+    normalizedServiceUuids.forEach { uuid ->
+      filters.add(ScanFilter.Builder().setServiceUuid(ParcelUuid.fromString(uuid)).build())
     }
     val cb = object : ScanCallback() {
       override fun onScanResult(callbackType: Int, result: AndroidScanResult) {
+        if (scanCallback !== this) return
         val device = result.device ?: return
         val id = device.address
         if (!allowDuplicates && !scanSeenDeviceIds.add(id.uppercase())) return
@@ -331,6 +352,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
       }
 
       override fun onScanFailed(errorCode: Int) {
+        if (scanCallback !== this) return
         OwnedAndroidLog.e("scan failed code=$errorCode")
         onScanFailed?.invoke(errorCode)
       }
@@ -402,22 +424,29 @@ class OwnedAndroidGattRadio(private val context: Context) {
 
   internal fun stopScan(): OwnedRadioTeardownFailure? {
     val cb = scanCallback
-    var failure: OwnedRadioTeardownFailure? = null
-    if (cb != null) {
-      try {
-        scanner?.stopScan(cb)
-      } catch (t: Throwable) {
-        OwnedAndroidLog.e("stopScan", t)
-        failure = OwnedRadioTeardownFailure("stopScan", t)
-      }
+    if (cb == null) {
+      scanSeenDeviceIds.clear()
+      return null
     }
-    scanCallback = null
-    scanSeenDeviceIds.clear()
-    return failure
+    return try {
+      scanner?.stopScan(cb)
+      scanCallback = null
+      scanSeenDeviceIds.clear()
+      null
+    } catch (t: Throwable) {
+      OwnedAndroidLog.e("stopScan", t)
+      // Retain the callback and seen-device state so the caller can retry cleanup.
+      OwnedRadioTeardownFailure("stopScan", t)
+    }
   }
+
+  internal fun hasScanCleanupOwnership(): Boolean = scanCallback != null
 
   fun connect(deviceId: String, autoConnect: Boolean) {
     val key = deviceId.uppercase()
+    check(!pendingGattTeardowns.containsKey(key)) {
+      "Android GATT cleanup is still pending for $deviceId"
+    }
     val prior = gatts[key]
     if (prior != null) {
       // R3-F003: never close() before STATE_DISCONNECTED — disconnect prior and reconnect
@@ -433,7 +462,11 @@ class OwnedAndroidGattRadio(private val context: Context) {
         prior.disconnect()
       } catch (t: Throwable) {
         OwnedAndroidLog.e("connect disconnect prior gatt", t)
-        completeGattTeardown(key, prior)
+        val teardownFailure = completeGattTeardown(key, prior)
+        if (teardownFailure != null) throw IllegalStateException(
+          "Android GATT cleanup failed before reconnect",
+          teardownFailure.throwable
+        )
         openGatt(deviceId, key, autoConnect)
       }
       return
@@ -441,26 +474,39 @@ class OwnedAndroidGattRadio(private val context: Context) {
     openGatt(deviceId, key, autoConnect)
   }
 
-  fun disconnect(deviceId: String) {
+  internal fun disconnect(
+    deviceId: String,
+    onComplete: (OwnedRadioTeardownFailure?) -> Unit = {}
+  ): OwnedRadioTeardownFailure? {
     val key = deviceId.uppercase()
     // Explicit user/app disconnect cancels any pending reconnect-after-teardown.
     pendingReconnect.remove(key)
     failPendingForDevice(key, "disconnected")
     clearCharCacheForDevice(key)
     deviceQueues.remove(key)?.clear()
+    val cleanupFailure = retryCleanupLedger().firstOrNull()
     val g = gatts[key]
     if (g == null) {
       discovered.remove(key)
-      return
+      val failure = cleanupFailure ?: retryGattTeardown(key)
+      onComplete(failure)
+      return failure
     }
     // R3-F003: only disconnect(); close() waits for STATE_DISCONNECTED (or safety timeout).
+    pendingDisconnectCallbacks[key] = onComplete
     scheduleSafeClose(key, g)
     try {
       g.disconnect()
     } catch (t: Throwable) {
       OwnedAndroidLog.e("disconnect", t)
-      completeGattTeardown(key, g)
+      val failure = cleanupFailure ?: completeGattTeardown(key, g)
+      pendingDisconnectCallbacks.remove(key)?.invoke(failure)
+      return failure
     }
+    if (cleanupFailure != null) {
+      pendingDisconnectCallbacks.remove(key)?.invoke(cleanupFailure)
+    }
+    return cleanupFailure
   }
 
   private fun openGatt(deviceId: String, key: String, autoConnect: Boolean) {
@@ -477,7 +523,10 @@ class OwnedAndroidGattRadio(private val context: Context) {
     } catch (throwable: Exception) {
       throw IllegalStateException("Android could not open BluetoothGatt for $deviceId", throwable)
     }
+    val generation = nextGattGeneration.getAndIncrement()
     gatts[key] = gatt
+    gattGenerations[key] = generation
+    gattGenerationByInstance[gatt] = generation
   }
 
   /**
@@ -485,21 +534,36 @@ class OwnedAndroidGattRadio(private val context: Context) {
    * Safe to call from DISCONNECTED callback or after a failed disconnect.
    */
   private fun completeGattTeardown(key: String, gatt: BluetoothGatt): OwnedRadioTeardownFailure? {
+    val generation = gattGenerationByInstance[gatt] ?: return null
+    return completeGattTeardown(key, gatt, generation)
+  }
+
+  private fun completeGattTeardown(
+    key: String,
+    gatt: BluetoothGatt,
+    generation: Long
+  ): OwnedRadioTeardownFailure? {
+    if (gatts[key] !== gatt || gattGenerations[key] != generation || gattGenerationByInstance[gatt] != generation) {
+      return null
+    }
     cancelSafeClose(key)
-    var closeFailure: OwnedRadioTeardownFailure? = null
     try {
       gatt.close()
     } catch (throwable: Exception) {
       OwnedAndroidLog.e("completeGattTeardown close for $key", throwable)
-      closeFailure = OwnedRadioTeardownFailure("closeGatt:$key", throwable)
+      val failure = OwnedRadioTeardownFailure("closeGatt:$key:generation=$generation", throwable)
+      pendingGattTeardowns[key] = GattTeardownOwner(gatt, generation)
+      reportCleanupFailure(failure)
+      return failure
     }
-    if (gatts[key] === gatt) {
-      gatts.remove(key)
-    }
+    pendingGattTeardowns.remove(key, GattTeardownOwner(gatt, generation))
+    gatts.remove(key, gatt)
+    gattGenerations.remove(key, generation)
+    gattGenerationByInstance.remove(gatt, generation)
     discovered.remove(key)
     clearCharCacheForDevice(key)
     deviceQueues.remove(key)?.clear()
-    return closeFailure
+    return null
   }
 
   private fun scheduleSafeClose(key: String, gatt: BluetoothGatt) {
@@ -509,7 +573,9 @@ class OwnedAndroidGattRadio(private val context: Context) {
         if (gatts[key] === gatt) {
           OwnedAndroidLog.e("GATT close safety timeout for $key (DISCONNECTED never arrived)")
           failPendingForDevice(key, "disconnected timeout")
-          completeGattTeardown(key, gatt)
+          val teardownFailure = completeGattTeardown(key, gatt)
+          pendingDisconnectCallbacks.remove(key)?.invoke(teardownFailure)
+          if (teardownFailure != null) return@Runnable
           // If a reconnect was queued, attempt it after forced teardown.
           pendingReconnect.remove(key)?.let { autoConnect ->
             try {
@@ -530,27 +596,67 @@ class OwnedAndroidGattRadio(private val context: Context) {
     closeTimeouts.remove(key)?.let { mainHandler.removeCallbacks(it) }
   }
 
+  internal fun reportCleanupFailure(failure: OwnedRadioTeardownFailure) {
+    onCleanupFailure?.invoke(failure)
+  }
+
+  private fun registerRetryableCleanup(
+    key: String,
+    cleanup: () -> OwnedRadioTeardownFailure?
+  ) {
+    retryableCleanups.putIfAbsent(key, cleanup)
+  }
+
+  private fun retryGattTeardown(key: String): OwnedRadioTeardownFailure? {
+    val owner = pendingGattTeardowns[key] ?: return null
+    return completeGattTeardown(key, owner.gatt, owner.generation)
+  }
+
+  private fun retryCleanupLedger(): List<OwnedRadioTeardownFailure> {
+    val failures = mutableListOf<OwnedRadioTeardownFailure>()
+    retryableCleanups.entries.toList().forEach { entry ->
+      val failure = try {
+        entry.value()
+      } catch (throwable: Throwable) {
+        OwnedRadioTeardownFailure(entry.key, throwable)
+      }
+      if (failure == null) {
+        retryableCleanups.remove(entry.key, entry.value)
+      } else {
+        failures.add(failure)
+        reportCleanupFailure(failure)
+      }
+    }
+    return failures
+  }
+
   fun isConnected(deviceId: String): Boolean {
     val device = adapter?.getRemoteDevice(deviceId) ?: return false
     return bluetoothManager.getConnectionState(device, BluetoothProfile.GATT) == BluetoothProfile.STATE_CONNECTED
   }
 
-  fun discover(deviceId: String, onDone: (Boolean) -> Unit) {
-    enqueue(deviceId) { done ->
+  fun discover(deviceId: String, onDone: (Boolean) -> Unit): Long {
+    return enqueue(
+      deviceId,
+      onCancelled = { onDone(false) },
+      onStartFailure = { onDone(false) }
+    ) { token, done ->
       val gatt = gatts[deviceId.uppercase()]
       if (gatt == null) {
-        onDone(false)
+        if (!token.isPubliclySettled()) onDone(false)
         done()
         return@enqueue
       }
       val key = "discover:${deviceId.uppercase()}"
       pending[key] = { r ->
-        onDone(r.isSuccess)
+        if (!token.isPubliclySettled()) {
+          onDone(r.isSuccess)
+        }
         done()
       }
       if (!gatt.discoverServices()) {
         pending.remove(key)
-        onDone(false)
+        if (!token.isPubliclySettled()) onDone(false)
         done()
       }
     }
@@ -562,13 +668,17 @@ class OwnedAndroidGattRadio(private val context: Context) {
       ?: emptyList()
   }
 
-  fun readCharacteristic(
+  private fun readCharacteristic(
     deviceId: String,
     serviceUuid: UUID,
     charUuid: UUID,
     onResult: (Result<ByteArray?>) -> Unit
-  ) {
-    enqueue(deviceId) { done ->
+  ): Long {
+    return enqueue(
+      deviceId,
+      onCancelled = { onResult(Result.failure(IllegalStateException("characteristic read cancelled"))) },
+      onStartFailure = { error -> onResult(Result.failure(error)) }
+    ) { token, done ->
       val gatt = gatts[deviceId.uppercase()]
       val ch = findChar(deviceId, serviceUuid, charUuid)
       if (gatt == null || ch == null) {
@@ -579,7 +689,9 @@ class OwnedAndroidGattRadio(private val context: Context) {
       // Key includes serviceUuid so two services sharing a char UUID never collide (R2-F095).
       val key = pendingCharKey("read", deviceId, serviceUuid, charUuid)
       pending[key] = { r ->
-        onResult(r)
+        if (!token.isPubliclySettled()) {
+          onResult(r)
+        }
         done()
       }
       if (!gatt.readCharacteristic(ch)) {
@@ -598,35 +710,61 @@ class OwnedAndroidGattRadio(private val context: Context) {
     characteristicUuid: UUID,
     characteristicOccurrence: Int,
     onResult: (Result<ByteArray?>) -> Unit
-  ) {
-    readCharacteristicTarget(
+  ): Long {
+    return readCharacteristicTarget(
       deviceId,
-      findChar(deviceId, serviceUuid, serviceOccurrence, characteristicUuid, characteristicOccurrence),
+      serviceUuid,
+      serviceOccurrence,
+      characteristicUuid,
+      characteristicOccurrence,
       onResult
     )
   }
 
   private fun readCharacteristicTarget(
     deviceId: String,
-    characteristic: BluetoothGattCharacteristic?,
+    serviceUuid: UUID,
+    serviceOccurrence: Int,
+    characteristicUuid: UUID,
+    characteristicOccurrence: Int,
     onResult: (Result<ByteArray?>) -> Unit
-  ) {
-    enqueue(deviceId) { done ->
+  ): Long {
+    return enqueue(
+      deviceId,
+      onCancelled = { onResult(Result.failure(IllegalStateException("exact characteristic read cancelled"))) },
+      onStartFailure = { error -> onResult(Result.failure(error)) }
+    ) { token, done ->
       val gatt = gatts[deviceId.uppercase()]
+      val characteristic = findChar(
+        deviceId,
+        serviceUuid,
+        serviceOccurrence,
+        characteristicUuid,
+        characteristicOccurrence
+      )
       if (gatt == null || characteristic == null) {
         completeExactByteDirect(
           onResult,
           done,
-          Result.failure(IllegalStateException("exact characteristic not found"))
+          Result.failure(IllegalStateException("exact characteristic not found")),
+          token
         )
         return@enqueue
       }
-      val pending = ExactBytePending(deviceId.uppercase(), onResult, done)
+      val pending = ExactBytePending(
+        deviceId.uppercase(),
+        gatt,
+        gattGenerations[deviceId.uppercase()] ?: 0L,
+        token,
+        onResult,
+        done
+      )
       if (exactReadPending.putIfAbsent(characteristic, pending) != null) {
         completeExactByteDirect(
           onResult,
           done,
-          Result.failure(IllegalStateException("exact characteristic read is already pending"))
+          Result.failure(IllegalStateException("exact characteristic read is already pending")),
+          token
         )
         return@enqueue
       }
@@ -641,15 +779,19 @@ class OwnedAndroidGattRadio(private val context: Context) {
     }
   }
 
-  fun writeCharacteristic(
+  private fun writeCharacteristic(
     deviceId: String,
     serviceUuid: UUID,
     charUuid: UUID,
     value: ByteArray,
     withResponse: Boolean,
     onResult: (Result<ByteArray?>) -> Unit
-  ) {
-    enqueue(deviceId) { done ->
+  ): Long {
+    return enqueue(
+      deviceId,
+      onCancelled = { onResult(Result.failure(IllegalStateException("characteristic write cancelled"))) },
+      onStartFailure = { error -> onResult(Result.failure(error)) }
+    ) { token, done ->
       val gatt = gatts[deviceId.uppercase()]
       val ch = findChar(deviceId, serviceUuid, charUuid)
       if (gatt == null || ch == null) {
@@ -665,7 +807,9 @@ class OwnedAndroidGattRadio(private val context: Context) {
       // Stash payload for callback success (API 33 does not require ch.value).
       pendingWriteValues[key] = value
       pending[key] = { r ->
-        onResult(r)
+        if (!token.isPubliclySettled()) {
+          onResult(r)
+        }
         done()
       }
       if (Build.VERSION.SDK_INT >= 33) {
@@ -703,10 +847,13 @@ class OwnedAndroidGattRadio(private val context: Context) {
     value: ByteArray,
     withResponse: Boolean,
     onResult: (Result<ByteArray?>) -> Unit
-  ) {
-    writeCharacteristicTarget(
+  ): Long {
+    return writeCharacteristicTarget(
       deviceId,
-      findChar(deviceId, serviceUuid, serviceOccurrence, characteristicUuid, characteristicOccurrence),
+      serviceUuid,
+      serviceOccurrence,
+      characteristicUuid,
+      characteristicOccurrence,
       value,
       withResponse,
       onResult
@@ -715,18 +862,33 @@ class OwnedAndroidGattRadio(private val context: Context) {
 
   private fun writeCharacteristicTarget(
     deviceId: String,
-    characteristic: BluetoothGattCharacteristic?,
+    serviceUuid: UUID,
+    serviceOccurrence: Int,
+    characteristicUuid: UUID,
+    characteristicOccurrence: Int,
     value: ByteArray,
     withResponse: Boolean,
     onResult: (Result<ByteArray?>) -> Unit
-  ) {
-    enqueue(deviceId) { done ->
+  ): Long {
+    return enqueue(
+      deviceId,
+      onCancelled = { onResult(Result.failure(IllegalStateException("exact characteristic write cancelled"))) },
+      onStartFailure = { error -> onResult(Result.failure(error)) }
+    ) { token, done ->
       val gatt = gatts[deviceId.uppercase()]
+      val characteristic = findChar(
+        deviceId,
+        serviceUuid,
+        serviceOccurrence,
+        characteristicUuid,
+        characteristicOccurrence
+      )
       if (gatt == null || characteristic == null) {
         completeExactByteDirect(
           onResult,
           done,
-          Result.failure(IllegalStateException("exact characteristic not found"))
+          Result.failure(IllegalStateException("exact characteristic not found")),
+          token
         )
         return@enqueue
       }
@@ -734,12 +896,20 @@ class OwnedAndroidGattRadio(private val context: Context) {
         if (withResponse) BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
         else BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
       characteristic.writeType = writeType
-      val pending = ExactBytePending(deviceId.uppercase(), onResult, done)
+      val pending = ExactBytePending(
+        deviceId.uppercase(),
+        gatt,
+        gattGenerations[deviceId.uppercase()] ?: 0L,
+        token,
+        onResult,
+        done
+      )
       if (exactWritePending.putIfAbsent(characteristic, pending) != null) {
         completeExactByteDirect(
           onResult,
           done,
-          Result.failure(IllegalStateException("exact characteristic write is already pending"))
+          Result.failure(IllegalStateException("exact characteristic write is already pending")),
+          token
         )
         return@enqueue
       }
@@ -782,43 +952,63 @@ class OwnedAndroidGattRadio(private val context: Context) {
     return status == BluetoothGatt.GATT_SUCCESS
   }
 
-  fun requestMtu(deviceId: String, mtu: Int, onResult: (Result<Int>) -> Unit) {
-    enqueue(deviceId) { done ->
+  fun requestMtu(deviceId: String, mtu: Int, onResult: (Result<Int>) -> Unit): Long {
+    return enqueue(
+      deviceId,
+      onCancelled = { onResult(Result.failure(IllegalStateException("MTU request cancelled"))) },
+      onStartFailure = { error -> onResult(Result.failure(error)) }
+    ) { token, done ->
       val gatt = gatts[deviceId.uppercase()]
       if (gatt == null) {
-        onResult(Result.failure(IllegalStateException("Not connected to $deviceId")))
+        if (!token.isPubliclySettled()) {
+          onResult(Result.failure(IllegalStateException("Not connected to $deviceId")))
+        }
         done()
         return@enqueue
       }
       val key = "mtu:${deviceId.uppercase()}"
       pendingMtu[key] = { r ->
-        onResult(r)
+        if (!token.isPubliclySettled()) {
+          onResult(r)
+        }
         done()
       }
       if (!gatt.requestMtu(mtu)) {
         pendingMtu.remove(key)
-        onResult(Result.failure(IllegalStateException("requestMtu failed to start")))
+        if (!token.isPubliclySettled()) {
+          onResult(Result.failure(IllegalStateException("requestMtu failed to start")))
+        }
         done()
       }
     }
   }
 
-  fun readRemoteRssi(deviceId: String, onResult: (Result<Int>) -> Unit) {
-    enqueue(deviceId) { done ->
+  fun readRemoteRssi(deviceId: String, onResult: (Result<Int>) -> Unit): Long {
+    return enqueue(
+      deviceId,
+      onCancelled = { onResult(Result.failure(IllegalStateException("RSSI read cancelled"))) },
+      onStartFailure = { error -> onResult(Result.failure(error)) }
+    ) { token, done ->
       val gatt = gatts[deviceId.uppercase()]
       if (gatt == null) {
-        onResult(Result.failure(IllegalStateException("Not connected to $deviceId")))
+        if (!token.isPubliclySettled()) {
+          onResult(Result.failure(IllegalStateException("Not connected to $deviceId")))
+        }
         done()
         return@enqueue
       }
       val key = "rssi:${deviceId.uppercase()}"
       pendingRssi[key] = { r ->
-        onResult(r)
+        if (!token.isPubliclySettled()) {
+          onResult(r)
+        }
         done()
       }
       if (!gatt.readRemoteRssi()) {
         pendingRssi.remove(key)
-        onResult(Result.failure(IllegalStateException("readRemoteRssi failed to start")))
+        if (!token.isPubliclySettled()) {
+          onResult(Result.failure(IllegalStateException("readRemoteRssi failed to start")))
+        }
         done()
       }
     }
@@ -828,15 +1018,19 @@ class OwnedAndroidGattRadio(private val context: Context) {
    * Enable/disable notifications or indications.
    * [subscriptionType]: "notification" | "indication" | null (auto: notify preferred, else indicate).
    */
-  fun setNotify(
+  private fun setNotify(
     deviceId: String,
     serviceUuid: UUID,
     charUuid: UUID,
     enable: Boolean,
     subscriptionType: String? = null,
     onResult: (Result<Unit>) -> Unit
-  ) {
-    enqueue(deviceId) { done ->
+  ): Long {
+    return enqueue(
+      deviceId,
+      onCancelled = { onResult(Result.failure(IllegalStateException("notification operation cancelled"))) },
+      onStartFailure = { error -> onResult(Result.failure(error)) }
+    ) { token, done ->
       val gatt = gatts[deviceId.uppercase()]
       val ch = findChar(deviceId, serviceUuid, charUuid)
       if (gatt == null || ch == null) {
@@ -871,7 +1065,9 @@ class OwnedAndroidGattRadio(private val context: Context) {
       // Must wait for onDescriptorWrite — reporting success before CCCD is armed is a race.
       val key = pendingCharKey("cccd", deviceId, serviceUuid, charUuid)
       pendingDesc[key] = { r ->
-        onResult(r)
+        if (!token.isPubliclySettled()) {
+          onResult(r)
+        }
         done()
       }
       if (Build.VERSION.SDK_INT >= 33) {
@@ -905,10 +1101,13 @@ class OwnedAndroidGattRadio(private val context: Context) {
     enable: Boolean,
     subscriptionType: String? = null,
     onResult: (Result<Unit>) -> Unit
-  ) {
-    setNotifyTarget(
+  ): Long {
+    return setNotifyTarget(
       deviceId,
-      findChar(deviceId, serviceUuid, serviceOccurrence, characteristicUuid, characteristicOccurrence),
+      serviceUuid,
+      serviceOccurrence,
+      characteristicUuid,
+      characteristicOccurrence,
       enable,
       subscriptionType,
       onResult
@@ -917,18 +1116,33 @@ class OwnedAndroidGattRadio(private val context: Context) {
 
   private fun setNotifyTarget(
     deviceId: String,
-    characteristic: BluetoothGattCharacteristic?,
+    serviceUuid: UUID,
+    serviceOccurrence: Int,
+    characteristicUuid: UUID,
+    characteristicOccurrence: Int,
     enable: Boolean,
     subscriptionType: String?,
     onResult: (Result<Unit>) -> Unit
-  ) {
-    enqueue(deviceId) { done ->
+  ): Long {
+    return enqueue(
+      deviceId,
+      onCancelled = { onResult(Result.failure(IllegalStateException("exact notification operation cancelled"))) },
+      onStartFailure = { error -> onResult(Result.failure(error)) }
+    ) { token, done ->
       val gatt = gatts[deviceId.uppercase()]
+      val characteristic = findChar(
+        deviceId,
+        serviceUuid,
+        serviceOccurrence,
+        characteristicUuid,
+        characteristicOccurrence
+      )
       if (gatt == null || characteristic == null) {
         completeExactUnitDirect(
           onResult,
           done,
-          Result.failure(IllegalStateException("exact characteristic not found"))
+          Result.failure(IllegalStateException("exact characteristic not found")),
+          token
         )
         return@enqueue
       }
@@ -941,7 +1155,8 @@ class OwnedAndroidGattRadio(private val context: Context) {
             IllegalStateException(
               "characteristic supports neither notify nor indicate (subscriptionType=$subscriptionType)"
             )
-          )
+          ),
+          token
         )
         return@enqueue
       }
@@ -949,22 +1164,56 @@ class OwnedAndroidGattRadio(private val context: Context) {
         completeExactUnitDirect(
           onResult,
           done,
-          Result.failure(IllegalStateException("setCharacteristicNotification failed"))
+          Result.failure(IllegalStateException("setCharacteristicNotification failed")),
+          token
         )
         return@enqueue
+      }
+      val gattGeneration = gattGenerations[deviceId.uppercase()] ?: run {
+        completeExactUnitDirect(
+          onResult,
+          done,
+          Result.failure(IllegalStateException("exact notification GATT generation is unavailable")),
+          token
+        )
+        return@enqueue
+      }
+      val rollbackRegistration = {
+        rollbackNotifyRegistration(
+          deviceId.uppercase(),
+          gatt,
+          gattGeneration,
+          characteristic,
+          enable
+        )
       }
       val cccd = characteristic.getDescriptor(CCCD_UUID)
       if (cccd == null) {
         // There is no remote CCCD to write, but the platform accepted the local registration.
-        completeExactUnitDirect(onResult, done, Result.success(Unit))
+        if (token.isPubliclySettled()) {
+          rollbackRegistration()?.let { failure ->
+            registerRetryableCleanup(failure.operation) { rollbackRegistration() }
+            reportCleanupFailure(failure)
+          }
+        }
+        completeExactUnitDirect(onResult, done, Result.success(Unit), token)
         return@enqueue
       }
-      val pending = ExactUnitPending(deviceId.uppercase(), onResult, done)
+      val pending = ExactUnitPending(
+        deviceId.uppercase(),
+        gatt,
+        gattGeneration,
+        token,
+        onResult,
+        done,
+        rollbackRegistration
+      )
       if (exactCccdPending.putIfAbsent(cccd, pending) != null) {
         completeExactUnitDirect(
           onResult,
           done,
-          Result.failure(IllegalStateException("exact CCCD write is already pending"))
+          Result.failure(IllegalStateException("exact CCCD write is already pending")),
+          token
         )
         return@enqueue
       }
@@ -995,14 +1244,18 @@ class OwnedAndroidGattRadio(private val context: Context) {
     }
   }
 
-  fun readDescriptor(
+  private fun readDescriptor(
     deviceId: String,
     serviceUuid: UUID,
     charUuid: UUID,
     descUuid: UUID,
     onResult: (Result<ByteArray?>) -> Unit
-  ) {
-    enqueue(deviceId) { done ->
+  ): Long {
+    return enqueue(
+      deviceId,
+      onCancelled = { onResult(Result.failure(IllegalStateException("descriptor read cancelled"))) },
+      onStartFailure = { error -> onResult(Result.failure(error)) }
+    ) { token, done ->
       val gatt = gatts[deviceId.uppercase()]
       val ch = findChar(deviceId, serviceUuid, charUuid)
       val desc = ch?.getDescriptor(descUuid)
@@ -1013,7 +1266,9 @@ class OwnedAndroidGattRadio(private val context: Context) {
       }
       val key = pendingDescKey("descRead", deviceId, serviceUuid, charUuid, descUuid)
       pendingDescRead[key] = { r ->
-        onResult(r)
+        if (!token.isPubliclySettled()) {
+          onResult(r)
+        }
         done()
       }
       if (!gatt.readDescriptor(desc)) {
@@ -1024,15 +1279,19 @@ class OwnedAndroidGattRadio(private val context: Context) {
     }
   }
 
-  fun writeDescriptor(
+  private fun writeDescriptor(
     deviceId: String,
     serviceUuid: UUID,
     charUuid: UUID,
     descUuid: UUID,
     value: ByteArray,
     onResult: (Result<Unit>) -> Unit
-  ) {
-    enqueue(deviceId) { done ->
+  ): Long {
+    return enqueue(
+      deviceId,
+      onCancelled = { onResult(Result.failure(IllegalStateException("descriptor write cancelled"))) },
+      onStartFailure = { error -> onResult(Result.failure(error)) }
+    ) { token, done ->
       val gatt = gatts[deviceId.uppercase()]
       val ch = findChar(deviceId, serviceUuid, charUuid)
       val desc = ch?.getDescriptor(descUuid)
@@ -1043,7 +1302,9 @@ class OwnedAndroidGattRadio(private val context: Context) {
       }
       val key = pendingDescKey("descWrite", deviceId, serviceUuid, charUuid, descUuid)
       pendingDesc[key] = { r ->
-        onResult(r)
+        if (!token.isPubliclySettled()) {
+          onResult(r)
+        }
         done()
       }
       if (Build.VERSION.SDK_INT >= 33) {
@@ -1077,32 +1338,45 @@ class OwnedAndroidGattRadio(private val context: Context) {
     descriptorUuid: UUID,
     descriptorOccurrence: Int,
     onResult: (Result<ByteArray?>) -> Unit
-  ) {
-    val descriptor = findDescriptor(
+  ): Long {
+    return enqueue(
       deviceId,
-      serviceUuid,
-      serviceOccurrence,
-      characteristicUuid,
-      characteristicOccurrence,
-      descriptorUuid,
-      descriptorOccurrence
-    )
-    enqueue(deviceId) { done ->
+      onCancelled = { onResult(Result.failure(IllegalStateException("exact descriptor read cancelled"))) },
+      onStartFailure = { error -> onResult(Result.failure(error)) }
+    ) { token, done ->
       val gatt = gatts[deviceId.uppercase()]
+      val descriptor = findDescriptor(
+        deviceId,
+        serviceUuid,
+        serviceOccurrence,
+        characteristicUuid,
+        characteristicOccurrence,
+        descriptorUuid,
+        descriptorOccurrence
+      )
       if (gatt == null || descriptor == null) {
         completeExactByteDirect(
           onResult,
           done,
-          Result.failure(IllegalStateException("exact descriptor not found"))
+          Result.failure(IllegalStateException("exact descriptor not found")),
+          token
         )
         return@enqueue
       }
-      val pending = ExactBytePending(deviceId.uppercase(), onResult, done)
+      val pending = ExactBytePending(
+        deviceId.uppercase(),
+        gatt,
+        gattGenerations[deviceId.uppercase()] ?: 0L,
+        token,
+        onResult,
+        done
+      )
       if (exactDescriptorReadPending.putIfAbsent(descriptor, pending) != null) {
         completeExactByteDirect(
           onResult,
           done,
-          Result.failure(IllegalStateException("exact descriptor read is already pending"))
+          Result.failure(IllegalStateException("exact descriptor read is already pending")),
+          token
         )
         return@enqueue
       }
@@ -1125,32 +1399,45 @@ class OwnedAndroidGattRadio(private val context: Context) {
     descriptorOccurrence: Int,
     value: ByteArray,
     onResult: (Result<Unit>) -> Unit
-  ) {
-    val descriptor = findDescriptor(
+  ): Long {
+    return enqueue(
       deviceId,
-      serviceUuid,
-      serviceOccurrence,
-      characteristicUuid,
-      characteristicOccurrence,
-      descriptorUuid,
-      descriptorOccurrence
-    )
-    enqueue(deviceId) { done ->
+      onCancelled = { onResult(Result.failure(IllegalStateException("exact descriptor write cancelled"))) },
+      onStartFailure = { error -> onResult(Result.failure(error)) }
+    ) { token, done ->
       val gatt = gatts[deviceId.uppercase()]
+      val descriptor = findDescriptor(
+        deviceId,
+        serviceUuid,
+        serviceOccurrence,
+        characteristicUuid,
+        characteristicOccurrence,
+        descriptorUuid,
+        descriptorOccurrence
+      )
       if (gatt == null || descriptor == null) {
         completeExactUnitDirect(
           onResult,
           done,
-          Result.failure(IllegalStateException("exact descriptor not found"))
+          Result.failure(IllegalStateException("exact descriptor not found")),
+          token
         )
         return@enqueue
       }
-      val pending = ExactUnitPending(deviceId.uppercase(), onResult, done)
+      val pending = ExactUnitPending(
+        deviceId.uppercase(),
+        gatt,
+        gattGenerations[deviceId.uppercase()] ?: 0L,
+        token,
+        onResult,
+        done
+      )
       if (exactDescriptorWritePending.putIfAbsent(descriptor, pending) != null) {
         completeExactUnitDirect(
           onResult,
           done,
-          Result.failure(IllegalStateException("exact descriptor write is already pending"))
+          Result.failure(IllegalStateException("exact descriptor write is already pending")),
+          token
         )
         return@enqueue
       }
@@ -1212,44 +1499,66 @@ class OwnedAndroidGattRadio(private val context: Context) {
     stopScan()?.let { failure -> failures.add(failure) }
     unregisterAdapterStateReceiver()?.let { failure -> failures.add(failure) }
     pendingReconnect.clear()
+    failures.addAll(retryCleanupLedger())
     val pendingDeviceKeys = mutableSetOf<String>()
     pendingDeviceKeys.addAll(gatts.keys)
+    pendingDeviceKeys.addAll(pendingGattTeardowns.keys)
+    pendingDeviceKeys.addAll(deviceQueues.keys)
     pendingDeviceKeys.addAll(exactReadPending.values.map { it.deviceKeyUpper })
     pendingDeviceKeys.addAll(exactWritePending.values.map { it.deviceKeyUpper })
     pendingDeviceKeys.addAll(exactCccdPending.values.map { it.deviceKeyUpper })
     pendingDeviceKeys.addAll(exactDescriptorReadPending.values.map { it.deviceKeyUpper })
     pendingDeviceKeys.addAll(exactDescriptorWritePending.values.map { it.deviceKeyUpper })
     pendingDeviceKeys.forEach { key -> failPendingForDevice(key, "radio destroyed") }
+    // failPendingForDevice may create retryable CCCD rollback ownership; include
+    // that cleanup in this destroy receipt rather than reducing it to a log.
+    failures.addAll(retryCleanupLedger())
     // Force-close immediately on destroy — no need to wait for DISCONNECTED callbacks.
-    gatts.keys.toList().forEach { key ->
-      val g = gatts[key] ?: return@forEach
-      completeGattTeardown(key, g)?.let { failure -> failures.add(failure) }
+    (gatts.keys + pendingGattTeardowns.keys).toSet().forEach { key ->
+      val owner = pendingGattTeardowns[key]
+      val gatt = gatts[key] ?: owner?.gatt ?: return@forEach
+      val generation = gattGenerations[key] ?: owner?.generation ?: return@forEach
+      completeGattTeardown(key, gatt, generation)?.let { failure -> failures.add(failure) }
     }
-    gatts.clear()
-    discovered.clear()
-    charCache.clear()
-    connectionListeners.clear()
-    deviceQueues.clear()
-    pending.clear()
-    pendingMtu.clear()
-    pendingRssi.clear()
-    pendingDesc.clear()
-    pendingDescRead.clear()
-    pendingWriteValues.clear()
-    exactReadPending.clear()
-    exactWritePending.clear()
-    exactWriteValues.clear()
-    exactCccdPending.clear()
-    exactDescriptorReadPending.clear()
-    exactDescriptorWritePending.clear()
     closeTimeouts.values.forEach { mainHandler.removeCallbacks(it) }
     closeTimeouts.clear()
+    pendingDisconnectCallbacks.clear()
+    if (failures.isEmpty() && pendingGattTeardowns.isEmpty() && gatts.isEmpty()) {
+      discovered.clear()
+      gattGenerations.clear()
+      gattGenerationByInstance.clear()
+      charCache.clear()
+      connectionListeners.clear()
+      deviceQueues.clear()
+      pending.clear()
+      pendingMtu.clear()
+      pendingRssi.clear()
+      pendingDesc.clear()
+      pendingDescRead.clear()
+      pendingWriteValues.clear()
+      exactReadPending.clear()
+      exactWritePending.clear()
+      exactWriteValues.clear()
+      exactCccdPending.clear()
+      exactDescriptorReadPending.clear()
+      exactDescriptorWritePending.clear()
+    }
     return OwnedRadioTeardownResult(failures)
   }
 
-  private fun enqueue(deviceId: String, op: (done: () -> Unit) -> Unit) {
+  internal fun cancelOperation(operationId: Long): Boolean =
+    deviceQueues.values.any { queue -> queue.cancel(operationId) }
+
+  private fun enqueue(
+    deviceId: String,
+    onCancelled: () -> Unit = {},
+    onStartFailure: (Throwable) -> Unit = {},
+    op: (token: GattSerialQueue.GattOperationToken, done: () -> Unit) -> Unit
+  ): Long {
     val key = deviceId.uppercase()
-    deviceQueues.getOrPut(key) { GattSerialQueue(mainHandler) }.submit(op)
+    return deviceQueues.getOrPut(key) {
+      GattSerialQueue(mainHandler, idProvider = { nextGattOperationId.getAndIncrement() })
+    }.submitCancellable(op, onCancelled, onStartFailure)
   }
 
   private fun clearCharCacheForDevice(deviceKeyUpper: String) {
@@ -1258,25 +1567,35 @@ class OwnedAndroidGattRadio(private val context: Context) {
   }
 
   private fun failPendingForDevice(deviceKeyUpper: String, reason: String) {
+    deviceQueues.remove(deviceKeyUpper)?.clear(IllegalStateException(reason))
     val failBytes = Result.failure<ByteArray?>(IllegalStateException(reason))
     val failInt = Result.failure<Int>(IllegalStateException(reason))
     val failUnit = Result.failure<Unit>(IllegalStateException(reason))
-    pending.keys.filter { it.contains(":$deviceKeyUpper:") || it.endsWith(":$deviceKeyUpper") || it.contains(deviceKeyUpper) }
-      .toList()
-      .forEach { k ->
-        if (k.contains(deviceKeyUpper)) pending.remove(k)?.invoke(failBytes)
+    pending.keys
+      .filter { key ->
+        keyBelongsToDevice(key, "discover", deviceKeyUpper) ||
+          keyBelongsToDevice(key, "read", deviceKeyUpper) ||
+          keyBelongsToDevice(key, "write", deviceKeyUpper)
       }
+      .toList()
+      .forEach { key -> pending.remove(key)?.invoke(failBytes) }
     pendingMtu.remove("mtu:$deviceKeyUpper")?.invoke(failInt)
     pendingRssi.remove("rssi:$deviceKeyUpper")?.invoke(failInt)
-    pendingDesc.keys.filter { it.contains(deviceKeyUpper) }.toList().forEach { k ->
-      pendingDesc.remove(k)?.invoke(failUnit)
-    }
-    pendingDescRead.keys.filter { it.contains(deviceKeyUpper) }.toList().forEach { k ->
-      pendingDescRead.remove(k)?.invoke(failBytes)
-    }
-    pendingWriteValues.keys.filter { it.contains(deviceKeyUpper) }.toList().forEach { k ->
-      pendingWriteValues.remove(k)
-    }
+    pendingDesc.keys
+      .filter { key ->
+        keyBelongsToDevice(key, "cccd", deviceKeyUpper) ||
+          keyBelongsToDevice(key, "descWrite", deviceKeyUpper)
+      }
+      .toList()
+      .forEach { key -> pendingDesc.remove(key)?.invoke(failUnit) }
+    pendingDescRead.keys
+      .filter { key -> keyBelongsToDevice(key, "descRead", deviceKeyUpper) }
+      .toList()
+      .forEach { key -> pendingDescRead.remove(key)?.invoke(failBytes) }
+    pendingWriteValues.keys
+      .filter { key -> keyBelongsToDevice(key, "write", deviceKeyUpper) }
+      .toList()
+      .forEach { key -> pendingWriteValues.remove(key) }
     exactReadPending.entries
       .filter { it.value.deviceKeyUpper == deviceKeyUpper }
       .forEach { entry ->
@@ -1335,6 +1654,11 @@ class OwnedAndroidGattRadio(private val context: Context) {
     return null
   }
 
+  private fun keyBelongsToDevice(key: String, operation: String, deviceKeyUpper: String): Boolean {
+    val prefix = "$operation:$deviceKeyUpper"
+    return key == prefix || key.startsWith("$prefix:")
+  }
+
   private fun findChar(
     deviceId: String,
     serviceUuid: UUID,
@@ -1343,10 +1667,13 @@ class OwnedAndroidGattRadio(private val context: Context) {
     characteristicOccurrence: Int
   ): BluetoothGattCharacteristic? {
     if (serviceOccurrence < 0 || characteristicOccurrence < 0) return null
-    val service = services(deviceId).getOrNull(serviceOccurrence) ?: return null
-    if (service.uuid != serviceUuid) return null
-    val characteristic = service.characteristics.getOrNull(characteristicOccurrence) ?: return null
-    return characteristic.takeIf { candidate -> candidate.uuid == characteristicUuid }
+    val service = resolveUuidOccurrence(services(deviceId), serviceUuid, serviceOccurrence) { it.uuid }
+      ?: return null
+    return resolveUuidOccurrence(
+      service.characteristics,
+      characteristicUuid,
+      characteristicOccurrence
+    ) { it.uuid }
   }
 
   private fun findDescriptor(
@@ -1366,14 +1693,32 @@ class OwnedAndroidGattRadio(private val context: Context) {
       characteristicUuid,
       characteristicOccurrence
     ) ?: return null
-    val descriptor = characteristic.descriptors.getOrNull(descriptorOccurrence) ?: return null
-    return descriptor.takeIf { candidate -> candidate.uuid == descriptorUuid }
+    return resolveUuidOccurrence(
+      characteristic.descriptors,
+      descriptorUuid,
+      descriptorOccurrence
+    ) { it.uuid }
+  }
+
+  private fun isCurrentGatt(pendingDeviceKey: String, gatt: BluetoothGatt, generation: Long): Boolean =
+    gatts[pendingDeviceKey] === gatt &&
+      gattGenerations[pendingDeviceKey] == generation &&
+      gattGenerationByInstance[gatt] == generation
+
+  private fun isCurrentGattCallback(gatt: BluetoothGatt): Boolean {
+    val key = gatt.device.address.uppercase()
+    val generation = gattGenerationByInstance[gatt] ?: return false
+    return isCurrentGatt(key, gatt, generation)
   }
 
   private fun completeExactByte(
     pending: ExactBytePending,
     result: Result<ByteArray?>
   ) {
+    if (pending.token.isPubliclySettled()) {
+      pending.done()
+      return
+    }
     try {
       pending.callback(result)
     } catch (throwable: Throwable) {
@@ -1386,10 +1731,11 @@ class OwnedAndroidGattRadio(private val context: Context) {
   private fun completeExactByteDirect(
     callback: (Result<ByteArray?>) -> Unit,
     done: () -> Unit,
-    result: Result<ByteArray?>
+    result: Result<ByteArray?>,
+    token: GattSerialQueue.GattOperationToken? = null
   ) {
     try {
-      callback(result)
+      if (token?.isPubliclySettled() != true) callback(result)
     } catch (throwable: Throwable) {
       OwnedAndroidLog.e("protocol exact byte callback", throwable)
     } finally {
@@ -1401,8 +1747,39 @@ class OwnedAndroidGattRadio(private val context: Context) {
     pending: ExactUnitPending,
     result: Result<Unit>
   ) {
+    val shouldRollback = pending.token.isPubliclySettled() || result.isFailure
+    val rollbackFailure = if (shouldRollback) {
+      try {
+        pending.physicalCleanup?.invoke()
+      } catch (throwable: Throwable) {
+        OwnedRadioTeardownFailure("cccdRollback:${pending.deviceKeyUpper}", throwable)
+      }
+    } else {
+      null
+    }
+    if (rollbackFailure != null) {
+      registerRetryableCleanup(rollbackFailure.operation) {
+        pending.physicalCleanup?.invoke()
+      }
+      reportCleanupFailure(rollbackFailure)
+    }
+    if (pending.token.isPubliclySettled()) {
+      pending.done()
+      return
+    }
+    val terminalResult = if (rollbackFailure == null) {
+      result
+    } else {
+      Result.failure(
+        IllegalStateException(
+          "${result.exceptionOrNull()?.message ?: "CCCD operation failed"}; " +
+            "CCCD rollback failed: ${rollbackFailure.throwable.message ?: "unknown error"}",
+          result.exceptionOrNull() ?: rollbackFailure.throwable
+        )
+      )
+    }
     try {
-      pending.callback(result)
+      pending.callback(terminalResult)
     } catch (throwable: Throwable) {
       OwnedAndroidLog.e("protocol exact unit callback", throwable)
     } finally {
@@ -1410,25 +1787,45 @@ class OwnedAndroidGattRadio(private val context: Context) {
     }
   }
 
+  private fun rollbackNotifyRegistration(
+    deviceKeyUpper: String,
+    gatt: BluetoothGatt,
+    generation: Long,
+    characteristic: BluetoothGattCharacteristic,
+    enabled: Boolean
+  ): OwnedRadioTeardownFailure? {
+    if (!isCurrentGatt(deviceKeyUpper, gatt, generation)) {
+      // The old GATT is no longer owned by this attachment; its local
+      // registration died with that exact generation and needs no retry.
+      return null
+    }
+    return try {
+      if (gatt.setCharacteristicNotification(characteristic, !enabled)) {
+        null
+      } else {
+        OwnedRadioTeardownFailure(
+          "cccdRollback:$deviceKeyUpper:generation=$generation",
+          IllegalStateException("setCharacteristicNotification rollback was rejected")
+        )
+      }
+    } catch (throwable: Throwable) {
+      OwnedRadioTeardownFailure("cccdRollback:$deviceKeyUpper:generation=$generation", throwable)
+    }
+  }
+
   private fun completeExactUnitDirect(
     callback: (Result<Unit>) -> Unit,
     done: () -> Unit,
-    result: Result<Unit>
+    result: Result<Unit>,
+    token: GattSerialQueue.GattOperationToken? = null
   ) {
     try {
-      callback(result)
+      if (token?.isPubliclySettled() != true) callback(result)
     } catch (throwable: Throwable) {
       OwnedAndroidLog.e("protocol exact unit callback", throwable)
     } finally {
       done()
     }
-  }
-
-  private fun normalizeUuid(uuid: String): String {
-    val u = uuid.lowercase()
-    if (u.length == 4) return "0000$u-0000-1000-8000-00805f9b34fb"
-    if (u.length == 8) return "$u-0000-1000-8000-00805f9b34fb"
-    return u
   }
 
   /** Pending map key: op:DEVICE:serviceUuid:charUuid — service disambiguates shared char UUIDs. */
@@ -1465,24 +1862,27 @@ class OwnedAndroidGattRadio(private val context: Context) {
 
   private val gattCallback = object : BluetoothGattCallback() {
     override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+      if (!isCurrentGattCallback(gatt)) return
       val id = gatt.device.address
       val key = id.uppercase()
+      val generation = gattGenerationByInstance[gatt] ?: return
       if (newState == BluetoothProfile.STATE_CONNECTED) {
         if (status == BluetoothGatt.GATT_SUCCESS) {
-          gatts[key] = gatt
           dispatchConnectionState(id, true, status)
         } else {
           // Non-success while "connected" is a failed connect — surface status and tear down.
           dispatchConnectionState(id, false, status)
           failPendingForDevice(key, "connect failed status=$status")
-          completeGattTeardown(key, gatt)
+          completeGattTeardown(key, gatt, generation)
         }
       } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
         // Always pass gatt status: status 133 etc. means failed connect, not clean disconnect.
         // R3-F003: close() only after STATE_DISCONNECTED (not from disconnect()/connect prior).
         dispatchConnectionState(id, false, status)
         failPendingForDevice(key, "disconnected status=$status")
-        completeGattTeardown(key, gatt)
+        val teardownFailure = completeGattTeardown(key, gatt, generation)
+        pendingDisconnectCallbacks.remove(key)?.invoke(teardownFailure)
+        if (teardownFailure != null) return
         // Reconnect that waited for a clean prior teardown.
         pendingReconnect.remove(key)?.let { autoConnect ->
           try {
@@ -1500,7 +1900,12 @@ class OwnedAndroidGattRadio(private val context: Context) {
       descriptor: BluetoothGattDescriptor,
       status: Int
     ) {
+      if (!isCurrentGattCallback(gatt)) return
       exactDescriptorWritePending.remove(descriptor)?.let { pending ->
+        if (!isCurrentGatt(pending.deviceKeyUpper, gatt, pending.gattGeneration)) {
+          pending.done()
+          return@let
+        }
         if (status == BluetoothGatt.GATT_SUCCESS) {
           completeExactUnit(pending, Result.success(Unit))
         } else {
@@ -1512,6 +1917,10 @@ class OwnedAndroidGattRadio(private val context: Context) {
         return
       }
       exactCccdPending.remove(descriptor)?.let { pending ->
+        if (!isCurrentGatt(pending.deviceKeyUpper, gatt, pending.gattGeneration)) {
+          pending.done()
+          return@let
+        }
         if (status == BluetoothGatt.GATT_SUCCESS) {
           completeExactUnit(pending, Result.success(Unit))
         } else {
@@ -1548,7 +1957,12 @@ class OwnedAndroidGattRadio(private val context: Context) {
       descriptor: BluetoothGattDescriptor,
       status: Int
     ) {
+      if (!isCurrentGattCallback(gatt)) return
       exactDescriptorReadPending.remove(descriptor)?.let { pending ->
+        if (!isCurrentGatt(pending.deviceKeyUpper, gatt, pending.gattGeneration)) {
+          pending.done()
+          return@let
+        }
         @Suppress("DEPRECATION")
         val value = descriptor.value?.copyOf()
         if (status == BluetoothGatt.GATT_SUCCESS) {
@@ -1580,7 +1994,12 @@ class OwnedAndroidGattRadio(private val context: Context) {
       status: Int,
       value: ByteArray
     ) {
+      if (!isCurrentGattCallback(gatt)) return
       exactDescriptorReadPending.remove(descriptor)?.let { pending ->
+        if (!isCurrentGatt(pending.deviceKeyUpper, gatt, pending.gattGeneration)) {
+          pending.done()
+          return@let
+        }
         if (status == BluetoothGatt.GATT_SUCCESS) {
           completeExactByte(pending, Result.success(value.copyOf()))
         } else {
@@ -1604,6 +2023,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
 
     override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
       val id = gatt.device.address.uppercase()
+      if (!isCurrentGattCallback(gatt)) return
       if (status == BluetoothGatt.GATT_SUCCESS) {
         // Fresh GATT tree — drop stale characteristic handles.
         clearCharCacheForDevice(id)
@@ -1620,7 +2040,12 @@ class OwnedAndroidGattRadio(private val context: Context) {
       characteristic: BluetoothGattCharacteristic,
       status: Int
     ) {
+      if (!isCurrentGattCallback(gatt)) return
       exactReadPending.remove(characteristic)?.let { pending ->
+        if (!isCurrentGatt(pending.deviceKeyUpper, gatt, pending.gattGeneration)) {
+          pending.done()
+          return@let
+        }
         @Suppress("DEPRECATION")
         val value = characteristic.value?.copyOf()
         if (status == BluetoothGatt.GATT_SUCCESS) {
@@ -1647,7 +2072,12 @@ class OwnedAndroidGattRadio(private val context: Context) {
       value: ByteArray,
       status: Int
     ) {
+      if (!isCurrentGattCallback(gatt)) return
       exactReadPending.remove(characteristic)?.let { pending ->
+        if (!isCurrentGatt(pending.deviceKeyUpper, gatt, pending.gattGeneration)) {
+          pending.done()
+          return@let
+        }
         if (status == BluetoothGatt.GATT_SUCCESS) {
           completeExactByte(pending, Result.success(value.copyOf()))
         } else {
@@ -1669,7 +2099,13 @@ class OwnedAndroidGattRadio(private val context: Context) {
       characteristic: BluetoothGattCharacteristic,
       status: Int
     ) {
+      if (!isCurrentGattCallback(gatt)) return
       exactWritePending.remove(characteristic)?.let { pending ->
+        if (!isCurrentGatt(pending.deviceKeyUpper, gatt, pending.gattGeneration)) {
+          exactWriteValues.remove(characteristic)
+          pending.done()
+          return@let
+        }
         val written = exactWriteValues.remove(characteristic)
         if (status == BluetoothGatt.GATT_SUCCESS) {
           completeExactByte(pending, Result.success(written?.copyOf()))
@@ -1700,6 +2136,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
       gatt: BluetoothGatt,
       characteristic: BluetoothGattCharacteristic
     ) {
+      if (!isCurrentGattCallback(gatt)) return
       @Suppress("DEPRECATION")
       val raw = characteristic.value ?: return
       // Clone immediately — binder may reuse the buffer on the next notify.
@@ -1714,6 +2151,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
       characteristic: BluetoothGattCharacteristic,
       value: ByteArray
     ) {
+      if (!isCurrentGattCallback(gatt)) return
       val serviceUuid = characteristic.service?.uuid ?: return
       // Clone immediately so concurrent notifies cannot share the stack buffer.
       val copied = value.copyOf()
@@ -1723,6 +2161,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
 
     override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
       val id = gatt.device.address.uppercase()
+      if (!isCurrentGattCallback(gatt)) return
       val key = "mtu:$id"
       if (status == BluetoothGatt.GATT_SUCCESS) {
         pendingMtu.remove(key)?.invoke(Result.success(mtu))
@@ -1733,6 +2172,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
 
     override fun onReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
       val id = gatt.device.address.uppercase()
+      if (!isCurrentGattCallback(gatt)) return
       val key = "rssi:$id"
       if (status == BluetoothGatt.GATT_SUCCESS) {
         pendingRssi.remove(key)?.invoke(Result.success(rssi))
@@ -1744,6 +2184,7 @@ class OwnedAndroidGattRadio(private val context: Context) {
     // Android 12 (API 31)+ : ATT Service Changed indication → re-discover required.
     // https://developer.android.com/reference/android/bluetooth/BluetoothGattCallback#onServiceChanged
     override fun onServiceChanged(gatt: BluetoothGatt) {
+      if (!isCurrentGattCallback(gatt)) return
       val id = gatt.device.address
       val key = id.uppercase()
       discovered.remove(key)
@@ -1757,55 +2198,178 @@ class OwnedAndroidGattRadio(private val context: Context) {
    * All pumps run on [handler] (main) so BluetoothGatt is never touched from mixed
    * binder/JS threads (R3-F024).
    */
-  internal class GattSerialQueue(private val handler: Handler) {
-    private val lock = Any()
-    private val queue = ArrayDeque<(done: () -> Unit) -> Unit>()
-    private val busy = AtomicBoolean(false)
+  internal class GattSerialQueue(
+    private val handler: Handler? = null,
+    private val post: ((() -> Unit) -> Boolean)? = null,
+    private val idProvider: (() -> Long)? = null
+  ) {
+    internal class GattOperationToken internal constructor() {
+      private val cancelled = AtomicBoolean(false)
+      private val publiclySettled = AtomicBoolean(false)
 
-    fun submit(op: (done: () -> Unit) -> Unit) {
+      fun isCancelled(): Boolean = cancelled.get()
+
+      fun isPubliclySettled(): Boolean = publiclySettled.get()
+
+      internal fun cancel() {
+        cancelled.set(true)
+      }
+
+      internal fun markPubliclySettled(): Boolean {
+        return publiclySettled.compareAndSet(false, true)
+      }
+    }
+
+    private data class QueuedOperation(
+      val id: Long,
+      val token: GattOperationToken,
+      val start: (token: GattOperationToken, done: () -> Unit) -> Unit,
+      val cancel: () -> Unit,
+      val startFailure: (Throwable) -> Unit,
+      val startFailureDelivered: AtomicBoolean = AtomicBoolean(false)
+    )
+
+    private data class RunningOperation(val operation: QueuedOperation, val done: () -> Unit)
+
+    private val lock = Any()
+    private val queue = ArrayDeque<QueuedOperation>()
+    private val busy = AtomicBoolean(false)
+    private val nextOperationId = AtomicLong(1L)
+    private var running: RunningOperation? = null
+
+    fun submit(op: (done: () -> Unit) -> Unit, onCancelled: () -> Unit): Long =
+      submitCancellable({ _, done -> op(done) }, onCancelled, {})
+
+    fun submitCancellable(
+      op: (token: GattOperationToken, done: () -> Unit) -> Unit,
+      onCancelled: () -> Unit,
+      onStartFailure: (Throwable) -> Unit = {}
+    ): Long {
+      val operation = QueuedOperation(
+        idProvider?.invoke() ?: nextOperationId.getAndIncrement(),
+        GattOperationToken(),
+        op,
+        onCancelled,
+        onStartFailure
+      )
       var startNow = false
       synchronized(lock) {
-        queue.addLast(op)
+        queue.addLast(operation)
         if (busy.compareAndSet(false, true)) {
           startNow = true
         }
       }
       if (startNow) {
         // R3-F024: never pump() inline on the caller thread (binder/JS).
-        handler.post { pump() }
+        if (!schedule { pump() }) {
+          clear(IllegalStateException("GATT operation queue could not schedule its pump"))
+        }
       }
+      return operation.id
     }
 
-    fun clear() {
+    fun cancel(operationId: Long): Boolean {
+      var queued: QueuedOperation? = null
+      var active: RunningOperation? = null
       synchronized(lock) {
-        queue.clear()
-        busy.set(false)
+        val queuedOperation = queue.firstOrNull { operation -> operation.id == operationId }
+        if (queuedOperation != null) {
+          queued = queuedOperation
+          queue.remove(queuedOperation)
+        } else if (running?.operation?.id == operationId) {
+          active = running
+          active?.operation?.token?.cancel()
+        }
       }
+      queued?.let {
+        invokeCancellation(it, IllegalStateException("GATT operation was cancelled"))
+        return true
+      }
+      active?.let {
+        invokeCancellation(it.operation, IllegalStateException("GATT operation was cancelled"))
+        return true
+      }
+      return false
+    }
+
+    fun clear(reason: Throwable = IllegalStateException("GATT operation queue was cancelled")) {
+      val cancelled: List<QueuedOperation>
+      val active: RunningOperation?
+      synchronized(lock) {
+        cancelled = queue.toList()
+        queue.clear()
+        active = running
+        active?.operation?.token?.cancel()
+        if (active == null) busy.set(false)
+      }
+      cancelled.forEach { operation ->
+        invokeCancellation(operation, reason)
+      }
+      // The pending callback is the physical-settlement owner for an
+      // in-flight non-abortable Android request. failPendingForDevice()
+      // completes that callback exactly once; invoking its public
+      // cancellation callback here would double-deliver before it.
     }
 
     private fun pump() {
-      val next: ((done: () -> Unit) -> Unit)?
+      val completed = AtomicBoolean(false)
+      var operation: RunningOperation? = null
       synchronized(lock) {
-        next = queue.pollFirst()
+        val next = queue.pollFirst()
         if (next == null) {
+          running = null
           busy.set(false)
           return
         }
-      }
-      val completed = AtomicBoolean(false)
-      val done: () -> Unit = {
-        if (completed.compareAndSet(false, true)) {
-          // Schedule next on main to avoid deep re-entrancy from binder callbacks.
-          handler.post { pump() }
+        val done: () -> Unit = {
+          if (completed.compareAndSet(false, true)) {
+            synchronized(lock) {
+              if (running?.operation?.id == next.id) {
+                running = null
+              }
+            }
+            // Schedule next on main to avoid deep re-entrancy from binder callbacks.
+            if (!schedule { pump() }) {
+              clear(IllegalStateException("GATT operation queue could not schedule its next pump"))
+            }
+          }
         }
+        operation = RunningOperation(next, done)
+        // Publish the running operation before releasing the queue lock. A
+        // concurrent cancellation must see this operation as active rather
+        // than losing the dequeue-to-running transition.
+        running = operation
       }
+      val active = operation ?: return
       try {
-        next!!(done)
+        active.operation.start.invoke(active.operation.token, active.done)
       } catch (t: Throwable) {
         OwnedAndroidLog.e("GattSerialQueue op", t)
-        done()
+        invokeStartFailure(active.operation, t)
+        active.done()
       }
     }
+
+    private fun invokeCancellation(operation: QueuedOperation, reason: Throwable) {
+      if (!operation.token.markPubliclySettled()) return
+      try {
+        operation.cancel.invoke()
+      } catch (throwable: Throwable) {
+        OwnedAndroidLog.e("GattSerialQueue cancellation ($reason)", throwable)
+      }
+    }
+
+    private fun invokeStartFailure(operation: QueuedOperation, error: Throwable) {
+      if (!operation.startFailureDelivered.compareAndSet(false, true)) return
+      if (operation.token.isPubliclySettled()) return
+      try {
+        operation.startFailure.invoke(error)
+      } catch (throwable: Throwable) {
+        OwnedAndroidLog.e("GattSerialQueue start failure callback", throwable)
+      }
+    }
+
+    private fun schedule(task: () -> Unit): Boolean = post?.invoke(task) ?: handler?.post(task) ?: false
   }
 
   companion object {
@@ -1816,6 +2380,21 @@ class OwnedAndroidGattRadio(private val context: Context) {
     const val GATT_CLOSE_TIMEOUT_MS = 5_000L
 
     val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+    @JvmStatic
+    internal fun normalizeScanServiceUuids(serviceUuids: List<String>): List<String> {
+      return serviceUuids.map { value ->
+        val lower = value.lowercase()
+        val normalized = when {
+          lower.matches(Regex("[0-9a-f]{4}")) -> "0000$lower-0000-1000-8000-00805f9b34fb"
+          lower.matches(Regex("[0-9a-f]{8}")) -> "$lower-0000-1000-8000-00805f9b34fb"
+          lower.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")) -> lower
+          else -> throw IllegalArgumentException("Android scan service UUID is malformed: $value")
+        }
+        UUID.fromString(normalized)
+        normalized
+      }
+    }
 
     /**
      * Map BluetoothAdapter state ints to ble-plx PoweredOn/Off/Resetting strings.
@@ -1853,11 +2432,6 @@ class OwnedAndroidGattRadio(private val context: Context) {
             indicatable -> BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
             else -> null
           }
-        // Explicit type that does not match properties — try fallback auto path for compat.
-        notifiable && !"indication".equals(subscriptionType, ignoreCase = true) ->
-          BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-        indicatable && !"notification".equals(subscriptionType, ignoreCase = true) ->
-          BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
         else -> null
       }
     }

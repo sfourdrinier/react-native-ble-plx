@@ -73,6 +73,148 @@ describe('React Native Android descriptor protocol boundary', () => {
     await boundary.destroy()
     expect(control.closedAttachments).toHaveLength(1)
   })
+
+  test('isolates throwing consumer listeners without rejecting unrelated scan, notification, disconnect, or adapter delivery', async () => {
+    const control = new DescriptorControl()
+    const runtime = new DescriptorRuntime()
+    global.__unifiedBleNativeProtocolV1 = runtime
+    const boundary = new ReactNativeAndroidProtocolBoundary(control, 'listener-isolation-owner')
+    boundary.bindAttachment({
+      attachmentId: 'listener-attachment',
+      backendInstanceId: 'listener-backend',
+      backendGeneration: 'listener-generation',
+      adapterId: 'listener-adapter',
+      adapterGeneration: 'listener-adapter-generation'
+    })
+    try {
+      await boundary.open()
+      await boundary.connect(peerId)
+      const snapshot = await boundary.discover(peerId)
+      const characteristic = snapshot.services[0].characteristics[0]
+      const address = {
+        nativePeerId: peerId,
+        serviceUuid: snapshot.services[0].uuid,
+        serviceOccurrence: snapshot.services[0].occurrence,
+        characteristicUuid: characteristic.uuid,
+        characteristicOccurrence: characteristic.occurrence
+      }
+      const scanSecond = jest.fn()
+      const notifySecond = jest.fn()
+      const disconnectSecond = jest.fn()
+      const adapterSecond = jest.fn()
+
+      await boundary.startScan(() => {
+        throw new Error('first scan listener failed')
+      }, [])
+      await boundary.startScan(scanSecond, [])
+      await boundary.startNotify(address, () => {
+        throw new Error('first notification listener failed')
+      })
+      await boundary.startNotify({ ...address, characteristicOccurrence: 1 }, notifySecond)
+      boundary.onDisconnect(() => {
+        throw new Error('first disconnect listener failed')
+      })
+      boundary.onDisconnect(disconnectSecond)
+      boundary.onAdapterState(() => {
+        throw new Error('first adapter listener failed')
+      })
+      boundary.onAdapterState(adapterSecond)
+
+      runtime.emitEvent('advertisement', [
+        field(12, record('advertisement', [
+          field(1, peerId),
+          field(2, 1),
+          field(3, 1),
+          field(4, 'descriptor-test'),
+          field(17, [])
+        ]))
+      ])
+      const subscriptions = runtime.commands.filter(command => requiredString(command, 3) === 'subscribe')
+      runtime.emitEvent('notification', [
+        field(11, requiredString(subscriptions[0], 7)),
+        field(13, binaryReferenceRecord(runtime.retain('listener-notification-first', new Uint8Array([4]))))
+      ])
+      runtime.emitEvent('notification', [
+        field(11, requiredString(subscriptions[1], 7)),
+        field(13, binaryReferenceRecord(runtime.retain('listener-notification-second', new Uint8Array([5]))))
+      ])
+      runtime.emitEvent('connectionLost', [field(7, requiredRecord(runtime.commands[0], 10))])
+      runtime.emitEvent('adapterState', [
+        field(15, record('adapterStateSnapshot', [field(1, 'available'), field(2, 'granted'), field(3, 'on')]))
+      ])
+
+      expect(scanSecond).toHaveBeenCalledTimes(1)
+      expect(notifySecond).toHaveBeenCalledWith(new Uint8Array([5]))
+      expect(disconnectSecond).toHaveBeenCalledTimes(1)
+      expect(adapterSecond).toHaveBeenCalledTimes(1)
+      for (const eventKind of ['advertisement', 'notification', 'connectionLost', 'adapterState']) {
+        expectConsoleErrorMatching(
+          '[ReactNativeAndroidProtocolBoundary.invokeConsumerListener] Consumer listener failed:',
+          expect.objectContaining({ metric: 'nativeProtocolConsumerListenerFailure', eventKind })
+        )
+      }
+    } finally {
+      await boundary.destroy()
+    }
+  })
+
+  test('retries failed input and output binary releases before attachment teardown', async () => {
+    const control = new DescriptorControl()
+    const runtime = new DescriptorRuntime()
+    global.__unifiedBleNativeProtocolV1 = runtime
+    const boundary = new ReactNativeAndroidProtocolBoundary(control, 'release-retry-owner')
+    boundary.bindAttachment({
+      attachmentId: 'release-retry-attachment',
+      backendInstanceId: 'release-retry-backend',
+      backendGeneration: 'release-retry-generation',
+      adapterId: 'release-retry-adapter',
+      adapterGeneration: 'release-retry-adapter-generation'
+    })
+    await boundary.open()
+    await boundary.connect(peerId)
+    const snapshot = await boundary.discover(peerId)
+    const characteristic = snapshot.services[0].characteristics[0]
+    const descriptorAddress = {
+      nativePeerId: peerId,
+      serviceUuid: snapshot.services[0].uuid,
+      serviceOccurrence: snapshot.services[0].occurrence,
+      characteristicUuid: characteristic.uuid,
+      characteristicOccurrence: characteristic.occurrence,
+      descriptorUuid,
+      descriptorOccurrence: 0
+    }
+
+    runtime.failNextSubmit = true
+    runtime.releaseFailures = 1
+    await expect(boundary.writeDescriptor(descriptorAddress, new Uint8Array([9]))).rejects.toThrow('dispatch failed')
+    expect(runtime.buffers.size).toBe(1)
+
+    runtime.copyFailures = 1
+    runtime.releaseFailures = 1
+    await expect(boundary.readDescriptor(descriptorAddress)).rejects.toThrow('release failed')
+    expect(runtime.buffers.size).toBe(2)
+
+    expectConsoleErrorMatching(
+      '[ReactNativeAndroidProtocolBoundary.releaseOrRetainForTeardown] Native release retained for retry:',
+      expect.objectContaining({ operation: 'write-descriptor-input-dispatch-failure' })
+    )
+    expectConsoleErrorMatching(
+      '[ReactNativeAndroidProtocolBoundary.takeOutputBytes] Native output copy failed:',
+      expect.objectContaining({ operation: 'read-descriptor' })
+    )
+    expectConsoleErrorMatching(
+      '[ReactNativeAndroidProtocolBoundary.releaseOrRetainForTeardown] Native release retained for retry:',
+      expect.objectContaining({ operation: 'read-descriptor-output' })
+    )
+    expectConsoleErrorMatching(
+      '[ReactNativeAndroidProtocolBoundary.takeOutputBytes] Native output release failed:',
+      expect.objectContaining({ operation: 'read-descriptor' })
+    )
+
+    await boundary.destroy()
+    expect(runtime.buffers.size).toBe(0)
+    expect(control.closedAttachments).toHaveLength(1)
+  })
 })
 
 class DescriptorControl {
@@ -111,6 +253,9 @@ class DescriptorRuntime {
     this.commands = []
     this.commandKinds = []
     this.descriptorWrites = []
+    this.failNextSubmit = false
+    this.copyFailures = 0
+    this.releaseFailures = 0
   }
 
   retain(operationCorrelation, bytes) {
@@ -127,6 +272,10 @@ class DescriptorRuntime {
   }
 
   copy(reference) {
+    if (this.copyFailures > 0) {
+      this.copyFailures -= 1
+      throw new Error('Descriptor test copy failed')
+    }
     const value = this.buffers.get(reference.ownerToken)
     if (value === undefined) {
       throw new Error(`Descriptor test buffer is unavailable: ${reference.ownerToken}`)
@@ -135,6 +284,10 @@ class DescriptorRuntime {
   }
 
   release(reference) {
+    if (this.releaseFailures > 0) {
+      this.releaseFailures -= 1
+      throw new Error('Descriptor test release failed')
+    }
     return this.buffers.delete(reference.ownerToken)
   }
 
@@ -142,7 +295,15 @@ class DescriptorRuntime {
     this.listener = listener
   }
 
+  setFatalSink(listener) {
+    this.fatalListener = listener
+  }
+
   submit(bytes) {
+    if (this.failNextSubmit) {
+      this.failNextSubmit = false
+      throw new Error('Descriptor test dispatch failed')
+    }
     const command = decodeNativeProtocolRecord(bytes)
     const kind = requiredString(command, 3)
     this.commands.push(command)
@@ -172,6 +333,17 @@ class DescriptorRuntime {
       this.emitResult(command, 'descriptorWrite', [field(15, requiredRecord(command, 5))])
       return
     }
+    if (kind === 'scanStart') {
+      this.emitResult(command, 'scanStarted')
+      return
+    }
+    if (kind === 'subscribe') {
+      this.emitResult(command, 'subscribed', [
+        field(5, requiredRecord(command, 4)),
+        field(7, requiredString(command, 7))
+      ])
+      return
+    }
     if (kind === 'destroy') {
       this.emitResult(command, 'destroyed')
       return
@@ -189,6 +361,26 @@ class DescriptorRuntime {
           field(1, 1),
           field(2, kind),
           field(3, record('terminal', [field(1, requiredRecord(command, 2)), field(2, 'succeeded')])),
+          ...additions
+        ])
+      )
+    )
+  }
+
+  emitEvent(kind, additions = []) {
+    if (this.listener === null) {
+      throw new Error('Descriptor test event sink is not installed')
+    }
+    const attachment = requiredRecord(requiredRecord(this.commands[0], 2), 1)
+    this.listener(
+      encodeNativeProtocolRecord(
+        record('event', [
+          field(1, 1),
+          field(2, `descriptor-event-${this.commands.length}`),
+          field(3, kind),
+          field(4, attachment),
+          field(5, 1),
+          field(6, 1),
           ...additions
         ])
       )

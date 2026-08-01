@@ -18,6 +18,12 @@ object OwnedAndroidLog {
   }
 
   @JvmStatic fun e(msg: String, t: Throwable? = null) {
-    if (t != null) Log.e(TAG, msg, t) else Log.e(TAG, msg)
+    try {
+      if (t != null) Log.e(TAG, msg, t) else Log.e(TAG, msg)
+    } catch (loggingFailure: RuntimeException) {
+      // Local JVM tests do not provide Android's Log implementation. Preserve
+      // the error context without allowing diagnostics to change queue state.
+      System.err.println("$TAG: $msg (${t?.message ?: loggingFailure.message})")
+    }
   }
 }

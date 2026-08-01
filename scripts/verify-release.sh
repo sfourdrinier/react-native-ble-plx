@@ -98,13 +98,13 @@ pnpm --dir example-expo exec tsc --noEmit -p tsconfig.json
 
 (
   cd example-expo
-  npx expo-doctor
-  npx expo prebuild --clean --no-install
+  NODE_ENV=development npx expo-doctor
+  NODE_ENV=development npx expo prebuild --clean --no-install
 )
 
 (
   cd example-expo/android
-  ./gradlew :app:assembleDebug --no-daemon --console=plain
+  NODE_ENV=development ./gradlew :app:assembleDebug --no-daemon --console=plain
 )
 
 # Classic RN Android assemble — required when SDK is present (publish always runs it).

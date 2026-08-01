@@ -616,8 +616,8 @@ describe('React Native Android canonical protocol vertical slice', () => {
     expect(openFailure.errors[1]).toMatchObject({ message: 'Native attachment close failed' })
 
     expectConsoleErrorMatching(
-      '[ReactNativeAndroidProtocolBoundary.receiveEvent] Native pre-JavaScript event buffer overflowed:',
-      { safeMessage: nativeOverflowMessage }
+      '[ReactNativeAndroidProtocolBoundary.receiveEvent] Native event buffer overflowed:',
+      { operation: 'pre-js-event-buffer', safeMessage: nativeOverflowMessage }
     )
     expectConsoleErrorMatching(
       '[ReactNativeAndroidProtocolBoundary.open] Handshake-open cleanup failed:',
@@ -629,6 +629,32 @@ describe('React Native Android canonical protocol vertical slice', () => {
 
     await expect(boundary.destroy()).resolves.toBeUndefined()
     expect(control.closeAttachmentAttempts).toEqual([attachment, attachment])
+    expect(control.closedAttachments).toEqual([attachment])
+  })
+
+  test('Android boundary fails closed and rejects pending work after runtime event ingress overflow', async () => {
+    const control = new DeterministicAndroidControl()
+    const runtime = new DeterministicAndroidProtocolRuntime(control)
+    global.__unifiedBleNativeProtocolV1 = runtime
+    const boundary = new ReactNativeAndroidProtocolBoundary(control, 'deterministic-android-runtime-overflow-owner')
+    const attachment = deterministicAttachment()
+    boundary.bindAttachment(attachment)
+
+    await boundary.open()
+    runtime.emitDiagnostic(
+      'stream.overflow',
+      'Native Android event ingress exceeded its bounded capacity.',
+      'android-jsi-event-buffer'
+    )
+
+    await expect(boundary.stopScan()).rejects.toMatchObject({
+      normalized: { code: 'lifecycle.destroyed' }
+    })
+    expectConsoleErrorMatching('[ReactNativeAndroidProtocolBoundary.receiveEvent] Native event buffer overflowed:', {
+      operation: 'android-jsi-event-buffer',
+      safeMessage: 'Native Android event ingress exceeded its bounded capacity.'
+    })
+    await expect(boundary.destroy()).resolves.toBeUndefined()
     expect(control.closedAttachments).toEqual([attachment])
   })
 
@@ -1295,6 +1321,10 @@ class DeterministicAndroidProtocolRuntime {
     this.emitEvent('adapterState', [
       field(15, record('adapterStateSnapshot', [field(1, 'available'), field(2, 'granted'), field(3, 'on')]))
     ])
+  }
+
+  setFatalSink(listener) {
+    this.fatalListener = listener
   }
 
   submit(bytes) {

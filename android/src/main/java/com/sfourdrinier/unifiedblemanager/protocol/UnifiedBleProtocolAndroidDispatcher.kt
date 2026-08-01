@@ -7,9 +7,12 @@ import android.content.Context
 import android.os.SystemClock
 import com.sfourdrinier.unifiedblemanager.protocol.generated.RecordKind
 import com.sfourdrinier.unifiedblemanager.radio.OwnedAndroidGattRadio
+import com.sfourdrinier.unifiedblemanager.radio.OwnedRadioTeardownFailure
+import com.sfourdrinier.unifiedblemanager.radio.nextUuidOccurrence
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /** Owns protocol-v1 Android radio work and sends bytes only through the native protocol. */
 class UnifiedBleProtocolAndroidDispatcher(
@@ -21,13 +24,22 @@ class UnifiedBleProtocolAndroidDispatcher(
   private val pendingConnects = ConcurrentHashMap<String, ProtocolWireRecord>()
   private val establishedConnections = ConcurrentHashMap<String, ProtocolWireRecord>()
   private val activeSubscriptions = ConcurrentHashMap<String, SubscriptionRoute>()
-  private val nextIngressOrdinal = AtomicLong(1L)
-  @Volatile
-  private var activeScanCommand: ProtocolWireRecord? = null
+  private val radioOperationIds = ConcurrentHashMap<String, Long>()
+  private val activeScanCommand = AtomicReference<ProtocolWireRecord?>(null)
+  private val cancelledScanCommands = ConcurrentHashMap<String, ProtocolWireRecord>()
+  private val attachmentCloseRequested = AtomicBoolean(false)
 
   init {
     radio.onAdapterState = {
       emitCurrentAdapterState()
+    }
+    radio.onCleanupFailure = { failure ->
+      UnifiedBleProtocolJsiBinding.emitDiagnostic(
+        nativeHandle,
+        "cleanupRetryable",
+        "Android cleanup remains retryable operation=${failure.operation}: " +
+          (failure.throwable.message ?: "unknown error")
+      )
     }
     radio.registerAdapterStateReceiver()
     radio.onConnectionState = { deviceId, connected, status ->
@@ -43,6 +55,7 @@ class UnifiedBleProtocolAndroidDispatcher(
       }
       if (!connected) {
         val established = establishedConnections.remove(deviceKey)
+        failPendingCommandsForDevice(deviceKey, "Android GATT link was lost")
         if (established != null) {
           activeSubscriptions.entries.forEach { entry ->
             if (entry.value.endpoint.deviceId.equals(deviceId, ignoreCase = true)) {
@@ -54,19 +67,31 @@ class UnifiedBleProtocolAndroidDispatcher(
       }
     }
     radio.onScanFailed = { errorCode ->
+      val failedCommand = activeScanCommand.get()
       val stopFailure = radio.stopScan()
-      activeScanCommand = null
+      if (stopFailure == null) {
+        failedCommand?.let { activeScanCommand.compareAndSet(it, null) }
+        completeCancelledScanCommands()
+      }
       if (stopFailure != null) {
+        radio.reportCleanupFailure(stopFailure)
         UnifiedBleProtocolJsiBinding.emitDiagnostic(
           nativeHandle,
           "scanStopFailed",
           "Android scan failure cleanup failed: ${stopFailure.throwable.message ?: "unknown error"}"
         )
       }
+      if (failedCommand != null) {
+        emitFailure(
+          failedCommand,
+          "scanFailed",
+          "Android scan failed code=$errorCode"
+        )
+      }
       UnifiedBleProtocolJsiBinding.emitDiagnostic(nativeHandle, "scanFailed", "Android scan failed code=$errorCode")
     }
     radio.onProtocolScanResult = { advertisement ->
-      if (activeScanCommand != null) {
+      if (activeScanCommand.get() != null) {
         UnifiedBleProtocolJsiBinding.emitAdvertisement(
           nativeHandle,
           advertisement.deviceId,
@@ -113,11 +138,14 @@ class UnifiedBleProtocolAndroidDispatcher(
   }
 
   fun dispatch(encodedCommand: ByteArray) {
+    check(!attachmentCloseRequested.get()) {
+      "Android protocol attachment close is in progress; retry close before dispatching another command"
+    }
     val command = try {
       ProtocolCommandDecoder.decodeCommand(encodedCommand)
     } catch (error: IllegalArgumentException) {
       UnifiedBleProtocolJsiBinding.emitDispatcherFailure(nativeHandle, error.message ?: "Malformed command")
-      return
+      throw error
     }
     val operationKey = operationKey(command)
     val prior = pendingCommands.putIfAbsent(operationKey, command)
@@ -157,7 +185,8 @@ class UnifiedBleProtocolAndroidDispatcher(
     }
   }
 
-  fun close() {
+  fun close(): Boolean {
+    attachmentCloseRequested.set(true)
     val result = radio.destroy()
     if (!result.isSuccessful) {
       UnifiedBleProtocolJsiBinding.emitDiagnostic(
@@ -166,34 +195,47 @@ class UnifiedBleProtocolAndroidDispatcher(
         "Android radio destroy reported ${result.failures.size} failure(s)"
       )
     }
-    pendingConnects.clear()
-    establishedConnections.clear()
-    pendingCommands.clear()
-    activeSubscriptions.clear()
-    activeScanCommand = null
+    if (result.isSuccessful) {
+      pendingCommands.values.toList().forEach { pending ->
+        emitFailure(pending, "attachmentClosed", "Android protocol attachment was closed")
+      }
+      pendingConnects.clear()
+      establishedConnections.clear()
+      activeSubscriptions.clear()
+      activeScanCommand.set(null)
+    }
+    return result.isSuccessful
   }
 
   private fun startScan(command: ProtocolWireRecord) {
-    require(activeScanCommand == null) { "A protocol scan is already active" }
     val options = command.requiredRecord(12)
     val serviceUuids = options.requiredStringList(1).toTypedArray()
-    radio.startScan(
-      serviceUuids = serviceUuids,
-      scanMode = options.requiredSignedInteger(3).toInt(),
-      callbackType = options.requiredSignedInteger(4).toInt(),
-      legacyScan = options.requiredBoolean(5),
-      allowDuplicates = options.requiredBoolean(2)
-    )
-    activeScanCommand = command
-    emitSuccess(command, "scanStarted")
+    require(activeScanCommand.compareAndSet(null, command)) { "A protocol scan is already active" }
+    try {
+      radio.startScan(
+        serviceUuids = serviceUuids,
+        scanMode = options.requiredSignedInteger(3).toInt(),
+        callbackType = options.requiredSignedInteger(4).toInt(),
+        legacyScan = options.requiredBoolean(5),
+        allowDuplicates = options.requiredBoolean(2)
+      )
+      emitSuccess(command, "scanStarted")
+    } catch (error: Exception) {
+      if (!radio.hasScanCleanupOwnership()) {
+        activeScanCommand.compareAndSet(command, null)
+      }
+      throw error
+    }
   }
 
   private fun stopScan(command: ProtocolWireRecord) {
     val failure = radio.stopScan()
     if (failure == null) {
-      activeScanCommand = null
+      activeScanCommand.set(null)
+      completeCancelledScanCommands()
       emitSuccess(command, "accepted")
     } else {
+      radio.reportCleanupFailure(failure)
       emitFailure(command, "scanStopFailed", failure.throwable.message ?: "Android scan stop failed")
     }
   }
@@ -212,14 +254,24 @@ class UnifiedBleProtocolAndroidDispatcher(
   }
 
   private fun disconnect(command: ProtocolWireRecord) {
-    radio.disconnect(command.requiredRecord(10).requiredString(2))
-    emitSuccess(command, "accepted")
+    val failure = radio.disconnect(command.requiredRecord(10).requiredString(2)) { cleanupFailure ->
+      if (cleanupFailure == null) {
+        emitSuccess(command, "accepted")
+      } else {
+        emitFailure(
+          command,
+          "disconnectCleanupFailed",
+          cleanupFailure.throwable.message ?: "Android GATT cleanup failed"
+        )
+      }
+    }
+    if (failure != null) return
   }
 
   private fun discover(command: ProtocolWireRecord) {
     val connection = command.requiredRecord(10)
     val database = command.requiredRecord(11)
-    radio.discover(connection.requiredString(2)) { successful ->
+    val radioOperationId = radio.discover(connection.requiredString(2)) { successful ->
       if (!successful) {
         emitFailure(command, "discoverFailed", "Android GATT service discovery failed")
         return@discover
@@ -227,11 +279,12 @@ class UnifiedBleProtocolAndroidDispatcher(
       val snapshot = databaseSnapshot(database, connection.requiredString(2))
       emitSuccess(command, "database", mapOf(4 to ProtocolWireValue.RecordValue(database), 12 to ProtocolWireValue.RecordValue(snapshot)))
     }
+    radioOperationIds[operationKey(command)] = radioOperationId
   }
 
   private fun read(command: ProtocolWireRecord) {
     val endpoint = characteristicEndpoint(command.requiredRecord(4))
-    radio.readCharacteristicExact(
+    val radioOperationId = radio.readCharacteristicExact(
       endpoint.deviceId,
       endpoint.serviceUuid,
       endpoint.serviceOccurrence,
@@ -240,18 +293,20 @@ class UnifiedBleProtocolAndroidDispatcher(
     ) { result ->
       result.fold(
         onSuccess = { value ->
-          if (pendingCommands.remove(operationKey(command), command)) {
-            UnifiedBleProtocolJsiBinding.emitRead(
-              nativeHandle,
-              commandEpoch(command),
-              commandNonce(command),
-              value ?: byteArrayOf()
-            )
-          }
+          if (!isPending(command)) return@fold
+          UnifiedBleProtocolJsiBinding.emitRead(
+            nativeHandle,
+            commandEpoch(command),
+            commandNonce(command),
+            value ?: byteArrayOf()
+          )
+          pendingCommands.remove(operationKey(command), command)
+          radioOperationIds.remove(operationKey(command))
         },
         onFailure = { error -> emitFailure(command, "readFailed", error.message ?: "Android GATT read failed") }
       )
     }
+    radioOperationIds[operationKey(command)] = radioOperationId
   }
 
   private fun write(command: ProtocolWireRecord) {
@@ -266,7 +321,7 @@ class UnifiedBleProtocolAndroidDispatcher(
       "withoutResponse" -> false
       else -> throw IllegalArgumentException("Native protocol write mode is invalid")
     }
-    radio.writeCharacteristicExact(
+    val radioOperationId = radio.writeCharacteristicExact(
       endpoint.deviceId,
       endpoint.serviceUuid,
       endpoint.serviceOccurrence,
@@ -280,11 +335,12 @@ class UnifiedBleProtocolAndroidDispatcher(
         onFailure = { error -> emitFailure(command, "writeFailed", error.message ?: "Android GATT write failed") }
       )
     }
+    radioOperationIds[operationKey(command)] = radioOperationId
   }
 
   private fun readDescriptor(command: ProtocolWireRecord) {
     val endpoint = descriptorEndpoint(command.requiredRecord(5))
-    radio.readDescriptorExact(
+    val radioOperationId = radio.readDescriptorExact(
       endpoint.deviceId,
       endpoint.serviceUuid,
       endpoint.serviceOccurrence,
@@ -295,20 +351,22 @@ class UnifiedBleProtocolAndroidDispatcher(
     ) { result ->
       result.fold(
         onSuccess = { value ->
-          if (pendingCommands.remove(operationKey(command), command)) {
-            UnifiedBleProtocolJsiBinding.emitDescriptorRead(
-              nativeHandle,
-              commandEpoch(command),
-              commandNonce(command),
-              value ?: byteArrayOf()
-            )
-          }
+          if (!isPending(command)) return@fold
+          UnifiedBleProtocolJsiBinding.emitDescriptorRead(
+            nativeHandle,
+            commandEpoch(command),
+            commandNonce(command),
+            value ?: byteArrayOf()
+          )
+          pendingCommands.remove(operationKey(command), command)
+          radioOperationIds.remove(operationKey(command))
         },
         onFailure = { error ->
           emitFailure(command, "readDescriptorFailed", error.message ?: "Android GATT descriptor read failed")
         }
       )
     }
+    radioOperationIds[operationKey(command)] = radioOperationId
   }
 
   private fun writeDescriptor(command: ProtocolWireRecord) {
@@ -318,7 +376,7 @@ class UnifiedBleProtocolAndroidDispatcher(
       commandEpoch(command),
       commandNonce(command)
     )
-    radio.writeDescriptorExact(
+    val radioOperationId = radio.writeDescriptorExact(
       endpoint.deviceId,
       endpoint.serviceUuid,
       endpoint.serviceOccurrence,
@@ -335,11 +393,12 @@ class UnifiedBleProtocolAndroidDispatcher(
         }
       )
     }
+    radioOperationIds[operationKey(command)] = radioOperationId
   }
 
   private fun readRssi(command: ProtocolWireRecord) {
     val deviceId = command.requiredRecord(10).requiredString(2)
-    radio.readRemoteRssi(deviceId) { result ->
+    val radioOperationId = radio.readRemoteRssi(deviceId) { result ->
       result.fold(
         onSuccess = { rssi ->
           emitSuccess(command, "rssi", mapOf(13 to ProtocolWireValue.SignedIntegerValue(rssi.toLong())))
@@ -347,13 +406,14 @@ class UnifiedBleProtocolAndroidDispatcher(
         onFailure = { error -> emitFailure(command, "readRssiFailed", error.message ?: "Android RSSI read failed") }
       )
     }
+    radioOperationIds[operationKey(command)] = radioOperationId
   }
 
   private fun requestMtu(command: ProtocolWireRecord) {
     val deviceId = command.requiredRecord(10).requiredString(2)
     val requestedMtu = command.requiredUnsigned(14)
     require(requestedMtu in 23L..517L) { "Requested ATT MTU is outside the canonical range" }
-    radio.requestMtu(deviceId, requestedMtu.toInt()) { result ->
+    val radioOperationId = radio.requestMtu(deviceId, requestedMtu.toInt()) { result ->
       result.fold(
         onSuccess = { negotiatedMtu ->
           emitSuccess(command, "mtu", mapOf(14 to ProtocolWireValue.UnsignedIntegerValue(negotiatedMtu.toLong())))
@@ -361,11 +421,12 @@ class UnifiedBleProtocolAndroidDispatcher(
         onFailure = { error -> emitFailure(command, "requestMtuFailed", error.message ?: "Android MTU request failed") }
       )
     }
+    radioOperationIds[operationKey(command)] = radioOperationId
   }
 
   private fun subscribe(command: ProtocolWireRecord, enable: Boolean) {
     val endpoint = characteristicEndpoint(command.requiredRecord(4))
-    radio.setNotifyExact(
+    val radioOperationId = radio.setNotifyExact(
       endpoint.deviceId,
       endpoint.serviceUuid,
       endpoint.serviceOccurrence,
@@ -407,15 +468,23 @@ class UnifiedBleProtocolAndroidDispatcher(
         onFailure = { error -> emitFailure(command, "subscriptionFailed", error.message ?: "Android CCCD operation failed") }
       )
     }
+    radioOperationIds[operationKey(command)] = radioOperationId
   }
 
   private fun destroy(command: ProtocolWireRecord) {
+    val pendingBeforeDestroy = pendingCommands.values
+      .filter { it !== command }
+      .toList()
     val result = radio.destroy()
-    activeScanCommand = null
+    pendingBeforeDestroy.forEach { pending ->
+      emitFailure(pending, "destroyed", "Android radio was destroyed before the operation completed")
+    }
     pendingConnects.clear()
     establishedConnections.clear()
     activeSubscriptions.clear()
     if (result.isSuccessful) {
+      activeScanCommand.set(null)
+      completeCancelledScanCommands()
       emitSuccess(command, "destroyed")
     } else {
       emitFailure(command, "destroyFailed", "Android radio destroy reported ${result.failures.size} failure(s)")
@@ -425,14 +494,41 @@ class UnifiedBleProtocolAndroidDispatcher(
   fun cancelPendingOperation(dispatchEpoch: Long, nonce: String) {
     val command = pendingCommands["$dispatchEpoch:$nonce"] ?: return
     val commandKind = command.requiredString(3)
+    val operationKey = operationKey(command)
+    val radioOperationId = radioOperationIds[operationKey]
     try {
+      if (commandKind == "scanStart") {
+        val cleanupFailure = radio.stopScan()
+        if (cleanupFailure != null) {
+          cancelledScanCommands[operationKey] = command
+          radio.reportCleanupFailure(cleanupFailure)
+          UnifiedBleProtocolJsiBinding.emitDiagnostic(
+            nativeHandle,
+            "scanCancellationCleanupRetryable",
+            cleanupFailure.throwable.message ?: "Android scan cancellation cleanup remains retryable"
+          )
+          return
+        }
+        activeScanCommand.set(null)
+        emitCancelled(command)
+        return
+      }
+      emitCancelled(command)
+      if (radioOperationId != null) {
+        radio.cancelOperation(radioOperationId)
+      }
       if (commandKind == "connect") {
         val deviceId = command.requiredRecord(10).requiredString(2)
         pendingConnects.remove(deviceId.uppercase(), command)
-        radio.disconnect(deviceId)
+        radio.disconnect(deviceId)?.let { failure -> radio.reportCleanupFailure(failure) }
       }
-      if (commandKind == "subscribe") {
-        activeSubscriptions.remove(command.requiredString(7))
+      if (commandKind == "scanStop") {
+        radio.stopScan()?.let { failure ->
+          radio.reportCleanupFailure(failure)
+        } ?: run {
+          activeScanCommand.set(null)
+          completeCancelledScanCommands()
+        }
       }
       if (commandKind == "unsubscribe") {
         val subscriptionId = command.requiredString(7)
@@ -447,19 +543,43 @@ class UnifiedBleProtocolAndroidDispatcher(
             true
           ) { result ->
             result.exceptionOrNull()?.let { error ->
-              UnifiedBleProtocolJsiBinding.emitDiagnostic(
-                nativeHandle,
-                "cancelledUnsubscribeRestoreFailed",
-                error.message ?: "Android GATT unsubscribe cancellation restore failed"
+              radio.reportCleanupFailure(
+                OwnedRadioTeardownFailure("cancelledUnsubscribeRestore", error)
               )
             }
           }
         }
       }
-      emitCancelled(command)
+      if (commandKind == "subscribe") {
+        val endpoint = characteristicEndpoint(command.requiredRecord(4))
+        activeSubscriptions.remove(command.requiredString(7))
+        radio.setNotifyExact(
+          endpoint.deviceId,
+          endpoint.serviceUuid,
+          endpoint.serviceOccurrence,
+          endpoint.characteristicUuid,
+          endpoint.characteristicOccurrence,
+          false
+        ) { result ->
+          result.exceptionOrNull()?.let { error ->
+            radio.reportCleanupFailure(OwnedRadioTeardownFailure("cancelledSubscriptionDisable", error))
+          }
+        }
+      }
     } catch (error: Exception) {
-      emitFailure(command, "cancellationCleanupFailed", error.message ?: "Android cancellation cleanup failed")
+      UnifiedBleProtocolJsiBinding.emitDiagnostic(
+        nativeHandle,
+        "cancellationCleanupFailed",
+        error.message ?: "Android cancellation cleanup failed"
+      )
     }
+  }
+
+  private fun completeCancelledScanCommands() {
+    cancelledScanCommands.values.toList().forEach { command ->
+      emitCancelled(command)
+    }
+    cancelledScanCommands.clear()
   }
 
   private fun cancel(command: ProtocolWireRecord) {
@@ -474,7 +594,7 @@ class UnifiedBleProtocolAndroidDispatcher(
   }
 
   private fun emitSuccess(command: ProtocolWireRecord, kind: String, additions: Map<Int, ProtocolWireValue> = emptyMap()) {
-    if (!pendingCommands.remove(operationKey(command), command)) return
+    if (!isPending(command)) return
     val fields = mutableMapOf<Int, ProtocolWireValue>(
       1 to ProtocolWireValue.UnsignedIntegerValue(1),
       2 to ProtocolWireValue.StringValue(kind),
@@ -489,10 +609,12 @@ class UnifiedBleProtocolAndroidDispatcher(
     }
     fields.putAll(additions)
     UnifiedBleProtocolJsiBinding.emitRecord(nativeHandle, ProtocolWireEncoder.encode(ProtocolWireRecord(RecordKind.RESULT, fields)))
+    pendingCommands.remove(operationKey(command), command)
+    radioOperationIds.remove(operationKey(command))
   }
 
   private fun emitFailure(command: ProtocolWireRecord, code: String, message: String) {
-    if (!pendingCommands.remove(operationKey(command), command)) return
+    if (!isPending(command)) return
     val error = ProtocolWireRecord(
       RecordKind.ERROR,
       mapOf(
@@ -513,10 +635,12 @@ class UnifiedBleProtocolAndroidDispatcher(
       )
     )
     UnifiedBleProtocolJsiBinding.emitRecord(nativeHandle, ProtocolWireEncoder.encode(result))
+    pendingCommands.remove(operationKey(command), command)
+    radioOperationIds.remove(operationKey(command))
   }
 
   private fun emitCancelled(command: ProtocolWireRecord) {
-    if (!pendingCommands.remove(operationKey(command), command)) return
+    if (!isPending(command)) return
     val result = ProtocolWireRecord(
       RecordKind.RESULT,
       mapOf(
@@ -538,10 +662,12 @@ class UnifiedBleProtocolAndroidDispatcher(
       )
     )
     UnifiedBleProtocolJsiBinding.emitRecord(nativeHandle, ProtocolWireEncoder.encode(result))
+    pendingCommands.remove(operationKey(command), command)
+    radioOperationIds.remove(operationKey(command))
   }
 
   private fun emitCancellationAcknowledgement(command: ProtocolWireRecord, state: String) {
-    if (!pendingCommands.remove(operationKey(command), command)) return
+    if (!isPending(command)) return
     val result = ProtocolWireRecord(
       RecordKind.RESULT,
       mapOf(
@@ -552,11 +678,11 @@ class UnifiedBleProtocolAndroidDispatcher(
       )
     )
     UnifiedBleProtocolJsiBinding.emitRecord(nativeHandle, ProtocolWireEncoder.encode(result))
+    pendingCommands.remove(operationKey(command), command)
   }
 
   private fun emitConnectionLost(connection: ProtocolWireRecord, status: Int) {
-    val ordinal = nextIngressOrdinal.getAndIncrement()
-    val event = connectionLostEvent(nativeHandle, connection, status, ordinal, SystemClock.elapsedRealtime())
+    val event = connectionLostEvent(nativeHandle, connection, status, 0L, SystemClock.elapsedRealtime())
     UnifiedBleProtocolJsiBinding.emitRecord(nativeHandle, ProtocolWireEncoder.encode(event))
   }
 
@@ -573,7 +699,9 @@ class UnifiedBleProtocolAndroidDispatcher(
     val services = mutableListOf<ProtocolWireRecord>()
     val characteristics = mutableListOf<ProtocolWireRecord>()
     val descriptors = mutableListOf<ProtocolWireRecord>()
-    radio.services(deviceId).forEachIndexed { serviceOccurrence, service ->
+    val serviceOccurrenceCounts = mutableMapOf<UUID, Int>()
+    for (service in radio.services(deviceId)) {
+      val serviceOccurrence = nextUuidOccurrence(serviceOccurrenceCounts, service.uuid)
       val servicePath = ProtocolWireRecord(
         RecordKind.SERVICE_PATH,
         mapOf(
@@ -583,7 +711,9 @@ class UnifiedBleProtocolAndroidDispatcher(
         )
       )
       services.add(servicePath)
-      service.characteristics.forEachIndexed { characteristicOccurrence, characteristic ->
+      val characteristicOccurrenceCounts = mutableMapOf<UUID, Int>()
+      for (characteristic in service.characteristics) {
+        val characteristicOccurrence = nextUuidOccurrence(characteristicOccurrenceCounts, characteristic.uuid)
         val characteristicPath = ProtocolWireRecord(
           RecordKind.CHARACTERISTIC_PATH,
           mapOf(
@@ -614,7 +744,9 @@ class UnifiedBleProtocolAndroidDispatcher(
             )
           )
         )
-        characteristic.descriptors.forEachIndexed { descriptorOccurrence, descriptor ->
+        val descriptorOccurrenceCounts = mutableMapOf<UUID, Int>()
+        for (descriptor in characteristic.descriptors) {
+          val descriptorOccurrence = nextUuidOccurrence(descriptorOccurrenceCounts, descriptor.uuid)
           descriptors.add(
             ProtocolWireRecord(
               RecordKind.DESCRIPTOR_PATH,
@@ -670,6 +802,33 @@ class UnifiedBleProtocolAndroidDispatcher(
   private fun commandNonce(command: ProtocolWireRecord): String = command.requiredRecord(2).requiredString(3)
   private fun operationKey(command: ProtocolWireRecord): String = "${commandEpoch(command)}:${commandNonce(command)}"
   private fun isPending(command: ProtocolWireRecord): Boolean = pendingCommands[operationKey(command)] === command
+
+  private fun commandDeviceId(command: ProtocolWireRecord): String? {
+    return try {
+      when (command.requiredString(3)) {
+        "connect", "disconnect", "discover", "readRssi", "requestMtu" ->
+          command.requiredRecord(10).requiredString(2)
+        "read", "write", "subscribe", "unsubscribe" -> characteristicEndpoint(command.requiredRecord(4)).deviceId
+        "readDescriptor", "writeDescriptor" -> descriptorEndpoint(command.requiredRecord(5)).deviceId
+        else -> null
+      }
+    } catch (error: IllegalArgumentException) {
+      UnifiedBleProtocolJsiBinding.emitDiagnostic(
+        nativeHandle,
+        "cancellationTargetInvalid",
+        error.message ?: "Android cancellation target is invalid"
+      )
+      null
+    }
+  }
+
+  private fun failPendingCommandsForDevice(deviceId: String, message: String) {
+    pendingCommands.values.toList().forEach { command ->
+      if (command.requiredString(3) != "disconnect" && commandDeviceId(command).equals(deviceId, ignoreCase = true)) {
+        emitFailure(command, "connectionLost", message)
+      }
+    }
+  }
   private data class CharacteristicEndpoint(
     val deviceId: String,
     val serviceUuid: UUID,
@@ -698,15 +857,20 @@ class UnifiedBleProtocolAndroidDispatcher(
       radio: OwnedAndroidGattRadio
     ): Boolean {
       if (!endpoint.deviceId.equals(deviceId, ignoreCase = true)) return false
-      val service = radio.services(deviceId)
-        .filter { candidate -> candidate.uuid == endpoint.serviceUuid }
-        .getOrNull(endpoint.serviceOccurrence)
-        ?: return false
-      val expectedCharacteristic = service.characteristics
-        .filter { candidate -> candidate.uuid == endpoint.characteristicUuid }
-        .getOrNull(endpoint.characteristicOccurrence)
-        ?: return false
-      return expectedCharacteristic === characteristic
+      val service = characteristic.service ?: return false
+      if (service.uuid != endpoint.serviceUuid || characteristic.uuid != endpoint.characteristicUuid) return false
+      val serviceOccurrence = radio.services(deviceId)
+        .asSequence()
+        .filter { candidate -> candidate.uuid == service.uuid }
+        .takeWhile { candidate -> candidate !== service }
+        .count()
+      if (serviceOccurrence != endpoint.serviceOccurrence) return false
+      val characteristicOccurrence = service.characteristics
+        .asSequence()
+        .filter { candidate -> candidate.uuid == characteristic.uuid }
+        .takeWhile { candidate -> candidate !== characteristic }
+        .count()
+      return characteristicOccurrence == endpoint.characteristicOccurrence
     }
   }
 }

@@ -4,7 +4,6 @@ type InnerManifest = AndroidConfig.Manifest.AndroidManifest['manifest']
 
 type ManifestPermission = InnerManifest['permission']
 
-// TODO: add to `AndroidManifestAttributes` in @expo/config-plugins
 type ExtraTools = {
   // https://developer.android.com/studio/write/tool-attributes#toolstargetapi
   'tools:targetApi'?: string
@@ -36,11 +35,32 @@ export type AndroidManifestWithExtraTools = {
   }
 }
 
+type ManagedBluetoothPermission = {
+  readonly name: string
+  readonly attributes: Readonly<Record<string, string>>
+}
+
+const managedBluetoothPermissions: readonly ManagedBluetoothPermission[] = Object.freeze([
+  Object.freeze({
+    name: 'android.permission.BLUETOOTH',
+    attributes: Object.freeze({ 'android:maxSdkVersion': '30' })
+  }),
+  Object.freeze({
+    name: 'android.permission.BLUETOOTH_ADMIN',
+    attributes: Object.freeze({ 'android:maxSdkVersion': '30' })
+  }),
+  Object.freeze({
+    name: 'android.permission.BLUETOOTH_CONNECT',
+    attributes: Object.freeze({ 'tools:targetApi': '31' })
+  })
+])
+
 export const withBLEAndroidManifest: ConfigPlugin<{
   isBackgroundEnabled: boolean
   neverForLocation: boolean
 }> = (config, { isBackgroundEnabled, neverForLocation }) =>
   withAndroidManifest(config, config => {
+    config.modResults = reconcileBluetoothPermissions(config.modResults)
     config.modResults = addLocationPermissionToManifest(config.modResults, neverForLocation)
     config.modResults = addScanPermissionToManifest(config.modResults, neverForLocation)
     if (isBackgroundEnabled) {
@@ -48,6 +68,73 @@ export const withBLEAndroidManifest: ConfigPlugin<{
     }
     return config
   })
+
+/**
+ * Keeps one canonical declaration for each permission whose Android platform
+ * semantics changed at API 31.  Expo's generic permission helper can append
+ * an unbounded legacy declaration, so this reconciles both new and existing
+ * manifests instead of relying on append-only behavior.
+ */
+export function reconcileBluetoothPermissions(
+  androidManifest: AndroidManifestWithExtraTools
+): AndroidManifestWithExtraTools {
+  if (!Array.isArray(androidManifest.manifest['uses-permission'])) {
+    androidManifest.manifest['uses-permission'] = []
+  }
+
+  AndroidConfig.Manifest.ensureToolsAvailable(androidManifest)
+  const existingPermissions = androidManifest.manifest['uses-permission']
+  const unmatchedPermissions: ManifestUsesPermissionWithExtraTools[] = []
+  const reconciledPermissions = new Map<string, ManifestUsesPermissionWithExtraTools>()
+
+  for (const permission of existingPermissions) {
+    const required = managedBluetoothPermissions.find(candidate => candidate.name === permission.$['android:name'])
+    if (required === undefined) {
+      unmatchedPermissions.push(permission)
+      continue
+    }
+
+    const prior = reconciledPermissions.get(required.name)
+    if (prior === undefined) {
+      reconciledPermissions.set(required.name, {
+        ...permission,
+        $: {
+          ...permission.$,
+          ...required.attributes
+        }
+      })
+      continue
+    }
+
+    prior.$ = {
+      ...prior.$,
+      ...permission.$,
+      ...required.attributes
+    }
+  }
+
+  for (const required of managedBluetoothPermissions) {
+    if (reconciledPermissions.has(required.name)) continue
+    reconciledPermissions.set(required.name, {
+      $: {
+        'android:name': required.name,
+        ...required.attributes
+      }
+    })
+  }
+
+  androidManifest.manifest['uses-permission'] = [
+    ...unmatchedPermissions,
+    ...managedBluetoothPermissions.map(required => {
+      const permission = reconciledPermissions.get(required.name)
+      if (permission === undefined) {
+        throw new Error(`BLE permission reconciliation failed for ${required.name}`)
+      }
+      return permission
+    })
+  ]
+  return androidManifest
+}
 
 /**
  * Add location permissions
@@ -58,7 +145,7 @@ export const withBLEAndroidManifest: ConfigPlugin<{
 export function addLocationPermissionToManifest(
   androidManifest: AndroidManifestWithExtraTools,
   neverForLocationSinceSdk31: boolean
-) {
+): AndroidManifestWithExtraTools {
   if (!Array.isArray(androidManifest.manifest['uses-permission-sdk-23'])) {
     androidManifest.manifest['uses-permission-sdk-23'] = []
   }
@@ -102,7 +189,10 @@ export function addLocationPermissionToManifest(
  * Add 'android.permission.BLUETOOTH_SCAN'.
  * Required since Android SDK 31 (Android 12).
  */
-export function addScanPermissionToManifest(androidManifest: AndroidManifestWithExtraTools, neverForLocation: boolean) {
+export function addScanPermissionToManifest(
+  androidManifest: AndroidManifestWithExtraTools,
+  neverForLocation: boolean
+): AndroidManifestWithExtraTools {
   if (!Array.isArray(androidManifest.manifest['uses-permission'])) {
     androidManifest.manifest['uses-permission'] = []
   }
@@ -129,7 +219,9 @@ export function addScanPermissionToManifest(androidManifest: AndroidManifestWith
 }
 
 // Add this line if your application always requires BLE. More info can be found on: https://developer.android.com/guide/topics/connectivity/bluetooth-le.html#permissions
-export function addBLEHardwareFeatureToManifest(androidManifest: AndroidConfig.Manifest.AndroidManifest) {
+export function addBLEHardwareFeatureToManifest(
+  androidManifest: AndroidConfig.Manifest.AndroidManifest
+): AndroidConfig.Manifest.AndroidManifest {
   // Add `<uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>` to the AndroidManifest.xml
   if (!Array.isArray(androidManifest.manifest['uses-feature'])) {
     androidManifest.manifest['uses-feature'] = []

@@ -44,21 +44,22 @@ Applications and vendor libraries own device choice, vendor protocols, product r
 
 ## Alpha candidate and support claims
 
-`unified-ble-manager@4.0.0-alpha.27` is the prepared prerelease candidate and
+`unified-ble-manager@4.0.0-alpha.28` is the prepared prerelease candidate and
 is pending publication under npm's `next` dist-tag with GitHub Actions trusted
 publishing, npm SLSA provenance, and a GitHub prerelease. Its host-neutral root
 and explicit public subpaths are the candidate package contract; users must pin
 an exact alpha version rather than infer an API from transitional source files
-or examples. The alpha has no 3.x compatibility layer.
+or examples. The alpha has no 3.x compatibility layer. `v4.0.0-alpha.27` is an
+already-published historical prerelease, not the current candidate.
 
 The candidate package support label is Experimental. There is no current
-evidence record linking alpha.27's candidate artifact to a passed physical-radio
+evidence record linking alpha.28's candidate artifact to a passed physical-radio
 backend scenario, so it makes no Preview-or-higher platform claim. Hardware
 evidence is required
 only for the corresponding support label; it does not erase package or
 deterministic proof.
 
-WinRT compile and ABI checks are L2/L3 evidence only; alpha.27 makes no Windows
+WinRT compile and ABI checks are L2/L3 evidence only; alpha.28 makes no Windows
 live-radio claim.
 
 Support labels are evidence-based:

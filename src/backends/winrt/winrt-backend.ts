@@ -167,6 +167,8 @@ interface WinRtScanGroup {
   readonly scanSessionId: ScanSessionId<string, string>
   readonly consumers: Map<string, WinRtScanConsumer>
   state: 'starting' | 'active' | 'stopping' | 'cleanup-pending'
+  /** A matching native terminal proves this group no longer owns a watcher. */
+  nativeTerminalReceived: boolean
   startTerminalError: Error | null
   startTerminalShouldTerminalize: boolean
   startInvocationActive: boolean
@@ -871,6 +873,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
       scanSessionId: consumer.scanSessionId,
       consumers: new Map([[String(consumer.leaseId), consumer]]),
       state: 'starting',
+      nativeTerminalReceived: false,
       startTerminalError: null,
       startTerminalShouldTerminalize: false,
       startInvocationActive: true,
@@ -889,6 +892,9 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
             this.handleAdvertisement(advertisement)
           ),
         async () => {
+          if (group.nativeTerminalReceived) {
+            return
+          }
           const cleanup = await this.stopScanGroup(group, 'winrt.scan.late-start-cleanup')
           if (cleanup.state === 'release-failed') {
             throw contractError('platform.failure', 'cleanup', 'winrt.scan.late-start-cleanup')
@@ -927,6 +933,12 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
         }
       }
       throw winRtPlatformError('scan.start-failed', 'scan', 'winrt.scan.start', error)
+    }
+    if (group.nativeTerminalReceived) {
+      consumer.released = true
+      this.releaseScanAdmission(consumer)
+      consumer.stream.closeWithReason('source-failed')
+      throw group.startTerminalError ?? contractError('scan.start-failed', 'scan', 'winrt.scan.start')
     }
     if (group.state !== 'starting' || consumer.released) {
       consumer.released = true
@@ -1186,6 +1198,11 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     try {
       terminal = validateWinRtScanTerminalRecord(record)
     } catch (error) {
+      const group = this.scanGroup
+      if (group !== null && (group.state === 'starting' || group.state === 'active')) {
+        const terminalError = winRtPlatformError('scan.start-failed', 'scan', 'winrt.scan.malformed-terminal', error)
+        this.terminalizeScanGroupForNativeFailure(group, terminalError, true)
+      }
       this.reportMalformedScanTerminal(error)
       return
     }
@@ -1193,40 +1210,60 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     if (group === null || group.scanToken !== terminal.scanToken) {
       return
     }
-    if (this.adapterLossPending || group.state === 'stopping' || group.state === 'cleanup-pending') {
+    if (
+      this.adapterLossPending ||
+      !winRtAdapterIsReady(this.adapterStateSnapshot) ||
+      group.state === 'stopping' ||
+      group.state === 'cleanup-pending'
+    ) {
       return
     }
     const terminalError = this.scanTerminalError(terminal)
-    if (group.state === 'starting') {
-      group.startTerminalError ??= terminalError
-      group.startTerminalShouldTerminalize = true
-      group.state = 'stopping'
-      for (const consumer of group.consumers.values()) {
-        this.releaseScanAdmission(consumer)
-        consumer.released = true
-        consumer.stream.closeWithReason('source-failed')
-      }
-      group.consumers.clear()
-      if (group.startDispatch !== null) {
-        this.dispatcher.terminalize(group.startDispatch.handle, group.startTerminalError)
-      }
-      this.reportScanTerminal(terminal, terminalError)
+    if (group.state !== 'starting' && group.state !== 'active') {
       return
     }
-    if (group.state !== 'active') {
-      return
-    }
-    group.state = 'stopping'
+    this.terminalizeScanGroupForNativeFailure(group, terminalError, false)
+    this.reportScanTerminal(terminal, terminalError)
+  }
+
+  /** Terminal records own the watcher until its exact native stop retry succeeds. */
+  private terminalizeScanGroupForNativeFailure(
+    group: WinRtScanGroup,
+    terminalError: Error,
+    reconcileNativeOwnership: boolean
+  ): void {
+    group.nativeTerminalReceived = true
+    group.startTerminalError ??= terminalError
+    group.startTerminalShouldTerminalize = group.state === 'starting'
+    group.state = 'cleanup-pending'
     for (const consumer of group.consumers.values()) {
       this.releaseScanAdmission(consumer)
       consumer.released = true
       consumer.stream.closeWithReason('source-failed')
     }
     group.consumers.clear()
-    if (this.scanGroup === group) {
-      this.scanGroup = null
+    if (group.startDispatch !== null && group.startTerminalShouldTerminalize) {
+      this.dispatcher.terminalize(group.startDispatch.handle, group.startTerminalError)
     }
-    this.reportScanTerminal(terminal, terminalError)
+    if (!reconcileNativeOwnership) {
+      // A validated watcher terminal proves Windows has stopped the exact
+      // watcher.  Retire the logical owner without issuing a second Stop call
+      // against an already-retired native token.
+      if (this.scanGroup === group) {
+        this.scanGroup = null
+      }
+      return
+    }
+    this.stopScanGroup(group, 'winrt.scan.terminal-cleanup').then(
+      cleanup => {
+        if (cleanup.state === 'release-failed') {
+          console.error('[WinRtBackend.handleScanTerminal] Native scan cleanup remains retryable:', cleanup.failures)
+        }
+      },
+      cleanupError => {
+        console.error('[WinRtBackend.handleScanTerminal] Native scan cleanup dispatch rejected:', cleanupError)
+      }
+    )
   }
 
   private scanTerminalError(record: WinRtScanTerminalRecord): Error {
@@ -1241,9 +1278,13 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
   private reportMalformedScanTerminal(error: unknown): void {
     const report = error instanceof Error ? error : new Error('WinRT scan terminal validation failed')
     try {
-      console.error('[WinRtBackend.handleScanTerminal] Dropped malformed native scan terminal:', report)
+      console.error(
+        '[WinRtBackend.handleScanTerminal] Malformed native scan terminal terminalized the active scan:',
+        report
+      )
     } catch {
-      // A diagnostic sink cannot be allowed to escape through the native callback stack.
+      // The active group was terminalized before reporting; a diagnostic sink
+      // failure cannot reopen its retained cleanup ownership.
     }
   }
 

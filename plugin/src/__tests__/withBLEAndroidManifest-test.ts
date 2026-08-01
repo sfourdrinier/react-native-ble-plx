@@ -4,7 +4,8 @@ import { resolve } from 'path'
 import {
   addLocationPermissionToManifest,
   addScanPermissionToManifest,
-  addBLEHardwareFeatureToManifest
+  addBLEHardwareFeatureToManifest,
+  reconcileBluetoothPermissions
 } from '../withBLEAndroidManifest'
 
 const { readAndroidManifestAsync } = AndroidConfig.Manifest
@@ -87,6 +88,42 @@ describe('addScanPermissionToManifest', () => {
     expect(XML.format(androidManifest)).toMatch(
       /<uses-permission android:name="android\.permission\.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" tools:targetApi="31"\/>/
     )
+  })
+})
+
+describe('reconcileBluetoothPermissions', () => {
+  it('adds the bounded legacy and Android 12 Bluetooth permissions idempotently', async () => {
+    let androidManifest = await readAndroidManifestAsync(sampleManifestPath)
+    androidManifest = reconcileBluetoothPermissions(androidManifest)
+    androidManifest = reconcileBluetoothPermissions(androidManifest)
+
+    const permissions = androidManifest.manifest['uses-permission'] ?? []
+    expect(permissions.filter(item => item.$['android:name'] === 'android.permission.BLUETOOTH')).toEqual([
+      { $: { 'android:name': 'android.permission.BLUETOOTH', 'android:maxSdkVersion': '30' } }
+    ])
+    expect(permissions.filter(item => item.$['android:name'] === 'android.permission.BLUETOOTH_ADMIN')).toEqual([
+      { $: { 'android:name': 'android.permission.BLUETOOTH_ADMIN', 'android:maxSdkVersion': '30' } }
+    ])
+    expect(permissions.filter(item => item.$['android:name'] === 'android.permission.BLUETOOTH_CONNECT')).toEqual([
+      { $: { 'android:name': 'android.permission.BLUETOOTH_CONNECT', 'tools:targetApi': '31' } }
+    ])
+  })
+
+  it('repairs pre-existing unbounded Bluetooth permissions without adding duplicates', async () => {
+    let androidManifest = await readAndroidManifestAsync(sampleManifestPath)
+    androidManifest.manifest['uses-permission'] = [
+      { $: { 'android:name': 'android.permission.BLUETOOTH' } },
+      { $: { 'android:name': 'android.permission.BLUETOOTH_ADMIN' } },
+      { $: { 'android:name': 'android.permission.BLUETOOTH_CONNECT' } }
+    ]
+
+    androidManifest = reconcileBluetoothPermissions(androidManifest)
+
+    expect(androidManifest.manifest['uses-permission']).toEqual([
+      { $: { 'android:name': 'android.permission.BLUETOOTH', 'android:maxSdkVersion': '30' } },
+      { $: { 'android:name': 'android.permission.BLUETOOTH_ADMIN', 'android:maxSdkVersion': '30' } },
+      { $: { 'android:name': 'android.permission.BLUETOOTH_CONNECT', 'tools:targetApi': '31' } }
+    ])
   })
 })
 

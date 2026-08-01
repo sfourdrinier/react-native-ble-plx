@@ -51,11 +51,11 @@ android {
     }
   }
 
-  compileSdkVersion getExtOrIntegerDefault("compileSdkVersion")
+  compileSdk getExtOrIntegerDefault("compileSdkVersion")
 
   defaultConfig {
-    minSdkVersion getExtOrIntegerDefault("minSdkVersion")
-    targetSdkVersion getExtOrIntegerDefault("targetSdkVersion")
+    minSdk getExtOrIntegerDefault("minSdkVersion")
+    targetSdk getExtOrIntegerDefault("targetSdkVersion")
     buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", "true"
     buildConfigField "String", "OWNED_RADIO_ID", "\"owned-android-gatt-v1\""
     externalNativeBuild {
@@ -72,10 +72,10 @@ android {
   }
 
   buildFeatures {
-    prefab true
+    prefab = true
   }
 
-  lintOptions {
+  lint {
     disable "GradleCompatible"
   }
 

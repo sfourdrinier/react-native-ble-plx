@@ -6,10 +6,12 @@
 #include "../include/NativeProtocolV1Registry.hpp"
 #include "../include/OwnedBinaryPayloadStore.hpp"
 #include "../include/BoundedNativeEventBuffer.hpp"
+#include "../include/AndroidJsiEventIngressLedger.hpp"
 
 #include <cassert>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -212,6 +214,99 @@ void testPreJavaScriptEventBufferFailsClosedWithoutPartialReplay() {
   assert(replay.front() == std::vector<std::uint8_t>({0x07U, 0x08U, 0x09U, 0x0AU}));
   assert(buffer.recordCount() == 0U);
   assert(buffer.byteCount() == 0U);
+}
+
+void testAndroidJsiIngressLedgerRetainsExactBinaryOwnershipCounters() {
+  protocol::AndroidJsiEventIngressLedger ledger(2U, 4U);
+  const auto reference = [](const std::string& owner) {
+    return protocol::OwnedBinaryReference{
+        .ownerToken = owner,
+        .operationCorrelation = "android-ledger-test",
+        .byteOffset = 0U,
+        .byteLength = 1U,
+        .ownership = "native-owned",
+    };
+  };
+  assert(ledger.enqueue({{0x01U, 0x02U}, {reference("owner-1")}, 1U}));
+  assert(ledger.enqueue({{0x03U, 0x04U}, {reference("owner-2")}, 1U}));
+  assert(!ledger.enqueue({{0x05U}, {reference("owner-3")}, 1U}));
+  assert(ledger.overflowed());
+  assert(ledger.overflowSnapshot()->retainedRecordCount == 2U);
+  assert(ledger.overflowSnapshot()->retainedByteCount == 4U);
+  assert(ledger.overflowSnapshot()->rejectedRecordByteCount == 1U);
+  assert(ledger.overflowSnapshot()->droppedRecordCount == 3U);
+  assert(ledger.overflowSnapshot()->droppedByteCount == 5U);
+  assert(ledger.overflowSnapshot()->overflowCount == 1U);
+  assert(!ledger.enqueue({{0x06U}, {reference("owner-4")}, 1U}));
+  assert(ledger.overflowSnapshot()->droppedRecordCount == 4U);
+  assert(ledger.overflowSnapshot()->droppedByteCount == 6U);
+  const auto discarded = ledger.takeAll();
+  assert(discarded.size() == 4U);
+  assert(discarded[0].binaryReferences.front().ownerToken == "owner-1");
+  assert(discarded[1].binaryReferences.front().ownerToken == "owner-2");
+  assert(discarded[2].binaryReferences.front().ownerToken == "owner-3");
+  assert(discarded[3].binaryReferences.front().ownerToken == "owner-4");
+}
+
+void testAndroidJsiBinaryCleanupLedgerPreservesOverCapReferencesForFatalRetry() {
+  protocol::AndroidJsiBinaryCleanupLedger ledger(2U);
+  const auto reference = [](const std::string& owner) {
+    return protocol::OwnedBinaryReference{
+        .ownerToken = owner,
+        .operationCorrelation = "android-cleanup-ledger-test",
+        .byteOffset = 0U,
+        .byteLength = 1U,
+        .ownership = "native-owned",
+    };
+  };
+  assert(ledger.retain({reference("owner-1"), reference("owner-2")}));
+  assert(!ledger.overflowed());
+  assert(!ledger.retain({reference("owner-3")}));
+  assert(ledger.overflowed());
+  assert(ledger.retryReferenceCount() == 2U);
+  assert(ledger.fatalReferenceCount() == 1U);
+  const auto retained = ledger.takeAll();
+  assert(retained.size() == 3U);
+  assert(retained[0].ownerToken == "owner-1");
+  assert(retained[1].ownerToken == "owner-2");
+  assert(retained[2].ownerToken == "owner-3");
+  assert(!ledger.retain({reference("owner-4")}));
+  assert(ledger.fatalReferenceCount() == 1U);
+}
+
+void testAndroidJsiTerminalSettlementWaitsForSinkAcceptance() {
+  protocol::AndroidJsiEventIngressLedger ledger(2U, 16U);
+  std::size_t settlements = 0U;
+  const auto reference = protocol::OwnedBinaryReference{
+      .ownerToken = "terminal-owner",
+      .operationCorrelation = "terminal-operation",
+      .byteOffset = 0U,
+      .byteLength = 1U,
+      .ownership = "native-owned",
+  };
+  assert(ledger.enqueue({
+      {0x01U},
+      {reference},
+      1U,
+      [&settlements] { settlements += 1U; },
+  }));
+  const auto sinkRejectedTerminal = ledger.takeNext();
+  assert(sinkRejectedTerminal.has_value());
+  // A throwing sink never invokes the post-delivery settlement callback. The
+  // exact binary owner remains available to the fatal cleanup path instead.
+  assert(settlements == 0U);
+  assert(sinkRejectedTerminal->binaryReferences.front().ownerToken == "terminal-owner");
+
+  assert(ledger.enqueue({
+      {0x02U},
+      {},
+      1U,
+      [&settlements] { settlements += 1U; },
+  }));
+  const auto acceptedTerminal = ledger.takeNext();
+  assert(acceptedTerminal.has_value());
+  acceptedTerminal->delivered();
+  assert(settlements == 1U);
 }
 
 void testRoundTripAndAdversarialRecords() {
@@ -753,6 +848,132 @@ void testRejectedAndroidDispatchReleasesRegisteredCommandBinary() {
   assert(runtime.retainedBinaryPayloads() == 0U);
   assert(runtime.retainedBinaryBytes() == 0U);
   assert(!runtime.rejectCommandDispatch(command));
+
+  const protocol::ProtocolRecord scanCommand{
+      .kind = protocol::RecordKind::command,
+      .fields = {
+          field(1U, std::uint64_t{1U}),
+          field(2U, correlation(2U)),
+          field(3U, std::string("scanStart")),
+          field(12U, std::make_shared<protocol::ProtocolRecord>(protocol::ProtocolRecord{
+              .kind = protocol::RecordKind::scanOptions,
+              .fields = {
+                  field(1U, protocol::ProtocolStringList{}),
+                  field(2U, true),
+                  field(3U, std::int64_t{2}),
+                  field(4U, std::int64_t{1}),
+                  field(5U, true),
+              },
+          })),
+      },
+  };
+  runtime.registerCommand(scanCommand, true);
+  assert(runtime.activeScanCommand().has_value());
+  auto overlappingScanCommand = scanCommand;
+  overlappingScanCommand.fields[1U] = field(2U, correlation(3U));
+  expectFailure(protocol::ProtocolFailure::alreadyTerminal, [&] {
+    runtime.registerCommand(overlappingScanCommand, true);
+  });
+  assert(runtime.activeScanCommand().has_value());
+  assert(runtime.commandFor(2U, "opaque-operation-2").has_value());
+  assert(!runtime.commandFor(3U, "opaque-operation-3").has_value());
+  assert(runtime.rejectCommandDispatch(scanCommand));
+  assert(!runtime.activeScanCommand().has_value());
+  runtime.close(identity);
+}
+
+void testActiveScanOwnerReleasesOnlyAfterPhysicalTeardown() {
+  const protocol::NativeAttachmentIdentity identity{
+      .attachmentId = "attachment-1",
+      .backendInstanceId = "backend-1",
+      .backendGeneration = "backend-generation-1",
+      .adapterId = "adapter-1",
+      .adapterGeneration = "adapter-generation-1",
+  };
+  protocol::NativeProtocolControlRuntime runtime;
+  static_cast<void>(runtime.handshake(
+      identity, "owner-1", {1U, 1U}, {1U, 1U}, {1U, 1U}, {1U, 1U}, {1U, 1U}, {1U, 1U}));
+  const auto scanCommand = [](std::uint64_t epoch, const std::string& kind) {
+    std::vector<protocol::ProtocolField> fields{
+        field(1U, std::uint64_t{1U}),
+        field(2U, correlation(epoch)),
+        field(3U, kind),
+    };
+    if (kind == "scanStart") {
+      fields.push_back(field(12U, std::make_shared<protocol::ProtocolRecord>(protocol::ProtocolRecord{
+          .kind = protocol::RecordKind::scanOptions,
+          .fields = {
+              field(1U, protocol::ProtocolStringList{}),
+              field(2U, true),
+              field(3U, std::int64_t{2}),
+              field(4U, std::int64_t{1}),
+              field(5U, true),
+          },
+      })));
+    }
+    return protocol::ProtocolRecord{
+        .kind = protocol::RecordKind::command,
+        .fields = std::move(fields),
+    };
+  };
+  const auto result = [](std::uint64_t epoch, const std::string& kind, const std::string& outcome) {
+    std::vector<protocol::ProtocolField> fields{
+        field(1U, std::uint64_t{1U}),
+        field(2U, kind),
+        field(3U, std::make_shared<protocol::ProtocolRecord>(terminal(epoch, outcome, outcome == "failed" ? "cancelled" : ""))),
+    };
+    if (outcome == "failed") {
+      fields.push_back(field(10U, std::make_shared<protocol::ProtocolRecord>(protocol::ProtocolRecord{
+          .kind = protocol::RecordKind::error,
+          .fields = {
+              field(1U, std::string("cancelled")),
+              field(2U, std::string("test")),
+              field(3U, std::string("scanStart")),
+              field(4U, std::string("notRetryable")),
+              field(7U, std::string("Scan start cancellation is pending physical teardown")),
+          },
+      })));
+    }
+    return protocol::ProtocolRecord{
+        .kind = protocol::RecordKind::result,
+        .fields = std::move(fields),
+    };
+  };
+
+  const auto firstStart = scanCommand(1U, "scanStart");
+  runtime.registerCommand(firstStart, true);
+  assert(runtime.settleResult(result(1U, "scanStarted", "succeeded")));
+  assert(runtime.activeScanCommand().has_value());
+
+  const auto firstStop = scanCommand(2U, "scanStop");
+  runtime.registerCommand(firstStop, true);
+  assert(runtime.settleResult(result(2U, "accepted", "succeeded")));
+  assert(!runtime.activeScanCommand().has_value());
+
+  const auto secondStart = scanCommand(3U, "scanStart");
+  runtime.registerCommand(secondStart, true);
+  assert(runtime.settleResult(result(3U, "scanStarted", "succeeded")));
+  assert(runtime.activeScanCommand().has_value());
+
+  const auto destroy = scanCommand(4U, "destroy");
+  runtime.registerCommand(destroy, true);
+  assert(runtime.settleResult(result(4U, "destroyed", "succeeded")));
+  assert(!runtime.activeScanCommand().has_value());
+
+  const auto cancelledStart = scanCommand(5U, "scanStart");
+  runtime.registerCommand(cancelledStart, true);
+  assert(runtime.settleResult(result(5U, "cancelled", "failed")));
+  assert(runtime.activeScanCommand().has_value());
+  expectFailure(protocol::ProtocolFailure::alreadyTerminal, [&] {
+    runtime.registerCommand(scanCommand(6U, "scanStart"), true);
+  });
+
+  const auto cancellationTeardown = scanCommand(7U, "scanStop");
+  runtime.registerCommand(cancellationTeardown, true);
+  assert(runtime.settleResult(result(7U, "accepted", "succeeded")));
+  assert(!runtime.activeScanCommand().has_value());
+  runtime.registerCommand(scanCommand(8U, "scanStart"), true);
+  assert(runtime.activeScanCommand().has_value());
   runtime.close(identity);
 }
 
@@ -861,11 +1082,34 @@ void testRuntimeRestorationAuthorityAppendAndAdoption() {
   runtime.close(identity);
 }
 
+void testAndroidIngressOrdinalAllocatorExhaustsWithoutWrapOrReuse() {
+  protocol::AndroidIngressOrdinalAllocator allocator(std::numeric_limits<std::uint64_t>::max() - 1U);
+  assert(allocator.next() == std::numeric_limits<std::uint64_t>::max() - 1U);
+  bool firstExhaustionThrew = false;
+  try {
+    static_cast<void>(allocator.next());
+  } catch (const std::overflow_error&) {
+    firstExhaustionThrew = true;
+  }
+  assert(firstExhaustionThrew);
+  assert(allocator.exhausted());
+  bool secondExhaustionThrew = false;
+  try {
+    static_cast<void>(allocator.next());
+  } catch (const std::overflow_error&) {
+    secondExhaustionThrew = true;
+  }
+  assert(secondExhaustionThrew);
+}
+
 } // namespace
 
 int main() {
   testVersionNegotiation();
   testPreJavaScriptEventBufferFailsClosedWithoutPartialReplay();
+  testAndroidJsiIngressLedgerRetainsExactBinaryOwnershipCounters();
+  testAndroidJsiBinaryCleanupLedgerPreservesOverCapReferencesForFatalRetry();
+  testAndroidJsiTerminalSettlementWaitsForSinkAcceptance();
   testRoundTripAndAdversarialRecords();
   testTerminalAndRichAdvertisementParity();
   testBinaryOwnership();
@@ -875,7 +1119,9 @@ int main() {
   testRestorationBootstrapRollbackSupportsHandshakeRetry();
   testOperationCapacityRejectsBeforeCommandBinaryCopyAndCallerRelease();
   testRejectedAndroidDispatchReleasesRegisteredCommandBinary();
+  testActiveScanOwnerReleasesOnlyAfterPhysicalTeardown();
   testPendingSubscriptionRoutingAndLateOutputRelease();
   testRuntimeRestorationAuthorityAppendAndAdoption();
+  testAndroidIngressOrdinalAllocatorExhaustsWithoutWrapOrReuse();
   return 0;
 }

@@ -96,7 +96,7 @@ jobs:
 
       - name: Prebuild Expo native projects
         working-directory: example-expo
-        run: npx expo prebuild --clean --no-install --platform ios
+        run: NODE_ENV=development npx expo prebuild --clean --no-install --platform ios
 
       - name: Install CocoaPods
         working-directory: example-expo/ios

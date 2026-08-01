@@ -26,20 +26,36 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
   @objc public weak var delegate: OwnedCoreBluetoothProtocolRadioDelegate?
 
   let queue: DispatchQueue
-  private var central: CBCentralManager!
+  var central: CBCentralManager!
   var peripheralByIdentifier = [String: CBPeripheral]()
   var servicesByPeer = [String: [CBService]]()
-  private var pendingConnect = [String: PendingVoid]()
+  var pendingConnect = [String: PendingVoid]()
   /// A disconnect resolves only from CoreBluetooth's terminal delegate callback.
-  private var pendingDisconnect = [String: PendingVoid]()
-  private var pendingDiscovery = [String: PendingDiscovery]()
-  private var pendingRead = [CharacteristicAddress: PendingData]()
-  private var pendingRssi = [String: PendingRssi]()
-  private var pendingWrite = [CharacteristicAddress: PendingVoid]()
+  var pendingDisconnect = [String: PendingVoid]()
+  var pendingDiscovery = [String: PendingDiscovery]()
+  var pendingRead = [CharacteristicAddress: PendingData]()
+  var pendingRssi = [String: PendingRssi]()
+  var pendingWrite = [CharacteristicAddress: PendingVoid]()
   let descriptorOperations = OwnedCoreBluetoothDescriptorOperations()
-  private var pendingNotify = [CharacteristicAddress: PendingNotify]()
+  var pendingNotify = [CharacteristicAddress: PendingNotify]()
+  struct PendingCancellationCleanup {
+    var peerIdentifiers = Set<String>()
+    /// The desired physical CCCD state after a cancelled notification transition.
+    /// A cancelled subscribe must end disabled; a cancelled unsubscribe must restore
+    /// the logically-installed subscription to enabled.
+    var notificationDesiredStates = [CharacteristicAddress: Bool]()
+    /// CoreBluetooth applies notification changes asynchronously.  Do not infer
+    /// completion from the current `isNotifying` value: it can still describe the
+    /// state before the cancelled operation's callback arrives.
+    var notificationAwaitingCallbacks = Set<CharacteristicAddress>()
+  }
+  var pendingCancellationCleanup = [String: PendingCancellationCleanup]()
+  /// At most one automatic retry may be queued for a cancelled operation.  The
+  /// retained cleanup entry, rather than an unbounded timer fan-out, is the
+  /// source of truth for the physical CCCD transition still in flight.
+  var pendingCancellationCleanupRetryScheduled = Set<String>()
   private var subscriptions = [CharacteristicAddress: String]()
-  private var activeScanOperationIdentifier: String?
+  var activeScanOperationIdentifier: String?
   private var restoredPeerIdentifiers = [String]()
   var destroyed = false
 
@@ -51,29 +67,29 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
     let characteristicOccurrence: Int
   }
 
-  private struct PendingVoid {
+  struct PendingVoid {
     let operationIdentifier: String
     let completion: (NSError?) -> Void
   }
 
-  private struct PendingData {
+  struct PendingData {
     let operationIdentifier: String
     let completion: (NSData?, NSError?) -> Void
   }
 
-  private struct PendingRssi {
+  struct PendingRssi {
     let operationIdentifier: String
     let completion: (NSNumber?, NSError?) -> Void
   }
 
-  private struct PendingNotify {
+  struct PendingNotify {
     let operationIdentifier: String
     let subscriptionIdentifier: String
     let enabled: Bool
     let completion: (NSError?) -> Void
   }
 
-  private struct PendingDiscovery {
+  struct PendingDiscovery {
     let operationIdentifier: String
     let completion: (NSDictionary?, NSError?) -> Void
     var awaitingCharacteristics: Int
@@ -120,6 +136,8 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
       self.central.stopScan()
       self.activeScanOperationIdentifier = nil
       self.failAllPendingOperationsOnDestroy()
+      self.pendingCancellationCleanup.removeAll()
+      self.pendingCancellationCleanupRetryScheduled.removeAll()
       self.subscriptions.removeAll()
       let restoredIdentifiers = Set(self.restoredPeerIdentifiers)
       for (identifier, peripheral) in self.peripheralByIdentifier where !restoredIdentifiers.contains(identifier) {
@@ -399,12 +417,6 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
     )
   }
 
-  @objc public func cancelOperation(_ operationIdentifier: String) {
-    queue.async {
-      self.cancelPendingOperation(operationIdentifier)
-    }
-  }
-
   @objc public func destroy(completion: @escaping (NSError?) -> Void) {
     queue.async {
       guard !self.destroyed else {
@@ -475,10 +487,14 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
     if pendingDisconnect[identifier] != nil {
       central.cancelPeripheralConnection(peripheral)
     }
+    if pendingCancellationCleanup.values.contains(where: { $0.peerIdentifiers.contains(identifier) }) {
+      central.cancelPeripheralConnection(peripheral)
+    }
   }
 
   public func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
     let identifier = peripheral.identifier.uuidString
+    clearCancellationCleanup(forPeerIdentifier: identifier)
     let failure = error as NSError? ?? self.error(code: 1015, message: "CoreBluetooth failed to connect")
     if let pending = pendingConnect.removeValue(forKey: identifier) {
       pending.completion(failure)
@@ -490,6 +506,7 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
 
   public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
     let identifier = peripheral.identifier.uuidString
+    clearCancellationCleanup(forPeerIdentifier: identifier)
     let explicitDisconnect = pendingDisconnect.removeValue(forKey: identifier)
     servicesByPeer.removeValue(forKey: identifier)
     if let pending = pendingConnect.removeValue(forKey: identifier) {
@@ -587,18 +604,34 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
   }
 
   public func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
-    guard let address = address(for: characteristic, peerIdentifier: peripheral.identifier.uuidString),
-          let pending = pendingNotify.removeValue(forKey: address) else { return }
-    if pending.enabled {
-      if error == nil && characteristic.isNotifying {
-        subscriptions[address] = pending.subscriptionIdentifier
-      } else {
+    guard let address = address(for: characteristic, peerIdentifier: peripheral.identifier.uuidString) else { return }
+    let pending = pendingNotify.removeValue(forKey: address)
+    let cancellationDesiredState = cancellationDesiredState(forNotificationAddress: address)
+    guard pending != nil || cancellationDesiredState != nil else { return }
+
+    if let pending {
+      if pending.enabled {
+        if error == nil && characteristic.isNotifying {
+          subscriptions[address] = pending.subscriptionIdentifier
+        } else {
+          subscriptions.removeValue(forKey: address)
+        }
+      } else if error == nil || !characteristic.isNotifying {
         subscriptions.removeValue(forKey: address)
       }
-    } else if error == nil || !characteristic.isNotifying {
-      subscriptions.removeValue(forKey: address)
+      pending.completion(error as NSError?)
     }
-    pending.completion(error as NSError?)
+
+    guard let desired = cancellationDesiredState else { return }
+    markCancellationNotificationCallbackReceived(for: address)
+    if error == nil && characteristic.isNotifying == desired {
+      clearCancellationCleanup(forNotificationAddress: address)
+      return
+    }
+
+    // The cancelled CoreBluetooth operation reached a different physical state.
+    // Keep the cleanup owner reachable and drive it back to its required state.
+    resolvedNotifyStateNeedsReconciliation(address, desiredState: desired)
   }
 
   private func setNotify(
@@ -726,36 +759,6 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
       characteristicUUID: OwnedCoreBluetoothProtocolRadioSupport.normalizedUUID(characteristic.uuid.uuidString),
       characteristicOccurrence: characteristicOccurrence
     )
-  }
-
-  private func cancelPendingOperation(_ operationIdentifier: String) {
-    if activeScanOperationIdentifier == operationIdentifier {
-      central.stopScan()
-      activeScanOperationIdentifier = nil
-    }
-    for (peerIdentifier, pending) in pendingConnect where pending.operationIdentifier == operationIdentifier {
-      pendingConnect.removeValue(forKey: peerIdentifier)
-      if let peripheral = peripheralByIdentifier[peerIdentifier] {
-        central.cancelPeripheralConnection(peripheral)
-      }
-    }
-    let cancelledDisconnects = pendingDisconnect.compactMap { peerIdentifier, pending in
-      pending.operationIdentifier == operationIdentifier ? peerIdentifier : nil
-    }
-    for peerIdentifier in cancelledDisconnects {
-      pendingDisconnect.removeValue(forKey: peerIdentifier)
-    }
-    pendingDiscovery = pendingDiscovery.filter { $0.value.operationIdentifier != operationIdentifier }
-    pendingRead = pendingRead.filter { $0.value.operationIdentifier != operationIdentifier }
-    pendingRssi = pendingRssi.filter { $0.value.operationIdentifier != operationIdentifier }
-    pendingWrite = pendingWrite.filter { $0.value.operationIdentifier != operationIdentifier }
-    descriptorOperations.cancel(operationIdentifier)
-    for (address, pending) in pendingNotify where pending.operationIdentifier == operationIdentifier {
-      pendingNotify.removeValue(forKey: address)
-      if let resolved = resolve(address) {
-        resolved.peripheral.setNotifyValue(false, for: resolved.characteristic)
-      }
-    }
   }
 
   private func failPendingGATT(for peerIdentifier: String, error: NSError?) {

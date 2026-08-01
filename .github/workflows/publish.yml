@@ -138,15 +138,15 @@ jobs:
 
       - name: Run Expo Doctor
         working-directory: example-expo
-        run: npx expo-doctor
+        run: NODE_ENV=development npx expo-doctor
 
       - name: Prebuild Expo native projects
         working-directory: example-expo
-        run: npx expo prebuild --clean --no-install
+        run: NODE_ENV=development npx expo prebuild --clean --no-install
 
       - name: Assemble Expo CNG Android debug APK
         working-directory: example-expo/android
-        run: ./gradlew :app:assembleDebug --no-daemon --console=plain
+        run: NODE_ENV=development ./gradlew :app:assembleDebug --no-daemon --console=plain
 
       # R3-F044: same canonical pack+install export smoke as PR CI / verify-release
       - name: Canonical pack+install export smoke

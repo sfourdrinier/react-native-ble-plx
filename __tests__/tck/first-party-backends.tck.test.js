@@ -441,6 +441,10 @@ class DeterministicReactNativeProtocolRuntime {
     ])
   }
 
+  setFatalSink(listener) {
+    this.fatalListener = listener
+  }
+
   submit(bytes) {
     const command = decodeNativeProtocolRecord(bytes)
     const kind = requiredString(command, 3)

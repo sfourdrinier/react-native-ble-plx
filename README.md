@@ -2,7 +2,7 @@
 
 # unified-ble-manager
 
-`unified-ble-manager@4.0.0-alpha.27` is the current 4.0 prerelease candidate for
+`unified-ble-manager@4.0.0-alpha.28` is the current 4.0 prerelease candidate for
 explicit, bytes-first Bluetooth Low Energy management across React Native, Web,
 Electron, and Node hosts. 4.0 is a new package line with no released 4.0
 consumer baseline; adopting it is an explicit integration, not a source-
@@ -16,15 +16,18 @@ The controlling architecture and sequencing record is
 
 ## Release status and evidence boundary
 
-`v4.0.0-alpha.27` is the prepared release candidate and is pending npm and
+`v4.0.0-alpha.28` is the prepared release candidate and is pending npm and
 GitHub publication. After publication it is intended to use npm's `next`
 dist-tag, GitHub Actions trusted publishing, and an npm SLSA provenance
 attestation. The planned
-[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.27)
+[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.28)
 will prove the package release path, not Bluetooth behavior.
 
+`v4.0.0-alpha.27` is an already-published historical prerelease; it is not the
+current candidate or an alpha.28 evidence record.
+
 The package and deterministic contract surface are **Experimental**. No current
-evidence record binds the alpha.27 candidate artifact to a hardware-backed
+evidence record binds the alpha.28 candidate artifact to a hardware-backed
 backend scenario, so no React Native, Web, Node, or Electron backend is
 Preview, Live Preview, Supported, or Reliability-qualified. Missing hardware
 evidence blocks those labels only; it does not invalidate deterministic or
@@ -32,7 +35,7 @@ package-artifact proof. See [`docs/PLATFORMS.md`](docs/PLATFORMS.md) for the
 per-host boundary.
 
 The package remains **Experimental**. WinRT compile and ABI checks are L2/L3
-evidence only; alpha.27 makes no Windows live-radio claim.
+evidence only; alpha.28 makes no Windows live-radio claim.
 
 Meta Quest and an nRF52840-based controllable fault-injection controller are
 deferred to 4.1. Neither is a 4.0 backend claim, release gate, or hardware
@@ -51,11 +54,11 @@ validation substitute.
 Pin the exact prerelease you validated. pnpm is used in this repository:
 
 ```sh
-pnpm add unified-ble-manager@4.0.0-alpha.27
+pnpm add unified-ble-manager@4.0.0-alpha.28
 ```
 
 `next` is the mutable prerelease dist-tag. It must not be treated as the
-alpha.27 `next` dist-tag until publication completes; a later alpha can change
+alpha.28 `next` dist-tag until publication completes; a later alpha can change
 it without changing your lockfile intent. Do not install
 the bare package name or `@latest` when adopting 4.0 alpha: those do not select
 the 4.0 prerelease train. Use your package manager's exact-version syntax when
@@ -305,10 +308,10 @@ final version uses npm `latest` and a normal GitHub Release.
 Check an installed-release candidate against npm metadata before integrating it:
 
 ```sh
-npm view unified-ble-manager@4.0.0-alpha.27 version dist-tags dist.integrity dist.attestations _npmUser --json
+npm view unified-ble-manager@4.0.0-alpha.28 version dist-tags dist.integrity dist.attestations _npmUser --json
 ```
 
-After alpha.27 publication, the result must identify the exact version, `next`
+After alpha.28 publication, the result must identify the exact version, `next`
 dist-tag, package integrity, a SLSA provenance attestation, and GitHub Actions
 as the npm trusted publisher. Cross-check the tag and release notes at the
 planned GitHub Release linked above. Before publication, these checks are

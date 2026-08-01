@@ -17,6 +17,7 @@ export interface NativeProtocolBinaryRuntime {
   release(reference: NativeBinaryReference): boolean
   submit(command: Uint8Array): void
   setEventSink(listener: (record: Uint8Array) => void): void
+  setFatalSink(listener: (reason: string) => void): void
   retainedByteCount(): number
   retainedPayloadCount(): number
 }
@@ -65,4 +66,9 @@ export function submitNativeProtocolCommand(command: Uint8Array): void {
 /** Installs the single attachment-scoped native event sink. */
 export function setNativeProtocolEventSink(listener: (record: Uint8Array) => void): void {
   requireNativeProtocolBinaryRuntime().setEventSink(listener)
+}
+
+/** Installs the attachment-fatal path used when JSI can no longer deliver terminals safely. */
+export function setNativeProtocolFatalSink(listener: (reason: string) => void): void {
+  requireNativeProtocolBinaryRuntime().setFatalSink(listener)
 }

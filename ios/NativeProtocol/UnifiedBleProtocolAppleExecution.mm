@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cstring>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -181,11 +182,273 @@ OwnedCoreBluetoothProtocolRadio* radioFor(const std::shared_ptr<AppleNativeProto
   return (__bridge OwnedCoreBluetoothProtocolRadio*)state->radio;
 }
 
+bool boundedBufferCanAdmit(
+    const protocol::BoundedNativeEventBuffer& buffer,
+    std::size_t recordBytes,
+    std::size_t maximumRecords,
+    std::size_t maximumBytes) {
+  return !buffer.overflowed() &&
+      buffer.recordCount() < maximumRecords &&
+      recordBytes <= maximumBytes - buffer.byteCount();
+}
+
+void retainBinaryCleanupFailures(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    const BinaryReferenceList& failures,
+    const char* context) {
+  if (failures.empty()) return;
+  if (!state->binaryCleanupLedger.append(failures)) {
+    throw std::logic_error(std::string("Apple binary cleanup ledger capacity exhausted: ") + context);
+  }
+}
+
+void retryBinaryCleanupLedger(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    const char* context) {
+  const auto retry = state->binaryCleanupLedger.retry([&](const protocol::OwnedBinaryReference& reference) {
+    try {
+      if (!state->runtime->releaseBinary(reference)) {
+        NSLog(@"[UnifiedBleProtocolAppleExecution] %s: cleanup reference was already released", context);
+      }
+      return true;
+    } catch (const std::exception& error) {
+      NSLog(@"[UnifiedBleProtocolAppleExecution] %s: %s", context, error.what());
+      throw;
+    } catch (...) {
+      NSLog(@"[UnifiedBleProtocolAppleExecution] %s: cleanup release failed with an unknown exception", context);
+      throw;
+    }
+  });
+  if (retry.failed != 0U) {
+    NSLog(
+        @"[UnifiedBleProtocolAppleExecution] %s: %lu binary cleanup references remain retryable",
+        context,
+        static_cast<unsigned long>(retry.failed));
+  }
+}
+
+void releaseAndLedgerBinaryReferences(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    const BinaryReferenceList& references,
+    const char* context) {
+  const auto status = releaseBinaryReferences(state->runtime, references, context);
+  retainBinaryCleanupFailures(state, status.failedReferences, context);
+}
+
+void quarantineLateCompletion(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    const protocol::ProtocolRecord& result) {
+  try {
+    const auto& terminal = requiredRecord(result, 3U);
+    const auto& correlation = requiredRecord(terminal, 1U);
+    NSLog(
+        @"[UnifiedBleProtocolAppleExecution] late native completion quarantined nonce=%s",
+        requiredString(correlation, 3U).c_str());
+  } catch (const std::exception& error) {
+    logNativeFailure("late native completion quarantine", error);
+  }
+  static_cast<void>(state);
+}
+
+void releaseQueuedBinaryReferences(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    std::vector<BinaryReferenceList>& references,
+    const char* context) {
+  BinaryReferenceList failures;
+  for (const auto& recordReferences : references) {
+    const auto status = releaseBinaryReferences(state->runtime, recordReferences, context);
+    for (const auto& failure : status.failedReferences) {
+      static_cast<void>(appendAppleBinaryReference(failures, failure));
+    }
+  }
+  retainBinaryCleanupFailures(state, failures, context);
+  references.clear();
+}
+
+bool enqueueBoundedRecord(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    protocol::BoundedNativeEventBuffer& buffer,
+    std::vector<BinaryReferenceList>& references,
+    std::vector<std::uint8_t> bytes,
+    std::size_t maximumRecords,
+    std::size_t maximumBytes,
+    const char* context,
+    std::vector<std::optional<protocol::ProtocolRecord>>* terminalResults = nullptr,
+    std::optional<protocol::ProtocolRecord> terminalResult = std::nullopt,
+    std::vector<std::optional<protocol::ProtocolRecord>>* terminalConnectionCommands = nullptr,
+    std::optional<protocol::ProtocolRecord> terminalConnectionCommand = std::nullopt) {
+  if (!boundedBufferCanAdmit(buffer, bytes.size(), maximumRecords, maximumBytes)) {
+    const auto rejectedBinaryReferences = binaryReferencesFromEncodedRecord(bytes);
+    try {
+      const auto admitted = buffer.enqueue(std::move(bytes));
+      releaseAndLedgerBinaryReferences(state, rejectedBinaryReferences, context);
+      releaseQueuedBinaryReferences(state, references, context);
+      if (terminalResults != nullptr) terminalResults->clear();
+      if (terminalConnectionCommands != nullptr) terminalConnectionCommands->clear();
+      return admitted;
+    } catch (...) {
+      releaseAndLedgerBinaryReferences(state, rejectedBinaryReferences, context);
+      releaseQueuedBinaryReferences(state, references, context);
+      if (terminalResults != nullptr) terminalResults->clear();
+      if (terminalConnectionCommands != nullptr) terminalConnectionCommands->clear();
+      buffer.reset();
+      throw;
+    }
+  }
+
+  const auto binaryReferences = binaryReferencesFromEncodedRecord(bytes);
+  references.push_back(binaryReferences);
+  if (terminalResults != nullptr) terminalResults->push_back(std::move(terminalResult));
+  if (terminalConnectionCommands != nullptr) terminalConnectionCommands->push_back(std::move(terminalConnectionCommand));
+  try {
+    const auto admitted = buffer.enqueue(std::move(bytes));
+    if (!admitted) {
+      const auto rejectedBinaryReferences = std::move(references.back());
+      references.pop_back();
+      if (terminalResults != nullptr) terminalResults->pop_back();
+      if (terminalConnectionCommands != nullptr) terminalConnectionCommands->pop_back();
+      releaseAndLedgerBinaryReferences(state, rejectedBinaryReferences, context);
+      releaseQueuedBinaryReferences(state, references, context);
+      if (terminalResults != nullptr) terminalResults->clear();
+      if (terminalConnectionCommands != nullptr) terminalConnectionCommands->clear();
+    }
+    return admitted;
+  } catch (...) {
+    const auto rejectedBinaryReferences = std::move(references.back());
+    references.pop_back();
+    if (terminalResults != nullptr) terminalResults->pop_back();
+    if (terminalConnectionCommands != nullptr) terminalConnectionCommands->pop_back();
+    releaseAndLedgerBinaryReferences(state, rejectedBinaryReferences, context);
+    releaseQueuedBinaryReferences(state, references, context);
+    if (terminalResults != nullptr) terminalResults->clear();
+    if (terminalConnectionCommands != nullptr) terminalConnectionCommands->clear();
+    buffer.reset();
+    throw;
+  }
+}
+
+protocol::ProtocolRecord javaScriptEventBufferOverflow(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    const protocol::BoundedNativeEventBuffer::OverflowSnapshot& counters);
+
+bool scheduleJavaScriptEventDrain(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    std::uint64_t attachmentGeneration,
+    bool consumesClaimedDrainReservation);
+
+void connectionOwnershipAfterSettlement(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    const protocol::ProtocolRecord& command);
+
+/**
+ * A result is the only completion path for a JS command.  If its terminal cannot
+ * be admitted to the active sink, retaining a partially-live attachment would
+ * strand every pending JS command.  Close the whole attachment and return its
+ * radio resources to the process-owned retry/teardown path instead.
+ */
+void failAttachmentAfterTerminalAdmissionFailure(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    const char* context,
+    std::optional<std::uint64_t> expectedAttachmentGeneration = std::nullopt) noexcept {
+  try {
+    protocol::NativeAttachmentIdentity attachment;
+    bool releaseRadio = false;
+    {
+      std::scoped_lock lock(state->mutex);
+      if (
+          state->attachmentFatal ||
+          !state->attachmentActive ||
+          (expectedAttachmentGeneration.has_value() &&
+              state->attachmentGeneration != *expectedAttachmentGeneration)) {
+        return;
+      }
+      attachment = state->runtime->attachmentIdentity();
+      state->attachmentFatal = true;
+      state->attachmentActive = false;
+      state->ingressClosed = true;
+      if (state->attachmentGeneration != std::numeric_limits<std::uint64_t>::max()) {
+        state->attachmentGeneration += 1U;
+      }
+      releaseQueuedBinaryReferences(
+          state,
+          state->binaryReferencesAwaitingSink,
+          "Apple terminal-admission failure pre-JavaScript discard");
+      releaseQueuedBinaryReferences(
+          state,
+          state->binaryReferencesAwaitingJavaScript,
+          "Apple terminal-admission failure JavaScript discard");
+      state->terminalResultsAwaitingJavaScript.clear();
+      state->terminalConnectionCommandsAwaitingJavaScript.clear();
+      state->recordsAwaitingSink.reset();
+      state->recordsAwaitingJavaScript.reset();
+      state->drainScheduled = false;
+      state->connections.clear();
+      releaseRadio = state->radio != nullptr;
+    }
+    try {
+      // This clears every pending native operation as a single fatal attachment
+      // outcome; no later completion can settle an unreachable JS promise.
+      state->runtime->close(attachment);
+    } catch (const std::exception& error) {
+      logNativeFailure("Apple terminal-admission runtime close", error);
+    } catch (...) {
+      NSLog(@"[UnifiedBleProtocolAppleExecution] Apple terminal-admission runtime close failed with an unknown exception");
+    }
+    if (releaseRadio) {
+      @try {
+        [radioFor(state) releaseProtocolClientWithCompletion:^(NSError* error) {
+          if (error != nil) {
+            NSLog(@"[UnifiedBleProtocolAppleExecution] %s radio release failed: %@", context, error.localizedDescription);
+          }
+        }];
+      } @catch (NSException* exception) {
+        NSLog(@"[UnifiedBleProtocolAppleExecution] %s radio release raised: %@", context, exception.reason);
+      }
+    }
+    NSLog(@"[UnifiedBleProtocolAppleExecution] %s; attachment was fatally closed to avoid stranded terminal delivery", context);
+  } catch (const std::exception& error) {
+    logNativeFailure("Apple terminal-admission fatal attachment", error);
+  } catch (...) {
+    NSLog(@"[UnifiedBleProtocolAppleExecution] Apple terminal-admission fatal attachment failed with an unknown exception");
+  }
+}
+
+bool deliverEncodedRecordToJavaScript(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    jsi::Runtime& runtime,
+    const std::vector<std::uint8_t>& bytes,
+    std::uint64_t attachmentGeneration,
+    bool allowClosedIngress = false) {
+  std::scoped_lock lock(state->mutex);
+  if (
+      state->closed.load(std::memory_order_acquire) ||
+      !state->attachmentActive ||
+      state->attachmentGeneration != attachmentGeneration ||
+      !state->eventSink ||
+      (!allowClosedIngress && state->ingressClosed)) {
+    return false;
+  }
+  jsi::Uint8Array output(runtime, bytes.size());
+  const auto buffer = output.buffer(runtime);
+  auto* destination = buffer.data(runtime);
+  if (!bytes.empty() && destination == nullptr) {
+    throw jsi::JSError(runtime, "Apple native protocol could not allocate event bytes");
+  }
+  if (!bytes.empty()) {
+    std::memcpy(destination, bytes.data(), bytes.size());
+  }
+  state->eventSink->call(runtime, output);
+  return true;
+}
+
 bool scheduleRecord(
     const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
     std::vector<std::uint8_t> bytes,
-    std::uint64_t attachmentGeneration) {
-  std::shared_ptr<facebook::react::CallInvoker> invoker;
+    std::uint64_t attachmentGeneration,
+    std::optional<protocol::ProtocolRecord> terminalResult = std::nullopt,
+    std::optional<protocol::ProtocolRecord> terminalConnectionCommand = std::nullopt) {
+  bool scheduleDrain = false;
+  bool admitted = false;
   {
     std::scoped_lock lock(state->mutex);
     if (
@@ -196,48 +459,94 @@ bool scheduleRecord(
       return false;
     }
     if (!state->eventSink) {
-      const auto admitted = state->recordsAwaitingSink.enqueue(std::move(bytes));
+      if (terminalResult.has_value()) return false;
+      admitted = enqueueBoundedRecord(
+          state,
+          state->recordsAwaitingSink,
+          state->binaryReferencesAwaitingSink,
+          std::move(bytes),
+          AppleNativeProtocolExecution::State::kMaximumPreJavaScriptRecords,
+          AppleNativeProtocolExecution::State::kMaximumPreJavaScriptBytes,
+          "Apple pre-JavaScript event discard");
       if (!admitted) state->ingressClosed = true;
       return admitted;
     }
-    invoker = state->callInvoker;
+    admitted = enqueueBoundedRecord(
+        state,
+        state->recordsAwaitingJavaScript,
+        state->binaryReferencesAwaitingJavaScript,
+        std::move(bytes),
+        AppleNativeProtocolExecution::State::kMaximumJavaScriptRecords,
+        AppleNativeProtocolExecution::State::kMaximumJavaScriptBytes,
+        "Apple JavaScript event discard",
+        &state->terminalResultsAwaitingJavaScript,
+        std::move(terminalResult),
+        &state->terminalConnectionCommandsAwaitingJavaScript,
+        std::move(terminalConnectionCommand));
+    if (!admitted) {
+      state->ingressClosed = true;
+      return false;
+    }
+    if (state->callInvoker == nullptr) {
+      releaseQueuedBinaryReferences(
+          state,
+          state->binaryReferencesAwaitingJavaScript,
+          "Apple JavaScript event drain unavailable");
+      state->terminalResultsAwaitingJavaScript.clear();
+      state->terminalConnectionCommandsAwaitingJavaScript.clear();
+      state->recordsAwaitingJavaScript.reset();
+      state->ingressClosed = true;
+      return false;
+    }
+    // Claim the only drain slot while this record is admitted.  A concurrent
+    // terminal therefore queues behind this claimed invocation instead of
+    // attempting to schedule a second drain or treating the claim as failure.
+    if (!state->drainScheduled) {
+      state->drainScheduled = true;
+      scheduleDrain = true;
+    }
   }
-  if (!invoker) return false;
-  invoker->invokeAsync([state, bytes = std::move(bytes), attachmentGeneration](jsi::Runtime& runtime) {
-    std::scoped_lock lock(state->mutex);
-    if (
-        state->closed.load(std::memory_order_acquire) ||
-        !state->attachmentActive ||
-        state->ingressClosed ||
-        state->attachmentGeneration != attachmentGeneration ||
-        !state->eventSink) {
-      return;
-    }
-    jsi::Uint8Array output(runtime, bytes.size());
-    const auto buffer = output.buffer(runtime);
-    auto* destination = buffer.data(runtime);
-    if (!bytes.empty() && destination == nullptr) {
-      throw jsi::JSError(runtime, "Apple native protocol could not allocate event bytes");
-    }
-    if (!bytes.empty()) {
-      std::memcpy(destination, bytes.data(), bytes.size());
-    }
-    state->eventSink->call(runtime, output);
-  });
-  return true;
+  if (scheduleDrain && !scheduleJavaScriptEventDrain(state, attachmentGeneration, true)) return false;
+  return admitted;
 }
 
-bool deliverResult(
+struct NativeResultDeliveryStatus final {
+  bool settled = false;
+  bool delivered = false;
+};
+
+NativeResultDeliveryStatus deliverResult(
   const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
-  const protocol::ProtocolRecord& result) {
+  const protocol::ProtocolRecord& result,
+  const protocol::ProtocolRecord* connectionCommand = nullptr) {
+  const auto bytes = protocol::NativeProtocolV1Codec{}.encode(result);
   std::uint64_t attachmentGeneration = 0U;
+  bool ingressAvailable = false;
   {
     std::scoped_lock lock(state->mutex);
-    if (state->closed.load(std::memory_order_acquire) || !state->attachmentActive || state->ingressClosed) return false;
     attachmentGeneration = state->attachmentGeneration;
+    ingressAvailable = !state->closed.load(std::memory_order_acquire) &&
+        !state->attachmentFatal &&
+        state->attachmentActive &&
+        !state->ingressClosed &&
+        state->eventSink != nullptr &&
+        state->callInvoker != nullptr;
   }
-  if (!state->runtime->settleResult(result)) return false;
-  return scheduleRecord(state, protocol::NativeProtocolV1Codec{}.encode(result), attachmentGeneration);
+  if (!ingressAvailable || !scheduleRecord(
+      state,
+      bytes,
+      attachmentGeneration,
+      result,
+      connectionCommand == nullptr
+          ? std::nullopt
+          : std::optional<protocol::ProtocolRecord>(*connectionCommand))) {
+    failAttachmentAfterTerminalAdmissionFailure(
+        state,
+        "Apple native terminal could not be admitted to JavaScript",
+        attachmentGeneration);
+    return {};
+  }
+  return {.settled = false, .delivered = true};
 }
 
 bool deliverEvent(
@@ -258,17 +567,20 @@ bool deliverEvent(
   return scheduleRecord(state, protocol::NativeProtocolV1Codec{}.encode(event), attachmentGeneration);
 }
 
-protocol::ProtocolRecord preJavaScriptEventBufferOverflow(
+protocol::ProtocolRecord eventBufferOverflow(
     const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
-    const protocol::BoundedNativeEventBuffer::OverflowSnapshot& counters) {
-  if (state->nextIngressOrdinal == std::numeric_limits<std::uint64_t>::max()) {
+    const protocol::BoundedNativeEventBuffer::OverflowSnapshot& counters,
+    const char* description,
+    const char* streamName,
+    const char* eventPrefix) {
+  const auto reservation = reserveNativeIngressOrdinal(state, true);
+  if (!reservation.has_value()) {
     throw std::overflow_error(
-        "Apple native ingress ordinal exhausted before the pre-JavaScript overflow terminal");
+        "Apple native ingress ordinal unavailable before the event-buffer overflow terminal");
   }
-  const auto ordinal = state->nextIngressOrdinal;
-  state->nextIngressOrdinal += 1U;
+  const auto ordinal = reservation->ordinal;
   const auto safeMessage =
-      std::string("Native Protocol v1 pre-JavaScript event buffer overflowed after retaining ") +
+      std::string("Native Protocol v1 ") + description + " event buffer overflowed after retaining " +
       std::to_string(counters.retainedRecordCount) + " records and " +
       std::to_string(counters.retainedByteCount) + " bytes";
   const auto error = protocol::ProtocolRecord{
@@ -276,7 +588,7 @@ protocol::ProtocolRecord preJavaScriptEventBufferOverflow(
       .fields = {
           field(1U, std::string("stream.overflow")),
           field(2U, std::string("native-protocol")),
-          field(3U, std::string("pre-js-event-buffer")),
+          field(3U, std::string(streamName) + "-event-buffer"),
           field(4U, std::string("notRetryable")),
           field(7U, safeMessage),
           field(11U, protocol::ProtocolStringList{
@@ -292,7 +604,7 @@ protocol::ProtocolRecord preJavaScriptEventBufferOverflow(
       .kind = protocol::RecordKind::event,
       .fields = {
           field(1U, std::uint64_t{1U}),
-          field(2U, std::string("apple-pre-js-event-buffer-overflow:") + std::to_string(ordinal)),
+          field(2U, std::string(eventPrefix) + ":" + std::to_string(ordinal)),
           field(3U, std::string("diagnostic")),
           field(4U, reference(attachmentRecord(state->runtime->attachmentIdentity()))),
           field(5U, ordinal),
@@ -301,22 +613,327 @@ protocol::ProtocolRecord preJavaScriptEventBufferOverflow(
       }};
 }
 
+protocol::ProtocolRecord preJavaScriptEventBufferOverflow(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    const protocol::BoundedNativeEventBuffer::OverflowSnapshot& counters) {
+  return eventBufferOverflow(state, counters, "pre-JavaScript", "pre-js", "apple-pre-js-event-buffer-overflow");
+}
+
+protocol::ProtocolRecord javaScriptEventBufferOverflow(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    const protocol::BoundedNativeEventBuffer::OverflowSnapshot& counters) {
+  return eventBufferOverflow(state, counters, "JavaScript", "jsi", "apple-js-event-buffer-overflow");
+}
+
+bool scheduleJavaScriptEventDrain(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    std::uint64_t attachmentGeneration,
+    bool consumesClaimedDrainReservation) {
+  std::shared_ptr<facebook::react::CallInvoker> invoker;
+  std::uint64_t scheduledGeneration = 0U;
+  {
+    std::scoped_lock lock(state->mutex);
+    if (
+        state->closed.load(std::memory_order_acquire) ||
+        !state->attachmentActive ||
+        !state->eventSink ||
+        state->attachmentGeneration != attachmentGeneration ||
+        (consumesClaimedDrainReservation && !state->drainScheduled) ||
+        (!consumesClaimedDrainReservation && state->drainScheduled)) {
+      return false;
+    }
+    invoker = state->callInvoker;
+    if (!invoker) {
+      state->ingressClosed = true;
+      releaseQueuedBinaryReferences(
+          state,
+          state->binaryReferencesAwaitingJavaScript,
+          "Apple JavaScript event drain unavailable");
+      state->terminalResultsAwaitingJavaScript.clear();
+      state->terminalConnectionCommandsAwaitingJavaScript.clear();
+      state->recordsAwaitingJavaScript.reset();
+      return false;
+    }
+    scheduledGeneration = attachmentGeneration;
+    if (!consumesClaimedDrainReservation) {
+      state->drainScheduled = true;
+    }
+  }
+
+  try {
+    invoker->invokeAsync([state, scheduledGeneration](jsi::Runtime& runtime) {
+      std::vector<std::vector<std::uint8_t>> records;
+      std::vector<BinaryReferenceList> binaryReferences;
+      std::vector<std::optional<protocol::ProtocolRecord>> terminalResults;
+      std::vector<std::optional<protocol::ProtocolRecord>> terminalConnectionCommands;
+      std::optional<protocol::BoundedNativeEventBuffer::OverflowSnapshot> overflow;
+      std::optional<protocol::ProtocolRecord> overflowRecord;
+      std::uint64_t attachmentGeneration = 0U;
+      bool overflowAccountingUnavailable = false;
+      try {
+        std::scoped_lock lock(state->mutex);
+        if (state->attachmentGeneration != scheduledGeneration) {
+          return;
+        }
+        if (
+            state->closed.load(std::memory_order_acquire) ||
+            !state->attachmentActive ||
+            !state->eventSink) {
+          state->drainScheduled = false;
+          releaseQueuedBinaryReferences(
+              state,
+              state->binaryReferencesAwaitingJavaScript,
+              "Apple JavaScript event generation discard");
+          state->terminalResultsAwaitingJavaScript.clear();
+          state->terminalConnectionCommandsAwaitingJavaScript.clear();
+          state->recordsAwaitingJavaScript.reset();
+          return;
+        }
+        attachmentGeneration = scheduledGeneration;
+        if (state->recordsAwaitingJavaScript.overflowed()) {
+          overflow = state->recordsAwaitingJavaScript.overflowSnapshot();
+          if (!overflow.has_value()) {
+            state->drainScheduled = false;
+            state->ingressClosed = true;
+            releaseQueuedBinaryReferences(
+                state,
+                state->binaryReferencesAwaitingJavaScript,
+                "Apple JavaScript event overflow accounting discard");
+            state->terminalResultsAwaitingJavaScript.clear();
+            state->terminalConnectionCommandsAwaitingJavaScript.clear();
+            state->recordsAwaitingJavaScript.reset();
+            overflowAccountingUnavailable = true;
+          } else {
+            overflowRecord = javaScriptEventBufferOverflow(state, *overflow);
+            state->runtime->validateEvent(*overflowRecord);
+            releaseQueuedBinaryReferences(
+                state,
+                state->binaryReferencesAwaitingJavaScript,
+                "Apple JavaScript event overflow discard");
+            state->terminalResultsAwaitingJavaScript.clear();
+            state->terminalConnectionCommandsAwaitingJavaScript.clear();
+            state->recordsAwaitingJavaScript.reset();
+            state->ingressClosed = true;
+          }
+        } else {
+          records = state->recordsAwaitingJavaScript.drain();
+          binaryReferences.swap(state->binaryReferencesAwaitingJavaScript);
+          terminalResults.swap(state->terminalResultsAwaitingJavaScript);
+          terminalConnectionCommands.swap(state->terminalConnectionCommandsAwaitingJavaScript);
+        }
+      }
+      catch (const std::exception& error) {
+        logNativeFailure("JavaScript event drain preparation", error);
+        std::scoped_lock lock(state->mutex);
+        if (state->attachmentGeneration != scheduledGeneration) {
+          return;
+        }
+        state->ingressClosed = true;
+        state->drainScheduled = false;
+        releaseQueuedBinaryReferences(
+            state,
+            state->binaryReferencesAwaitingJavaScript,
+            "Apple JavaScript event drain preparation discard");
+        state->terminalResultsAwaitingJavaScript.clear();
+        state->terminalConnectionCommandsAwaitingJavaScript.clear();
+        state->recordsAwaitingJavaScript.reset();
+        failAttachmentAfterTerminalAdmissionFailure(
+            state,
+            "Apple JavaScript event drain preparation failed",
+            scheduledGeneration);
+        return;
+      }
+      catch (...) {
+        NSLog(@"[UnifiedBleProtocolAppleExecution] JavaScript event drain preparation failed with an unknown exception");
+        std::scoped_lock lock(state->mutex);
+        if (state->attachmentGeneration != scheduledGeneration) {
+          return;
+        }
+        state->ingressClosed = true;
+        state->drainScheduled = false;
+        releaseQueuedBinaryReferences(
+            state,
+            state->binaryReferencesAwaitingJavaScript,
+            "Apple JavaScript event drain preparation discard");
+        state->terminalResultsAwaitingJavaScript.clear();
+        state->terminalConnectionCommandsAwaitingJavaScript.clear();
+        state->recordsAwaitingJavaScript.reset();
+        failAttachmentAfterTerminalAdmissionFailure(
+            state,
+            "Apple JavaScript event drain preparation failed with an unknown exception",
+            scheduledGeneration);
+        return;
+      }
+
+      std::size_t delivered = 0U;
+      try {
+        if (overflowAccountingUnavailable) {
+          throw std::logic_error("Apple JavaScript event buffer overflow accounting is unavailable");
+        }
+        if (overflowRecord.has_value()) {
+          if (!deliverEncodedRecordToJavaScript(
+                  state,
+                  runtime,
+                  protocol::NativeProtocolV1Codec{}.encode(*overflowRecord),
+                  attachmentGeneration,
+                  true)) {
+            failAttachmentAfterTerminalAdmissionFailure(
+                state,
+                "Apple JavaScript overflow delivery failed after admission",
+                scheduledGeneration);
+            return;
+          }
+        } else {
+          if (
+              records.size() != binaryReferences.size() ||
+              records.size() != terminalResults.size() ||
+              records.size() != terminalConnectionCommands.size()) {
+            throw std::logic_error("Apple JavaScript event binary ownership ledger is out of sync");
+          }
+          for (std::size_t index = 0U; index < records.size(); index += 1U) {
+            if (!deliverEncodedRecordToJavaScript(
+                    state,
+                    runtime,
+                    records[index],
+                    attachmentGeneration)) {
+              break;
+            }
+            if (terminalResults[index].has_value()) {
+              if (!state->runtime->settleResult(*terminalResults[index])) {
+                quarantineLateCompletion(state, *terminalResults[index]);
+              } else if (terminalConnectionCommands[index].has_value()) {
+                connectionOwnershipAfterSettlement(state, *terminalConnectionCommands[index]);
+              }
+            }
+            delivered += 1U;
+          }
+        }
+      } catch (const std::exception& error) {
+        logNativeFailure("JavaScript event delivery", error);
+        std::scoped_lock lock(state->mutex);
+        state->ingressClosed = true;
+      } catch (...) {
+        NSLog(@"[UnifiedBleProtocolAppleExecution] JavaScript event delivery failed with an unknown exception");
+        std::scoped_lock lock(state->mutex);
+        state->ingressClosed = true;
+      }
+
+      if (!overflowRecord.has_value() && delivered < binaryReferences.size()) {
+        for (std::size_t index = delivered; index < binaryReferences.size(); index += 1U) {
+          releaseAndLedgerBinaryReferences(
+              state,
+              binaryReferences[index],
+              "Apple JavaScript event delivery discard");
+        }
+      }
+
+      if (!overflowRecord.has_value() && delivered < records.size()) {
+        failAttachmentAfterTerminalAdmissionFailure(
+            state,
+            "Apple JavaScript event sink delivery failed after admission",
+            scheduledGeneration);
+        return;
+      }
+
+      bool scheduleNext = false;
+      {
+        std::scoped_lock lock(state->mutex);
+        if (state->attachmentGeneration != scheduledGeneration) {
+          return;
+        }
+        if (
+            !state->ingressClosed &&
+            state->attachmentActive &&
+            state->eventSink &&
+            state->recordsAwaitingJavaScript.recordCount() > 0U) {
+          scheduleNext = true;
+        } else if (state->recordsAwaitingJavaScript.overflowed()) {
+          scheduleNext = true;
+        } else {
+          if (state->ingressClosed) {
+            releaseQueuedBinaryReferences(
+                state,
+                state->binaryReferencesAwaitingJavaScript,
+                "Apple closed JavaScript event queue discard");
+            state->terminalResultsAwaitingJavaScript.clear();
+            state->terminalConnectionCommandsAwaitingJavaScript.clear();
+            state->recordsAwaitingJavaScript.reset();
+          }
+          state->drainScheduled = false;
+        }
+      }
+      if (scheduleNext) {
+        if (!scheduleJavaScriptEventDrain(state, scheduledGeneration, true)) {
+          failAttachmentAfterTerminalAdmissionFailure(
+              state,
+              "Apple JavaScript event drain continuation scheduling failed",
+              scheduledGeneration);
+        }
+      }
+    });
+  } catch (const std::exception& error) {
+    logNativeFailure("JavaScript event drain scheduling", error);
+    std::scoped_lock lock(state->mutex);
+    if (state->attachmentGeneration != scheduledGeneration) {
+      return false;
+    }
+    state->ingressClosed = true;
+    state->drainScheduled = false;
+    releaseQueuedBinaryReferences(
+        state,
+        state->binaryReferencesAwaitingJavaScript,
+        "Apple JavaScript event drain scheduling discard");
+    state->terminalResultsAwaitingJavaScript.clear();
+    state->terminalConnectionCommandsAwaitingJavaScript.clear();
+    state->recordsAwaitingJavaScript.reset();
+    failAttachmentAfterTerminalAdmissionFailure(
+        state,
+        "Apple JavaScript event drain scheduling failed",
+        scheduledGeneration);
+    return false;
+  } catch (...) {
+    NSLog(@"[UnifiedBleProtocolAppleExecution] JavaScript event drain scheduling failed with an unknown exception");
+    std::scoped_lock lock(state->mutex);
+    if (state->attachmentGeneration != scheduledGeneration) {
+      return false;
+    }
+    state->ingressClosed = true;
+    state->drainScheduled = false;
+    releaseQueuedBinaryReferences(
+        state,
+        state->binaryReferencesAwaitingJavaScript,
+        "Apple JavaScript event drain scheduling discard");
+    state->terminalResultsAwaitingJavaScript.clear();
+    state->terminalConnectionCommandsAwaitingJavaScript.clear();
+    state->recordsAwaitingJavaScript.reset();
+    failAttachmentAfterTerminalAdmissionFailure(
+        state,
+        "Apple JavaScript event drain scheduling failed with an unknown exception",
+        scheduledGeneration);
+    return false;
+  }
+  return true;
+}
+
 protocol::ProtocolRecord failureResult(
     const protocol::ProtocolRecord& command,
     const std::string& code,
     const std::string& message,
-    NSError* error) {
+    NSError* error,
+    const std::string& retryability = "notRetryable",
+    const protocol::ProtocolStringList& metadata = {}) {
   std::vector<protocol::ProtocolField> errorFields{
       field(1U, code),
       field(2U, std::string("corebluetooth")),
       field(3U, requiredString(command, 3U)),
-      field(4U, std::string("notRetryable")),
+      field(4U, retryability),
       field(7U, message),
   };
   if (error != nil) {
     errorFields.push_back(field(9U, nsString(error.domain, "error domain")));
     errorFields.push_back(field(10U, static_cast<std::int64_t>(error.code)));
   }
+  if (!metadata.empty()) errorFields.push_back(field(11U, metadata));
   const auto failure = protocol::ProtocolRecord{.kind = protocol::RecordKind::error, .fields = std::move(errorFields)};
   return {
       .kind = protocol::RecordKind::result,
@@ -341,6 +958,20 @@ void fail(
   }
 }
 
+void connectionOwnershipAfterSettlement(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    const protocol::ProtocolRecord& command) {
+  const auto kind = requiredString(command, 3U);
+  if (kind != "connect" && kind != "disconnect") return;
+  const auto peer = requiredString(requiredRecord(command, 10U), 2U);
+  std::scoped_lock lock(state->mutex);
+  if (kind == "connect") {
+    state->connections.insert_or_assign(peer, requiredRecord(command, 10U));
+  } else {
+    state->connections.erase(peer);
+  }
+}
+
 bool success(
     const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
     const protocol::ProtocolRecord& command,
@@ -357,16 +988,11 @@ bool success(
     fields.push_back(field(7U, requiredString(command, 7U)));
   }
   fields.insert(fields.end(), additions.begin(), additions.end());
-  if (!deliverResult(state, {.kind = protocol::RecordKind::result, .fields = std::move(fields)})) return false;
-  if (kind == "connect") {
-    std::scoped_lock lock(state->mutex);
-    state->connections.insert_or_assign(requiredString(requiredRecord(command, 10U), 2U), requiredRecord(command, 10U));
-  }
-  if (kind == "disconnect") {
-    std::scoped_lock lock(state->mutex);
-    state->connections.erase(requiredString(requiredRecord(command, 10U), 2U));
-  }
-  return true;
+  const auto delivery = deliverResult(
+      state,
+      {.kind = protocol::RecordKind::result, .fields = std::move(fields)},
+      &command);
+  return delivery.delivered;
 }
 
 struct Endpoint {
@@ -467,6 +1093,7 @@ void dispatchCommand(
       try {
         std::vector<protocol::ProtocolRecordReference> services;
         std::vector<protocol::ProtocolRecordReference> characteristics;
+        std::vector<protocol::ProtocolRecordReference> descriptors;
         NSArray* nativeServices = snapshot[@"services"];
         for (NSDictionary* service in nativeServices) {
           const auto servicePath = protocol::ProtocolRecord{.kind = protocol::RecordKind::servicePath, .fields = {
@@ -483,10 +1110,16 @@ void dispatchCommand(
                 field(4U, [characteristic[@"writableWithoutResponse"] boolValue]),
                 field(5U, [characteristic[@"notifiable"] boolValue])}};
             characteristics.push_back(reference(characteristicSnapshot));
+            for (NSDictionary* descriptor in characteristic[@"descriptors"]) {
+              const auto descriptorPath = protocol::ProtocolRecord{.kind = protocol::RecordKind::descriptorPath, .fields = {
+                  field(1U, reference(characteristicPath)), field(2U, nsString(descriptor[@"uuid"], "descriptor UUID")),
+                  field(3U, std::to_string([descriptor[@"occurrence"] integerValue]))}};
+              descriptors.push_back(reference(descriptorPath));
+            }
           }
         }
         const auto databaseSnapshot = protocol::ProtocolRecord{.kind = protocol::RecordKind::databaseSnapshot, .fields = {
-            field(1U, reference(database)), field(2U, services), field(3U, characteristics), field(4U, protocol::ProtocolRecordList{})}};
+            field(1U, reference(database)), field(2U, services), field(3U, characteristics), field(4U, descriptors)}};
         success(state, command, {field(4U, reference(database)), field(12U, reference(databaseSnapshot))});
       } catch (const std::exception& error) {
         logNativeFailure("discovery snapshot serialization", error);
@@ -528,11 +1161,11 @@ void dispatchCommand(
         try {
           output = state->runtime->retainNativeBytes("apple-descriptor-read:" + nonce, bytesFromData(value));
           if (!success(state, command, {field(15U, reference(descriptorPath)), field(6U, reference(binaryReferenceRecord(*output)))})) {
-            releaseRetainedBinary(state->runtime, *output, "descriptor read binary release after non-delivery");
+            releaseAndLedgerBinaryReferences(state, BinaryReferenceList{*output}, "descriptor read binary release after non-delivery");
           }
         } catch (const std::exception& error) {
           logNativeFailure("descriptor read binary delivery", error);
-          if (output) releaseRetainedBinary(state->runtime, *output, "descriptor read binary release after delivery failure");
+          if (output) releaseAndLedgerBinaryReferences(state, BinaryReferenceList{*output}, "descriptor read binary release after delivery failure");
           fail(state, command, "readDescriptorBinaryDeliveryFailed", nil);
         }
       }];
@@ -561,11 +1194,11 @@ void dispatchCommand(
       try {
         output = state->runtime->retainNativeBytes("apple-read:" + nonce, bytesFromData(value));
         if (!success(state, command, {field(5U, reference(path)), field(6U, reference(binaryReferenceRecord(*output)))})) {
-          releaseRetainedBinary(state->runtime, *output, "read binary release after non-delivery");
+          releaseAndLedgerBinaryReferences(state, BinaryReferenceList{*output}, "read binary release after non-delivery");
         }
       } catch (const std::exception& error) {
         logNativeFailure("read binary delivery", error);
-        if (output) releaseRetainedBinary(state->runtime, *output, "read binary release after delivery failure");
+        if (output) releaseAndLedgerBinaryReferences(state, BinaryReferenceList{*output}, "read binary release after delivery failure");
         fail(state, command, "readBinaryDeliveryFailed", nil);
       }
     }];
@@ -643,16 +1276,25 @@ class BinaryRuntime final : public jsi::HostObject {
 
   static std::size_t sizeProperty(jsi::Runtime& runtime, const jsi::Object& object, const char* name) {
     const auto value = object.getProperty(runtime, name);
-    if (!value.isNumber() || value.asNumber() < 0.0 || std::floor(value.asNumber()) != value.asNumber()) {
+    if (!value.isNumber() || !std::isfinite(value.asNumber())) {
       throw jsi::JSError(runtime, std::string("Native Protocol v1 requires valid ") + name);
     }
-    return static_cast<std::size_t>(value.asNumber());
+    const auto checked = checkedAppleBinarySize(value.asNumber());
+    if (!checked.has_value()) {
+      throw jsi::JSError(runtime, std::string("Native Protocol v1 requires bounded safe integer ") + name);
+    }
+    return *checked;
   }
 
   static protocol::OwnedBinaryReference binaryReference(jsi::Runtime& runtime, const jsi::Value& value) {
     if (!value.isObject() || value.asObject(runtime).isArray(runtime)) throw jsi::JSError(runtime, "Native Protocol v1 requires a binary reference");
     const auto object = value.asObject(runtime);
-    return {.ownerToken = stringProperty(runtime, object, "ownerToken"), .operationCorrelation = stringProperty(runtime, object, "operationCorrelation"), .byteOffset = sizeProperty(runtime, object, "byteOffset"), .byteLength = sizeProperty(runtime, object, "byteLength"), .ownership = stringProperty(runtime, object, "ownership")};
+    const auto offset = sizeProperty(runtime, object, "byteOffset");
+    const auto length = sizeProperty(runtime, object, "byteLength");
+    if (!checkedAppleBinaryRange(offset, length)) {
+      throw jsi::JSError(runtime, "Native Protocol v1 binary reference range is invalid");
+    }
+    return {.ownerToken = stringProperty(runtime, object, "ownerToken"), .operationCorrelation = stringProperty(runtime, object, "operationCorrelation"), .byteOffset = offset, .byteLength = length, .ownership = stringProperty(runtime, object, "ownership")};
   }
 
   static std::vector<std::uint8_t> commandBytes(jsi::Runtime& runtime, const jsi::Value& value) {
@@ -708,6 +1350,12 @@ class BinaryRuntime final : public jsi::HostObject {
   jsi::Value submitFunction(jsi::Runtime& runtime, const jsi::PropNameID& name) {
     return jsi::Function::createFromHostFunction(runtime, name, 1U, [self = state_](jsi::Runtime& inner, const jsi::Value&, const jsi::Value* arguments, std::size_t count) {
       if (count != 1U || self->closed.load(std::memory_order_acquire)) throw jsi::JSError(inner, "Native Protocol v1 submit is unavailable");
+      {
+        std::scoped_lock lock(self->mutex);
+        if (!self->attachmentActive || self->attachmentFatal || self->ingressClosed || !self->eventSink || !self->callInvoker) {
+          throw jsi::JSError(inner, "Native Protocol v1 cannot dispatch a command before terminal delivery is admitted");
+        }
+      }
       const auto command = protocol::NativeProtocolV1Codec{}.decode(commandBytes(inner, arguments[0]));
       self->runtime->registerCommand(command, true);
       try {
@@ -726,9 +1374,10 @@ class BinaryRuntime final : public jsi::HostObject {
       if (self->closed.load(std::memory_order_acquire)) throw jsi::JSError(inner, "Native Protocol v1 runtime is closed");
       std::vector<std::shared_ptr<jsi::Function>> retiredSinks;
       std::vector<std::vector<std::uint8_t>> buffered;
-      {
+      std::vector<BinaryReferenceList> bufferedBinaryReferences;
+      try {
         std::scoped_lock lock(self->mutex);
-        if (self->closed.load(std::memory_order_acquire) || !self->attachmentActive) {
+        if (self->closed.load(std::memory_order_acquire) || self->attachmentFatal || !self->attachmentActive) {
           throw jsi::JSError(inner, "Native Protocol v1 runtime closed while installing its event sink");
         }
         if (self->eventSink) {
@@ -737,7 +1386,6 @@ class BinaryRuntime final : public jsi::HostObject {
         retiredSinks.swap(self->eventSinksAwaitingJavaScriptRelease);
         self->eventSink = std::make_shared<jsi::Function>(arguments[0].asObject(inner).asFunction(inner));
         if (self->recordsAwaitingSink.overflowed()) {
-          self->ingressClosed = true;
           const auto& overflowSnapshot = self->recordsAwaitingSink.overflowSnapshot();
           if (!overflowSnapshot.has_value()) {
             throw jsi::JSError(inner, "Native Protocol v1 overflow accounting is unavailable");
@@ -745,20 +1393,102 @@ class BinaryRuntime final : public jsi::HostObject {
           const auto overflow = preJavaScriptEventBufferOverflow(self, *overflowSnapshot);
           self->runtime->validateEvent(overflow);
           buffered.push_back(protocol::NativeProtocolV1Codec{}.encode(overflow));
+          bufferedBinaryReferences.emplace_back();
+          self->ingressClosed = true;
+          releaseQueuedBinaryReferences(
+              self,
+              self->binaryReferencesAwaitingSink,
+              "Apple pre-JavaScript overflow discard");
+          self->recordsAwaitingSink.reset();
         } else {
           buffered = self->recordsAwaitingSink.drain();
+          bufferedBinaryReferences.swap(self->binaryReferencesAwaitingSink);
+        }
+        if (buffered.size() != bufferedBinaryReferences.size()) {
+          throw std::logic_error("Apple pre-JavaScript event binary ownership ledger is out of sync");
         }
         const auto sink = self->eventSink;
-        for (const auto& bytes : buffered) {
-          jsi::Uint8Array output(inner, bytes.size());
-          const auto buffer = output.buffer(inner);
-          auto* destination = buffer.data(inner);
-          if (!bytes.empty() && destination == nullptr) {
-            throw jsi::JSError(inner, "Apple native protocol could not allocate buffered event bytes");
+        const auto sinkGeneration = self->attachmentGeneration;
+        for (std::size_t index = 0U; index < buffered.size(); index += 1U) {
+          if (
+              self->closed.load(std::memory_order_acquire) ||
+              !self->attachmentActive ||
+              self->attachmentGeneration != sinkGeneration ||
+              self->eventSink.get() != sink.get()) {
+            for (std::size_t remaining = index; remaining < bufferedBinaryReferences.size(); remaining += 1U) {
+              releaseAndLedgerBinaryReferences(
+                  self,
+                  bufferedBinaryReferences[remaining],
+                  "Apple stale pre-JavaScript sink delivery discard");
+            }
+            bufferedBinaryReferences.clear();
+            break;
           }
-          if (!bytes.empty()) std::memcpy(destination, bytes.data(), bytes.size());
-          sink->call(inner, output);
+          try {
+            jsi::Uint8Array output(inner, buffered[index].size());
+            const auto buffer = output.buffer(inner);
+            auto* destination = buffer.data(inner);
+            if (!buffered[index].empty() && destination == nullptr) {
+              throw jsi::JSError(inner, "Apple native protocol could not allocate buffered event bytes");
+            }
+            if (!buffered[index].empty()) std::memcpy(destination, buffered[index].data(), buffered[index].size());
+            sink->call(inner, output);
+          } catch (...) {
+            for (std::size_t remaining = index; remaining < bufferedBinaryReferences.size(); remaining += 1U) {
+              releaseAndLedgerBinaryReferences(
+                  self,
+                  bufferedBinaryReferences[remaining],
+                  "Apple pre-JavaScript sink delivery discard");
+            }
+            bufferedBinaryReferences.clear();
+            self->ingressClosed = true;
+            throw;
+          }
         }
+      } catch (const std::exception& error) {
+        logNativeFailure("Apple event sink installation", error);
+        std::scoped_lock lock(self->mutex);
+        self->ingressClosed = true;
+        for (const auto& recordReferences : bufferedBinaryReferences) {
+          releaseAndLedgerBinaryReferences(self, recordReferences, "Apple event sink installation discard");
+        }
+        bufferedBinaryReferences.clear();
+        releaseQueuedBinaryReferences(
+            self,
+            self->binaryReferencesAwaitingSink,
+            "Apple event sink installation discard");
+        releaseQueuedBinaryReferences(
+            self,
+            self->binaryReferencesAwaitingJavaScript,
+            "Apple event sink installation discard");
+        self->terminalResultsAwaitingJavaScript.clear();
+        self->terminalConnectionCommandsAwaitingJavaScript.clear();
+        self->recordsAwaitingSink.reset();
+        self->recordsAwaitingJavaScript.reset();
+        failAttachmentAfterTerminalAdmissionFailure(self, "Apple event sink installation failed");
+        throw;
+      } catch (...) {
+        NSLog(@"[UnifiedBleProtocolAppleExecution] Apple event sink installation failed with an unknown exception");
+        std::scoped_lock lock(self->mutex);
+        self->ingressClosed = true;
+        for (const auto& recordReferences : bufferedBinaryReferences) {
+          releaseAndLedgerBinaryReferences(self, recordReferences, "Apple event sink installation discard");
+        }
+        bufferedBinaryReferences.clear();
+        releaseQueuedBinaryReferences(
+            self,
+            self->binaryReferencesAwaitingSink,
+            "Apple event sink installation discard");
+        releaseQueuedBinaryReferences(
+            self,
+            self->binaryReferencesAwaitingJavaScript,
+            "Apple event sink installation discard");
+        self->terminalResultsAwaitingJavaScript.clear();
+        self->terminalConnectionCommandsAwaitingJavaScript.clear();
+        self->recordsAwaitingSink.reset();
+        self->recordsAwaitingJavaScript.reset();
+        failAttachmentAfterTerminalAdmissionFailure(self, "Apple event sink installation failed with an unknown exception");
+        throw;
       }
       return jsi::Value::undefined();
     });
@@ -795,23 +1525,15 @@ std::string nativeStringFromNSString(NSString* value, const char* name) {
 }
 
 std::optional<AppleNativeIngressReservation> reserveNativeIngressOrdinal(
-    const std::shared_ptr<AppleNativeProtocolExecution::State>& state) {
-  std::scoped_lock lock(state->mutex);
-  if (
-      state->closed.load(std::memory_order_acquire) ||
-      !state->attachmentActive ||
-      state->ingressClosed) {
-    return std::nullopt;
-  }
-  if (state->nextIngressOrdinal == std::numeric_limits<std::uint64_t>::max()) {
-    state->ingressClosed = true;
-    return std::nullopt;
-  }
-  const auto reservation = AppleNativeIngressReservation{
-      state->nextIngressOrdinal,
-      state->attachmentGeneration};
-  state->nextIngressOrdinal += 1U;
-  return reservation;
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    bool allowClosedIngress) {
+  return state->ingressOrdinalAllocator.reserve(
+      state->mutex,
+      state->closed,
+      state->attachmentActive,
+      state->ingressClosed,
+      state->attachmentGeneration,
+      allowClosedIngress);
 }
 
 bool deliverNativeEvent(
@@ -859,8 +1581,21 @@ void AppleNativeProtocolExecution::beginAttachment() {
   state_->attachmentGeneration += 1U;
   state_->attachmentActive = true;
   state_->ingressClosed = false;
-  state_->nextIngressOrdinal = 1U;
+  state_->attachmentFatal = false;
+  state_->ingressOrdinalAllocator.reset(state_->mutex);
+  releaseQueuedBinaryReferences(
+      state_,
+      state_->binaryReferencesAwaitingSink,
+      "Apple attachment replacement pre-JavaScript discard");
+  releaseQueuedBinaryReferences(
+      state_,
+      state_->binaryReferencesAwaitingJavaScript,
+      "Apple attachment replacement JavaScript discard");
+  state_->terminalResultsAwaitingJavaScript.clear();
+  state_->terminalConnectionCommandsAwaitingJavaScript.clear();
   state_->recordsAwaitingSink.reset();
+  state_->recordsAwaitingJavaScript.reset();
+  state_->drainScheduled = false;
 }
 
 void AppleNativeProtocolExecution::cancel(const protocol::NativeOperationIdentity& operation) {
@@ -868,9 +1603,28 @@ void AppleNativeProtocolExecution::cancel(const protocol::NativeOperationIdentit
   if (state->closed.load(std::memory_order_acquire)) return;
   const auto command = state->runtime->commandFor(operation.dispatchEpoch, operation.nonce);
   if (!command) return;
-  [radioFor(state) cancelOperation:[NSString stringWithUTF8String:operation.nonce.c_str()]];
-  const auto result = failureResult(*command, "cancelled", "Apple native operation was cancelled", nil);
-  deliverResult(state, result);
+  [radioFor(state) cancelOperation:[NSString stringWithUTF8String:operation.nonce.c_str()] completion:^(NSDictionary* cleanup) {
+    try {
+      const auto cleanupState = nsString(cleanup[@"state"], "cancellation cleanup state");
+      const auto cleanupFailures = [cleanup[@"failures"] isKindOfClass:[NSArray class]]
+          ? static_cast<NSArray*>(cleanup[@"failures"]).count
+          : 0U;
+      const auto retryability = cleanupState == "released" ? "callerDecides" : "retryable";
+      const auto result = failureResult(
+          *command,
+          "operation.aborted",
+          cleanupState == "released"
+              ? "Apple native operation was cancelled"
+              : "Apple native operation was cancelled; radio cleanup remains retryable",
+          nil,
+          retryability,
+          {"cleanupState=" + cleanupState, "cleanupFailureCount=" + std::to_string(cleanupFailures)});
+      static_cast<void>(deliverResult(state, result));
+    } catch (const std::exception& error) {
+      logNativeFailure("native cancellation settlement", error);
+      fail(state, *command, "operation.aborted", nil);
+    }
+  }];
 }
 
 void AppleNativeProtocolExecution::appendRestorationRecords(const protocol::NativeRestorationJournalAuthority& authority) {
@@ -909,11 +1663,24 @@ void AppleNativeProtocolExecution::rollbackRestorationBootstrap() noexcept {
   state_->restorationAppended = false;
   state_->attachmentActive = false;
   state_->ingressClosed = true;
+  state_->attachmentFatal = false;
   if (state_->attachmentGeneration != std::numeric_limits<std::uint64_t>::max()) {
     state_->attachmentGeneration += 1U;
   }
-  state_->nextIngressOrdinal = 1U;
+  state_->ingressOrdinalAllocator.reset(state_->mutex);
+  releaseQueuedBinaryReferences(
+      state_,
+      state_->binaryReferencesAwaitingSink,
+      "Apple restoration rollback pre-JavaScript discard");
+  releaseQueuedBinaryReferences(
+      state_,
+      state_->binaryReferencesAwaitingJavaScript,
+      "Apple restoration rollback JavaScript discard");
+  state_->terminalResultsAwaitingJavaScript.clear();
+  state_->terminalConnectionCommandsAwaitingJavaScript.clear();
   state_->recordsAwaitingSink.reset();
+  state_->recordsAwaitingJavaScript.reset();
+  state_->drainScheduled = false;
 }
 
 void AppleNativeProtocolExecution::detachAttachment() {
@@ -922,47 +1689,71 @@ void AppleNativeProtocolExecution::detachAttachment() {
   std::scoped_lock lock(state->mutex);
   state->attachmentActive = false;
   state->ingressClosed = true;
+  state->attachmentFatal = false;
   if (state->attachmentGeneration != std::numeric_limits<std::uint64_t>::max()) {
     state->attachmentGeneration += 1U;
   }
+  releaseQueuedBinaryReferences(
+      state,
+      state->binaryReferencesAwaitingSink,
+      "Apple attachment detach pre-JavaScript discard");
+  releaseQueuedBinaryReferences(
+      state,
+      state->binaryReferencesAwaitingJavaScript,
+      "Apple attachment detach JavaScript discard");
+  state->terminalResultsAwaitingJavaScript.clear();
+  state->terminalConnectionCommandsAwaitingJavaScript.clear();
+  retryBinaryCleanupLedger(state, "Apple attachment detach binary cleanup retry");
   state->recordsAwaitingSink.reset();
+  state->recordsAwaitingJavaScript.reset();
+  state->drainScheduled = false;
   if (state->eventSink) {
     state->eventSinksAwaitingJavaScriptRelease.push_back(std::move(state->eventSink));
   }
   state->connections.clear();
   state->restorationAppended = false;
-  state->nextIngressOrdinal = 1U;
+  state->ingressOrdinalAllocator.reset(state->mutex);
 }
 
 void AppleNativeProtocolExecution::receiveAdapterState(void* snapshot) {
   if (state_->closed.load(std::memory_order_acquire)) return;
   NSDictionary* value = (__bridge NSDictionary*)snapshot;
   if (![value isKindOfClass:[NSDictionary class]]) return;
-  @try {
-    const auto ingress = reserveNativeIngressOrdinal(state_);
-    if (!ingress.has_value()) return;
-    const auto ordinal = ingress->ordinal;
-    const auto availability = nsString(value[@"availability"], "adapter availability");
-    const auto authorization = nsString(value[@"authorization"], "adapter authorization");
-    const auto power = nsString(value[@"power"], "adapter power");
-    std::vector<protocol::ProtocolField> snapshotFields{
-        field(1U, availability), field(2U, authorization), field(3U, power)};
-    if ([value[@"safeReason"] isKindOfClass:[NSString class]]) {
-      snapshotFields.push_back(field(4U, nsString(value[@"safeReason"], "adapter reason")));
+  try {
+    @try {
+      const auto ingress = reserveNativeIngressOrdinal(state_);
+      if (!ingress.has_value()) return;
+      const auto ordinal = ingress->ordinal;
+      const auto availability = nsString(value[@"availability"], "adapter availability");
+      const auto authorization = nsString(value[@"authorization"], "adapter authorization");
+      const auto power = nsString(value[@"power"], "adapter power");
+      std::vector<protocol::ProtocolField> snapshotFields{
+          field(1U, availability), field(2U, authorization), field(3U, power)};
+      if ([value[@"safeReason"] isKindOfClass:[NSString class]]) {
+        snapshotFields.push_back(field(4U, nsString(value[@"safeReason"], "adapter reason")));
+      }
+      const auto stateSnapshot = protocol::ProtocolRecord{
+          .kind = protocol::RecordKind::adapterStateSnapshot, .fields = std::move(snapshotFields)};
+      const auto event = protocol::ProtocolRecord{
+          .kind = protocol::RecordKind::event,
+          .fields = {
+              field(1U, std::uint64_t{1U}),
+              field(2U, std::string("apple-adapter-state:") + std::to_string(ordinal)),
+              field(3U, std::string("adapterState")),
+              field(4U, reference(attachmentRecord(state_->runtime->attachmentIdentity()))),
+              field(5U, ordinal),
+              field(6U, monotonicMilliseconds()),
+              field(15U, reference(stateSnapshot))}};
+      static_cast<void>(deliverEvent(state_, event, ingress->attachmentGeneration));
+    } @catch (NSException* exception) {
+      NSLog(@"[UnifiedBleProtocolAppleExecution] receiveAdapterState Objective-C serialization failed: %@", exception.reason);
     }
-    const auto stateSnapshot = protocol::ProtocolRecord{
-        .kind = protocol::RecordKind::adapterStateSnapshot, .fields = std::move(snapshotFields)};
-    const auto event = protocol::ProtocolRecord{
-        .kind = protocol::RecordKind::event,
-        .fields = {
-            field(1U, std::uint64_t{1U}),
-            field(2U, std::string("apple-adapter-state:") + std::to_string(ordinal)),
-            field(3U, std::string("adapterState")),
-            field(4U, reference(attachmentRecord(state_->runtime->attachmentIdentity()))),
-            field(5U, ordinal), field(6U, monotonicMilliseconds()), field(15U, reference(stateSnapshot))}};
-    static_cast<void>(deliverEvent(state_, event, ingress->attachmentGeneration));
-  } @catch (NSException* exception) {
-    NSLog(@"[UnifiedBleProtocolAppleExecution] adapter-state serialization failed: %@", exception.reason);
+  } catch (const protocol::ProtocolException& error) {
+    logNativeFailure("receiveAdapterState protocol serialization", error);
+  } catch (const std::exception& error) {
+    logNativeFailure("receiveAdapterState C++ serialization", error);
+  } catch (...) {
+    NSLog(@"[UnifiedBleProtocolAppleExecution] receiveAdapterState serialization failed with an unknown C++ exception");
   }
 }
 
@@ -1027,16 +1818,12 @@ void AppleNativeProtocolExecution::receiveNotification(void* subscriptionIdentif
         field(10U, reference(requiredRecord(*command, 2U))), field(11U, subscriptionValue),
         field(13U, reference(binaryReferenceRecord(*output)))} };
     if (!deliverEvent(state_, event, ingress->attachmentGeneration)) {
-      static_cast<void>(state_->runtime->releaseBinary(*output));
+      releaseAndLedgerBinaryReferences(state_, BinaryReferenceList{*output}, "notification binary release after non-delivery");
     }
   } catch (const std::exception& error) {
     logNativeFailure("notification serialization", error);
     if (output) {
-      try {
-        static_cast<void>(state_->runtime->releaseBinary(*output));
-      } catch (const std::exception& releaseError) {
-        logNativeFailure("notification binary release", releaseError);
-      }
+      releaseAndLedgerBinaryReferences(state_, BinaryReferenceList{*output}, "notification binary release after delivery failure");
     }
   }
 }
@@ -1049,19 +1836,51 @@ void AppleNativeProtocolExecution::close() {
     std::scoped_lock lock(state->mutex);
     state->attachmentActive = false;
     state->ingressClosed = true;
+    state->attachmentFatal = true;
     if (state->attachmentGeneration != std::numeric_limits<std::uint64_t>::max()) {
       state->attachmentGeneration += 1U;
     }
+    releaseQueuedBinaryReferences(
+        state,
+        state->binaryReferencesAwaitingSink,
+        "Apple execution close pre-JavaScript discard");
+    releaseQueuedBinaryReferences(
+        state,
+        state->binaryReferencesAwaitingJavaScript,
+        "Apple execution close JavaScript discard");
+    state->terminalResultsAwaitingJavaScript.clear();
+    state->terminalConnectionCommandsAwaitingJavaScript.clear();
+    retryBinaryCleanupLedger(state, "Apple execution close binary cleanup retry");
     state->recordsAwaitingSink.reset();
+    state->recordsAwaitingJavaScript.reset();
+    state->drainScheduled = false;
     sinksToRelease->swap(state->eventSinksAwaitingJavaScriptRelease);
     if (state->eventSink) sinksToRelease->push_back(std::move(state->eventSink));
   }
   const auto invoker = state->callInvoker;
-  if (invoker) {
+  const auto retainUnreachableSinks = [&]() {
+    std::scoped_lock lock(state->mutex);
+    state->eventSinksAwaitingJavaScriptRelease.insert(
+        state->eventSinksAwaitingJavaScriptRelease.end(),
+        std::make_move_iterator(sinksToRelease->begin()),
+        std::make_move_iterator(sinksToRelease->end()));
+  };
+  if (!invoker) {
+    NSLog(@"[UnifiedBleProtocolAppleExecution] Apple execution close runtime-thread sink cleanup scheduling unavailable");
+    retainUnreachableSinks();
+    return;
+  }
+  try {
     invoker->invokeAsync([state, sinksToRelease](jsi::Runtime& runtime) {
       if (!runtime.global().getProperty(runtime, kRuntimeName).isUndefined()) runtime.global().deleteProperty(runtime, kRuntimeName);
       sinksToRelease->clear();
     });
+  } catch (const std::exception& error) {
+    logNativeFailure("Apple execution close runtime-thread sink cleanup scheduling", error);
+    retainUnreachableSinks();
+  } catch (...) {
+    NSLog(@"[UnifiedBleProtocolAppleExecution] Apple execution close runtime-thread sink cleanup scheduling failed with an unknown exception");
+    retainUnreachableSinks();
   }
 }
 

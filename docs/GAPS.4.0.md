@@ -14,11 +14,11 @@ This file tracks platform code, CI, package, lab, and live-radio evidence. It do
 
 The pre-4.0 source tree contains a transitional `BleManager`, `BlePort`, `PortBleManager`, Base64 bridge, byte convenience methods, static capability helpers, Noble-era code, and host examples. Any statement below about that source is current-state characterization and migration input. It is not proof that a clean-baseline 4.0 replacement exists.
 
-`unified-ble-manager@4.0.0-alpha.27` is the prepared Experimental package
+`unified-ble-manager@4.0.0-alpha.28` is the prepared Experimental package
 candidate, pending publication, and no current record in `evidence/v1/records/`
 binds that candidate artifact to a passed
 physical-radio backend scenario. The records below are historical L0 context and
-must not be read as Preview-or-higher evidence for the alpha.27 candidate.
+must not be read as Preview-or-higher evidence for the alpha.28 candidate.
 
 ## Proof levels
 
@@ -45,7 +45,7 @@ Deterministic fault injection must never be presented as live-radio proof.
 | Web Bluetooth | Browser build, TCK, declared live Chromium proof | Characterize chooser limitations without treating them as continuous scan |
 | BlueZ | Mock D-Bus TCK, system probe, live radio | Capture current owned BlueZ evidence; rebuild against contract v1 |
 | CoreBluetooth desktop | Native mock/TCK, Node and Electron ABI, live radio | Capture current owned CoreBluetooth evidence; rebuild against contract v1 |
-| WinRT | Mock TCK, native compile/Electron ABI, live radio | Compile/ABI proof is L2/L3 only; alpha.27 makes no Windows live-radio claim |
+| WinRT | Mock TCK, native compile/Electron ABI, live radio | Compile/ABI proof is L2/L3 only; alpha.28 makes no Windows live-radio claim |
 | Electron IPC | Versioned main/renderer handshake, bounded streams, reload/rebind scenarios | No renderer-owned radio or implicit legacy bridge |
 | Meta Quest | Not a 4.0 evidence target | Deferred to 4.1 with no 4.0 claim or gate |
 | nRF52840-based controllable physical fault-injection controller | Not a 4.0 delivery item | Explicit 4.1 feasibility, selection, procurement, and physical-radio decision |

@@ -1,6 +1,6 @@
 // plugin/src/withBLE.ts
 
-import { AndroidConfig, type ConfigPlugin, createRunOncePlugin, withInfoPlist } from '@expo/config-plugins'
+import { type ConfigPlugin, createRunOncePlugin, withInfoPlist } from '@expo/config-plugins'
 
 // Path is ../../package.json because this file is compiled to plugin/build/withBLE.js
 const pkg = require('../../package.json')
@@ -189,11 +189,6 @@ const withBLE: ConfigPlugin<UnifiedBlePluginOptions | void> = (config, props) =>
   })
 
   // Android
-  config = AndroidConfig.Permissions.withPermissions(config, [
-    'android.permission.BLUETOOTH',
-    'android.permission.BLUETOOTH_ADMIN',
-    'android.permission.BLUETOOTH_CONNECT' // since Android SDK 31
-  ])
   config = withBLEAndroidManifest(config, {
     isBackgroundEnabled: validatedProps.isBackgroundEnabled ?? false,
     neverForLocation: validatedProps.neverForLocation ?? false

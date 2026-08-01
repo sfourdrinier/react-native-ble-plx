@@ -1,6 +1,7 @@
 // android/src/main/jni/UnifiedBleProtocolJsiBinding.cpp
 
 #include "UnifiedBleProtocolRuntimeHandle.hpp"
+#include "../../../../native/protocol/include/AndroidJsiEventIngressLedger.hpp"
 
 #include <android/log.h>
 #include <fbjni/fbjni.h>
@@ -18,6 +19,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -35,37 +37,52 @@ constexpr const char* kRuntimeName = "__unifiedBleNativeProtocolV1";
 using RuntimeSchedule = std::function<void(std::function<void(jsi::Runtime&)>)>;
 
 struct JsiEventSinkState final {
+  static constexpr std::size_t kMaximumQueuedRecords = 64U;
+  static constexpr std::size_t kMaximumQueuedBytes = 256U * 1024U;
+  static constexpr std::size_t kMaximumBinaryCleanupReferences = 256U;
+
   JsiEventSinkState(
       std::weak_ptr<protocol::NativeProtocolControlRuntime> runtimeLeaseValue,
-      RuntimeSchedule scheduleValue)
-      : runtimeLease(std::move(runtimeLeaseValue)), schedule(std::move(scheduleValue)) {}
+      RuntimeSchedule scheduleValue,
+      jlong nativeHandleValue)
+      : runtimeLease(std::move(runtimeLeaseValue)),
+        schedule(std::move(scheduleValue)),
+        nativeHandle(nativeHandleValue) {}
 
   std::weak_ptr<protocol::NativeProtocolControlRuntime> runtimeLease;
   RuntimeSchedule schedule;
-  std::unique_ptr<jsi::Function> eventSink;
-  std::atomic<std::uint64_t> nextIngressOrdinal{1U};
+  jlong nativeHandle;
+  std::shared_ptr<jsi::Function> eventSink;
+  std::shared_ptr<jsi::Function> fatalSink;
+  std::mutex mutex;
+  protocol::AndroidJsiEventIngressLedger recordsAwaitingJavaScript{
+      kMaximumQueuedRecords,
+      kMaximumQueuedBytes};
+  std::optional<protocol::AndroidJsiEventIngressLedger::Entry> inFlight;
+  std::optional<protocol::AndroidJsiEventIngressLedger::OverflowSnapshot> overflow;
+  bool drainScheduled = false;
+  bool ingressClosed = false;
+  bool fatalRequested = false;
+  std::uint64_t generation = 1U;
+  protocol::AndroidIngressOrdinalAllocator ingressOrdinalAllocator{1U};
+  protocol::AndroidJsiBinaryCleanupLedger binaryCleanupLedger{
+      kMaximumBinaryCleanupReferences};
 };
 
 std::mutex eventSinkStatesMutex;
 std::unordered_map<jlong, std::weak_ptr<JsiEventSinkState>> eventSinkStates;
 
-void deliverEncodedRecord(const std::shared_ptr<JsiEventSinkState>& state, std::vector<std::uint8_t> bytes) {
-  state->schedule([state, bytes = std::move(bytes)](jsi::Runtime& runtime) {
-    if (!state->runtimeLease.lock() || !state->eventSink) {
-      return;
-    }
-    jsi::Uint8Array output(runtime, bytes.size());
-    auto buffer = output.buffer(runtime);
-    auto* data = buffer.data(runtime);
-    if (!bytes.empty() && data == nullptr) {
-      throw jsi::JSError(runtime, "Native Protocol v1 could not allocate event Uint8Array");
-    }
-    if (!bytes.empty()) {
-      std::memcpy(data, bytes.data(), bytes.size());
-    }
-    state->eventSink->call(runtime, output);
-  });
-}
+bool deliverEncodedRecord(
+    const std::shared_ptr<JsiEventSinkState>& state,
+    std::vector<std::uint8_t> bytes,
+    std::vector<protocol::OwnedBinaryReference> binaryReferences = {},
+    std::function<void()> delivered = {});
+
+void scheduleEventDrain(const std::shared_ptr<JsiEventSinkState>& state);
+void invalidateEventSinkState(const std::shared_ptr<JsiEventSinkState>& state);
+void requestFatalAttachment(
+    const std::shared_ptr<JsiEventSinkState>& state,
+    const std::string& reason);
 
 std::shared_ptr<JsiEventSinkState> eventSinkState(jlong nativeHandle) {
   std::scoped_lock lock(eventSinkStatesMutex);
@@ -74,6 +91,88 @@ std::shared_ptr<JsiEventSinkState> eventSinkState(jlong nativeHandle) {
     return nullptr;
   }
   return found->second.lock();
+}
+
+void retainBinaryCleanupReferences(
+    const std::shared_ptr<JsiEventSinkState>& state,
+    std::vector<protocol::OwnedBinaryReference> references) {
+  if (references.empty()) return;
+  bool admitted = false;
+  {
+    std::scoped_lock lock(state->mutex);
+    admitted = state->binaryCleanupLedger.retain(std::move(references));
+  }
+  if (!admitted) {
+    __android_log_print(
+        ANDROID_LOG_ERROR,
+        "UnifiedBleProtocol",
+        "Android JSI binary cleanup ledger exceeded %zu references; entering fatal teardown",
+        JsiEventSinkState::kMaximumBinaryCleanupReferences);
+    requestFatalAttachment(state, "Android JSI binary cleanup ledger overflowed");
+  }
+}
+
+void releaseBinaryReferences(
+    const std::shared_ptr<JsiEventSinkState>& state,
+    const std::shared_ptr<protocol::NativeProtocolControlRuntime>& runtime,
+    const std::vector<protocol::OwnedBinaryReference>& references) {
+  std::vector<protocol::OwnedBinaryReference> retry;
+  for (const auto& reference : references) {
+    if (!runtime) {
+      retry.push_back(reference);
+      continue;
+    }
+    try {
+      if (!runtime->releaseBinary(reference)) {
+        __android_log_print(
+            ANDROID_LOG_ERROR,
+            "UnifiedBleProtocol",
+            "Android JSI binary ledger found an already released reference owner=%s",
+            reference.ownerToken.c_str());
+      }
+    } catch (const std::exception& error) {
+      __android_log_print(
+          ANDROID_LOG_ERROR,
+          "UnifiedBleProtocol",
+            "Android JSI binary ledger release failed owner=%s: %s",
+            reference.ownerToken.c_str(),
+            error.what());
+        retry.push_back(reference);
+    }
+  }
+  retainBinaryCleanupReferences(state, std::move(retry));
+}
+
+void retryBinaryCleanupLedger(const std::shared_ptr<JsiEventSinkState>& state) {
+  std::vector<protocol::OwnedBinaryReference> pending;
+  {
+    std::scoped_lock lock(state->mutex);
+    pending = state->binaryCleanupLedger.takeAll();
+  }
+  releaseBinaryReferences(state, state->runtimeLease.lock(), pending);
+}
+
+std::vector<protocol::AndroidJsiEventIngressLedger::Entry> takeOwnedEntries(
+    const std::shared_ptr<JsiEventSinkState>& state) {
+  std::vector<protocol::AndroidJsiEventIngressLedger::Entry> entries;
+  std::scoped_lock lock(state->mutex);
+  entries = state->recordsAwaitingJavaScript.takeAll();
+  if (state->inFlight.has_value()) {
+    entries.push_back(std::move(*state->inFlight));
+    state->inFlight.reset();
+  }
+  return entries;
+}
+
+void releaseOwnedEntries(
+    const std::shared_ptr<JsiEventSinkState>& state,
+    const std::shared_ptr<protocol::NativeProtocolControlRuntime>& runtime,
+    std::vector<protocol::AndroidJsiEventIngressLedger::Entry> entries) {
+  for (const auto& entry : entries) releaseBinaryReferences(state, runtime, entry.binaryReferences);
+}
+
+std::uint64_t nextIngressOrdinal(const std::shared_ptr<JsiEventSinkState>& state) {
+  return state->ingressOrdinalAllocator.next();
 }
 
 std::shared_ptr<protocol::NativeProtocolControlRuntime> requireRuntime(
@@ -135,6 +234,16 @@ std::uint64_t requiredProtocolUnsigned(const protocol::ProtocolRecord& record, s
   return *value;
 }
 
+std::size_t requiredProtocolSize(const protocol::ProtocolRecord& record, std::uint16_t id) {
+  const auto value = requiredProtocolUnsigned(record, id);
+  if (value > std::numeric_limits<std::size_t>::max()) {
+    throw protocol::ProtocolException(
+        protocol::ProtocolFailure::invalidCorrelation,
+        "Native Protocol v1 size exceeds the Android addressable range");
+  }
+  return static_cast<std::size_t>(value);
+}
+
 protocol::ProtocolRecordReference protocolRecordReference(const protocol::ProtocolRecord& record) {
   return std::make_shared<protocol::ProtocolRecord>(record);
 }
@@ -165,6 +274,54 @@ protocol::ProtocolRecord binaryReferenceRecord(const protocol::OwnedBinaryRefere
   };
 }
 
+protocol::OwnedBinaryReference binaryReferenceFromRecord(const protocol::ProtocolRecord& record) {
+  if (record.kind != protocol::RecordKind::binaryReference) {
+    throw protocol::ProtocolException(
+        protocol::ProtocolFailure::invalidFieldType,
+        "Native Protocol v1 binary reference record has an invalid kind");
+  }
+  const auto byteOffset = requiredProtocolSize(record, 2U);
+  const auto byteLength = requiredProtocolSize(record, 3U);
+  if (byteOffset > protocol::kMaximumBinaryPayloadBytes ||
+      byteLength > protocol::kMaximumBinaryPayloadBytes - byteOffset) {
+    throw protocol::ProtocolException(
+        protocol::ProtocolFailure::payloadTooLarge,
+        "Native Protocol v1 binary reference range exceeds the payload limit");
+  }
+  return {
+      .ownerToken = requiredProtocolString(record, 1U),
+      .operationCorrelation = requiredProtocolString(record, 5U),
+      .byteOffset = byteOffset,
+      .byteLength = byteLength,
+      .ownership = requiredProtocolString(record, 4U),
+  };
+}
+
+void collectBinaryReferences(
+    const protocol::ProtocolRecord& record,
+    std::vector<protocol::OwnedBinaryReference>& references) {
+  if (record.kind == protocol::RecordKind::binaryReference) {
+    const auto reference = binaryReferenceFromRecord(record);
+    const auto duplicate = std::find_if(
+        references.begin(),
+        references.end(),
+        [&reference](const protocol::OwnedBinaryReference& existing) {
+          return existing.ownerToken == reference.ownerToken;
+        });
+    if (duplicate == references.end()) references.push_back(reference);
+    return;
+  }
+  for (const auto& field : record.fields) {
+    if (const auto* nested = std::get_if<protocol::ProtocolRecordReference>(&field.value); nested != nullptr && *nested) {
+      collectBinaryReferences(**nested, references);
+    } else if (const auto* list = std::get_if<protocol::ProtocolRecordList>(&field.value); list != nullptr) {
+      for (const auto& nested : *list) {
+        if (nested) collectBinaryReferences(*nested, references);
+      }
+    }
+  }
+}
+
 protocol::ProtocolRecord terminalRecord(
     const protocol::ProtocolRecord& correlation,
     const char* outcome,
@@ -177,6 +334,421 @@ protocol::ProtocolRecord terminalRecord(
     fields.push_back(protocolField(3U, *cause));
   }
   return {.kind = protocol::RecordKind::terminal, .fields = std::move(fields)};
+}
+
+std::uint64_t monotonicTimestampMilliseconds();
+
+protocol::ProtocolRecord androidEventBufferOverflow(
+    const std::shared_ptr<JsiEventSinkState>& state,
+    const protocol::AndroidJsiEventIngressLedger::OverflowSnapshot& counters,
+    const char* operation) {
+  const auto runtime = state->runtimeLease.lock();
+  if (!runtime) {
+    throw protocol::ProtocolException(
+        protocol::ProtocolFailure::alreadyTerminal,
+        "Android event buffer overflow could not be reported after runtime teardown");
+  }
+  const auto ordinal = nextIngressOrdinal(state);
+  if (ordinal == std::numeric_limits<std::uint64_t>::max()) {
+    throw std::overflow_error("Android native event-buffer ordinal exhausted");
+  }
+  const auto safeMessage =
+      std::string("Native Protocol v1 Android event buffer overflowed after retaining ") +
+      std::to_string(counters.retainedRecordCount) + " records and " +
+      std::to_string(counters.retainedByteCount) + " bytes";
+  const auto error = protocol::ProtocolRecord{
+      .kind = protocol::RecordKind::error,
+      .fields = {
+          protocolField(1U, std::string("stream.overflow")),
+          protocolField(2U, std::string("native-protocol")),
+          protocolField(3U, std::string(operation)),
+          protocolField(4U, std::string("notRetryable")),
+          protocolField(7U, safeMessage),
+          protocolField(11U, protocol::ProtocolStringList{
+              "retainedRecordCount=" + std::to_string(counters.retainedRecordCount),
+              "retainedByteCount=" + std::to_string(counters.retainedByteCount),
+              "rejectedRecordByteCount=" + std::to_string(counters.rejectedRecordByteCount),
+              "droppedRecordCount=" + std::to_string(counters.droppedRecordCount),
+              "droppedByteCount=" + std::to_string(counters.droppedByteCount),
+              "overflowCount=" + std::to_string(counters.overflowCount),
+          }),
+      }};
+  return {
+      .kind = protocol::RecordKind::event,
+      .fields = {
+          protocolField(1U, std::uint64_t{1U}),
+          protocolField(2U, std::string("android-jsi-event-buffer-overflow:") + std::to_string(ordinal)),
+          protocolField(3U, std::string("diagnostic")),
+          protocolField(4U, protocolRecordReference(attachmentRecord(runtime->attachmentIdentity()))),
+          protocolField(5U, ordinal),
+          protocolField(6U, monotonicTimestampMilliseconds()),
+          protocolField(14U, protocolRecordReference(error)),
+      },
+  };
+}
+
+void deliverRecordToJavaScript(
+    const std::shared_ptr<JsiEventSinkState>& state,
+    jsi::Runtime& runtime,
+    const std::vector<std::uint8_t>& bytes,
+    std::uint64_t expectedGeneration,
+    bool allowClosedIngress = false) {
+  std::shared_ptr<jsi::Function> eventSink;
+  {
+    std::scoped_lock lock(state->mutex);
+    if (!state->runtimeLease.lock() || state->generation != expectedGeneration ||
+        (!allowClosedIngress && state->ingressClosed) || !state->eventSink) {
+      throw jsi::JSError(runtime, "Native Protocol v1 Android event sink is unavailable");
+    }
+    eventSink = state->eventSink;
+  }
+  jsi::Uint8Array output(runtime, bytes.size());
+  auto buffer = output.buffer(runtime);
+  auto* data = buffer.data(runtime);
+  if (!bytes.empty() && data == nullptr) {
+    throw jsi::JSError(runtime, "Native Protocol v1 could not allocate event Uint8Array");
+  }
+  if (!bytes.empty()) {
+    std::memcpy(data, bytes.data(), bytes.size());
+  }
+  {
+    std::scoped_lock lock(state->mutex);
+    if (!state->runtimeLease.lock() || state->generation != expectedGeneration ||
+        (!allowClosedIngress && state->ingressClosed) || state->eventSink != eventSink) {
+      throw jsi::JSError(runtime, "Native Protocol v1 Android event sink was invalidated during delivery");
+    }
+  }
+  eventSink->call(runtime, output);
+}
+
+void scheduleEventDrain(const std::shared_ptr<JsiEventSinkState>& state) {
+  bool shouldSchedule = false;
+  {
+    std::scoped_lock lock(state->mutex);
+    if (!state->eventSink || state->drainScheduled) {
+      return;
+    }
+    state->drainScheduled = true;
+    shouldSchedule = true;
+  }
+  if (!shouldSchedule) {
+    return;
+  }
+  try {
+    std::uint64_t scheduledGeneration;
+    {
+      std::scoped_lock lock(state->mutex);
+      scheduledGeneration = state->generation;
+    }
+    state->schedule([state, scheduledGeneration](jsi::Runtime& runtime) {
+      std::vector<std::uint8_t> bytesToDeliver;
+      bool hasRecord = false;
+      std::function<void()> delivered;
+      std::optional<protocol::AndroidJsiEventIngressLedger::OverflowSnapshot> overflow;
+      std::vector<protocol::AndroidJsiEventIngressLedger::Entry> discarded;
+      {
+        std::scoped_lock lock(state->mutex);
+        if (state->generation != scheduledGeneration || !state->runtimeLease.lock()) {
+          state->drainScheduled = false;
+          return;
+        }
+        if (state->overflow.has_value()) {
+          overflow = state->overflow;
+          state->overflow.reset();
+          discarded = state->recordsAwaitingJavaScript.takeAll();
+          state->ingressClosed = true;
+        } else if (state->eventSink && !state->ingressClosed) {
+          auto next = state->recordsAwaitingJavaScript.takeNext();
+          if (next.has_value()) {
+            state->inFlight = std::move(*next);
+            bytesToDeliver = state->inFlight->bytes;
+            hasRecord = true;
+          }
+        } else {
+          state->drainScheduled = false;
+          return;
+        }
+      }
+      try {
+        if (overflow.has_value()) {
+          const auto activeRuntime = state->runtimeLease.lock();
+          releaseOwnedEntries(state, activeRuntime, std::move(discarded));
+          const auto overflowRecord = androidEventBufferOverflow(
+              state,
+              *overflow,
+              "android-jsi-event-buffer");
+          deliverRecordToJavaScript(
+              state,
+              runtime,
+              protocol::NativeProtocolV1Codec{}.encode(overflowRecord),
+              scheduledGeneration,
+              true);
+        } else if (hasRecord) {
+          deliverRecordToJavaScript(state, runtime, bytesToDeliver, scheduledGeneration);
+          {
+            std::scoped_lock lock(state->mutex);
+            if (state->generation == scheduledGeneration && state->inFlight.has_value()) {
+              delivered = std::move(state->inFlight->delivered);
+              state->inFlight.reset();
+            }
+          }
+          if (delivered) delivered();
+        }
+      } catch (const std::exception& error) {
+        __android_log_print(
+            ANDROID_LOG_ERROR,
+            "UnifiedBleProtocol",
+            "Android JSI event delivery failed: %s",
+            error.what());
+        const auto activeRuntime = state->runtimeLease.lock();
+        std::vector<protocol::AndroidJsiEventIngressLedger::Entry> failedEntries;
+        {
+          std::scoped_lock lock(state->mutex);
+          state->ingressClosed = true;
+          state->generation += 1U;
+          failedEntries = state->recordsAwaitingJavaScript.takeAll();
+          if (state->inFlight.has_value()) {
+            failedEntries.push_back(std::move(*state->inFlight));
+            state->inFlight.reset();
+          }
+        }
+        releaseOwnedEntries(state, activeRuntime, std::move(failedEntries));
+        requestFatalAttachment(state, std::string("Android JSI event delivery failed: ") + error.what());
+      } catch (...) {
+        __android_log_print(
+            ANDROID_LOG_ERROR,
+            "UnifiedBleProtocol",
+            "Android JSI event delivery failed with an unknown exception");
+        const auto activeRuntime = state->runtimeLease.lock();
+        auto failedEntries = takeOwnedEntries(state);
+        {
+          std::scoped_lock lock(state->mutex);
+          state->ingressClosed = true;
+          state->generation += 1U;
+        }
+        releaseOwnedEntries(state, activeRuntime, std::move(failedEntries));
+        requestFatalAttachment(state, "Android JSI event delivery failed with an unknown exception");
+      }
+      bool scheduleNext = false;
+      {
+        std::scoped_lock lock(state->mutex);
+        if (!state->ingressClosed && state->eventSink && state->recordsAwaitingJavaScript.recordCount() > 0U) {
+          scheduleNext = true;
+        } else if (state->overflow.has_value() && state->eventSink) {
+          scheduleNext = true;
+        } else {
+          state->drainScheduled = false;
+        }
+      }
+      if (scheduleNext) {
+        {
+          std::scoped_lock lock(state->mutex);
+          state->drainScheduled = false;
+        }
+        scheduleEventDrain(state);
+      }
+    });
+  } catch (const std::exception& error) {
+    __android_log_print(
+        ANDROID_LOG_ERROR,
+        "UnifiedBleProtocol",
+        "Android JSI event drain scheduling failed: %s",
+        error.what());
+    const auto activeRuntime = state->runtimeLease.lock();
+    auto failedEntries = takeOwnedEntries(state);
+    {
+      std::scoped_lock lock(state->mutex);
+      state->ingressClosed = true;
+      state->generation += 1U;
+      state->drainScheduled = false;
+    }
+    releaseOwnedEntries(state, activeRuntime, std::move(failedEntries));
+    requestFatalAttachment(state, std::string("Android JSI event drain scheduling failed: ") + error.what());
+  } catch (...) {
+    __android_log_print(
+        ANDROID_LOG_ERROR,
+        "UnifiedBleProtocol",
+        "Android JSI event drain scheduling failed with an unknown exception");
+    const auto activeRuntime = state->runtimeLease.lock();
+    auto failedEntries = takeOwnedEntries(state);
+    {
+      std::scoped_lock lock(state->mutex);
+      state->ingressClosed = true;
+      state->generation += 1U;
+      state->drainScheduled = false;
+    }
+    releaseOwnedEntries(state, activeRuntime, std::move(failedEntries));
+    requestFatalAttachment(state, "Android JSI event drain scheduling failed with an unknown exception");
+  }
+}
+
+void invalidateEventSinkState(const std::shared_ptr<JsiEventSinkState>& state) {
+  const auto activeRuntime = state->runtimeLease.lock();
+  std::vector<protocol::AndroidJsiEventIngressLedger::Entry> entries;
+  {
+    std::scoped_lock lock(state->mutex);
+    state->ingressClosed = true;
+    state->generation += 1U;
+    state->drainScheduled = false;
+    state->overflow.reset();
+    entries = state->recordsAwaitingJavaScript.takeAll();
+    if (state->inFlight.has_value()) {
+      entries.push_back(std::move(*state->inFlight));
+      state->inFlight.reset();
+    }
+  }
+  releaseOwnedEntries(state, activeRuntime, std::move(entries));
+  retryBinaryCleanupLedger(state);
+  try {
+    state->schedule([state](jsi::Runtime& runtime) {
+      std::scoped_lock lock(state->mutex);
+      state->eventSink.reset();
+      state->fatalSink.reset();
+      runtime.global().setProperty(runtime, kRuntimeName, jsi::Value::undefined());
+    });
+  } catch (const std::exception& error) {
+    __android_log_print(
+        ANDROID_LOG_ERROR,
+        "UnifiedBleProtocol",
+        "Android JSI sink teardown scheduling failed: %s",
+        error.what());
+    // Keep the JSI function retained. The HostObject owns the state and will
+    // release it on the JS runtime thread after a failed executor schedule.
+  } catch (...) {
+    __android_log_print(
+        ANDROID_LOG_ERROR,
+        "UnifiedBleProtocol",
+        "Android JSI sink teardown scheduling failed with an unknown exception");
+    // Keep the JSI function retained for JS-thread destruction; it must never
+    // be destroyed on this native caller thread.
+  }
+}
+
+void closeAndroidResourcesAfterFatal(
+    const std::shared_ptr<JsiEventSinkState>& state,
+    const std::string& reason) {
+  __android_log_print(
+      ANDROID_LOG_ERROR,
+      "UnifiedBleProtocol",
+      "Android JSI attachment fatal teardown: %s",
+      reason.c_str());
+  auto* environment = jni::Environment::current();
+  const auto binding = environment->FindClass(
+      "com/sfourdrinier/unifiedblemanager/protocol/UnifiedBleProtocolJsiBinding");
+  if (binding != nullptr) {
+    const auto close = environment->GetStaticMethodID(binding, "close", "(J)V");
+    if (close != nullptr) {
+      environment->CallStaticVoidMethod(binding, close, state->nativeHandle);
+    }
+    environment->DeleteLocalRef(binding);
+    if (environment->ExceptionCheck()) environment->ExceptionClear();
+  }
+  const auto activeRuntime = state->runtimeLease.lock();
+  if (activeRuntime && activeRuntime->open()) {
+    try {
+      activeRuntime->close(activeRuntime->attachmentIdentity());
+    } catch (const std::exception& error) {
+      __android_log_print(
+          ANDROID_LOG_ERROR,
+          "UnifiedBleProtocol",
+          "Android JSI fatal native-runtime teardown failed: %s",
+          error.what());
+    }
+  }
+}
+
+void requestFatalAttachment(
+    const std::shared_ptr<JsiEventSinkState>& state,
+    const std::string& reason) {
+  std::vector<protocol::AndroidJsiEventIngressLedger::Entry> entries;
+  {
+    std::scoped_lock lock(state->mutex);
+    if (state->fatalRequested) return;
+    state->fatalRequested = true;
+    state->ingressClosed = true;
+    state->generation += 1U;
+    state->drainScheduled = false;
+    state->overflow.reset();
+    entries = state->recordsAwaitingJavaScript.takeAll();
+    if (state->inFlight.has_value()) {
+      entries.push_back(std::move(*state->inFlight));
+      state->inFlight.reset();
+    }
+  }
+  releaseOwnedEntries(state, state->runtimeLease.lock(), std::move(entries));
+  retryBinaryCleanupLedger(state);
+  try {
+    state->schedule([state, reason](jsi::Runtime& runtime) {
+      std::shared_ptr<jsi::Function> fatalSink;
+      {
+        std::scoped_lock lock(state->mutex);
+        fatalSink = state->fatalSink;
+      }
+      if (!fatalSink) {
+        closeAndroidResourcesAfterFatal(state, reason);
+        return;
+      }
+      try {
+        fatalSink->call(runtime, jsi::String::createFromUtf8(runtime, reason));
+      } catch (const std::exception& error) {
+        closeAndroidResourcesAfterFatal(
+            state,
+            reason + "; JavaScript fatal callback failed: " + error.what());
+      } catch (...) {
+        closeAndroidResourcesAfterFatal(
+            state,
+            reason + "; JavaScript fatal callback failed with an unknown exception");
+      }
+    });
+  } catch (const std::exception& error) {
+    closeAndroidResourcesAfterFatal(
+        state,
+        reason + "; fatal callback scheduling failed: " + error.what());
+  } catch (...) {
+    closeAndroidResourcesAfterFatal(
+        state,
+        reason + "; fatal callback scheduling failed with an unknown exception");
+  }
+}
+
+bool deliverEncodedRecord(
+    const std::shared_ptr<JsiEventSinkState>& state,
+    std::vector<std::uint8_t> bytes,
+    std::vector<protocol::OwnedBinaryReference> binaryReferences,
+    std::function<void()> delivered) {
+  bool admitted = false;
+  std::vector<protocol::AndroidJsiEventIngressLedger::Entry> rejected;
+  std::optional<protocol::AndroidJsiEventIngressLedger::OverflowSnapshot> overflow;
+  {
+    std::scoped_lock lock(state->mutex);
+    if (state->ingressClosed || !state->runtimeLease.lock()) {
+      rejected.push_back({std::move(bytes), std::move(binaryReferences), state->generation});
+    } else {
+      admitted = state->recordsAwaitingJavaScript.enqueue({
+          std::move(bytes),
+          std::move(binaryReferences),
+          state->generation,
+          std::move(delivered)});
+      if (!admitted) {
+        overflow = state->recordsAwaitingJavaScript.overflowSnapshot();
+        state->overflow = overflow;
+        rejected = state->recordsAwaitingJavaScript.takeAll();
+        state->ingressClosed = true;
+      }
+    }
+    if (!admitted && rejected.empty() && state->ingressClosed) {
+      // The entry was rejected by a closed ingress and was built under the lock above.
+      return false;
+    }
+  }
+  releaseOwnedEntries(state, state->runtimeLease.lock(), std::move(rejected));
+  if (!admitted && overflow.has_value()) scheduleEventDrain(state);
+  if (!admitted && !overflow.has_value()) {
+    requestFatalAttachment(state, "Android JSI record admission was rejected after ingress closure");
+  }
+  if (!admitted) return false;
+  scheduleEventDrain(state);
+  return admitted;
 }
 
 std::string nativeBinaryCorrelation(
@@ -399,7 +971,9 @@ std::size_t requiredSizeProperty(
     throw jsi::JSError(runtime, std::string("Native Protocol v1 requires numeric field: ") + propertyName);
   }
   const auto number = value.asNumber();
-  if (number < 0.0 || number > static_cast<double>(std::numeric_limits<std::size_t>::max()) ||
+  constexpr double maximumSafeInteger = 9007199254740991.0;
+  if (!std::isfinite(number) || number < 0.0 || number > maximumSafeInteger ||
+      number > static_cast<double>(protocol::kMaximumBinaryPayloadBytes) ||
       number != std::trunc(number)) {
     throw jsi::JSError(runtime, std::string("Native Protocol v1 rejects numeric field: ") + propertyName);
   }
@@ -411,11 +985,17 @@ protocol::OwnedBinaryReference binaryReferenceFromObject(jsi::Runtime& runtime, 
     throw jsi::JSError(runtime, "Native Protocol v1 requires a binary reference object");
   }
   const auto record = value.asObject(runtime);
+  const auto byteOffset = requiredSizeProperty(runtime, record, "byteOffset");
+  const auto byteLength = requiredSizeProperty(runtime, record, "byteLength");
+  if (byteOffset > protocol::kMaximumBinaryPayloadBytes ||
+      byteLength > protocol::kMaximumBinaryPayloadBytes - byteOffset) {
+    throw jsi::JSError(runtime, "Native Protocol v1 binary reference range is invalid");
+  }
   return {
       .ownerToken = requiredStringProperty(runtime, record, "ownerToken"),
       .operationCorrelation = requiredStringProperty(runtime, record, "operationCorrelation"),
-      .byteOffset = requiredSizeProperty(runtime, record, "byteOffset"),
-      .byteLength = requiredSizeProperty(runtime, record, "byteLength"),
+      .byteOffset = byteOffset,
+      .byteLength = byteLength,
       .ownership = requiredStringProperty(runtime, record, "ownership"),
   };
 }
@@ -577,8 +1157,65 @@ class NativeProtocolBinaryRuntime final : public jsi::HostObject {
               throw jsi::JSError(innerRuntime, "Native Protocol v1 setEventSink requires one function");
             }
             static_cast<void>(requireRuntime(innerRuntime, runtimeLease));
-            eventSinkState->eventSink = std::make_unique<jsi::Function>(arguments[0].asObject(innerRuntime).asFunction(innerRuntime));
+            std::optional<protocol::AndroidJsiEventIngressLedger::OverflowSnapshot> preSinkOverflow;
+            std::vector<protocol::AndroidJsiEventIngressLedger::Entry> discarded;
+            std::uint64_t sinkGeneration;
+            {
+              std::scoped_lock lock(eventSinkState->mutex);
+              eventSinkState->eventSink = std::make_shared<jsi::Function>(
+                  arguments[0].asObject(innerRuntime).asFunction(innerRuntime));
+              if (eventSinkState->overflow.has_value()) {
+                preSinkOverflow = eventSinkState->overflow;
+                eventSinkState->overflow.reset();
+                discarded = eventSinkState->recordsAwaitingJavaScript.takeAll();
+              }
+              sinkGeneration = eventSinkState->generation;
+            }
+            if (preSinkOverflow.has_value()) {
+              try {
+                releaseOwnedEntries(eventSinkState, eventSinkState->runtimeLease.lock(), std::move(discarded));
+                const auto overflowRecord = androidEventBufferOverflow(
+                    eventSinkState,
+                    *preSinkOverflow,
+                    "pre-js-event-buffer");
+                deliverRecordToJavaScript(
+                    eventSinkState,
+                    innerRuntime,
+                    protocol::NativeProtocolV1Codec{}.encode(overflowRecord),
+                    sinkGeneration,
+                    true);
+              } catch (...) {
+                invalidateEventSinkState(eventSinkState);
+                throw;
+              }
+              return jsi::Value::undefined();
+            }
             requestCurrentAdapterStateFromAndroid(innerRuntime, nativeHandle);
+            scheduleEventDrain(eventSinkState);
+            return jsi::Value::undefined();
+          });
+    }
+    if (propertyName == "setFatalSink") {
+      return jsi::Function::createFromHostFunction(
+          runtime,
+          name,
+          1U,
+          [runtimeLease = runtimeLease_, eventSinkState = eventSinkState_](
+              jsi::Runtime& innerRuntime,
+              const jsi::Value&,
+              const jsi::Value* arguments,
+              std::size_t count) {
+            if (count != 1U || !arguments[0].isObject() ||
+                !arguments[0].asObject(innerRuntime).isFunction(innerRuntime)) {
+              throw jsi::JSError(innerRuntime, "Native Protocol v1 setFatalSink requires one function");
+            }
+            static_cast<void>(requireRuntime(innerRuntime, runtimeLease));
+            std::scoped_lock lock(eventSinkState->mutex);
+            if (eventSinkState->fatalRequested) {
+              throw jsi::JSError(innerRuntime, "Native Protocol v1 attachment is already fatally closed");
+            }
+            eventSinkState->fatalSink = std::make_shared<jsi::Function>(
+                arguments[0].asObject(innerRuntime).asFunction(innerRuntime));
             return jsi::Value::undefined();
           });
     }
@@ -674,7 +1311,8 @@ class UnifiedBleProtocolJsiBinding final : public jni::JavaClass<UnifiedBleProto
     auto executor = runtimeExecutor->cthis()->get();
     auto state = std::make_shared<JsiEventSinkState>(
         runtimeLease,
-        [executor](std::function<void(jsi::Runtime&)> task) { executor(std::move(task)); });
+        [executor](std::function<void(jsi::Runtime&)> task) { executor(std::move(task)); },
+        nativeHandle);
     {
       std::scoped_lock lock(eventSinkStatesMutex);
       eventSinkStates[nativeHandle] = state;
@@ -696,64 +1334,117 @@ class UnifiedBleProtocolJsiBinding final : public jni::JavaClass<UnifiedBleProto
   }
 };
 
-void emitRecordFromJava(JNIEnv* environment, jlong nativeHandle, jbyteArray encodedRecord) {
+bool deliverNativeResult(
+    const std::shared_ptr<JsiEventSinkState>& state,
+    const std::shared_ptr<protocol::NativeProtocolControlRuntime>& activeRuntime,
+    const protocol::ProtocolRecord& result);
+
+bool emitRecordFromJava(JNIEnv* environment, jlong nativeHandle, jbyteArray encodedRecord) {
   if (encodedRecord == nullptr) {
-    return;
+    return false;
   }
   const auto state = eventSinkState(nativeHandle);
   if (!state) {
-    return;
+    return false;
   }
   const auto activeRuntime = state->runtimeLease.lock();
   if (!activeRuntime) {
-    return;
+    return false;
   }
   const auto length = environment->GetArrayLength(encodedRecord);
   if (length < 0 || static_cast<std::size_t>(length) > protocol::kMaximumControlRecordBytes) {
-    return;
+    return false;
   }
   std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length));
   if (length > 0) {
     environment->GetByteArrayRegion(encodedRecord, 0, length, reinterpret_cast<jbyte*>(bytes.data()));
   }
+  std::optional<protocol::ProtocolRecord> decodedRecord;
   try {
-    const auto record = protocol::NativeProtocolV1Codec{}.decode(bytes);
+    auto record = protocol::NativeProtocolV1Codec{}.decode(bytes);
+    decodedRecord = record;
     if (record.kind == protocol::RecordKind::result) {
-      if (!activeRuntime->settleResult(record)) {
-        return;
+      const auto delivered = deliverNativeResult(state, activeRuntime, record);
+      if (!delivered) {
+        __android_log_print(
+            ANDROID_LOG_ERROR,
+            "UnifiedBleProtocol",
+            "Android terminal ingress was rejected before native settlement handle=%lld",
+            static_cast<long long>(nativeHandle));
       }
+      return delivered;
     } else if (record.kind == protocol::RecordKind::event) {
+      const auto ordinal = nextIngressOrdinal(state);
+      for (auto& field : record.fields) {
+        if (field.id == 5U) {
+          field.value = ordinal;
+          break;
+        }
+      }
       activeRuntime->validateEvent(record);
     } else {
-      return;
+      return false;
     }
-    deliverEncodedRecord(state, std::move(bytes));
+    std::vector<protocol::OwnedBinaryReference> binaryReferences;
+    collectBinaryReferences(record, binaryReferences);
+    bytes = protocol::NativeProtocolV1Codec{}.encode(record);
+    const auto delivered = deliverEncodedRecord(state, std::move(bytes), std::move(binaryReferences));
+    if (!delivered) {
+      __android_log_print(
+          ANDROID_LOG_ERROR,
+          "UnifiedBleProtocol",
+          "Android record ingress rejected handle=%lld",
+          static_cast<long long>(nativeHandle));
+    }
+    return delivered;
   } catch (const std::exception& error) {
     __android_log_print(
         ANDROID_LOG_ERROR,
         "UnifiedBleProtocol",
         "emitRecordNative quarantined invalid Android record: %s",
         error.what());
+    if (decodedRecord.has_value() && decodedRecord->kind == protocol::RecordKind::result) {
+      requestFatalAttachment(
+          state,
+          std::string("Android terminal validation/delivery failed before settlement: ") + error.what());
+    }
+    return false;
   }
 }
 
-void deliverNativeResult(
+bool deliverNativeResult(
     const std::shared_ptr<JsiEventSinkState>& state,
     const std::shared_ptr<protocol::NativeProtocolControlRuntime>& activeRuntime,
     const protocol::ProtocolRecord& result) {
   const auto encoded = protocol::NativeProtocolV1Codec{}.encode(result);
-  if (!activeRuntime->settleResult(result)) {
-    return;
-  }
-  deliverEncodedRecord(state, encoded);
+  std::vector<protocol::OwnedBinaryReference> binaryReferences;
+  collectBinaryReferences(result, binaryReferences);
+  return deliverEncodedRecord(
+      state,
+      encoded,
+      std::move(binaryReferences),
+      [state, activeRuntime, result] {
+        if (!activeRuntime->settleResult(result)) {
+          __android_log_print(
+              ANDROID_LOG_ERROR,
+              "UnifiedBleProtocol",
+              "Android terminal reached JavaScript after native settlement became stale handle=%lld",
+              static_cast<long long>(state->nativeHandle));
+        }
+      });
 }
 
-void deliverNativeEvent(
+bool deliverNativeEvent(
     const std::shared_ptr<JsiEventSinkState>& state,
     const std::shared_ptr<protocol::NativeProtocolControlRuntime>& activeRuntime,
     const protocol::ProtocolRecord& event) {
   activeRuntime->validateEvent(event);
-  deliverEncodedRecord(state, protocol::NativeProtocolV1Codec{}.encode(event));
+  std::vector<protocol::OwnedBinaryReference> binaryReferences;
+  collectBinaryReferences(event, binaryReferences);
+  return deliverEncodedRecord(
+      state,
+      protocol::NativeProtocolV1Codec{}.encode(event),
+      std::move(binaryReferences));
 }
 
 std::uint64_t monotonicTimestampMilliseconds();
@@ -787,7 +1478,7 @@ void emitAdapterStateFromJava(
           protocol::ProtocolFailure::invalidFieldType,
           "Native Protocol v1 Android adapter state has an invalid record kind");
     }
-    const auto ordinal = state->nextIngressOrdinal.fetch_add(1U);
+    const auto ordinal = nextIngressOrdinal(state);
     const auto event = protocol::ProtocolRecord{
         .kind = protocol::RecordKind::event,
         .fields = {
@@ -802,7 +1493,13 @@ void emitAdapterStateFromJava(
             protocolField(15U, protocolRecordReference(adapterState)),
         },
     };
-    deliverNativeEvent(state, activeRuntime, event);
+    if (!deliverNativeEvent(state, activeRuntime, event)) {
+      __android_log_print(
+          ANDROID_LOG_ERROR,
+          "UnifiedBleProtocol",
+          "Android adapter-state ingress rejected handle=%lld",
+          static_cast<long long>(nativeHandle));
+    }
   } catch (const std::exception& error) {
     __android_log_print(
         ANDROID_LOG_ERROR,
@@ -849,10 +1546,16 @@ void emitNativeFailure(
     const std::string& code,
     const std::string& safeMessage) {
   try {
-    deliverNativeResult(
+    if (!deliverNativeResult(
         state,
         activeRuntime,
-        nativeFailureResult(command, resultKind, code, safeMessage));
+        nativeFailureResult(command, resultKind, code, safeMessage))) {
+      __android_log_print(
+          ANDROID_LOG_ERROR,
+          "UnifiedBleProtocol",
+          "Android terminal failure ingress rejected handle=%lld",
+          static_cast<long long>(nativeHandle));
+    }
   } catch (const std::exception& error) {
     __android_log_print(
         ANDROID_LOG_ERROR,
@@ -880,7 +1583,7 @@ protocol::ProtocolRecord diagnosticEvent(
     const std::shared_ptr<protocol::NativeProtocolControlRuntime>& activeRuntime,
     const std::string& code,
     const std::string& message) {
-  const auto ordinal = state->nextIngressOrdinal.fetch_add(1U);
+  const auto ordinal = nextIngressOrdinal(state);
   const auto error = protocol::ProtocolRecord{
       .kind = protocol::RecordKind::error,
       .fields = {
@@ -936,7 +1639,16 @@ void emitDiagnosticFromJava(JNIEnv* environment, jlong nativeHandle, jstring cod
         static_cast<long long>(nativeHandle),
         nativeCode.c_str(),
         nativeMessage.c_str());
-    deliverNativeEvent(state, activeRuntime, diagnosticEvent(nativeHandle, state, activeRuntime, nativeCode, nativeMessage));
+    if (!deliverNativeEvent(
+            state,
+            activeRuntime,
+            diagnosticEvent(nativeHandle, state, activeRuntime, nativeCode, nativeMessage))) {
+      __android_log_print(
+          ANDROID_LOG_ERROR,
+          "UnifiedBleProtocol",
+          "Android diagnostic ingress rejected handle=%lld",
+          static_cast<long long>(nativeHandle));
+    }
   } catch (const std::exception& error) {
     __android_log_print(
         ANDROID_LOG_ERROR,
@@ -1007,25 +1719,18 @@ void emitReadFromJava(
             protocolField(6U, protocolRecordReference(binaryReferenceRecord(*outputReference))),
         },
     };
-    const auto encoded = protocol::NativeProtocolV1Codec{}.encode(result);
-    if (!activeRuntime->settleResult(result)) {
-      static_cast<void>(activeRuntime->releaseBinary(*outputReference));
-      return;
-    }
-    deliverEncodedRecord(state, encoded);
+    const bool delivered = deliverNativeResult(state, activeRuntime, result);
     outputReference.reset();
+    if (!delivered) {
+      __android_log_print(
+          ANDROID_LOG_ERROR,
+          "UnifiedBleProtocol",
+          "byte-read result was not accepted by Android native delivery handle=%lld",
+          static_cast<long long>(nativeHandle));
+    }
   } catch (const std::exception& error) {
     if (outputReference) {
-      try {
-        static_cast<void>(activeRuntime->releaseBinary(*outputReference));
-      } catch (const std::exception& releaseError) {
-        __android_log_print(
-            ANDROID_LOG_ERROR,
-            "UnifiedBleProtocol",
-            "byte-read result binary release failed handle=%lld: %s",
-            static_cast<long long>(nativeHandle),
-            releaseError.what());
-      }
+      releaseBinaryReferences(state, activeRuntime, {*outputReference});
     }
     __android_log_print(
         ANDROID_LOG_ERROR,
@@ -1091,7 +1796,10 @@ void emitNotificationFromJava(
       return;
     }
     const auto nativeSubscriptionId = stringFromJava(environment, subscriptionId, "subscription identifier");
-    const auto command = activeRuntime->subscriptionCommandFor(nativeSubscriptionId);
+    auto command = activeRuntime->subscriptionCommandFor(nativeSubscriptionId);
+    if (!command) {
+      command = activeRuntime->pendingSubscriptionCommandFor(nativeSubscriptionId);
+    }
     if (!command) {
       __android_log_print(
           ANDROID_LOG_WARN,
@@ -1101,7 +1809,7 @@ void emitNotificationFromJava(
           nativeSubscriptionId.c_str());
       return;
     }
-    const auto ordinal = state->nextIngressOrdinal.fetch_add(1U);
+    const auto ordinal = nextIngressOrdinal(state);
     const auto bytes = bytesFromJava(environment, value);
     outputReference = activeRuntime->retainNativeBytes(
         std::string("notification:") + nativeSubscriptionId + ":" + std::to_string(ordinal),
@@ -1125,8 +1833,13 @@ void emitNotificationFromJava(
             protocolField(13U, protocolRecordReference(binaryReferenceRecord(*outputReference))),
         },
     };
-    deliverNativeEvent(state, activeRuntime, event);
+    const bool delivered = deliverNativeEvent(state, activeRuntime, event);
     outputReference.reset();
+    if (!delivered) {
+      throw protocol::ProtocolException(
+          protocol::ProtocolFailure::alreadyTerminal,
+          "Android notification event ingress is closed");
+    }
   } catch (const std::exception& error) {
     if (outputReference) {
       const auto state = eventSinkState(nativeHandle);
@@ -1251,7 +1964,7 @@ void emitAdvertisementFromJava(
         }
       }
     }
-    const auto ordinal = state->nextIngressOrdinal.fetch_add(1U);
+    const auto ordinal = nextIngressOrdinal(state);
     const auto timestamp = monotonicTimestampMilliseconds();
     protocol::ProtocolStringList fieldProvenance{
         "peerId:androidBluetoothLe",
@@ -1360,8 +2073,13 @@ void emitAdvertisementFromJava(
             protocolField(12U, protocolRecordReference(advertisement)),
         },
     };
-    deliverNativeEvent(state, activeRuntime, event);
+    const bool delivered = deliverNativeEvent(state, activeRuntime, event);
     outputReferences.clear();
+    if (!delivered) {
+      throw protocol::ProtocolException(
+          protocol::ProtocolFailure::alreadyTerminal,
+          "Android advertisement event ingress is closed");
+    }
   } catch (const std::exception& error) {
     if (activeRuntime) {
       for (const auto& outputReference : outputReferences) {
@@ -1488,13 +2206,13 @@ jstring requestCancellationFromJava(
 
 } // namespace
 
-extern "C" JNIEXPORT void JNICALL
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_sfourdrinier_unifiedblemanager_protocol_UnifiedBleProtocolJsiBinding_emitRecordNative(
     JNIEnv* environment,
     jclass,
     jlong nativeHandle,
     jbyteArray encodedRecord) {
-  emitRecordFromJava(environment, nativeHandle, encodedRecord);
+  return emitRecordFromJava(environment, nativeHandle, encodedRecord) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -1642,8 +2360,16 @@ Java_com_sfourdrinier_unifiedblemanager_protocol_UnifiedBleProtocolJsiBinding_un
     JNIEnv*,
     jclass,
     jlong nativeHandle) {
-  std::scoped_lock lock(eventSinkStatesMutex);
-  eventSinkStates.erase(nativeHandle);
+  std::shared_ptr<JsiEventSinkState> state;
+  {
+    std::scoped_lock lock(eventSinkStatesMutex);
+    const auto found = eventSinkStates.find(nativeHandle);
+    if (found != eventSinkStates.end()) {
+      state = found->second.lock();
+      eventSinkStates.erase(found);
+    }
+  }
+  if (state) invalidateEventSinkState(state);
 }
 
 JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*) {

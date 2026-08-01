@@ -42,6 +42,21 @@ describe('Android RN 0.86 unified protocol boundary', () => {
     expect(buildGradle).not.toContain('TurboReactPackage')
   })
 
+  test('uses the current Android Gradle DSL without changing configured SDK semantics', () => {
+    const buildGradle = read('android/build.gradle')
+
+    expect(buildGradle).toContain('compileSdk getExtOrIntegerDefault("compileSdkVersion")')
+    expect(buildGradle).toContain('minSdk getExtOrIntegerDefault("minSdkVersion")')
+    expect(buildGradle).toContain('targetSdk getExtOrIntegerDefault("targetSdkVersion")')
+    expect(buildGradle).toContain('lint {')
+    expect(buildGradle).toContain('prefab = true')
+    expect(buildGradle).not.toContain('compileSdkVersion getExtOrIntegerDefault')
+    expect(buildGradle).not.toContain('minSdkVersion getExtOrIntegerDefault')
+    expect(buildGradle).not.toContain('targetSdkVersion getExtOrIntegerDefault')
+    expect(buildGradle).not.toContain('lintOptions {')
+    expect(buildGradle).not.toContain('prefab true')
+  })
+
   test('registers exactly the generated control-only TurboModule', () => {
     const packageJava = read('android/src/main/java/com/sfourdrinier/unifiedblemanager/BlePlxPackage.java')
     const controlJava = read(
@@ -71,6 +86,7 @@ describe('Android RN 0.86 unified protocol boundary', () => {
       'protocol/UnifiedBleProtocolControlModule.java',
       'protocol/UnifiedBleProtocolJsiBinding.java',
       'protocol/generated/NativeProtocolV1Schema.kt',
+      'radio/GattOccurrenceResolver.kt',
       'radio/OwnedAndroidLog.kt',
       'radio/OwnedAndroidGattRadio.kt'
     ].sort())

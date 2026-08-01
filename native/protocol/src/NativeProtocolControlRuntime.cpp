@@ -141,6 +141,13 @@ std::string operationKey(std::uint64_t dispatchEpoch, const std::string& nonce) 
   return std::to_string(dispatchEpoch) + ":" + nonce;
 }
 
+bool sameCommandIdentity(const ProtocolRecord& left, const ProtocolRecord& right) {
+  const auto leftOperation = operationFromCorrelation(requiredRecord(left, 2U));
+  const auto rightOperation = operationFromCorrelation(requiredRecord(right, 2U));
+  return leftOperation.dispatchEpoch == rightOperation.dispatchEpoch &&
+      leftOperation.nonce == rightOperation.nonce;
+}
+
 OwnedBinaryReference binaryReferenceFromRecord(const ProtocolRecord& record) {
   if (record.kind != RecordKind::binaryReference) {
     throw ProtocolException(ProtocolFailure::invalidFieldType, "Native protocol binary reference has an invalid kind");
@@ -277,6 +284,7 @@ void NativeProtocolControlRuntime::registerCommand(const ProtocolRecord& command
     throw ProtocolException(ProtocolFailure::invalidFieldType, "Native protocol dispatch requires a command record");
   }
   const auto operation = operationFromCorrelation(requiredRecord(command, 2U));
+  const auto commandKind = requiredString(command, 3U);
   operations_->registerOperation(operation, cancellable);
   try {
     if (const auto* inputBinary = field(command, 6U); inputBinary != nullptr) {
@@ -287,8 +295,21 @@ void NativeProtocolControlRuntime::registerCommand(const ProtocolRecord& command
       static_cast<void>(binaryTransport_->copyForNative(binaryReferenceFromRecord(**inputReference)));
     }
     std::scoped_lock lock(commandMutex_);
+    if (commandKind == "scanStart" && activeScanCommand_.has_value()) {
+      throw ProtocolException(
+          ProtocolFailure::alreadyTerminal,
+          "Native protocol already owns an active scan command");
+    }
     pendingCommands_.emplace(operationKey(operation.dispatchEpoch, operation.nonce), command);
+    if (commandKind == "scanStart") {
+      activeScanCommand_ = command;
+    }
   } catch (...) {
+    std::scoped_lock lock(commandMutex_);
+    pendingCommands_.erase(operationKey(operation.dispatchEpoch, operation.nonce));
+    if (activeScanCommand_.has_value() && sameCommandIdentity(*activeScanCommand_, command)) {
+      activeScanCommand_.reset();
+    }
     static_cast<void>(operations_->settle(operation, NativeOperationState::failed));
     throw;
   }
@@ -323,6 +344,9 @@ bool NativeProtocolControlRuntime::rejectCommandDispatch(const ProtocolRecord& c
   {
     std::scoped_lock lock(commandMutex_);
     pendingCommands_.erase(key);
+    if (activeScanCommand_.has_value() && sameCommandIdentity(*activeScanCommand_, *pendingCommand)) {
+      activeScanCommand_.reset();
+    }
   }
   if (inputBinary && binaryTransport_ && !binaryTransport_->release(*inputBinary)) {
     throw ProtocolException(ProtocolFailure::invalidCorrelation, "Native protocol command binary was already released");
@@ -379,13 +403,18 @@ bool NativeProtocolControlRuntime::settleResult(const ProtocolRecord& result) {
         activeSubscriptionCommands_.erase(*subscriptionId);
       }
     }
-    if (pendingCommand && terminalIsSuccess) {
+    if (pendingCommand) {
       const auto& commandKind = requiredString(*pendingCommand, 3U);
-      if (commandKind == "scanStart" && kind != nullptr && *kind == "scanStarted") {
-        activeScanCommand_ = *pendingCommand;
-      } else if (commandKind == "scanStop" || commandKind == "destroy") {
+      if ((commandKind == "scanStop" || commandKind == "destroy") && terminalIsSuccess) {
+        // A scan-stop or destroy command owns physical teardown for the distinct
+        // active scan-start command. Do not compare their command identities:
+        // they intentionally have different correlations.
         activeScanCommand_.reset();
       }
+      // A failed or cancelled scan start may still own the Android scan callback.
+      // Its owner is released only by a successful physical scan-stop or destroy
+      // terminal above. Dispatch rejection is different: no native radio work was
+      // admitted, so rejectCommandDispatch releases that owner immediately.
     }
     pendingCommands_.erase(key);
     if (inputBinary && binaryTransport_) {

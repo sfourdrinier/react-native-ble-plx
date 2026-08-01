@@ -129,4 +129,35 @@ describe('canonical package modernization', () => {
     expect(plugin).not.toContain('withBLERestorationPodfile')
     expect(plugin).not.toContain('@sfourdrinier/react-native-ble-plx')
   })
+
+  test('force-refreshes the local Expo package before its Android build', () => {
+    expect(rootPackage.scripts['build:expo:android']).toContain(
+      'pnpm --dir example-expo install --force --no-frozen-lockfile'
+    )
+    expect(rootPackage.scripts['build:expo:android']).toContain('npx expo prebuild --clean --no-install')
+  })
+
+  test('runs the iOS and Expo release gates with stable simulator and development environments', () => {
+    const releaseGate = read('scripts/verify-release.sh')
+    const ci = read('.github/workflows/ci.yml')
+    const publish = read('.github/workflows/publish.yml')
+    const apple = read('.github/workflows/apple-ci.yml')
+
+    expect(rootPackage.scripts['build:ios']).toContain("-destination 'generic/platform=iOS Simulator'")
+    expect(rootPackage.scripts['test:ios']).toContain("-destination 'generic/platform=iOS Simulator'")
+    expect(rootPackage.scripts['test:expo']).toContain('NODE_ENV=development npx expo-doctor')
+    expect(rootPackage.scripts['test:expo']).toContain('NODE_ENV=development npx expo prebuild --clean --no-install')
+    expect(rootPackage.scripts['build:expo:android']).toContain('NODE_ENV=development npx expo prebuild --clean --no-install')
+    expect(rootPackage.scripts['build:expo:android']).toContain('NODE_ENV=development ./gradlew :app:assembleDebug')
+    expect(releaseGate).toContain('NODE_ENV=development npx expo-doctor')
+    expect(releaseGate).toContain('NODE_ENV=development npx expo prebuild --clean --no-install')
+    expect(releaseGate).toContain('NODE_ENV=development ./gradlew :app:assembleDebug')
+    expect(ci).toContain('run: NODE_ENV=development npx expo-doctor')
+    expect(ci).toContain('run: NODE_ENV=development npx expo prebuild --clean --no-install')
+    expect(ci).toContain('run: NODE_ENV=development ./gradlew :app:assembleDebug')
+    expect(publish).toContain('run: NODE_ENV=development npx expo-doctor')
+    expect(publish).toContain('run: NODE_ENV=development npx expo prebuild --clean --no-install')
+    expect(publish).toContain('run: NODE_ENV=development ./gradlew :app:assembleDebug')
+    expect(apple).toContain('run: NODE_ENV=development npx expo prebuild --clean --no-install --platform ios')
+  })
 })

@@ -6,7 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [4.0.0-alpha.27] - 2026-08-01
+## [4.0.0-alpha.28] - 2026-08-01 (prepared; pending publication)
+
+### Fixed
+
+- Hardened native retry and terminal handling so terminal paths preserve their
+  cleanup ownership and do not re-open an operation after completion.
+- Completed the WinRT private-boundary v2 terminal and connection-ownership
+  paths, including serialized connecting-entry promotion and retryable
+  teardown/release handling.
+- Hardened Apple and Android native protocol lifecycle handling around terminal
+  delivery, late native callbacks, and retryable cleanup ownership.
+- Cleaned package warning paths exercised by the release/package validation
+  flow.
+
+### Consumer contract and evidence boundary
+
+- Consumers continue to await explicit scan, connection, subscription, and
+  manager cleanup; terminal stream notices end the affected operation and do
+  not grant a compatibility or fallback path.
+- These changes have deterministic, compile, ABI, and package-validation scope
+  only. Alpha.28 remains Experimental and has no artifact-bound live Windows,
+  Android, or Apple hardware evidence.
+
+## [4.0.0-alpha.27] - 2026-08-01 (published historical prerelease)
 
 ### Fixed
 

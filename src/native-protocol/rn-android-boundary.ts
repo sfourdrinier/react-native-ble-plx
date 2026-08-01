@@ -19,6 +19,7 @@ import {
   copyNativeProtocolBytes,
   releaseNativeProtocolBytes,
   retainNativeProtocolBytes,
+  setNativeProtocolFatalSink,
   setNativeProtocolEventSink,
   submitNativeProtocolCommand,
   type NativeBinaryReference
@@ -94,6 +95,7 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
   private readonly scanFailureListeners = new Set<(safeMessage: string) => void>()
   private readonly disconnectListeners = new Set<(nativePeerId: string, safeMessage: string | null) => void>()
   private readonly adapterListeners = new Set<(state: CoreBluetoothAdapterSnapshot) => void>()
+  private readonly nativeReleaseRetryLedger = new Map<string, NativeBinaryReference>()
   private latestAdapterState: CoreBluetoothAdapterSnapshot | null = null
   private attachmentRecord: NativeProtocolRecord | null = null
   private maximumInputPayloadBytes = 0
@@ -101,12 +103,14 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
   private nextConnection = 1
   private nextDatabase = 1
   private nextSubscription = 1
+  private consumerListenerFailureCount = 0
   private opened = false
   private closing = false
   private nativeAttachmentOpened = false
   private nativeDestroyCompleted = false
   private destroyRequested = false
   private destroyResult: Promise<void> | null = null
+  private fatalTeardownObservation: Promise<void> | null = null
   private preJavaScriptEventBufferOverflowed = false
 
   constructor(
@@ -162,6 +166,7 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
       assertHandshakeSelection(handshake)
       this.maximumInputPayloadBytes = Math.min(maximumNativePayloadBytes, handshake.maximumBinaryPayloadBytes)
       await this.control.installExecutionRuntime()
+      setNativeProtocolFatalSink(reason => this.failAttachment(reason))
       setNativeProtocolEventSink(bytes => this.receiveRecord(bytes))
       if (this.preJavaScriptEventBufferOverflowed) {
         throw contractError('stream.overflow', 'boundary', 'rn-android-boundary.open.pre-js-event-buffer')
@@ -309,23 +314,7 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
     try {
       await this.submit(command, correlation.nonce, 'write')
     } catch (error) {
-      try {
-        const released = releaseNativeProtocolBytes(reference)
-        if (!released) {
-          console.error(
-            '[ReactNativeAndroidProtocolBoundary.write] Native input was already released after dispatch failure:',
-            {
-              ownerToken: reference.ownerToken,
-              operationCorrelation: reference.operationCorrelation
-            }
-          )
-        }
-      } catch (releaseError) {
-        console.error(
-          '[ReactNativeAndroidProtocolBoundary.write] Native input release after dispatch failure failed:',
-          releaseError
-        )
-      }
+      this.releaseOrRetainForTeardown(reference, 'write-input-dispatch-failure')
       throw error
     }
   }
@@ -362,23 +351,7 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
         'write-descriptor'
       )
     } catch (error) {
-      try {
-        const released = releaseNativeProtocolBytes(reference)
-        if (!released) {
-          console.error(
-            '[ReactNativeAndroidProtocolBoundary.writeDescriptor] Native input was already released after dispatch failure:',
-            {
-              ownerToken: reference.ownerToken,
-              operationCorrelation: reference.operationCorrelation
-            }
-          )
-        }
-      } catch (releaseError) {
-        console.error(
-          '[ReactNativeAndroidProtocolBoundary.writeDescriptor] Native input release after dispatch failure failed:',
-          releaseError
-        )
-      }
+      this.releaseOrRetainForTeardown(reference, 'write-descriptor-input-dispatch-failure')
       throw error
     }
   }
@@ -459,6 +432,7 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
       console.error('[ReactNativeAndroidProtocolBoundary.destroy] Native protocol destroy failed:', error)
       throw error instanceof Error ? error : new Error('Native protocol destroy failed')
     }
+    this.retryNativeReleaseLedger('destroy-before-close')
     try {
       await this.closeNativeAttachment(attachment)
     } catch (closeError) {
@@ -472,6 +446,8 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
     this.connections.clear()
     this.databases.clear()
     this.subscriptionsByAddress.clear()
+    this.disconnectListeners.clear()
+    this.adapterListeners.clear()
     this.rejectPending('Native protocol attachment was destroyed')
   }
 
@@ -503,21 +479,39 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
   }
 
   private receiveRecord(bytes: Uint8Array): void {
+    let record: NativeProtocolRecord
     try {
-      const record = decodeNativeProtocolRecord(bytes)
-      if (record.kind === 'result') {
-        this.receiveResult(record)
-        return
-      }
-      if (record.kind === 'event') {
-        this.receiveEvent(record)
-        return
-      }
-      throw contractError('protocol.malformed', 'boundary', 'rn-android-boundary.receive-record')
+      record = decodeNativeProtocolRecord(bytes)
     } catch (error) {
-      console.error('[ReactNativeAndroidProtocolBoundary.receiveRecord] Native record was rejected:', error)
-      this.rejectPending('A malformed native protocol record invalidated pending operations')
+      this.rejectMalformedNativeRecord(error)
     }
+    if (record.kind === 'result') {
+      try {
+        this.receiveResult(record)
+      } catch (error) {
+        this.rejectMalformedNativeRecord(error)
+      }
+      return
+    }
+    if (record.kind === 'event') {
+      try {
+        this.receiveEvent(record)
+      } catch (error) {
+        // A decoded event that cannot be materialized is quarantined after its
+        // binary references have been released; it cannot settle a pending command.
+        console.error('[ReactNativeAndroidProtocolBoundary.receiveRecord] Native record was rejected:', error)
+      }
+      return
+    }
+    this.rejectMalformedNativeRecord(
+      contractError('protocol.malformed', 'boundary', 'rn-android-boundary.receive-record')
+    )
+  }
+
+  private rejectMalformedNativeRecord(error: unknown): never {
+    console.error('[ReactNativeAndroidProtocolBoundary.receiveRecord] Native record was rejected:', error)
+    this.failAttachment('A malformed native protocol record invalidated pending operations')
+    throw error instanceof Error ? error : new Error('Native protocol record decoding failed')
   }
 
   private receiveResult(result: NativeProtocolRecord): void {
@@ -548,7 +542,7 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
       const advertisementBytes = this.takeAdvertisementBytes(parsedAdvertisement)
       const value = advertisementFromRecord(parsedAdvertisement, advertisementBytes)
       for (const listener of this.scanListeners) {
-        listener(value)
+        this.invokeConsumerListener('advertisement', () => listener(value))
       }
       return
     }
@@ -566,7 +560,7 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
         )
         return
       }
-      subscription.onValue(bytes)
+      this.invokeConsumerListener('notification', () => subscription.onValue(bytes))
       return
     }
     if (kind === 'connectionLost') {
@@ -577,7 +571,7 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
       this.invalidateConnection(peerId)
       this.rejectPendingForPeer(peerId, 'Android GATT connection was lost')
       for (const listener of this.disconnectListeners) {
-        listener(peerId, safeMessage)
+        this.invokeConsumerListener('connectionLost', () => listener(peerId, safeMessage))
       }
       return
     }
@@ -585,7 +579,7 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
       const state = adapterStateFromRecord(requiredRecord(event, 15, 'rn-android-boundary.event.adapter-state'))
       this.latestAdapterState = state
       for (const listener of this.adapterListeners) {
-        listener(state)
+        this.invokeConsumerListener('adapterState', () => listener(state))
       }
       return
     }
@@ -594,21 +588,23 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
       const code = error === null ? null : optionalString(error, 1)
       const operation = error === null ? null : optionalString(error, 3)
       const safeMessage = error === null ? null : optionalString(error, 7)
-      if (code === 'stream.overflow' && operation === 'pre-js-event-buffer') {
-        this.preJavaScriptEventBufferOverflowed = true
-        console.error(
-          '[ReactNativeAndroidProtocolBoundary.receiveEvent] Native pre-JavaScript event buffer overflowed:',
-          {
-            safeMessage
-          }
-        )
+      if (code === 'stream.overflow') {
+        if (operation === 'pre-js-event-buffer') {
+          this.preJavaScriptEventBufferOverflowed = true
+        } else {
+          this.failAttachment('Native Android event ingress overflowed')
+        }
+        console.error('[ReactNativeAndroidProtocolBoundary.receiveEvent] Native event buffer overflowed:', {
+          operation,
+          safeMessage
+        })
         return
       }
       if (code === 'scanFailed') {
         const message = safeMessage ?? 'Android scan failed'
         this.scanListeners.clear()
         for (const listener of this.scanFailureListeners) {
-          listener(message)
+          this.invokeConsumerListener('scanFailed', () => listener(message))
         }
         return
       }
@@ -667,10 +663,7 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
       copyFailure = error instanceof Error ? error : new Error('Native output copy failed')
     } finally {
       try {
-        const released = releaseNativeProtocolBytes(reference)
-        if (!released) {
-          releaseFailure = contractError('protocol.violation', 'boundary', `rn-android-boundary.${operation}.release`)
-        }
+        releaseFailure = this.releaseOrRetainForTeardown(reference, `${operation}-output`)
       } catch (error) {
         releaseFailure = error instanceof Error ? error : new Error('Native output release failed')
       }
@@ -691,6 +684,106 @@ export class ReactNativeAndroidProtocolBoundary implements CoreBluetoothBoundary
       throw contractError('lifecycle.invariant-violation', 'boundary', `rn-android-boundary.${operation}.copy`)
     }
     return output
+  }
+
+  private invokeConsumerListener(eventKind: string, invoke: () => void): void {
+    try {
+      invoke()
+    } catch (error) {
+      this.consumerListenerFailureCount += 1
+      console.error('[ReactNativeAndroidProtocolBoundary.invokeConsumerListener] Consumer listener failed:', {
+        metric: 'nativeProtocolConsumerListenerFailure',
+        eventKind,
+        failureCount: this.consumerListenerFailureCount,
+        error: error instanceof Error ? error : new Error('Consumer listener threw a non-Error value')
+      })
+    }
+  }
+
+  private releaseOrRetainForTeardown(reference: NativeBinaryReference, operation: string): Error | null {
+    const key = `${reference.ownerToken}:${reference.operationCorrelation}`
+    try {
+      const released = releaseNativeProtocolBytes(reference)
+      if (released) {
+        this.nativeReleaseRetryLedger.delete(key)
+        return null
+      }
+      // A false return is the native proof that this exact owner was already
+      // released. Retrying it would turn a completed release into a false leak.
+      this.nativeReleaseRetryLedger.delete(key)
+      console.error(
+        '[ReactNativeAndroidProtocolBoundary.releaseOrRetainForTeardown] Native release was already terminal:',
+        {
+          metric: 'nativeProtocolBinaryReleaseAlreadyTerminal',
+          operation,
+          ownerToken: reference.ownerToken,
+          operationCorrelation: reference.operationCorrelation
+        }
+      )
+      return null
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error('Native binary release failed with a non-Error value')
+      this.nativeReleaseRetryLedger.set(key, reference)
+      console.error(
+        '[ReactNativeAndroidProtocolBoundary.releaseOrRetainForTeardown] Native release retained for retry:',
+        {
+          metric: 'nativeProtocolBinaryReleaseRetryable',
+          operation,
+          ownerToken: reference.ownerToken,
+          operationCorrelation: reference.operationCorrelation,
+          retryLedgerSize: this.nativeReleaseRetryLedger.size,
+          error: failure
+        }
+      )
+      return failure
+    }
+  }
+
+  private retryNativeReleaseLedger(operation: string): void {
+    let firstFailure: Error | null = null
+    for (const reference of [...this.nativeReleaseRetryLedger.values()]) {
+      const failure = this.releaseOrRetainForTeardown(reference, operation)
+      if (firstFailure === null && failure !== null) {
+        firstFailure = failure
+      }
+    }
+    if (firstFailure !== null) {
+      throw new AggregateError([firstFailure], `Native binary cleanup remains retryable during ${operation}`)
+    }
+  }
+
+  private failAttachment(reason: string): void {
+    if (this.destroyResult !== null || this.fatalTeardownObservation !== null || !this.nativeAttachmentOpened) {
+      return
+    }
+    this.opened = false
+    this.closing = true
+    this.destroyRequested = true
+    this.nativeDestroyCompleted = true
+    this.scanListeners.clear()
+    this.scanFailureListeners.clear()
+    this.connections.clear()
+    this.databases.clear()
+    this.subscriptionsByAddress.clear()
+    this.disconnectListeners.clear()
+    this.adapterListeners.clear()
+    this.rejectPending(reason)
+    const attachment = this.requireAttachmentRecord('fatal-attachment')
+    const teardown = (async () => {
+      this.retryNativeReleaseLedger('fatal-attachment-before-close')
+      await this.closeNativeAttachment(attachment)
+      this.closing = false
+    })()
+    this.destroyResult = teardown.catch(error => {
+      this.destroyResult = null
+      throw error
+    })
+    this.fatalTeardownObservation = this.destroyResult.catch(error => {
+      console.error(
+        '[ReactNativeAndroidProtocolBoundary.failAttachment] Fatal attachment teardown remained unobserved:',
+        error
+      )
+    })
   }
 
   private nextCorrelation(): { readonly nonce: string; readonly record: NativeProtocolRecord } {

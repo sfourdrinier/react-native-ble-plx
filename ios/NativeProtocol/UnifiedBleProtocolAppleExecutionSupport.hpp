@@ -5,6 +5,7 @@
 #import <Foundation/Foundation.h>
 
 #include "UnifiedBleProtocolAppleExecutionState.hpp"
+#include "UnifiedBleProtocolAppleIngress.hpp"
 
 #include <cstdint>
 #include <exception>
@@ -13,11 +14,6 @@
 #include <string>
 
 namespace unified_ble::apple_protocol {
-
-struct AppleNativeIngressReservation final {
-  std::uint64_t ordinal;
-  std::uint64_t attachmentGeneration;
-};
 
 native_protocol::v1::ProtocolField nativeProtocolField(
     std::uint16_t id,
@@ -29,7 +25,8 @@ native_protocol::v1::ProtocolRecord nativeAttachmentRecord(
 std::uint64_t nativeMonotonicMilliseconds();
 std::string nativeStringFromNSString(NSString* value, const char* name);
 std::optional<AppleNativeIngressReservation> reserveNativeIngressOrdinal(
-    const std::shared_ptr<AppleNativeProtocolExecution::State>& state);
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    bool allowClosedIngress = false);
 bool deliverNativeEvent(
     const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
     const native_protocol::v1::ProtocolRecord& event,

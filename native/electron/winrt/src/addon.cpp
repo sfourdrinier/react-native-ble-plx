@@ -13,6 +13,8 @@
 #include <winrt/Windows.Storage.Streams.h>
 #include <winrt/base.h>
 
+#include "WinRtConnectionOwnership.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -34,6 +36,9 @@
 #include <vector>
 
 namespace {
+
+template <typename Entry>
+using WinRtConnectionOwnership = unified_ble::winrt_boundary::WinRtConnectionOwnership<Entry>;
 
 using winrt::Windows::Devices::Bluetooth::BluetoothAdapter;
 using winrt::Windows::Devices::Bluetooth::BluetoothConnectionStatus;
@@ -148,6 +153,10 @@ struct AdapterView {
   std::optional<std::string> safe_reason;
   std::string deployment;
 };
+
+bool IsAdapterReadyForScanTerminal(const AdapterView& adapter) {
+  return adapter.availability == "available" && adapter.authorization == "granted" && adapter.power == "on";
+}
 
 AdapterView ReadAdapter() {
   EnsureWinRtApartment();
@@ -316,24 +325,6 @@ const char* ScanTerminalErrorCode(ScanTerminalError error) {
       return "transport-not-supported";
   }
   return "other";
-}
-
-bool ScanTerminalNeedsAdapterState(BluetoothError error) {
-  switch (error) {
-    case BluetoothError::RadioNotAvailable:
-    case BluetoothError::DisabledByPolicy:
-    case BluetoothError::NotSupported:
-    case BluetoothError::DisabledByUser:
-    case BluetoothError::ConsentRequired:
-    case BluetoothError::TransportNotSupported:
-      return true;
-    case BluetoothError::Success:
-    case BluetoothError::ResourceInUse:
-    case BluetoothError::DeviceNotConnected:
-    case BluetoothError::OtherError:
-    default:
-      return false;
-  }
 }
 
 class WinRtNativeStatusError final : public std::runtime_error {
@@ -826,6 +817,16 @@ struct ConnectionEntry {
   ConnectionEntry(BluetoothLEDevice device_value, GattSession session_value, std::string connection_generation_value)
       : device(std::move(device_value)), session(std::move(session_value)), connection_generation(std::move(connection_generation_value)) {}
 
+  // A Connect operation publishes this exact owner before it asks WinRT to
+  // open either resource.  The false open flags make its rollback and a
+  // concurrent Destroy safe until each resource is attached below.
+  explicit ConnectionEntry(std::string connection_generation_value)
+      : device(nullptr),
+        session(nullptr),
+        connection_generation(std::move(connection_generation_value)),
+        session_open(false),
+        device_open(false) {}
+
   ConnectionEntry(const ConnectionEntry&) = delete;
   ConnectionEntry& operator=(const ConnectionEntry&) = delete;
 
@@ -844,6 +845,14 @@ struct ConnectionEntry {
   bool session_open{true};
   bool device_open{true};
   bool removal_claimed{false};
+  bool cleanup_pending{false};
+  // These are protected by lifecycle_mutex.  A provisional owner stays in the
+  // connecting map until setup either promotes it or retains it for cleanup.
+  // Disconnect marks a request and Connect observes it after every WinRT
+  // await, so no newly acquired resource can outlive the map owner.
+  bool setup_in_progress{true};
+  bool disconnect_requested{false};
+  std::condition_variable setup_finished;
   bool loss_emitted{false};
   std::atomic_uint64_t services_revision{0U};
   std::vector<ServiceEntry> services;
@@ -877,13 +886,14 @@ struct ScanEntry {
 };
 
 struct NotificationEntry {
+  std::shared_ptr<ConnectionEntry> connection;
   GattCharacteristic characteristic;
-  winrt::event_token value_token{};
   std::shared_ptr<NotificationListener> listener;
   struct Lifecycle {
     std::mutex mutex;
-    bool value_handler_registered{true};
-    bool cccd_enabled{true};
+    winrt::event_token value_token{};
+    bool value_handler_registered{false};
+    bool cccd_enabled{false};
     bool listener_released{false};
   };
   std::shared_ptr<Lifecycle> lifecycle;
@@ -903,6 +913,14 @@ struct BoundaryState : public std::enable_shared_from_this<BoundaryState> {
   uint64_t next_scan_generation{1U};
   std::shared_ptr<ScanEntry> scan;
   std::unordered_map<std::string, std::shared_ptr<ConnectionEntry>> connections;
+  // The peer reservation is made before FromBluetoothAddressAsync.  Its value
+  // is the exact ConnectionEntry later promoted to active or cleanup-pending;
+  // a second Connect can therefore never create a competing native owner.
+  std::unordered_map<std::string, std::shared_ptr<ConnectionEntry>> connecting_connections;
+  // A Connect rollback may fail after callbacks are registered but before the
+  // normal connection map admits the entry. Keep that exact native owner here
+  // so Disconnect and Destroy can retry the same teardown.
+  std::unordered_map<std::string, std::shared_ptr<ConnectionEntry>> cleanup_pending_connections;
   std::unordered_map<std::string, NotificationEntry> notifications;
   std::vector<std::shared_ptr<ConnectionLossListener>> connection_listeners;
   std::vector<std::shared_ptr<DatabaseListener>> database_listeners;
@@ -935,7 +953,7 @@ struct BoundaryState : public std::enable_shared_from_this<BoundaryState> {
     }
   }
 
-  void EmitAdapterState(bool wait_for_callbacks = false) {
+  AdapterView EmitAdapterState(bool wait_for_callbacks = false) {
     AdapterView adapter;
     try {
       adapter = ReadAdapter();
@@ -952,6 +970,7 @@ struct BoundaryState : public std::enable_shared_from_this<BoundaryState> {
       listener->Emit(adapter, completion);
       if (completion != nullptr) completion->Wait();
     }
+    return adapter;
   }
 
   void EmitScanTerminal(const std::string& scan_token, const char* status, BluetoothError error) {
@@ -968,6 +987,18 @@ struct BoundaryState : public std::enable_shared_from_this<BoundaryState> {
   void HandleGattServicesChanged(const std::string& peer, const std::shared_ptr<ConnectionEntry>& expected);
 
   void HandleScanStopped(const std::shared_ptr<ScanEntry>& entry, BluetoothError error);
+
+  void RetainConnectionForCleanup(const std::string& peer, const std::shared_ptr<ConnectionEntry>& connection);
+
+  std::shared_ptr<ConnectionEntry> ReserveConnectingConnection(
+      const std::string& peer,
+      const std::string& connection_generation);
+
+  void PromoteConnectingConnection(const std::string& peer, const std::shared_ptr<ConnectionEntry>& connection);
+
+  void ReleaseRetainedConnectionAfterCleanup(const std::string& peer, const std::shared_ptr<ConnectionEntry>& connection);
+
+  void FinishConnectionSetup(const std::shared_ptr<ConnectionEntry>& connection);
 
   bool RemoveConnection(const std::string& peer, const std::shared_ptr<ConnectionEntry>& expected = nullptr);
 

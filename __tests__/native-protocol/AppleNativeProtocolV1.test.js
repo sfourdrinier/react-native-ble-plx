@@ -10,9 +10,16 @@ function read(relativePath) {
   return fs.readFileSync(path.join(root, relativePath), 'utf8')
 }
 
+function readAppleRadio() {
+  return [
+    read('ios/Owned/OwnedCoreBluetoothProtocolRadio.swift'),
+    read('ios/Owned/OwnedCoreBluetoothProtocolRadioCancellation.swift')
+  ].join('\n')
+}
+
 describe('Apple Native Protocol v1 radio boundary', () => {
   test('owns direct CoreBluetooth bytes, duplicate-aware paths, and direct restoration', () => {
-    const radio = read('ios/Owned/OwnedCoreBluetoothProtocolRadio.swift')
+    const radio = readAppleRadio()
     const control = read('ios/UnifiedBleProtocolControl.mm')
     const execution = [
       read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm'),
@@ -42,7 +49,7 @@ describe('Apple Native Protocol v1 radio boundary', () => {
     expect(execution).toContain('receiveAdvertisement')
     expect(execution).toContain('receiveNotification')
     expect(execution).toContain('recordsAwaitingSink')
-    expect(execution).toContain('runtime->settleResult(result)')
+    expect(execution).toContain('runtime->settleResult(*terminalResults[index])')
   })
 
   test('fails the pre-JavaScript stream closed with generation-safe sink ownership and observable counters', () => {
@@ -133,10 +140,10 @@ describe('Apple Native Protocol v1 radio boundary', () => {
     const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
     const binaryDelivery = read('ios/NativeProtocol/UnifiedBleProtocolAppleBinaryDelivery.mm')
     const podspec = read('unified-ble-manager.podspec')
-    const radio = read('ios/Owned/OwnedCoreBluetoothProtocolRadio.swift')
+    const radio = readAppleRadio()
 
     expect(runtime).toContain('pendingSubscriptionCommandFor')
-    expect(execution).toContain('releaseRetainedBinary')
+    expect(binaryDelivery).toContain('releaseRetainedBinary')
     expect(execution).toContain('read binary release after non-delivery')
     expect(execution).toContain('read binary release after delivery failure')
     expect(execution).toContain('pendingSubscriptionCommandFor(subscriptionValue)')
@@ -146,15 +153,90 @@ describe('Apple Native Protocol v1 radio boundary', () => {
     expect(radio).toContain('subscriptions[address] ?? pendingSubscriptionIdentifier')
   })
 
+  test('validates Apple binary references before conversion and preserves cleanup ownership on failure', () => {
+    const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
+    const binaryDelivery = read('ios/NativeProtocol/UnifiedBleProtocolAppleBinaryDelivery.mm')
+    const state = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecutionState.hpp')
+    const ledger = read('ios/NativeProtocol/UnifiedBleProtocolAppleBinaryLedger.hpp')
+
+    expect(execution).toContain('std::isfinite(value.asNumber())')
+    expect(execution).toContain('checkedAppleBinaryRange')
+    expect(execution).toContain('state->binaryCleanupLedger')
+    expect(binaryDelivery).toContain('ownerToken')
+    expect(binaryDelivery).toContain('appendAppleBinaryReference')
+    expect(binaryDelivery).toContain('BinaryReferenceDeliveryStatus')
+    expect(binaryDelivery).toContain('failedReferences')
+    expect(state).toContain('AppleBinaryCleanupLedger binaryCleanupLedger')
+    expect(ledger).toContain('kMaximumReferences')
+    expect(ledger).toContain('kMaximumBinaryPayloadBytes')
+    expect(ledger).toContain('retry')
+  })
+
+  test('requires terminal ingress admission before settling ownership and retains cancelled CoreBluetooth cleanup', () => {
+    const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
+    const radio = readAppleRadio()
+    const descriptors = read('ios/Owned/OwnedCoreBluetoothProtocolRadioDescriptors.swift')
+    const state = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecutionState.hpp')
+
+    const resultDelivery = execution.slice(
+      execution.indexOf('NativeResultDeliveryStatus deliverResult'),
+      execution.indexOf('bool deliverEvent')
+    )
+    expect(resultDelivery).toContain('failAttachmentAfterTerminalAdmissionFailure')
+    expect(resultDelivery).toContain('result,')
+    expect(execution).toContain('runtime->settleResult(*terminalResults[index])')
+    expect(resultDelivery).toContain('!state->attachmentFatal')
+    expect(state).toContain('bool attachmentFatal = false;')
+    expect(execution).toContain('Apple native terminal could not be admitted to JavaScript')
+    expect(execution).toContain('runtime->close(attachment)')
+    expect(execution).toContain('connectionOwnershipAfterSettlement')
+    expect(execution).toContain('quarantineLateCompletion')
+    expect(radio).toContain('cancelPendingOperation')
+    expect(radio).toContain('pendingCancellationCleanup')
+    expect(radio).toContain('retryCancellationCleanup')
+    expect(radio).toContain('notificationDesiredStates')
+    expect(radio).toContain('pending.enabled ? false : true')
+    expect(radio).toContain('notificationAwaitingCallbacks')
+    expect(radio).toContain('markCancellationNotificationCallbackReceived')
+    expect(radio).toContain('scheduleCancellationCleanupRetry')
+    expect(radio).toContain('cleanup.path-unresolved')
+    expect(descriptors).toContain('cancel(_ operationIdentifier: String)')
+  })
+
+  test('contains malformed adapter-state serialization inside Objective-C++ callback boundaries', () => {
+    const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
+    const receiveAdapterState = execution.slice(
+      execution.indexOf('void AppleNativeProtocolExecution::receiveAdapterState'),
+      execution.indexOf('void AppleNativeProtocolExecution::receiveAdvertisement')
+    )
+
+    expect(receiveAdapterState).toContain('catch (const protocol::ProtocolException& error)')
+    expect(receiveAdapterState).toContain('catch (const std::exception& error)')
+    expect(receiveAdapterState).toContain('catch (...)')
+    expect(receiveAdapterState).toContain('receiveAdapterState Objective-C serialization failed')
+    expect(receiveAdapterState).toContain('receiveAdapterState serialization failed with an unknown C++ exception')
+  })
+
+  test('retains unreachable sinks for runtime-thread destruction when scheduler invocation fails', () => {
+    const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
+    const state = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecutionState.hpp')
+
+    expect(execution).toContain('catch (const std::exception& error)')
+    expect(execution).toContain('Apple execution close runtime-thread sink cleanup scheduling')
+    expect(execution).toContain('state->eventSinksAwaitingJavaScriptRelease.insert(')
+    expect(execution).toContain('state->eventSinksAwaitingJavaScriptRelease.push_back')
+    expect(state).toContain('eventSinksAwaitingJavaScriptRelease')
+  })
+
   test('preserves one structured native failure and waits for CoreBluetooth disconnect completion', () => {
     const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
-    const radio = read('ios/Owned/OwnedCoreBluetoothProtocolRadio.swift')
+    const radio = readAppleRadio()
     const boundary = read('src/native-protocol/rn-apple-boundary.ts')
     const sharedBoundary = read('src/native-protocol/rn-android-boundary.ts')
     const failureResult = execution.slice(execution.indexOf('protocol::ProtocolRecord failureResult'))
 
     expect([...failureResult.matchAll(/field\(1U, code\)/g)]).toHaveLength(1)
-    expect(radio).toContain('private var pendingDisconnect = [String: PendingVoid]()')
+    expect(radio).toContain('var pendingDisconnect = [String: PendingVoid]()')
     expect(radio).toContain('pendingDisconnect[peerIdentifier] = PendingVoid(')
     expect(radio).toContain('pendingDisconnect.removeValue(forKey: identifier)')
     expect(radio).toContain('pendingDisconnect.removeAll()')
@@ -233,6 +315,7 @@ describe('Apple Native Protocol v1 radio boundary', () => {
     expect(execution).toContain('if (kind == "readDescriptor")')
     expect(execution).toContain('kind == "readDescriptor" || kind == "writeDescriptor"')
     expect(execution).toContain('descriptorEndpointFor')
+    expect(execution).toContain('field(4U, descriptors)')
     expect(execution).toContain('field(15U, reference(descriptorPath))')
     expect(execution).toContain('return "descriptorRead"')
     expect(execution).toContain('return "descriptorWrite"')

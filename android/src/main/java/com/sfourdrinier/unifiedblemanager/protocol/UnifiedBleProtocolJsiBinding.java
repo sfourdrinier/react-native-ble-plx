@@ -9,8 +9,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /** Installs the versioned native binary transport into the active JSI runtime. */
 final class UnifiedBleProtocolJsiBinding {
-  private static final ConcurrentHashMap<Long, UnifiedBleProtocolAndroidDispatcher> DISPATCHERS =
-      new ConcurrentHashMap<>();
+  private static final DispatcherInstallRegistry<UnifiedBleProtocolAndroidDispatcher> DISPATCHERS =
+      new DispatcherInstallRegistry<>();
 
   private UnifiedBleProtocolJsiBinding() {}
 
@@ -19,26 +19,27 @@ final class UnifiedBleProtocolJsiBinding {
       long nativeHandle,
       ReactApplicationContext context) {
     final UnifiedBleProtocolAndroidDispatcher dispatcher =
-        new UnifiedBleProtocolAndroidDispatcher(context, nativeHandle);
-    final UnifiedBleProtocolAndroidDispatcher existing = DISPATCHERS.putIfAbsent(nativeHandle, dispatcher);
-    if (existing != null) {
-      throw new IllegalStateException("Native protocol dispatcher is already installed");
-    }
+        DISPATCHERS.reserve(
+            nativeHandle, () -> new UnifiedBleProtocolAndroidDispatcher(context, nativeHandle));
     try {
       installNative(runtimeExecutor, nativeHandle);
     } catch (RuntimeException error) {
-      final UnifiedBleProtocolAndroidDispatcher removed = DISPATCHERS.remove(nativeHandle);
-      if (removed != null) {
-        removed.close();
+      try {
+        close(nativeHandle);
+      } catch (RuntimeException cleanupError) {
+        error.addSuppressed(cleanupError);
       }
       throw error;
     }
   }
 
   static void close(long nativeHandle) {
-    final UnifiedBleProtocolAndroidDispatcher dispatcher = DISPATCHERS.remove(nativeHandle);
-    if (dispatcher != null) {
-      dispatcher.close();
+    final boolean removed = DISPATCHERS.closeRetainingOwner(
+        nativeHandle,
+        UnifiedBleProtocolAndroidDispatcher::close);
+    if (!removed && DISPATCHERS.get(nativeHandle) != null) {
+      throw new IllegalStateException(
+          "Android protocol attachment cleanup remains retryable; close the same attachment again");
     }
     uninstallNative(nativeHandle);
   }
@@ -53,9 +54,10 @@ final class UnifiedBleProtocolJsiBinding {
 
   static void cancelOperation(long nativeHandle, long dispatchEpoch, String nonce) {
     final UnifiedBleProtocolAndroidDispatcher dispatcher = DISPATCHERS.get(nativeHandle);
-    if (dispatcher != null) {
-      dispatcher.cancelPendingOperation(dispatchEpoch, nonce);
+    if (dispatcher == null) {
+      throw new IllegalStateException("Native protocol dispatcher is unavailable during cancellation");
     }
+    dispatcher.cancelPendingOperation(dispatchEpoch, nonce);
   }
 
   static void emitCurrentAdapterState(long nativeHandle) {
@@ -70,8 +72,8 @@ final class UnifiedBleProtocolJsiBinding {
     return requestCancellationNative(nativeHandle, dispatchEpoch, nonce);
   }
 
-  static void emitRecord(long nativeHandle, byte[] encodedRecord) {
-    emitRecordNative(nativeHandle, encodedRecord);
+  static boolean emitRecord(long nativeHandle, byte[] encodedRecord) {
+    return emitRecordNative(nativeHandle, encodedRecord);
   }
 
   static void emitAdapterState(long nativeHandle, byte[] encodedAdapterState) {
@@ -138,10 +140,67 @@ final class UnifiedBleProtocolJsiBinding {
     emitDispatcherFailureNative(nativeHandle, message);
   }
 
+  /** Owns installation reservations without constructing a duplicate receiver owner. */
+  static final class DispatcherInstallRegistry<T> {
+    interface DispatcherFactory<T> {
+      T create();
+    }
+
+    interface DispatcherCloser<T> {
+      boolean close(T dispatcher);
+    }
+
+    private final ConcurrentHashMap<Long, T> dispatchers = new ConcurrentHashMap<>();
+    private final Object installationLock = new Object();
+
+    T reserve(long nativeHandle, DispatcherFactory<T> dispatcherFactory) {
+      synchronized (installationLock) {
+        if (dispatchers.containsKey(nativeHandle)) {
+          throw new IllegalStateException("Native protocol dispatcher is already installed");
+        }
+        // Reserve before the factory registers an Android receiver, so a duplicate
+        // install cannot construct a loser that owns a receiver or dispatcher.
+        final T dispatcher = dispatcherFactory.create();
+        dispatchers.put(nativeHandle, dispatcher);
+        return dispatcher;
+      }
+    }
+
+    T remove(long nativeHandle) {
+      return dispatchers.remove(nativeHandle);
+    }
+
+    boolean removeExact(long nativeHandle, T dispatcher) {
+      return dispatchers.remove(nativeHandle, dispatcher);
+    }
+
+    /**
+     * Keeps the exact dispatcher owner registered until its radio teardown
+     * succeeds.  A failed close therefore remains retryable through the same
+     * attachment and a concurrent install cannot create a second receiver.
+     */
+    boolean closeRetainingOwner(long nativeHandle, DispatcherCloser<T> dispatcherCloser) {
+      synchronized (installationLock) {
+        final T dispatcher = dispatchers.get(nativeHandle);
+        if (dispatcher == null) return true;
+        if (!dispatcherCloser.close(dispatcher)) return false;
+        return dispatchers.remove(nativeHandle, dispatcher);
+      }
+    }
+
+    T get(long nativeHandle) {
+      return dispatchers.get(nativeHandle);
+    }
+
+    int ownerCount() {
+      return dispatchers.size();
+    }
+  }
+
   private static native void installNative(RuntimeExecutor runtimeExecutor, long nativeHandle);
   private static native void uninstallNative(long nativeHandle);
   private static native String requestCancellationNative(long nativeHandle, long dispatchEpoch, String nonce);
-  private static native void emitRecordNative(long nativeHandle, byte[] encodedRecord);
+  private static native boolean emitRecordNative(long nativeHandle, byte[] encodedRecord);
   private static native void emitAdapterStateNative(long nativeHandle, byte[] encodedAdapterState);
   private static native void emitReadNative(long nativeHandle, long dispatchEpoch, String nonce, byte[] value);
   private static native void emitDescriptorReadNative(long nativeHandle, long dispatchEpoch, String nonce, byte[] value);

@@ -104,6 +104,7 @@ public final class UnifiedBleProtocolControlModule extends NativeUnifiedBleProto
 
   @Override
   public synchronized void cancelOperation(ReadableMap correlation, Promise promise) {
+    boolean nativeCancellationRecorded = false;
     try {
       requireCurrent(attachmentFrom(requiredMap(correlation, "attachment")));
       final AttachmentIdentity operationAttachment =
@@ -118,6 +119,7 @@ public final class UnifiedBleProtocolControlModule extends NativeUnifiedBleProto
           requiredPositiveInteger(correlation, "dispatchEpoch"),
           requiredString(correlation, "nonce"));
       if ("cancellationRequested".equals(state)) {
+        nativeCancellationRecorded = true;
         UnifiedBleProtocolJsiBinding.cancelOperation(
             nativeHandle,
             requiredPositiveInteger(correlation, "dispatchEpoch"),
@@ -128,6 +130,30 @@ public final class UnifiedBleProtocolControlModule extends NativeUnifiedBleProto
       promise.resolve(result);
     } catch (RuntimeException error) {
       Log.e(TAG, "cancelOperation failed", error);
+      if (nativeCancellationRecorded) {
+        boolean cleanupComplete = true;
+        try {
+          UnifiedBleProtocolJsiBinding.close(nativeHandle);
+        } catch (RuntimeException cleanupError) {
+          cleanupComplete = false;
+          Log.e(TAG, "cancelOperation native dispatcher cleanup failed", cleanupError);
+        }
+        try {
+          nativeClose(
+              nativeHandle,
+              attachment.attachmentId,
+              attachment.backendInstanceId,
+              attachment.backendGeneration,
+              attachment.adapterId,
+              attachment.adapterGeneration);
+        } catch (RuntimeException cleanupError) {
+          cleanupComplete = false;
+          Log.e(TAG, "cancelOperation native runtime cleanup failed", cleanupError);
+        }
+        if (cleanupComplete) {
+          closeOwnedState();
+        }
+      }
       promise.reject("invalidCorrelation", error.getMessage(), error);
     }
   }
@@ -144,6 +170,7 @@ public final class UnifiedBleProtocolControlModule extends NativeUnifiedBleProto
   public synchronized void closeAttachment(ReadableMap requestedAttachment, Promise promise) {
     try {
       requireCurrent(attachmentFrom(requestedAttachment));
+      UnifiedBleProtocolJsiBinding.close(nativeHandle);
       nativeClose(
           nativeHandle,
           attachment.attachmentId,
@@ -151,7 +178,6 @@ public final class UnifiedBleProtocolControlModule extends NativeUnifiedBleProto
           attachment.backendGeneration,
           attachment.adapterId,
           attachment.adapterGeneration);
-      UnifiedBleProtocolJsiBinding.close(nativeHandle);
       closeOwnedState();
       promise.resolve(null);
     } catch (RuntimeException error) {
