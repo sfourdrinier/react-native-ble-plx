@@ -19,7 +19,7 @@
     "properties": [
       {
         "name": "unified-ble-manager:pnpm-lock-sha256",
-        "value": "fccc000775da20f96db51f7192c3fefc0ea161f1bcecb2b1faf1567d3ef375f6"
+        "value": "7c2f640b3e2a47548c1453d4abe725574cd86e0eb4d925163bfc3be59c3c0e8a"
       },
       {
         "name": "unified-ble-manager:dependency-scope",
@@ -45,13 +45,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Generate errors that contain a code frame that point to source locations.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://babel.dev/docs/en/next/babel-code-frame"
-        }
       ]
     },
     {
@@ -71,8 +64,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "The compat-data to determine required Babel plugins"
+      ]
     },
     {
       "type": "library",
@@ -90,13 +82,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Babel compiler core.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://babel.dev/docs/en/next/babel-core"
         }
       ]
     },
@@ -117,13 +102,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Turns an AST into code.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://babel.dev/docs/en/next/babel-generator"
-        }
       ]
     },
     {
@@ -143,8 +121,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Helper functions on Babel compilation targets"
+      ]
     },
     {
       "type": "library",
@@ -163,8 +140,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A collection of JavaScript globals for Babel internal usage"
+      ]
     },
     {
       "type": "library",
@@ -182,13 +158,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Babel helper functions for inserting module loads",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://babel.dev/docs/en/next/babel-helper-module-imports"
         }
       ]
     },
@@ -209,13 +178,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Babel helper functions for implementing ES6 module transformations",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://babel.dev/docs/en/next/babel-helper-module-transforms"
-        }
       ]
     },
     {
@@ -234,13 +196,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "General utilities for plugins to use",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://babel.dev/docs/en/next/babel-helper-plugin-utils"
         }
       ]
     },
@@ -261,13 +216,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A utility package to parse strings",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://babel.dev/docs/en/next/babel-helper-string-parser"
-        }
       ]
     },
     {
@@ -287,8 +235,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Validate identifier/keywords name"
+      ]
     },
     {
       "type": "library",
@@ -307,8 +254,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Validate plugin/preset options"
+      ]
     },
     {
       "type": "library",
@@ -326,13 +272,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Collection of helper functions used by Babel transforms.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://babel.dev/docs/en/next/babel-helpers"
         }
       ]
     },
@@ -353,13 +292,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A JavaScript parser",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://babel.dev/docs/en/next/babel-parser"
-        }
       ]
     },
     {
@@ -378,13 +310,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "This plugin transforms ES2015 modules to CommonJS",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://babel.dev/docs/en/next/babel-plugin-transform-modules-commonjs"
         }
       ]
     },
@@ -405,13 +330,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Generate an AST from a string template.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://babel.dev/docs/en/next/babel-template"
-        }
       ]
     },
     {
@@ -430,13 +348,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "The Babel Traverse module maintains the overall tree state, and is responsible for replacing, removing, and adding nodes",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://babel.dev/docs/en/next/babel-traverse"
         }
       ]
     },
@@ -457,13 +368,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Babel Types is a Lodash-esque utility library for AST nodes",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://babel.dev/docs/en/next/babel-types"
-        }
       ]
     },
     {
@@ -482,13 +386,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "A library for Expo config plugins",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://docs.expo.dev/guides/config-plugins/"
         }
       ]
     },
@@ -509,13 +406,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Types for the Expo config object app.config.ts",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/expo/expo/tree/main/packages/@expo/config-types#readme"
-        }
       ]
     },
     {
@@ -534,13 +424,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "A module for reading, writing, and manipulating JSON files",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/expo/expo/tree/main/packages/@expo/json-file#readme"
         }
       ]
     },
@@ -561,13 +444,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Mac OS X Plist parser/builder for Node.js and browsers",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/expo/expo/tree/main/packages/@expo/plist#readme"
-        }
       ]
     },
     {
@@ -586,13 +462,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Reusable require and Node resolution utilities library for Expo",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/expo/expo/tree/main/packages/@expo/require-utils#readme"
         }
       ]
     },
@@ -613,8 +482,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Functions for converting Expo SDK versions to EAS runtime versions"
+      ]
     },
     {
       "type": "library",
@@ -633,8 +501,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "fs read and write streams based on minipass"
+      ]
     },
     {
       "type": "library",
@@ -652,13 +519,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Generate source maps",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/jridgewell/sourcemaps/tree/main/packages/gen-mapping"
         }
       ]
     },
@@ -679,13 +539,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Generate source maps",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/jridgewell/sourcemaps/tree/main/packages/gen-mapping"
-        }
       ]
     },
     {
@@ -704,13 +557,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Remap sequential sourcemaps through transformations to point at the original source code",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/jridgewell/sourcemaps/tree/main/packages/remapping"
         }
       ]
     },
@@ -731,8 +577,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Resolve a URI relative to an optional base URI"
+      ]
     },
     {
       "type": "library",
@@ -750,13 +595,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Encode/decode sourcemap mappings",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/jridgewell/sourcemaps/tree/main/packages/sourcemap-codec"
         }
       ]
     },
@@ -777,13 +615,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Encode/decode sourcemap mappings",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/jridgewell/sourcemaps/tree/main/packages/sourcemap-codec"
-        }
       ]
     },
     {
@@ -802,13 +633,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Trace the original position through a source map",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/jridgewell/sourcemaps/tree/main/packages/trace-mapping"
         }
       ]
     },
@@ -829,8 +653,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Pack multibyte binary values into buffers"
+      ]
     },
     {
       "type": "library",
@@ -848,13 +671,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "A pure JavaScript W3C standard-based (XML DOM Level 2 Core) DOMParser and XMLSerializer module.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/xmldom/xmldom"
         }
       ]
     },
@@ -874,8 +690,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Like ruby's abbrev module, but in js"
+      ]
     },
     {
       "type": "library",
@@ -893,8 +708,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Like ruby's abbrev module, but in js"
+      ]
     },
     {
       "type": "library",
@@ -911,13 +725,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Another JSON Schema Validator",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/ajv-validator/ajv"
         }
       ]
     },
@@ -937,8 +744,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Regular expression for matching ANSI escape codes"
+      ]
     },
     {
       "type": "library",
@@ -956,8 +762,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Regular expression for matching ANSI escape codes"
+      ]
     },
     {
       "type": "library",
@@ -975,8 +780,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "ANSI escape codes for styling strings in the terminal"
+      ]
     },
     {
       "type": "library",
@@ -993,13 +797,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "A ridiculously light-weight argument validator (now browser friendly)",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/iarna/aproba"
         }
       ]
     },
@@ -1019,13 +816,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Keep track of the overall completion of many disparate processes",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/iarna/are-we-there-yet"
-        }
       ]
     },
     {
@@ -1044,8 +834,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Contains parsers and serializers for ASN.1 (currently BER only)"
+      ]
     },
     {
       "type": "library",
@@ -1063,8 +852,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Extra assertions on top of node's assert module"
+      ]
     },
     {
       "type": "library",
@@ -1081,13 +869,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Minimal async jobs utility library, with streams support",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/alexindigo/asynckit#readme"
         }
       ]
     },
@@ -1107,8 +888,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "AWS signing. Originally pulled from LearnBoost/knox, maintained as vendor in request, now a standalone module."
+      ]
     },
     {
       "type": "library",
@@ -1126,8 +906,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Signs and prepares requests using AWS Signature Version 4"
+      ]
     },
     {
       "type": "library",
@@ -1144,13 +923,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Match balanced character pairs, like \"{\" and \"}\"",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/juliangruber/balanced-match"
         }
       ]
     },
@@ -1170,8 +942,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Match balanced character pairs, like \"{\" and \"}\""
+      ]
     },
     {
       "type": "library",
@@ -1188,13 +959,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Base64 encoding/decoding in pure JS",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/beatgammit/base64-js"
         }
       ]
     },
@@ -1214,8 +978,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A library for obtaining browser versions with their maximum supported Baseline feature set and Widely Available status."
+      ]
     },
     {
       "type": "library",
@@ -1233,8 +996,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Port of the OpenBSD bcrypt_pbkdf function to pure JS"
+      ]
     },
     {
       "type": "library",
@@ -1252,8 +1014,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "An arbitrary length integer library for Javascript"
+      ]
     },
     {
       "type": "library",
@@ -1270,13 +1031,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Helper module for loading your native module's .node file",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/TooTallNate/node-bindings"
         }
       ]
     },
@@ -1296,8 +1050,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Binary Mac OS X Plist (property list) creator."
+      ]
     },
     {
       "type": "library",
@@ -1314,13 +1067,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Binary plist parser.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/nearinfinity/node-bplist-parser"
         }
       ]
     },
@@ -1340,13 +1086,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Brace expansion as known from sh/bash",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/juliangruber/brace-expansion"
-        }
       ]
     },
     {
@@ -1365,8 +1104,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Brace expansion as known from sh/bash"
+      ]
     },
     {
       "type": "library",
@@ -1384,8 +1122,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Share target browsers between different front-end tools, like Autoprefixer, Stylelint and babel-env-preset"
+      ]
     },
     {
       "type": "library",
@@ -1403,8 +1140,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A smaller version of caniuse-db, with only the essentials!"
+      ]
     },
     {
       "type": "library",
@@ -1422,8 +1158,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Caseless object set/get/has, very useful when working with HTTP headers."
+      ]
     },
     {
       "type": "library",
@@ -1441,8 +1176,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Terminal string styling done right"
+      ]
     },
     {
       "type": "library",
@@ -1460,8 +1194,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "like `chown -R`"
+      ]
     },
     {
       "type": "library",
@@ -1479,8 +1212,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "like `chown -R`"
+      ]
     },
     {
       "type": "library",
@@ -1498,8 +1230,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "ES2015 `String#codePointAt()` ponyfill"
+      ]
     },
     {
       "type": "library",
@@ -1517,8 +1248,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Plain color conversion functions"
+      ]
     },
     {
       "type": "library",
@@ -1535,13 +1265,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "A list of color names and its values",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/colorjs/color-name"
         }
       ]
     },
@@ -1561,13 +1284,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A stream that emits multiple other streams one after another.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/felixge/node-combined-stream"
-        }
       ]
     },
     {
@@ -1586,8 +1302,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "concatenative mapdashery"
+      ]
     },
     {
       "type": "library",
@@ -1605,8 +1320,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A library of cross-platform tested terminal/console command strings for doing things like color and cursor positioning.  This is a subset of both ansi and vt100.  All control codes included work on both Windows & Unix-like OSes, except where noted."
+      ]
     },
     {
       "type": "library",
@@ -1623,13 +1337,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Converts a source-map from/to  different formats and allows adding/changing properties.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/thlorenz/convert-source-map"
         }
       ]
     },
@@ -1649,8 +1356,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "The `util.is*` functions introduced in Node v0.12."
+      ]
     },
     {
       "type": "library",
@@ -1668,8 +1374,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "The `util.is*` functions introduced in Node v0.12."
+      ]
     },
     {
       "type": "library",
@@ -1687,8 +1392,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A light, featureful and explicit option parsing library."
+      ]
     },
     {
       "type": "library",
@@ -1706,8 +1410,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "The next great DBus library for Node"
+      ]
     },
     {
       "type": "library",
@@ -1725,8 +1428,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Lightweight debugging utility for Node.js and the browser"
+      ]
     },
     {
       "type": "library",
@@ -1744,8 +1446,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Lightweight debugging utility for Node.js and the browser"
+      ]
     },
     {
       "type": "library",
@@ -1762,13 +1463,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Buffers events from a stream until you are ready to handle them.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/felixge/node-delayed-stream"
         }
       ]
     },
@@ -1788,8 +1482,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "delegate methods and accessors to another property"
+      ]
     },
     {
       "type": "library",
@@ -1806,13 +1499,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Creates a duplex stream",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/Raynos/duplexer"
         }
       ]
     },
@@ -1832,13 +1518,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "ECC JS code based on JSBN",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/quartzjer/ecc-jsbn"
-        }
       ]
     },
     {
@@ -1857,8 +1536,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Provides a list of electron-to-chromium version mappings"
+      ]
     },
     {
       "type": "library",
@@ -1875,13 +1553,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "A regular expression to match all Emoji-only symbols as per the Unicode Standard.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://mths.be/emoji-regex"
         }
       ]
     },
@@ -1901,8 +1572,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Get paths for storing things like data, config, cache, etc"
+      ]
     },
     {
       "type": "library",
@@ -1920,8 +1590,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A tiny (183B to 210B) and fast utility to ascend parent directories"
+      ]
     },
     {
       "type": "library",
@@ -1938,13 +1607,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "construct pipes of streams of events",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "http://github.com/dominictarr/event-stream"
         }
       ]
     },
@@ -1964,13 +1626,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A utility that allows retrying a function with an exponential delay between attempts.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/coveooss/exponential-backoff#readme"
-        }
       ]
     },
     {
@@ -1989,8 +1644,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Port of jQuery.extend for node.js and the browser"
+      ]
     },
     {
       "type": "library",
@@ -2008,8 +1662,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "extended POSIX-style sprintf"
+      ]
     },
     {
       "type": "library",
@@ -2026,13 +1679,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Fast deep equal",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/epoberezkin/fast-deep-equal#readme"
         }
       ]
     },
@@ -2052,13 +1698,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "deterministic `JSON.stringify()` - a faster version of substack's json-stable-strigify without jsonify",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/epoberezkin/fast-json-stable-stringify"
-        }
       ]
     },
     {
@@ -2076,13 +1715,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "The fastest directory crawler & globbing alternative to glob, fast-glob, & tiny-glob. Crawls 1m files in < 1s",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/thecodrr/fdir#readme"
         }
       ]
     },
@@ -2102,13 +1734,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Convert a file: URI to a file path",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/TooTallNate/file-uri-to-path"
-        }
       ]
     },
     {
@@ -2127,8 +1752,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "HTTP Agent that keeps socket connections alive between keep-alive requests. Formerly part of mikeal/request, now a standalone module."
+      ]
     },
     {
       "type": "library",
@@ -2146,8 +1770,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A library to create readable \"multipart/form-data\" streams. Can be used to submit forms and file uploads to other web applications."
+      ]
     },
     {
       "type": "library",
@@ -2165,8 +1788,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Easy way to make a Readable Stream"
+      ]
     },
     {
       "type": "library",
@@ -2183,13 +1805,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "fs read and write streams based on minipass",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/npm/fs-minipass#readme"
         }
       ]
     },
@@ -2209,8 +1824,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Use node's fs.realpath, but fall back to the JS implementation if the native one fails"
+      ]
     },
     {
       "type": "library",
@@ -2227,13 +1841,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "A terminal based horizontal guage",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/iarna/gauge"
         }
       ]
     },
@@ -2253,13 +1860,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Allows users to use generators in order to write common functions that can be both sync or async.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/loganfsmyth/gensync"
-        }
       ]
     },
     {
@@ -2277,13 +1877,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Get and typecast environment variables.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/ctavan/node-getenv"
         }
       ]
     },
@@ -2303,8 +1896,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "getpass for node.js"
+      ]
     },
     {
       "type": "library",
@@ -2322,8 +1914,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "the most correct and second fastest glob implementation in JavaScript"
+      ]
     },
     {
       "type": "library",
@@ -2341,8 +1932,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "a little globber"
+      ]
     },
     {
       "type": "library",
@@ -2360,8 +1950,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A drop-in replacement for fs, making various improvements."
+      ]
     },
     {
       "type": "library",
@@ -2378,13 +1967,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "JSON Schema for HTTP Archive (HAR)",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/ahmadnassri/har-schema"
         }
       ]
     },
@@ -2404,13 +1986,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Extremely fast HTTP Archive (HAR) validator using JSON Schema",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/ahmadnassri/node-har-validator"
-        }
       ]
     },
     {
@@ -2429,8 +2004,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Check if argv has a specific flag"
+      ]
     },
     {
       "type": "library",
@@ -2447,13 +2021,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Try to guess if your terminal supports unicode",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/iarna/has-unicode"
         }
       ]
     },
@@ -2473,8 +2040,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "hexdump, binary pretty-printing"
+      ]
     },
     {
       "type": "library",
@@ -2491,13 +2057,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Reference implementation of Joyent's HTTP Signature scheme.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/joyent/node-http-signature/"
         }
       ]
     },
@@ -2517,13 +2076,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Add callbacks to requests in flight to avoid async duplication",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/isaacs/inflight"
-        }
       ]
     },
     {
@@ -2542,8 +2094,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Browser-friendly inheritance fully compatible with standard node.js inherits()"
+      ]
     },
     {
       "type": "library",
@@ -2561,8 +2112,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Check if the character represented by a given Unicode code point is fullwidth"
+      ]
     },
     {
       "type": "library",
@@ -2580,8 +2130,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Check if the character represented by a given Unicode code point is fullwidth"
+      ]
     },
     {
       "type": "library",
@@ -2598,13 +2147,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Detect whether or not an object is a Typed Array",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/hughsk/is-typedarray"
         }
       ]
     },
@@ -2624,13 +2166,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Array#isArray for older browsers",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/juliangruber/isarray"
-        }
       ]
     },
     {
@@ -2648,13 +2183,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Minimal module to check if a file is executable.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/isaacs/isexe#readme"
         }
       ]
     },
@@ -2674,8 +2202,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Minimal module to check if a file is executable."
+      ]
     },
     {
       "type": "library",
@@ -2692,13 +2219,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Determine if an object is a Stream",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/rvagg/isstream"
         }
       ]
     },
@@ -2718,8 +2238,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A regex that tokenizes JavaScript."
+      ]
     },
     {
       "type": "library",
@@ -2755,8 +2274,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "The jsbn library is a fast, portable implementation of large-number math in pure JavaScript, enabling public-key crypto and other applications on desktop and mobile browsers."
+      ]
     },
     {
       "type": "library",
@@ -2773,13 +2291,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Given some data, jsesc returns the shortest possible stringified & ASCII-safe representation of that data.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://mths.be/jsesc"
         }
       ]
     },
@@ -2799,13 +2310,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Traverse JSON Schema passing each schema object to callback",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/epoberezkin/json-schema-traverse#readme"
-        }
       ]
     },
     {
@@ -2824,8 +2328,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "JSON Schema validation and specifications"
+      ]
     },
     {
       "type": "library",
@@ -2842,13 +2345,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Like JSON.stringify, but doesn't blow up on circular refs.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/isaacs/json-stringify-safe"
         }
       ]
     },
@@ -2868,13 +2364,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "JSON for Humans",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "http://json5.org/"
-        }
       ]
     },
     {
@@ -2893,8 +2382,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "utilities for primitive JavaScript types"
+      ]
     },
     {
       "type": "library",
@@ -2912,8 +2400,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A Long class for representing a 64-bit two's-complement integer value."
+      ]
     },
     {
       "type": "library",
@@ -2931,8 +2418,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A cache object that deletes the least-recently-used items."
+      ]
     },
     {
       "type": "library",
@@ -2950,8 +2436,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A cache object that deletes the least-recently-used items."
+      ]
     },
     {
       "type": "library",
@@ -2968,13 +2453,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "reviewed-installed-license-file"
-        }
-      ],
-      "description": "construct pipes of streams of events",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "http://github.com/dominictarr/map-stream"
         }
       ]
     },
@@ -2994,8 +2472,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Media Type Database"
+      ]
     },
     {
       "type": "library",
@@ -3013,8 +2490,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "The ultimate javascript content-type utility."
+      ]
     },
     {
       "type": "library",
@@ -3032,8 +2508,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "a glob matcher in javascript"
+      ]
     },
     {
       "type": "library",
@@ -3051,8 +2526,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "a glob matcher in javascript"
+      ]
     },
     {
       "type": "library",
@@ -3070,8 +2544,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "minimal implementation of a PassThrough stream"
+      ]
     },
     {
       "type": "library",
@@ -3089,8 +2562,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "minimal implementation of a PassThrough stream"
+      ]
     },
     {
       "type": "library",
@@ -3108,8 +2580,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "minimal implementation of a PassThrough stream"
+      ]
     },
     {
       "type": "library",
@@ -3127,8 +2598,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A small fast zlib stream built on [minipass](http://npm.im/minipass) and Node.js's zlib binding."
+      ]
     },
     {
       "type": "library",
@@ -3146,8 +2616,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A small fast zlib stream built on [minipass](http://npm.im/minipass) and Node.js's zlib binding."
+      ]
     },
     {
       "type": "library",
@@ -3165,8 +2634,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Recursively mkdir, like `mkdir -p`"
+      ]
     },
     {
       "type": "library",
@@ -3184,8 +2652,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Tiny millisecond conversion utility"
+      ]
     },
     {
       "type": "library",
@@ -3203,8 +2670,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Native Abstractions for Node.js: C++ header for Node 0.8 -> 24 compatibility"
+      ]
     },
     {
       "type": "library",
@@ -3221,13 +2687,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Node.js API (Node-API)",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/nodejs/node-addon-api"
         }
       ]
     },
@@ -3247,8 +2706,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Node.js native addon build tool"
+      ]
     },
     {
       "type": "library",
@@ -3266,8 +2724,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Node.js native addon build tool"
+      ]
     },
     {
       "type": "library",
@@ -3285,8 +2742,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Node.js releases data"
+      ]
     },
     {
       "type": "library",
@@ -3304,8 +2760,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Option parsing for Node, supporting types, shorthands, etc. Used by npm."
+      ]
     },
     {
       "type": "library",
@@ -3323,8 +2778,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Option parsing for Node, supporting types, shorthands, etc. Used by npm."
+      ]
     },
     {
       "type": "library",
@@ -3342,8 +2796,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "logger for npm"
+      ]
     },
     {
       "type": "library",
@@ -3361,8 +2814,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "ES2015 Number.isNaN() ponyfill"
+      ]
     },
     {
       "type": "library",
@@ -3380,8 +2832,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "OAuth 1 signing. Formerly a vendor lib in mikeal/request, now a standalone module."
+      ]
     },
     {
       "type": "library",
@@ -3399,8 +2850,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "ES2015 `Object.assign()` ponyfill"
+      ]
     },
     {
       "type": "library",
@@ -3418,8 +2868,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Run a function exactly one time"
+      ]
     },
     {
       "type": "library",
@@ -3437,8 +2886,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Node.js 0.12 path.isAbsolute() ponyfill"
+      ]
     },
     {
       "type": "library",
@@ -3456,8 +2904,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "walk paths fast and efficiently"
+      ]
     },
     {
       "type": "library",
@@ -3475,8 +2922,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "a ThroughStream that strictly buffers all readable events when paused."
+      ]
     },
     {
       "type": "library",
@@ -3493,13 +2939,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Implements performance.now (based on process.hrtime).",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/braveg1rl/performance-now"
         }
       ]
     },
@@ -3519,8 +2958,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "The tiniest and the fastest library for terminal output formatting with ANSI colors"
+      ]
     },
     {
       "type": "library",
@@ -3537,13 +2975,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Blazing fast and accurate glob matcher written in JavaScript, with no dependencies and full support for standard and extended Bash glob features, including braces, extglobs, POSIX brackets, and regular expressions.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/micromatch/picomatch"
         }
       ]
     },
@@ -3563,8 +2994,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Apple's property list parser/builder for Node.js and browsers"
+      ]
     },
     {
       "type": "library",
@@ -3582,8 +3012,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "just emit 'log' events on the process object"
+      ]
     },
     {
       "type": "library",
@@ -3600,13 +3029,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "process.nextTick but always with args",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/calvinmetcalf/process-nextick-args"
         }
       ]
     },
@@ -3626,8 +3048,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Domain name parser based on the Public Suffix List"
+      ]
     },
     {
       "type": "library",
@@ -3644,13 +3065,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "A robust Punycode converter that fully complies to RFC 3492 and RFC 5891, and works on nearly all JavaScript platforms.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://mths.be/punycode"
         }
       ]
     },
@@ -3670,13 +3084,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A querystring parser that supports nesting and arrays, with a depth limit",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/ljharb/qs"
-        }
       ]
     },
     {
@@ -3695,8 +3102,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Streams3, a user-land copy of the stream library from Node.js"
+      ]
     },
     {
       "type": "library",
@@ -3714,8 +3120,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Simplified HTTP request client."
+      ]
     },
     {
       "type": "library",
@@ -3733,8 +3138,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A deep deletion module for node (like `rm -rf`)"
+      ]
     },
     {
       "type": "library",
@@ -3751,13 +3155,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Safer Node.js Buffer API",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/feross/safe-buffer"
         }
       ]
     },
@@ -3777,13 +3174,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Safer Node.js Buffer API",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/feross/safe-buffer"
-        }
       ]
     },
     {
@@ -3802,8 +3192,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Modern Buffer API polyfill without footguns"
+      ]
     },
     {
       "type": "library",
@@ -3821,8 +3210,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "An evented streaming XML parser in JavaScript"
+      ]
     },
     {
       "type": "library",
@@ -3840,8 +3228,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "The semantic version parser used by npm."
+      ]
     },
     {
       "type": "library",
@@ -3859,8 +3246,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "The semantic version parser used by npm."
+      ]
     },
     {
       "type": "library",
@@ -3877,13 +3263,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "set blocking stdio and stderr ensuring that terminal output does not truncate",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/yargs/set-blocking#readme"
         }
       ]
     },
@@ -3903,13 +3282,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "when you want to fire an event no matter how a process exits.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/tapjs/signal-exit"
-        }
       ]
     },
     {
@@ -3927,13 +3299,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "A wrapper utility for interacting with plist data.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/wollardj/simple-plist.git"
         }
       ]
     },
@@ -3953,13 +3318,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Slugifies a String",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/simov/slugify"
-        }
       ]
     },
     {
@@ -3977,13 +3335,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "split a Text Stream into a Line Stream",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "http://github.com/dominictarr/split"
         }
       ]
     },
@@ -4003,13 +3354,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A library for finding and using SSH public keys",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/arekinath/node-sshpk#readme"
-        }
       ]
     },
     {
@@ -4028,8 +3372,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Buffer-backed Streams for reading and writing."
+      ]
     },
     {
       "type": "library",
@@ -4046,12 +3389,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/dominictarr/stream-combiner"
         }
       ]
     },
@@ -4071,13 +3408,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "The string_decoder module from Node core",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/nodejs/string_decoder"
-        }
       ]
     },
     {
@@ -4096,8 +3426,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Get the visual width of a string - the number of columns required to display it"
+      ]
     },
     {
       "type": "library",
@@ -4115,8 +3444,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Get the visual width of a string - the number of columns required to display it"
+      ]
     },
     {
       "type": "library",
@@ -4134,8 +3462,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Strip ANSI escape codes"
+      ]
     },
     {
       "type": "library",
@@ -4153,8 +3480,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Strip ANSI escape codes from a string"
+      ]
     },
     {
       "type": "library",
@@ -4172,8 +3498,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Detect whether a terminal supports color"
+      ]
     },
     {
       "type": "library",
@@ -4191,8 +3516,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "tar for node"
+      ]
     },
     {
       "type": "library",
@@ -4210,8 +3534,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "tar for node"
+      ]
     },
     {
       "type": "library",
@@ -4228,13 +3551,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "simplified stream construction",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/dominictarr/through"
         }
       ]
     },
@@ -4254,13 +3570,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A fast and minimal alternative to globby and fast-glob",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://superchupu.dev/tinyglobby"
-        }
       ]
     },
     {
@@ -4278,13 +3587,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "RFC6265 Cookies and Cookie Jar for node.js",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/salesforce/tough-cookie"
         }
       ]
     },
@@ -4304,8 +3606,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "HTTP proxy tunneling agent. Formerly part of mikeal/request, now a standalone module."
+      ]
     },
     {
       "type": "library",
@@ -4322,13 +3623,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Port of TweetNaCl cryptographic library to JavaScript",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://tweetnacl.js.org"
         }
       ]
     },
@@ -4348,13 +3642,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "TypeScript is a language for application scale JavaScript development",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://www.typescriptlang.org/"
-        }
       ]
     },
     {
@@ -4372,13 +3659,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "An HTTP/1.1 client, written from scratch for Node.js",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://undici.nodejs.org"
         }
       ]
     },
@@ -4398,8 +3678,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "CLI tool to update caniuse-lite to refresh target browsers from Browserslist config"
+      ]
     },
     {
       "type": "library",
@@ -4416,13 +3695,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "An RFC 3986/3987 compliant, scheme extendable URI/IRI parsing/validating/resolving library for JavaScript.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/garycourt/uri-js"
         }
       ]
     },
@@ -4442,13 +3714,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "unix local sockets with descriptor passing",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/jhs67/usocket#readme"
-        }
       ]
     },
     {
@@ -4466,13 +3731,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "The Node.js `util.deprecate()` function with browser support",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/TooTallNate/util-deprecate"
         }
       ]
     },
@@ -4492,8 +3750,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "RFC4122 (v1, v4, and v5) UUIDs"
+      ]
     },
     {
       "type": "library",
@@ -4511,8 +3768,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "RFC4122 (v1, v4, and v5) UUIDs"
+      ]
     },
     {
       "type": "library",
@@ -4530,8 +3786,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "richer JavaScript errors"
+      ]
     },
     {
       "type": "library",
@@ -4549,8 +3804,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Like which(1) unix command. Find the first instance of an executable in the PATH."
+      ]
     },
     {
       "type": "library",
@@ -4568,8 +3822,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Like which(1) unix command. Find the first instance of an executable in the PATH."
+      ]
     },
     {
       "type": "library",
@@ -4587,8 +3840,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "A wide-character aware text alignment function for use on the console or with fixed width fonts."
+      ]
     },
     {
       "type": "library",
@@ -4605,13 +3857,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Callback wrapping utility",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/npm/wrappy"
         }
       ]
     },
@@ -4631,8 +3876,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "parser for xcodeproj/project.pbxproj files"
+      ]
     },
     {
       "type": "library",
@@ -4649,13 +3893,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "Simple XML to JavaScript object converter.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/Leonidas-from-XIV/node-xml2js"
         }
       ]
     },
@@ -4675,13 +3912,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Simple XML to JavaScript object converter.",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/Leonidas-from-XIV/node-xml2js"
-        }
       ]
     },
     {
@@ -4699,13 +3929,6 @@
         {
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
-        }
-      ],
-      "description": "An XML builder for node.js",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "http://github.com/oozcitak/xmlbuilder-js"
         }
       ]
     },
@@ -4725,13 +3948,6 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "An XML builder for node.js",
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "http://github.com/oozcitak/xmlbuilder-js"
-        }
       ]
     },
     {
@@ -4750,8 +3966,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Yet Another Linked List"
+      ]
     },
     {
       "type": "library",
@@ -4769,8 +3984,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Yet Another Linked List"
+      ]
     },
     {
       "type": "library",
@@ -4788,8 +4002,7 @@
           "name": "unified-ble-manager:license-source",
           "value": "package-metadata"
         }
-      ],
-      "description": "Yet Another Linked List"
+      ]
     }
   ],
   "dependencies": [

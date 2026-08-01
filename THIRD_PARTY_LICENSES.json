@@ -7,9 +7,9 @@
     "version": "4.0.0-alpha.29"
   },
   "source": {
-    "method": "installed production dependency graph traversal",
+    "method": "pnpm-lock production graph with installed-manifest license audit",
     "lockfile": "pnpm-lock.yaml",
-    "lockfileSha256": "fccc000775da20f96db51f7192c3fefc0ea161f1bcecb2b1faf1567d3ef375f6"
+    "lockfileSha256": "7c2f640b3e2a47548c1453d4abe725574cd86e0eb4d925163bfc3be59c3c0e8a"
   },
   "reviewedOverrides": [
     {

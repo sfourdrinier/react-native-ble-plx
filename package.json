@@ -181,7 +181,8 @@
     "styled-components": "^6.1.11",
     "turbo": "^1.10.7",
     "typescript": "^5.2.2",
-    "webpack": "5.109.2"
+    "webpack": "5.109.2",
+    "yaml": "2.9.0"
   },
   "resolutions": {
     "@types/react": "^19.0.0"
