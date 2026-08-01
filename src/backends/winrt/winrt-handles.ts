@@ -48,6 +48,52 @@ import type { WinRtCharacteristicAddress, WinRtDescriptorAddress, WinRtGattSnaps
 
 export const releasedCleanup: CleanupRecord = Object.freeze({ state: 'released', failures: Object.freeze([]) })
 
+/** Couples a public notification stream close to its owning retryable CCCD cleanup. */
+export class WinRtSubscriptionStream extends CoreBoundedStream<NotificationValue> {
+  private ownerRemoval: (() => Promise<CleanupRecord>) | null = null
+  private closeCleanup: Promise<CleanupRecord> | null = null
+
+  bindOwnerRemoval(ownerRemoval: () => Promise<CleanupRecord>): void {
+    if (this.ownerRemoval !== null) {
+      throw contractError('lifecycle.invariant-violation', 'stream', 'winrt.subscription-stream.owner-removal')
+    }
+    this.ownerRemoval = ownerRemoval
+  }
+
+  override close(): Promise<CleanupRecord> {
+    super.close()
+    if (this.closeCleanup !== null) {
+      return this.closeCleanup
+    }
+    const ownerRemoval = this.ownerRemoval
+    if (ownerRemoval === null) {
+      return Promise.resolve(releasedCleanup)
+    }
+    let cleanup: Promise<CleanupRecord>
+    try {
+      cleanup = ownerRemoval()
+    } catch (error) {
+      return Promise.reject(error)
+    }
+    const trackedCleanup = cleanup.then(
+      result => {
+        if (result.state === 'release-failed' && this.closeCleanup === trackedCleanup) {
+          this.closeCleanup = null
+        }
+        return result
+      },
+      error => {
+        if (this.closeCleanup === trackedCleanup) {
+          this.closeCleanup = null
+        }
+        throw error
+      }
+    )
+    this.closeCleanup = trackedCleanup
+    return trackedCleanup
+  }
+}
+
 export class WinRtScanLease implements ScanLease<string, string> {
   readonly scanSessionId: ScanSessionId<string, string>
   readonly leaseId: LeaseId<string, string>
@@ -145,7 +191,7 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
 
   constructor(
     private readonly backend: WinRtBackend,
-    private readonly record: WinRtConnectionRecord,
+    readonly connectionRecord: WinRtConnectionRecord,
     readonly path: DatabasePath<string, string, string>,
     private readonly snapshotRecord: WinRtGattSnapshot
   ) {}
@@ -216,7 +262,11 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
   ): Promise<OwnedBytes> {
     this.backend.assertGattUsable('winrt.gatt.database-read')
     this.assertCurrent('winrt.gatt.database-read')
-    return this.backend.gattOperations.readFromDatabase(this.addressFor(path, 'winrt.gatt.database-read'), options)
+    return this.backend.gattOperations.readFromDatabase(
+      this.connectionRecord,
+      this.addressFor(path, 'winrt.gatt.database-read'),
+      options
+    )
   }
 
   async write<ServiceOccurrence extends string, CharacteristicOccurrence extends string>(
@@ -227,6 +277,7 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
     this.backend.assertGattUsable('winrt.gatt.database-write')
     this.assertCurrent('winrt.gatt.database-write')
     return this.backend.gattOperations.writeFromDatabase(
+      this.connectionRecord,
       this.addressFor(path, 'winrt.gatt.database-write'),
       value,
       options
@@ -252,6 +303,7 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
     this.backend.assertGattUsable('winrt.gatt.database-read-descriptor')
     this.assertCurrent('winrt.gatt.database-read-descriptor')
     return this.backend.gattOperations.readDescriptorFromDatabase(
+      this.connectionRecord,
       this.descriptorAddressFor(path, 'winrt.gatt.database-read-descriptor'),
       options
     )
@@ -277,6 +329,7 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
     this.backend.assertGattUsable('winrt.gatt.database-write-descriptor')
     this.assertCurrent('winrt.gatt.database-write-descriptor')
     return this.backend.gattOperations.writeDescriptorFromDatabase(
+      this.connectionRecord,
       this.descriptorAddressFor(path, 'winrt.gatt.database-write-descriptor'),
       value,
       options
@@ -297,7 +350,7 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
   }
 
   assertCurrent(operation: string): void {
-    if (!this.valid || this.record.database !== this || this.record.state !== 'connected') {
+    if (!this.valid || this.connectionRecord.database !== this || this.connectionRecord.state !== 'connected') {
       throw contractError('gatt.stale-handle', 'gatt', operation)
     }
   }
@@ -335,7 +388,7 @@ export class WinRtGattDatabase implements GattDatabase<string, string, string> {
       throw contractError('gatt.not-found', 'gatt', operation)
     }
     return Object.freeze({
-      nativePeerId: this.record.nativePeerId,
+      nativePeerId: this.connectionRecord.nativePeerId,
       serviceUuid: service.uuid,
       serviceOccurrence: service.occurrence,
       characteristicUuid: characteristic.uuid,
@@ -397,11 +450,12 @@ export class WinRtBackendSubscription implements BackendSubscription<string, str
 
   constructor(
     private readonly backend: WinRtBackend,
+    readonly connectionRecord: WinRtConnectionRecord,
     readonly physical: WinRtPhysicalSubscription,
     readonly path: CharacteristicPath<string, string, string, string, string, 'current'>,
     readonly subscriptionId: SubscriptionId<string, string, string, string, string, string>,
     readonly terminal: OperationTerminalRecord<string, string>,
-    readonly stream: CoreBoundedStream<NotificationValue>
+    readonly stream: WinRtSubscriptionStream
   ) {}
 
   get notifications(): BoundedAsyncStream<NotificationValue> {
@@ -414,6 +468,15 @@ export class WinRtBackendSubscription implements BackendSubscription<string, str
 
   remove(): Promise<CleanupRecord> {
     return this.backend.gattOperations.removeSubscription(this)
+  }
+
+  isOwnedBy(backend: WinRtBackend): boolean {
+    const attachment = backend.attachment()
+    return (
+      this.backend === backend &&
+      attachmentRecordsEqual(this.path.attachment, attachment) &&
+      this.path.attachmentId === attachment.attachmentId
+    )
   }
 }
 
