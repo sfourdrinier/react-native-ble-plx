@@ -245,6 +245,266 @@ describe('CoreBluetooth contract-v1 vertical slice', () => {
     expect(boundary.destroyed).toBe(true)
   })
 
+  test('accepts occurrence zero for distinct service and characteristic UUIDs', async () => {
+    const { backend, boundary } = await backendFixture()
+    const peerId = await observedPeerId(backend)
+    const lease = await backend.connections.connect(
+      peerId,
+      opaqueId('scoped-occurrence-client', 'client', 'corebluetooth:scoped-occurrence'),
+      operation()
+    )
+    const originalDiscover = boundary.discover.bind(boundary)
+    boundary.discover = async nativePeerId => {
+      const snapshot = await originalDiscover(nativePeerId)
+      return {
+        services: [
+          snapshot.services[0],
+          {
+            ...snapshot.services[1],
+            uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+            occurrence: 0,
+            characteristics: [
+              {
+                ...snapshot.services[1].characteristics[0],
+                uuid: '00002a19-0000-1000-8000-00805f9b34fb'
+              }
+            ]
+          }
+        ]
+      }
+    }
+
+    const database = await backend.gatt.discover(lease.connection, operation())
+    const snapshot = await database.snapshot()
+    expect(snapshot.services).toHaveLength(2)
+    expect(snapshot.services.map(service => String(service.path.serviceOccurrence))).toEqual(['0', '0'])
+    expect(
+      snapshot.characteristics.map(characteristic => String(characteristic.path.characteristicOccurrence))
+    ).toEqual(['0', '1', '0'])
+
+    await lease.release()
+    await backend.destroy()
+  })
+
+  test('accepts descriptor occurrence zero per UUID and resets descriptor scope per characteristic', async () => {
+    const { backend, boundary } = await backendFixture()
+    const peerId = await observedPeerId(backend)
+    const lease = await backend.connections.connect(
+      peerId,
+      opaqueId('descriptor-occurrence-client', 'client', 'corebluetooth:descriptor-occurrence'),
+      operation()
+    )
+    const originalDiscover = boundary.discover.bind(boundary)
+    boundary.discover = async nativePeerId => {
+      const snapshot = await originalDiscover(nativePeerId)
+      const firstService = snapshot.services[0]
+      const firstCharacteristic = firstService.characteristics[0]
+      const secondCharacteristic = firstService.characteristics[1]
+      const firstDescriptor = firstCharacteristic.descriptors[0]
+      return {
+        services: [
+          {
+            ...firstService,
+            characteristics: [
+              {
+                ...firstCharacteristic,
+                descriptors: [
+                  firstDescriptor,
+                  { ...firstDescriptor, uuid: '00002901-0000-1000-8000-00805f9b34fb', occurrence: 0 }
+                ]
+              },
+              {
+                ...secondCharacteristic,
+                descriptors: [firstDescriptor]
+              }
+            ]
+          }
+        ]
+      }
+    }
+
+    const database = await backend.gatt.discover(lease.connection, operation())
+    const snapshot = await database.snapshot()
+    expect(
+      snapshot.descriptors.map(descriptor => [
+        String(descriptor.path.characteristicOccurrence),
+        String(descriptor.path.descriptorOccurrence)
+      ])
+    ).toEqual([
+      ['0', '0'],
+      ['0', '0'],
+      ['1', '0']
+    ])
+    expect(snapshot.descriptors.map(descriptor => String(descriptor.path.descriptorUuid))).toEqual([
+      descriptorUuid,
+      '00002901-0000-1000-8000-00805f9b34fb',
+      descriptorUuid
+    ])
+
+    await lease.release()
+    await backend.destroy()
+  })
+
+  test.each([
+    [
+      'duplicate service identity',
+      snapshot => ({
+        ...snapshot,
+        services: [snapshot.services[0], { ...snapshot.services[0], characteristics: [] }]
+      }),
+      'corebluetooth.gatt.snapshot.service-identity'
+    ],
+    [
+      'duplicate characteristic identity',
+      snapshot => ({
+        ...snapshot,
+        services: [
+          {
+            ...snapshot.services[0],
+            characteristics: [snapshot.services[0].characteristics[0], snapshot.services[0].characteristics[0]]
+          }
+        ]
+      }),
+      'corebluetooth.gatt.snapshot.characteristic-identity'
+    ],
+    [
+      'unknown service field',
+      snapshot => ({
+        ...snapshot,
+        services: [{ ...snapshot.services[0], unexpected: true }]
+      }),
+      'corebluetooth.gatt.snapshot.service'
+    ],
+    [
+      'unknown characteristic field',
+      snapshot => ({
+        ...snapshot,
+        services: [
+          {
+            ...snapshot.services[0],
+            characteristics: [{ ...snapshot.services[0].characteristics[0], unexpected: true }]
+          }
+        ]
+      }),
+      'corebluetooth.gatt.snapshot.characteristic'
+    ],
+    [
+      'duplicate descriptor identity',
+      snapshot => ({
+        ...snapshot,
+        services: [
+          {
+            ...snapshot.services[0],
+            characteristics: [
+              {
+                ...snapshot.services[0].characteristics[0],
+                descriptors: [
+                  snapshot.services[0].characteristics[0].descriptors[0],
+                  snapshot.services[0].characteristics[0].descriptors[0]
+                ]
+              }
+            ]
+          }
+        ]
+      }),
+      'corebluetooth.gatt.snapshot.descriptor-identity'
+    ],
+    [
+      'unknown descriptor field',
+      snapshot => ({
+        ...snapshot,
+        services: [
+          {
+            ...snapshot.services[0],
+            characteristics: [
+              {
+                ...snapshot.services[0].characteristics[0],
+                descriptors: [{ ...snapshot.services[0].characteristics[0].descriptors[0], unexpected: true }]
+              }
+            ]
+          }
+        ]
+      }),
+      'corebluetooth.gatt.snapshot.descriptor'
+    ],
+    [
+      'missing descriptor UUID',
+      snapshot => ({
+        ...snapshot,
+        services: [
+          {
+            ...snapshot.services[0],
+            characteristics: [
+              {
+                ...snapshot.services[0].characteristics[0],
+                descriptors: [{ occurrence: 0 }]
+              }
+            ]
+          }
+        ]
+      }),
+      'corebluetooth.gatt.snapshot.descriptor-uuid'
+    ],
+    [
+      'wrong descriptor occurrence type',
+      snapshot => ({
+        ...snapshot,
+        services: [
+          {
+            ...snapshot.services[0],
+            characteristics: [
+              {
+                ...snapshot.services[0].characteristics[0],
+                descriptors: [{ ...snapshot.services[0].characteristics[0].descriptors[0], occurrence: '0' }]
+              }
+            ]
+          }
+        ]
+      }),
+      'corebluetooth.gatt.snapshot.descriptor-occurrence'
+    ],
+    [
+      'inherited root field',
+      snapshot => Object.create({ services: snapshot.services }),
+      'corebluetooth.gatt.snapshot.root'
+    ],
+    [
+      'accessor root field',
+      snapshot => {
+        const result = {}
+        Object.defineProperty(result, 'services', { enumerable: true, get: () => snapshot.services })
+        return result
+      },
+      'corebluetooth.gatt.snapshot.root'
+    ],
+    [
+      'throwing root proxy',
+      snapshot =>
+        new Proxy(snapshot, {
+          getPrototypeOf: () => {
+            throw new Error('prototype inspection failed')
+          }
+        }),
+      'corebluetooth.gatt.snapshot.root'
+    ]
+  ])('rejects malformed CoreBluetooth discovery data for %s', async (_caseName, mutate, operationName) => {
+    const { backend, boundary } = await backendFixture()
+    const peerId = await observedPeerId(backend)
+    const lease = await backend.connections.connect(
+      peerId,
+      opaqueId('malformed-snapshot-client', 'client', 'corebluetooth:malformed-snapshot'),
+      operation()
+    )
+    const originalDiscover = boundary.discover.bind(boundary)
+    boundary.discover = async nativePeerId => mutate(await originalDiscover(nativePeerId))
+
+    await expect(backend.gatt.discover(lease.connection, operation())).rejects.toMatchObject({
+      normalized: { code: 'protocol.malformed', operation: operationName }
+    })
+    await lease.release()
+    await backend.destroy()
+  })
+
   test('admits a manager when each identity read receives a new monotonic timestamp', async () => {
     let now = 0
     const provider = createCoreBluetoothBackendProvider({

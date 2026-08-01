@@ -6,12 +6,7 @@ const path = require('path')
 const repositoryRoot = path.resolve(__dirname, '../../..')
 const addonSource = fs.readFileSync(path.join(repositoryRoot, 'native/electron/corebluetooth/src/addon.mm'), 'utf8')
 const bridgePath = path.join(repositoryRoot, 'native/electron/corebluetooth')
-const nativeAddonPath = path.join(
-  bridgePath,
-  'build',
-  'Release',
-  'unified_ble_corebluetooth.node'
-)
+const nativeAddonPath = path.join(bridgePath, 'build', 'Release', 'unified_ble_corebluetooth.node')
 
 function withDarwinPlatform(run) {
   const originalDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')
@@ -126,6 +121,80 @@ describe('CoreBluetooth native advertisement boundary', () => {
       ])
       expect(received[0].serviceData[0].value).not.toBe(serviceData)
       expect(received[0].manufacturerData[0].value).not.toBe(manufacturerValue)
+    })
+  })
+
+  test('assigns service and characteristic occurrences per UUID while building the GATT snapshot', async () => {
+    const serviceA = '0000180d-0000-1000-8000-00805f9b34fb'
+    const serviceB = '0000180f-0000-1000-8000-00805f9b34fb'
+    const characteristicA = '00002a37-0000-1000-8000-00805f9b34fb'
+    const characteristicB = '00002a19-0000-1000-8000-00805f9b34fb'
+    const descriptorUuid = '00002902-0000-1000-8000-00805f9b34fb'
+    const radio = createRadio()
+    radio.discoverServices.mockResolvedValue([serviceA, serviceB, serviceA])
+    radio.discoverCharacteristicsAt.mockImplementation((_nativePeerId, uuid, occurrence) => {
+      if (uuid === serviceB) {
+        return Promise.resolve([
+          {
+            uuid: characteristicB,
+            isReadable: true,
+            isWritableWithResponse: false,
+            isWritableWithoutResponse: false,
+            isNotifiable: true,
+            descriptors: [{ uuid: descriptorUuid }]
+          }
+        ])
+      }
+      if (occurrence === 0) {
+        return Promise.resolve([
+          {
+            uuid: characteristicA,
+            isReadable: true,
+            isWritableWithResponse: false,
+            isWritableWithoutResponse: false,
+            isNotifiable: true,
+            descriptors: [{ uuid: descriptorUuid }, { uuid: descriptorUuid }]
+          },
+          {
+            uuid: characteristicA,
+            isReadable: true,
+            isWritableWithResponse: false,
+            isWritableWithoutResponse: false,
+            isNotifiable: true,
+            descriptors: [{ uuid: descriptorUuid }]
+          }
+        ])
+      }
+      return Promise.resolve([
+        {
+          uuid: characteristicA,
+          isReadable: true,
+          isWritableWithResponse: false,
+          isWritableWithoutResponse: false,
+          isNotifiable: true,
+          descriptors: [{ uuid: descriptorUuid }]
+        }
+      ])
+    })
+    const createContractBoundary = loadBoundary(radio)
+
+    await withDarwinPlatform(async () => {
+      const boundary = createContractBoundary()
+      const snapshot = await boundary.discover('peripheral-id')
+      expect(snapshot.services.map(service => [service.uuid, service.occurrence])).toEqual([
+        [serviceA, 0],
+        [serviceB, 0],
+        [serviceA, 1]
+      ])
+      expect(
+        snapshot.services.map(service => service.characteristics.map(characteristic => characteristic.occurrence))
+      ).toEqual([[0, 1], [0], [0]])
+      expect(snapshot.services[0].characteristics[0].descriptors.map(descriptor => descriptor.occurrence)).toEqual([
+        0, 1
+      ])
+      expect(radio.discoverCharacteristicsAt).toHaveBeenNthCalledWith(1, 'peripheral-id', serviceA, 0)
+      expect(radio.discoverCharacteristicsAt).toHaveBeenNthCalledWith(2, 'peripheral-id', serviceB, 0)
+      expect(radio.discoverCharacteristicsAt).toHaveBeenNthCalledWith(3, 'peripheral-id', serviceA, 1)
     })
   })
 

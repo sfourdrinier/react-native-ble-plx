@@ -124,6 +124,149 @@ function allocateBackendInstance(): number {
   nextBackendInstance += 1
   return current
 }
+
+function throwCoreBluetoothGattSnapshotMalformed(field: string): never {
+  throw contractError('protocol.malformed', 'gatt', `corebluetooth.gatt.snapshot.${field}`)
+}
+
+function isCoreBluetoothGattRecord(value: unknown): value is Record<string, unknown> {
+  try {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return false
+    }
+    const prototype = Object.getPrototypeOf(value)
+    return prototype === Object.prototype || prototype === null
+  } catch {
+    return false
+  }
+}
+
+function requireCoreBluetoothGattRecord(
+  value: unknown,
+  resource: string,
+  allowedFields: readonly string[]
+): Record<string, unknown> {
+  try {
+    if (!isCoreBluetoothGattRecord(value)) {
+      throwCoreBluetoothGattSnapshotMalformed(resource)
+    }
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== 'string' || !allowedFields.includes(key)) {
+        throwCoreBluetoothGattSnapshotMalformed(resource)
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      if (descriptor === undefined || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+        throwCoreBluetoothGattSnapshotMalformed(resource)
+      }
+    }
+  } catch (error) {
+    if (error instanceof BackendContractError) {
+      throw error
+    }
+    throwCoreBluetoothGattSnapshotMalformed(resource)
+  }
+  return value
+}
+
+function requireCoreBluetoothGattArray(value: unknown, field: string): readonly unknown[] {
+  try {
+    if (!Array.isArray(value)) {
+      throwCoreBluetoothGattSnapshotMalformed(field)
+    }
+    return value
+  } catch (error) {
+    if (error instanceof BackendContractError) {
+      throw error
+    }
+    throwCoreBluetoothGattSnapshotMalformed(field)
+  }
+}
+
+function requireCoreBluetoothGattProperty(record: Record<string, unknown>, property: string, field: string): unknown {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(record, property)
+    if (descriptor === undefined || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+      throwCoreBluetoothGattSnapshotMalformed(field)
+    }
+    return descriptor.value
+  } catch (error) {
+    if (error instanceof BackendContractError) {
+      throw error
+    }
+    throwCoreBluetoothGattSnapshotMalformed(field)
+  }
+}
+
+function requireCoreBluetoothGattArrayLength(array: readonly unknown[], field: string): number {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(array, 'length')
+    if (
+      descriptor === undefined ||
+      !Object.prototype.hasOwnProperty.call(descriptor, 'value') ||
+      typeof descriptor.value !== 'number' ||
+      !Number.isSafeInteger(descriptor.value) ||
+      descriptor.value < 0
+    ) {
+      throwCoreBluetoothGattSnapshotMalformed(field)
+    }
+    return descriptor.value
+  } catch (error) {
+    if (error instanceof BackendContractError) {
+      throw error
+    }
+    throwCoreBluetoothGattSnapshotMalformed(field)
+  }
+}
+
+function requireCoreBluetoothGattArrayEntry(array: readonly unknown[], index: number, field: string): unknown {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(array, String(index))
+    if (descriptor === undefined || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+      throwCoreBluetoothGattSnapshotMalformed(field)
+    }
+    return descriptor.value
+  } catch (error) {
+    if (error instanceof BackendContractError) {
+      throw error
+    }
+    throwCoreBluetoothGattSnapshotMalformed(field)
+  }
+}
+
+function requireCoreBluetoothGattUuid(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)) {
+    throwCoreBluetoothGattSnapshotMalformed(field)
+  }
+  return value
+}
+
+function requireCoreBluetoothGattOccurrence(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throwCoreBluetoothGattSnapshotMalformed(field)
+  }
+  return value
+}
+
+function requireCoreBluetoothGattBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') {
+    throwCoreBluetoothGattSnapshotMalformed(field)
+  }
+  return value
+}
+
+function assertCoreBluetoothGattIdentity(
+  identities: Set<string>,
+  uuid: string,
+  occurrence: number,
+  field: string
+): void {
+  const identity = `${uuid}\u0000${occurrence}`
+  if (identities.has(identity)) {
+    throwCoreBluetoothGattSnapshotMalformed(field)
+  }
+  identities.add(identity)
+}
+
 /**
  * First-party CoreBluetooth backend for explicitly selected macOS Node or
  * Electron-main hosts. It uses only the typed direct addon boundary.
@@ -892,37 +1035,108 @@ export class CoreBluetoothBackend implements BleCentralBackend<string, HostNeutr
     this.nativeIdsByPeerId.set(String(peerId), nativePeerId)
     return peerId
   }
-  assertGattSnapshot(snapshot: CoreBluetoothGattSnapshot): void {
-    const serviceOccurrences = new Set<number>()
-    for (const service of snapshot.services) {
-      if (
-        !Number.isInteger(service.occurrence) ||
-        service.occurrence < 0 ||
-        serviceOccurrences.has(service.occurrence)
-      ) {
-        throw contractError('protocol.malformed', 'gatt', 'corebluetooth.gatt.snapshot.service-occurrence')
-      }
-      serviceOccurrences.add(service.occurrence)
-      const characteristicOccurrences = new Set<number>()
-      for (const characteristic of service.characteristics) {
-        if (
-          !Number.isInteger(characteristic.occurrence) ||
-          characteristic.occurrence < 0 ||
-          characteristicOccurrences.has(characteristic.occurrence)
-        ) {
-          throw contractError('protocol.malformed', 'gatt', 'corebluetooth.gatt.snapshot.characteristic-occurrence')
-        }
-        characteristicOccurrences.add(characteristic.occurrence)
-        const descriptorOccurrences = new Set<number>()
-        for (const descriptor of characteristic.descriptors) {
-          if (
-            !Number.isInteger(descriptor.occurrence) ||
-            descriptor.occurrence < 0 ||
-            descriptorOccurrences.has(descriptor.occurrence)
-          ) {
-            throw contractError('protocol.malformed', 'gatt', 'corebluetooth.gatt.snapshot.descriptor-occurrence')
-          }
-          descriptorOccurrences.add(descriptor.occurrence)
+  assertGattSnapshot(snapshot: unknown): asserts snapshot is CoreBluetoothGattSnapshot {
+    const snapshotRecord = requireCoreBluetoothGattRecord(snapshot, 'root', ['services'])
+    const services = requireCoreBluetoothGattArray(
+      requireCoreBluetoothGattProperty(snapshotRecord, 'services', 'services'),
+      'services'
+    )
+    const serviceIdentities = new Set<string>()
+    const serviceCount = requireCoreBluetoothGattArrayLength(services, 'services')
+    for (let serviceIndex = 0; serviceIndex < serviceCount; serviceIndex += 1) {
+      const serviceValue = requireCoreBluetoothGattArrayEntry(services, serviceIndex, 'services')
+      const service = requireCoreBluetoothGattRecord(serviceValue, 'service', ['uuid', 'occurrence', 'characteristics'])
+      const serviceUuid = requireCoreBluetoothGattUuid(
+        requireCoreBluetoothGattProperty(service, 'uuid', 'service-uuid'),
+        'service-uuid'
+      )
+      const serviceOccurrence = requireCoreBluetoothGattOccurrence(
+        requireCoreBluetoothGattProperty(service, 'occurrence', 'service-occurrence'),
+        'service-occurrence'
+      )
+      assertCoreBluetoothGattIdentity(serviceIdentities, serviceUuid, serviceOccurrence, 'service-identity')
+      const characteristics = requireCoreBluetoothGattArray(
+        requireCoreBluetoothGattProperty(service, 'characteristics', 'characteristics'),
+        'characteristics'
+      )
+      const characteristicIdentities = new Set<string>()
+      const characteristicCount = requireCoreBluetoothGattArrayLength(characteristics, 'characteristics')
+      for (let characteristicIndex = 0; characteristicIndex < characteristicCount; characteristicIndex += 1) {
+        const characteristicValue = requireCoreBluetoothGattArrayEntry(
+          characteristics,
+          characteristicIndex,
+          'characteristics'
+        )
+        const characteristic = requireCoreBluetoothGattRecord(characteristicValue, 'characteristic', [
+          'uuid',
+          'occurrence',
+          'readable',
+          'writableWithResponse',
+          'writableWithoutResponse',
+          'notifiable',
+          'descriptors'
+        ])
+        const characteristicUuid = requireCoreBluetoothGattUuid(
+          requireCoreBluetoothGattProperty(characteristic, 'uuid', 'characteristic-uuid'),
+          'characteristic-uuid'
+        )
+        const characteristicOccurrence = requireCoreBluetoothGattOccurrence(
+          requireCoreBluetoothGattProperty(characteristic, 'occurrence', 'characteristic-occurrence'),
+          'characteristic-occurrence'
+        )
+        assertCoreBluetoothGattIdentity(
+          characteristicIdentities,
+          characteristicUuid,
+          characteristicOccurrence,
+          'characteristic-identity'
+        )
+        requireCoreBluetoothGattBoolean(
+          requireCoreBluetoothGattProperty(characteristic, 'readable', 'characteristic-readable'),
+          'characteristic-readable'
+        )
+        requireCoreBluetoothGattBoolean(
+          requireCoreBluetoothGattProperty(
+            characteristic,
+            'writableWithResponse',
+            'characteristic-writable-with-response'
+          ),
+          'characteristic-writable-with-response'
+        )
+        requireCoreBluetoothGattBoolean(
+          requireCoreBluetoothGattProperty(
+            characteristic,
+            'writableWithoutResponse',
+            'characteristic-writable-without-response'
+          ),
+          'characteristic-writable-without-response'
+        )
+        requireCoreBluetoothGattBoolean(
+          requireCoreBluetoothGattProperty(characteristic, 'notifiable', 'characteristic-notifiable'),
+          'characteristic-notifiable'
+        )
+        const descriptors = requireCoreBluetoothGattArray(
+          requireCoreBluetoothGattProperty(characteristic, 'descriptors', 'descriptors'),
+          'descriptors'
+        )
+        const descriptorIdentities = new Set<string>()
+        const descriptorCount = requireCoreBluetoothGattArrayLength(descriptors, 'descriptors')
+        for (let descriptorIndex = 0; descriptorIndex < descriptorCount; descriptorIndex += 1) {
+          const descriptorValue = requireCoreBluetoothGattArrayEntry(descriptors, descriptorIndex, 'descriptors')
+          const descriptor = requireCoreBluetoothGattRecord(descriptorValue, 'descriptor', ['uuid', 'occurrence'])
+          const descriptorUuid = requireCoreBluetoothGattUuid(
+            requireCoreBluetoothGattProperty(descriptor, 'uuid', 'descriptor-uuid'),
+            'descriptor-uuid'
+          )
+          const descriptorOccurrence = requireCoreBluetoothGattOccurrence(
+            requireCoreBluetoothGattProperty(descriptor, 'occurrence', 'descriptor-occurrence'),
+            'descriptor-occurrence'
+          )
+          assertCoreBluetoothGattIdentity(
+            descriptorIdentities,
+            descriptorUuid,
+            descriptorOccurrence,
+            'descriptor-identity'
+          )
         }
       }
     }

@@ -15,11 +15,7 @@ import type {
   WriteResult
 } from '../../backend-contract/operations'
 import { byteLimit, opaqueId, ownBytes, type OwnedBytes } from '../../backend-contract/primitives'
-import type {
-  CoreBluetoothCharacteristicAddress,
-  CoreBluetoothDescriptorAddress,
-  CoreBluetoothGattSnapshot
-} from './corebluetooth-boundary'
+import type { CoreBluetoothCharacteristicAddress, CoreBluetoothDescriptorAddress } from './corebluetooth-boundary'
 import { CoreBoundedStream } from '../../core/bounded-stream'
 import {
   addressKey,
@@ -48,7 +44,7 @@ export class CoreBluetoothGattOperations {
     this.backend.assertOperational('corebluetooth.gatt.discover')
     this.backend.operationLifecycle.assertAdmission(options, 'corebluetooth.gatt.discover')
     const record = this.backend.requireConnection(connection, 'corebluetooth.gatt.discover')
-    let snapshot: CoreBluetoothGattSnapshot
+    let snapshot: unknown
     try {
       snapshot = await this.backend.operationLifecycle.awaitBoundaryOperation(
         options,
