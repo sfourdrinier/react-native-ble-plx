@@ -8,8 +8,8 @@ This page is an evidence index, not a static 4.0 capability matrix. In 4.0, an a
 
 ## Current alpha maturity
 
-`unified-ble-manager@4.0.0-alpha.26` is the prepared **Experimental** package
-candidate, pending publication. No current evidence record binds the alpha.26
+`unified-ble-manager@4.0.0-alpha.27` is the prepared **Experimental** package
+candidate, pending publication. No current evidence record binds the alpha.27
 candidate artifact to a passed
 physical-radio backend scenario. Consequently, no backend below is currently
 Preview, Live Preview, Supported, or Reliability-qualified. This is not a
