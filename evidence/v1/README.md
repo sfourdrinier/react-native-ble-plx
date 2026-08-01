@@ -67,6 +67,19 @@ provenance, and package-shape receipts are mutually bound. Every required claim
 must be clean, passed, receipt-backed, and meet its plan-bound floor (`Preview`
 for deterministic proof and at least `Supported` for platform/host claims); no
 blocked, skipped, failed, or `reported-unverified` scenario can satisfy GA.
+Each release-policy receipt must include the exact kind-specific subject list
+and SHA-256 digests enforced by the validator; a free-form `passed` assertion is
+not evidence.
+
+The manifest and final evidence cannot be committed at the tested source commit
+because a Git commit cannot contain its own hash. The stable tag therefore points
+to an evidence-only descendant of the manifest's tested `sourceCommit`. The CLI
+proves that ancestry and permits only additions or modifications under
+`evidence/v1/artifacts/`, `evidence/v1/records/`, `evidence/v1/releases/`, plus
+the deterministic `docs/generated/PLATFORM_SUPPORT.md`. It rejects deletions and
+every implementation, package, policy, or other documentation change. The
+approved `ci.yml` run remains bound to the tested source commit; the publish
+workflow reruns the complete package gates on the final tagged evidence commit.
 
 The stable manifest is intentionally absent until those artifacts genuinely
 exist. This makes a current final tag fail closed without changing the

@@ -102,6 +102,9 @@ jobs:
       - name: Production performance benchmark gate (host-native + JS)
         run: pnpm performance:check
 
+      - name: Reproducible SBOM and production-license audit
+        run: pnpm release:artifacts:check
+
       # Multi-host GA smoke (Ubuntu): Fake L1 electron, host export resolution,
       # classic Android, Expo CNG Android. Apple compile is pre-merge only.
       - name: Electron Fake multi-device demo smoke (L1)
@@ -272,6 +275,39 @@ jobs:
             exit 1
           fi
 
+          PROVENANCE_VERIFIED=false
+          for ATTEMPT in $(seq 1 12); do
+            if npm view "unified-ble-manager@${VER}" dist.attestations --json 2>/dev/null | node -e "
+              let body = '';
+              process.stdin.setEncoding('utf8');
+              process.stdin.on('data', chunk => { body += chunk });
+              process.stdin.on('end', () => {
+                const value = JSON.parse(body);
+                if (typeof value?.url !== 'string' || !value.url.startsWith('https://registry.npmjs.org/')) {
+                  throw new Error('npm attestation URL must use the npm registry HTTPS origin');
+                }
+                if (value?.provenance?.predicateType !== 'https://slsa.dev/provenance/v1') {
+                  throw new Error('npm provenance predicate must be SLSA provenance v1');
+                }
+              });
+            "; then
+              PROVENANCE_VERIFIED=true
+              break
+            fi
+            echo "npm provenance metadata is not visible yet (attempt ${ATTEMPT}/12)"
+            sleep 5
+          done
+          if [ "${PROVENANCE_VERIFIED}" != true ]; then
+            echo "npm provenance metadata did not become visible within the bounded retry window"
+            exit 1
+          fi
+
+          {
+            printf '%s  %s\n' "${LOCAL_TARBALL_SHA256}" "${PUBLISH_TARBALL}"
+            shasum -a 256 SBOM.cdx.json THIRD_PARTY_LICENSES.json
+          } > SHA256SUMS
+          shasum -a 256 --check SHA256SUMS
+
       # Tags remain manual. After npm succeeds, create the GitHub Release from
       # CHANGELOG.md notes so the Releases page matches the published package.
       # SemVer prereleases must also be GitHub prereleases: npm publishes them
@@ -315,12 +351,20 @@ jobs:
             gh release create "${TAG}" \
               --title "${TAG}" \
               --notes-file "${NOTES_FILE}" \
+              "${PUBLISH_TARBALL}" \
+              SBOM.cdx.json \
+              THIRD_PARTY_LICENSES.json \
+              SHA256SUMS \
               --prerelease \
               --verify-tag
           else
             gh release create "${TAG}" \
               --title "${TAG}" \
               --notes-file "${NOTES_FILE}" \
+              "${PUBLISH_TARBALL}" \
+              SBOM.cdx.json \
+              THIRD_PARTY_LICENSES.json \
+              SHA256SUMS \
               --verify-tag
           fi
 

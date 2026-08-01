@@ -1,0 +1,5897 @@
+{
+  "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "type": "library",
+      "bom-ref": "pkg:npm/unified-ble-manager@4.0.0-alpha.29",
+      "name": "unified-ble-manager",
+      "version": "4.0.0-alpha.29",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/unified-ble-manager@4.0.0-alpha.29"
+    },
+    "properties": [
+      {
+        "name": "unified-ble-manager:pnpm-lock-sha256",
+        "value": "fccc000775da20f96db51f7192c3fefc0ea161f1bcecb2b1faf1567d3ef375f6"
+      },
+      {
+        "name": "unified-ble-manager:dependency-scope",
+        "value": "production-and-optional-runtime"
+      }
+    ]
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/code-frame@7.29.7",
+      "group": "@babel",
+      "name": "code-frame",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/code-frame@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Generate errors that contain a code frame that point to source locations.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://babel.dev/docs/en/next/babel-code-frame"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/compat-data@7.29.7",
+      "group": "@babel",
+      "name": "compat-data",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/compat-data@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "The compat-data to determine required Babel plugins"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/core@7.29.7",
+      "group": "@babel",
+      "name": "core",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/core@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Babel compiler core.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://babel.dev/docs/en/next/babel-core"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/generator@7.29.7",
+      "group": "@babel",
+      "name": "generator",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/generator@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Turns an AST into code.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://babel.dev/docs/en/next/babel-generator"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/helper-compilation-targets@7.29.7",
+      "group": "@babel",
+      "name": "helper-compilation-targets",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/helper-compilation-targets@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Helper functions on Babel compilation targets"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/helper-globals@7.29.7",
+      "group": "@babel",
+      "name": "helper-globals",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/helper-globals@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A collection of JavaScript globals for Babel internal usage"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/helper-module-imports@7.29.7",
+      "group": "@babel",
+      "name": "helper-module-imports",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/helper-module-imports@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Babel helper functions for inserting module loads",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://babel.dev/docs/en/next/babel-helper-module-imports"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/helper-module-transforms@7.29.7",
+      "group": "@babel",
+      "name": "helper-module-transforms",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/helper-module-transforms@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Babel helper functions for implementing ES6 module transformations",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://babel.dev/docs/en/next/babel-helper-module-transforms"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/helper-plugin-utils@7.29.7",
+      "group": "@babel",
+      "name": "helper-plugin-utils",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/helper-plugin-utils@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "General utilities for plugins to use",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://babel.dev/docs/en/next/babel-helper-plugin-utils"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/helper-string-parser@7.29.7",
+      "group": "@babel",
+      "name": "helper-string-parser",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/helper-string-parser@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A utility package to parse strings",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://babel.dev/docs/en/next/babel-helper-string-parser"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/helper-validator-identifier@7.29.7",
+      "group": "@babel",
+      "name": "helper-validator-identifier",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/helper-validator-identifier@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Validate identifier/keywords name"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/helper-validator-option@7.29.7",
+      "group": "@babel",
+      "name": "helper-validator-option",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/helper-validator-option@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Validate plugin/preset options"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/helpers@7.29.7",
+      "group": "@babel",
+      "name": "helpers",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/helpers@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Collection of helper functions used by Babel transforms.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://babel.dev/docs/en/next/babel-helpers"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/parser@7.29.7",
+      "group": "@babel",
+      "name": "parser",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/parser@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A JavaScript parser",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://babel.dev/docs/en/next/babel-parser"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/plugin-transform-modules-commonjs@7.29.7",
+      "group": "@babel",
+      "name": "plugin-transform-modules-commonjs",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/plugin-transform-modules-commonjs@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "This plugin transforms ES2015 modules to CommonJS",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://babel.dev/docs/en/next/babel-plugin-transform-modules-commonjs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/template@7.29.7",
+      "group": "@babel",
+      "name": "template",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/template@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Generate an AST from a string template.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://babel.dev/docs/en/next/babel-template"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/traverse@7.29.7",
+      "group": "@babel",
+      "name": "traverse",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/traverse@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "The Babel Traverse module maintains the overall tree state, and is responsible for replacing, removing, and adding nodes",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://babel.dev/docs/en/next/babel-traverse"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40babel/types@7.29.7",
+      "group": "@babel",
+      "name": "types",
+      "version": "7.29.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40babel/types@7.29.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Babel Types is a Lodash-esque utility library for AST nodes",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://babel.dev/docs/en/next/babel-types"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40expo/config-plugins@57.0.6",
+      "group": "@expo",
+      "name": "config-plugins",
+      "version": "57.0.6",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40expo/config-plugins@57.0.6",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A library for Expo config plugins",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://docs.expo.dev/guides/config-plugins/"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40expo/config-types@57.0.2",
+      "group": "@expo",
+      "name": "config-types",
+      "version": "57.0.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40expo/config-types@57.0.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Types for the Expo config object app.config.ts",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/expo/expo/tree/main/packages/@expo/config-types#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40expo/json-file@11.0.1",
+      "group": "@expo",
+      "name": "json-file",
+      "version": "11.0.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40expo/json-file@11.0.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A module for reading, writing, and manipulating JSON files",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/expo/expo/tree/main/packages/@expo/json-file#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40expo/plist@0.8.1",
+      "group": "@expo",
+      "name": "plist",
+      "version": "0.8.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40expo/plist@0.8.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Mac OS X Plist parser/builder for Node.js and browsers",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/expo/expo/tree/main/packages/@expo/plist#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40expo/require-utils@57.0.4",
+      "group": "@expo",
+      "name": "require-utils",
+      "version": "57.0.4",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40expo/require-utils@57.0.4",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Reusable require and Node resolution utilities library for Expo",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/expo/expo/tree/main/packages/@expo/require-utils#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40expo/sdk-runtime-versions@1.0.0",
+      "group": "@expo",
+      "name": "sdk-runtime-versions",
+      "version": "1.0.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40expo/sdk-runtime-versions@1.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Functions for converting Expo SDK versions to EAS runtime versions"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40isaacs/fs-minipass@4.0.1",
+      "group": "@isaacs",
+      "name": "fs-minipass",
+      "version": "4.0.1",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/%40isaacs/fs-minipass@4.0.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "fs read and write streams based on minipass"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40jridgewell/gen-mapping@0.3.12",
+      "group": "@jridgewell",
+      "name": "gen-mapping",
+      "version": "0.3.12",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40jridgewell/gen-mapping@0.3.12",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Generate source maps",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/jridgewell/sourcemaps/tree/main/packages/gen-mapping"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40jridgewell/gen-mapping@0.3.13",
+      "group": "@jridgewell",
+      "name": "gen-mapping",
+      "version": "0.3.13",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40jridgewell/gen-mapping@0.3.13",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Generate source maps",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/jridgewell/sourcemaps/tree/main/packages/gen-mapping"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40jridgewell/remapping@2.3.5",
+      "group": "@jridgewell",
+      "name": "remapping",
+      "version": "2.3.5",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40jridgewell/remapping@2.3.5",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Remap sequential sourcemaps through transformations to point at the original source code",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/jridgewell/sourcemaps/tree/main/packages/remapping"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40jridgewell/resolve-uri@3.1.2",
+      "group": "@jridgewell",
+      "name": "resolve-uri",
+      "version": "3.1.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40jridgewell/resolve-uri@3.1.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Resolve a URI relative to an optional base URI"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40jridgewell/sourcemap-codec@1.5.4",
+      "group": "@jridgewell",
+      "name": "sourcemap-codec",
+      "version": "1.5.4",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40jridgewell/sourcemap-codec@1.5.4",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Encode/decode sourcemap mappings",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/jridgewell/sourcemaps/tree/main/packages/sourcemap-codec"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40jridgewell/sourcemap-codec@1.5.5",
+      "group": "@jridgewell",
+      "name": "sourcemap-codec",
+      "version": "1.5.5",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40jridgewell/sourcemap-codec@1.5.5",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Encode/decode sourcemap mappings",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/jridgewell/sourcemaps/tree/main/packages/sourcemap-codec"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40jridgewell/trace-mapping@0.3.31",
+      "group": "@jridgewell",
+      "name": "trace-mapping",
+      "version": "0.3.31",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40jridgewell/trace-mapping@0.3.31",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Trace the original position through a source map",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/jridgewell/sourcemaps/tree/main/packages/trace-mapping"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40nornagon/put@0.0.8",
+      "group": "@nornagon",
+      "name": "put",
+      "version": "0.0.8",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40nornagon/put@0.0.8",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Pack multibyte binary values into buffers"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40xmldom/xmldom@0.8.10",
+      "group": "@xmldom",
+      "name": "xmldom",
+      "version": "0.8.10",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/%40xmldom/xmldom@0.8.10",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A pure JavaScript W3C standard-based (XML DOM Level 2 Core) DOMParser and XMLSerializer module.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/xmldom/xmldom"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/abbrev@1.1.1",
+      "name": "abbrev",
+      "version": "1.1.1",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/abbrev@1.1.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Like ruby's abbrev module, but in js"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/abbrev@4.0.0",
+      "name": "abbrev",
+      "version": "4.0.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/abbrev@4.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Like ruby's abbrev module, but in js"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/ajv@6.15.0",
+      "name": "ajv",
+      "version": "6.15.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/ajv@6.15.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Another JSON Schema Validator",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/ajv-validator/ajv"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/ansi-regex@2.1.1",
+      "name": "ansi-regex",
+      "version": "2.1.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/ansi-regex@2.1.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Regular expression for matching ANSI escape codes"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/ansi-regex@5.0.1",
+      "name": "ansi-regex",
+      "version": "5.0.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/ansi-regex@5.0.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Regular expression for matching ANSI escape codes"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/ansi-styles@4.3.0",
+      "name": "ansi-styles",
+      "version": "4.3.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/ansi-styles@4.3.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "ANSI escape codes for styling strings in the terminal"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aproba@1.2.0",
+      "name": "aproba",
+      "version": "1.2.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/aproba@1.2.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A ridiculously light-weight argument validator (now browser friendly)",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/iarna/aproba"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/are-we-there-yet@1.1.7",
+      "name": "are-we-there-yet",
+      "version": "1.1.7",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/are-we-there-yet@1.1.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Keep track of the overall completion of many disparate processes",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/iarna/are-we-there-yet"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/asn1@0.2.6",
+      "name": "asn1",
+      "version": "0.2.6",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/asn1@0.2.6",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Contains parsers and serializers for ASN.1 (currently BER only)"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/assert-plus@1.0.0",
+      "name": "assert-plus",
+      "version": "1.0.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/assert-plus@1.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Extra assertions on top of node's assert module"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/asynckit@0.4.0",
+      "name": "asynckit",
+      "version": "0.4.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/asynckit@0.4.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Minimal async jobs utility library, with streams support",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/alexindigo/asynckit#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sign2@0.7.0",
+      "name": "aws-sign2",
+      "version": "0.7.0",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "purl": "pkg:npm/aws-sign2@0.7.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "AWS signing. Originally pulled from LearnBoost/knox, maintained as vendor in request, now a standalone module."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws4@1.13.2",
+      "name": "aws4",
+      "version": "1.13.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/aws4@1.13.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Signs and prepares requests using AWS Signature Version 4"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/balanced-match@1.0.2",
+      "name": "balanced-match",
+      "version": "1.0.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/balanced-match@1.0.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Match balanced character pairs, like \"{\" and \"}\"",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/juliangruber/balanced-match"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/balanced-match@4.0.4",
+      "name": "balanced-match",
+      "version": "4.0.4",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/balanced-match@4.0.4",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Match balanced character pairs, like \"{\" and \"}\""
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/base64-js@1.5.1",
+      "name": "base64-js",
+      "version": "1.5.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/base64-js@1.5.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Base64 encoding/decoding in pure JS",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/beatgammit/base64-js"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/baseline-browser-mapping@2.10.42",
+      "name": "baseline-browser-mapping",
+      "version": "2.10.42",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "purl": "pkg:npm/baseline-browser-mapping@2.10.42",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A library for obtaining browser versions with their maximum supported Baseline feature set and Widely Available status."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/bcrypt-pbkdf@1.0.2",
+      "name": "bcrypt-pbkdf",
+      "version": "1.0.2",
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "purl": "pkg:npm/bcrypt-pbkdf@1.0.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Port of the OpenBSD bcrypt_pbkdf function to pure JS"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/big-integer@1.6.52",
+      "name": "big-integer",
+      "version": "1.6.52",
+      "licenses": [
+        {
+          "expression": "Unlicense"
+        }
+      ],
+      "purl": "pkg:npm/big-integer@1.6.52",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "An arbitrary length integer library for Javascript"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/bindings@1.5.0",
+      "name": "bindings",
+      "version": "1.5.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/bindings@1.5.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Helper module for loading your native module's .node file",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/TooTallNate/node-bindings"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/bplist-creator@0.1.0",
+      "name": "bplist-creator",
+      "version": "0.1.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/bplist-creator@0.1.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Binary Mac OS X Plist (property list) creator."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/bplist-parser@0.3.1",
+      "name": "bplist-parser",
+      "version": "0.3.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/bplist-parser@0.3.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Binary plist parser.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/nearinfinity/node-bplist-parser"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/brace-expansion@1.1.12",
+      "name": "brace-expansion",
+      "version": "1.1.12",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/brace-expansion@1.1.12",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Brace expansion as known from sh/bash",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/juliangruber/brace-expansion"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/brace-expansion@5.0.7",
+      "name": "brace-expansion",
+      "version": "5.0.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/brace-expansion@5.0.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Brace expansion as known from sh/bash"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/browserslist@4.28.5",
+      "name": "browserslist",
+      "version": "4.28.5",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/browserslist@4.28.5",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Share target browsers between different front-end tools, like Autoprefixer, Stylelint and babel-env-preset"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/caniuse-lite@1.0.30001803",
+      "name": "caniuse-lite",
+      "version": "1.0.30001803",
+      "licenses": [
+        {
+          "expression": "CC-BY-4.0"
+        }
+      ],
+      "purl": "pkg:npm/caniuse-lite@1.0.30001803",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A smaller version of caniuse-db, with only the essentials!"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/caseless@0.12.0",
+      "name": "caseless",
+      "version": "0.12.0",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "purl": "pkg:npm/caseless@0.12.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Caseless object set/get/has, very useful when working with HTTP headers."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/chalk@4.1.2",
+      "name": "chalk",
+      "version": "4.1.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/chalk@4.1.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Terminal string styling done right"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/chownr@2.0.0",
+      "name": "chownr",
+      "version": "2.0.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/chownr@2.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "like `chown -R`"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/chownr@3.0.0",
+      "name": "chownr",
+      "version": "3.0.0",
+      "licenses": [
+        {
+          "expression": "BlueOak-1.0.0"
+        }
+      ],
+      "purl": "pkg:npm/chownr@3.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "like `chown -R`"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/code-point-at@1.1.0",
+      "name": "code-point-at",
+      "version": "1.1.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/code-point-at@1.1.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "ES2015 `String#codePointAt()` ponyfill"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/color-convert@2.0.1",
+      "name": "color-convert",
+      "version": "2.0.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/color-convert@2.0.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Plain color conversion functions"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/color-name@1.1.4",
+      "name": "color-name",
+      "version": "1.1.4",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/color-name@1.1.4",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A list of color names and its values",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/colorjs/color-name"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/combined-stream@1.0.8",
+      "name": "combined-stream",
+      "version": "1.0.8",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/combined-stream@1.0.8",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A stream that emits multiple other streams one after another.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/felixge/node-combined-stream"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/concat-map@0.0.1",
+      "name": "concat-map",
+      "version": "0.0.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/concat-map@0.0.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "concatenative mapdashery"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/console-control-strings@1.1.0",
+      "name": "console-control-strings",
+      "version": "1.1.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/console-control-strings@1.1.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A library of cross-platform tested terminal/console command strings for doing things like color and cursor positioning.  This is a subset of both ansi and vt100.  All control codes included work on both Windows & Unix-like OSes, except where noted."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/convert-source-map@2.0.0",
+      "name": "convert-source-map",
+      "version": "2.0.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/convert-source-map@2.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Converts a source-map from/to  different formats and allows adding/changing properties.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/thlorenz/convert-source-map"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/core-util-is@1.0.2",
+      "name": "core-util-is",
+      "version": "1.0.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/core-util-is@1.0.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "The `util.is*` functions introduced in Node v0.12."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/core-util-is@1.0.3",
+      "name": "core-util-is",
+      "version": "1.0.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/core-util-is@1.0.3",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "The `util.is*` functions introduced in Node v0.12."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/dashdash@1.14.1",
+      "name": "dashdash",
+      "version": "1.14.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/dashdash@1.14.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A light, featureful and explicit option parsing library."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/dbus-next@0.10.2",
+      "name": "dbus-next",
+      "version": "0.10.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/dbus-next@0.10.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "The next great DBus library for Node"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/debug@4.4.1",
+      "name": "debug",
+      "version": "4.4.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/debug@4.4.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Lightweight debugging utility for Node.js and the browser"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/debug@4.4.3",
+      "name": "debug",
+      "version": "4.4.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/debug@4.4.3",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Lightweight debugging utility for Node.js and the browser"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/delayed-stream@1.0.0",
+      "name": "delayed-stream",
+      "version": "1.0.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/delayed-stream@1.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Buffers events from a stream until you are ready to handle them.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/felixge/node-delayed-stream"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/delegates@1.0.0",
+      "name": "delegates",
+      "version": "1.0.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/delegates@1.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "delegate methods and accessors to another property"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/duplexer@0.1.2",
+      "name": "duplexer",
+      "version": "0.1.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/duplexer@0.1.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Creates a duplex stream",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/Raynos/duplexer"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/ecc-jsbn@0.1.2",
+      "name": "ecc-jsbn",
+      "version": "0.1.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/ecc-jsbn@0.1.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "ECC JS code based on JSBN",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/quartzjer/ecc-jsbn"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/electron-to-chromium@1.5.389",
+      "name": "electron-to-chromium",
+      "version": "1.5.389",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/electron-to-chromium@1.5.389",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Provides a list of electron-to-chromium version mappings"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/emoji-regex@8.0.0",
+      "name": "emoji-regex",
+      "version": "8.0.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/emoji-regex@8.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A regular expression to match all Emoji-only symbols as per the Unicode Standard.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://mths.be/emoji-regex"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/env-paths@2.2.1",
+      "name": "env-paths",
+      "version": "2.2.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/env-paths@2.2.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Get paths for storing things like data, config, cache, etc"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/escalade@3.2.0",
+      "name": "escalade",
+      "version": "3.2.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/escalade@3.2.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A tiny (183B to 210B) and fast utility to ascend parent directories"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/event-stream@3.3.4",
+      "name": "event-stream",
+      "version": "3.3.4",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/event-stream@3.3.4",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "construct pipes of streams of events",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "http://github.com/dominictarr/event-stream"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/exponential-backoff@3.1.2",
+      "name": "exponential-backoff",
+      "version": "3.1.2",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "purl": "pkg:npm/exponential-backoff@3.1.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A utility that allows retrying a function with an exponential delay between attempts.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/coveooss/exponential-backoff#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/extend@3.0.2",
+      "name": "extend",
+      "version": "3.0.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/extend@3.0.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Port of jQuery.extend for node.js and the browser"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/extsprintf@1.3.0",
+      "name": "extsprintf",
+      "version": "1.3.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/extsprintf@1.3.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "extended POSIX-style sprintf"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/fast-deep-equal@3.1.3",
+      "name": "fast-deep-equal",
+      "version": "3.1.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/fast-deep-equal@3.1.3",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Fast deep equal",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/epoberezkin/fast-deep-equal#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/fast-json-stable-stringify@2.1.0",
+      "name": "fast-json-stable-stringify",
+      "version": "2.1.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/fast-json-stable-stringify@2.1.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "deterministic `JSON.stringify()` - a faster version of substack's json-stable-strigify without jsonify",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/epoberezkin/fast-json-stable-stringify"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/fdir@6.5.0",
+      "name": "fdir",
+      "version": "6.5.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/fdir@6.5.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "The fastest directory crawler & globbing alternative to glob, fast-glob, & tiny-glob. Crawls 1m files in < 1s",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/thecodrr/fdir#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/file-uri-to-path@1.0.0",
+      "name": "file-uri-to-path",
+      "version": "1.0.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/file-uri-to-path@1.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Convert a file: URI to a file path",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/TooTallNate/file-uri-to-path"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/forever-agent@0.6.1",
+      "name": "forever-agent",
+      "version": "0.6.1",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "purl": "pkg:npm/forever-agent@0.6.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "HTTP Agent that keeps socket connections alive between keep-alive requests. Formerly part of mikeal/request, now a standalone module."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/form-data@2.3.3",
+      "name": "form-data",
+      "version": "2.3.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/form-data@2.3.3",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A library to create readable \"multipart/form-data\" streams. Can be used to submit forms and file uploads to other web applications."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/from@0.1.7",
+      "name": "from",
+      "version": "0.1.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/from@0.1.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Easy way to make a Readable Stream"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/fs-minipass@2.1.0",
+      "name": "fs-minipass",
+      "version": "2.1.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/fs-minipass@2.1.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "fs read and write streams based on minipass",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/npm/fs-minipass#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/fs.realpath@1.0.0",
+      "name": "fs.realpath",
+      "version": "1.0.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/fs.realpath@1.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Use node's fs.realpath, but fall back to the JS implementation if the native one fails"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/gauge@2.7.4",
+      "name": "gauge",
+      "version": "2.7.4",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/gauge@2.7.4",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A terminal based horizontal guage",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/iarna/gauge"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/gensync@1.0.0-beta.2",
+      "name": "gensync",
+      "version": "1.0.0-beta.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/gensync@1.0.0-beta.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Allows users to use generators in order to write common functions that can be both sync or async.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/loganfsmyth/gensync"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/getenv@2.0.0",
+      "name": "getenv",
+      "version": "2.0.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/getenv@2.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Get and typecast environment variables.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/ctavan/node-getenv"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/getpass@0.1.7",
+      "name": "getpass",
+      "version": "0.1.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/getpass@0.1.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "getpass for node.js"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/glob@13.0.6",
+      "name": "glob",
+      "version": "13.0.6",
+      "licenses": [
+        {
+          "expression": "BlueOak-1.0.0"
+        }
+      ],
+      "purl": "pkg:npm/glob@13.0.6",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "the most correct and second fastest glob implementation in JavaScript"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/glob@7.2.3",
+      "name": "glob",
+      "version": "7.2.3",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/glob@7.2.3",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "a little globber"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/graceful-fs@4.2.11",
+      "name": "graceful-fs",
+      "version": "4.2.11",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/graceful-fs@4.2.11",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A drop-in replacement for fs, making various improvements."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/har-schema@2.0.0",
+      "name": "har-schema",
+      "version": "2.0.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/har-schema@2.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "JSON Schema for HTTP Archive (HAR)",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/ahmadnassri/har-schema"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/har-validator@5.1.5",
+      "name": "har-validator",
+      "version": "5.1.5",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/har-validator@5.1.5",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Extremely fast HTTP Archive (HAR) validator using JSON Schema",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/ahmadnassri/node-har-validator"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/has-flag@4.0.0",
+      "name": "has-flag",
+      "version": "4.0.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/has-flag@4.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Check if argv has a specific flag"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/has-unicode@2.0.1",
+      "name": "has-unicode",
+      "version": "2.0.1",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/has-unicode@2.0.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Try to guess if your terminal supports unicode",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/iarna/has-unicode"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/hexy@0.2.11",
+      "name": "hexy",
+      "version": "0.2.11",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/hexy@0.2.11",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "hexdump, binary pretty-printing"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/http-signature@1.2.0",
+      "name": "http-signature",
+      "version": "1.2.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/http-signature@1.2.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Reference implementation of Joyent's HTTP Signature scheme.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/joyent/node-http-signature/"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/inflight@1.0.6",
+      "name": "inflight",
+      "version": "1.0.6",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/inflight@1.0.6",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Add callbacks to requests in flight to avoid async duplication",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/isaacs/inflight"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/inherits@2.0.4",
+      "name": "inherits",
+      "version": "2.0.4",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/inherits@2.0.4",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Browser-friendly inheritance fully compatible with standard node.js inherits()"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/is-fullwidth-code-point@1.0.0",
+      "name": "is-fullwidth-code-point",
+      "version": "1.0.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/is-fullwidth-code-point@1.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Check if the character represented by a given Unicode code point is fullwidth"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/is-fullwidth-code-point@3.0.0",
+      "name": "is-fullwidth-code-point",
+      "version": "3.0.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/is-fullwidth-code-point@3.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Check if the character represented by a given Unicode code point is fullwidth"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/is-typedarray@1.0.0",
+      "name": "is-typedarray",
+      "version": "1.0.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/is-typedarray@1.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Detect whether or not an object is a Typed Array",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/hughsk/is-typedarray"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/isarray@1.0.0",
+      "name": "isarray",
+      "version": "1.0.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/isarray@1.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Array#isArray for older browsers",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/juliangruber/isarray"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/isexe@2.0.0",
+      "name": "isexe",
+      "version": "2.0.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/isexe@2.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Minimal module to check if a file is executable.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/isaacs/isexe#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/isexe@4.0.0",
+      "name": "isexe",
+      "version": "4.0.0",
+      "licenses": [
+        {
+          "expression": "BlueOak-1.0.0"
+        }
+      ],
+      "purl": "pkg:npm/isexe@4.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Minimal module to check if a file is executable."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/isstream@0.1.2",
+      "name": "isstream",
+      "version": "0.1.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/isstream@0.1.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Determine if an object is a Stream",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/rvagg/isstream"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/js-tokens@4.0.0",
+      "name": "js-tokens",
+      "version": "4.0.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/js-tokens@4.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A regex that tokenizes JavaScript."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/jsbi@2.0.5",
+      "name": "jsbi",
+      "version": "2.0.5",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "purl": "pkg:npm/jsbi@2.0.5",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "reviewed-installed-license-file"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/jsbn@0.1.1",
+      "name": "jsbn",
+      "version": "0.1.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/jsbn@0.1.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "The jsbn library is a fast, portable implementation of large-number math in pure JavaScript, enabling public-key crypto and other applications on desktop and mobile browsers."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/jsesc@3.1.0",
+      "name": "jsesc",
+      "version": "3.1.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/jsesc@3.1.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Given some data, jsesc returns the shortest possible stringified & ASCII-safe representation of that data.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://mths.be/jsesc"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/json-schema-traverse@0.4.1",
+      "name": "json-schema-traverse",
+      "version": "0.4.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/json-schema-traverse@0.4.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Traverse JSON Schema passing each schema object to callback",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/epoberezkin/json-schema-traverse#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/json-schema@0.4.0",
+      "name": "json-schema",
+      "version": "0.4.0",
+      "licenses": [
+        {
+          "expression": "(AFL-2.1 OR BSD-3-Clause)"
+        }
+      ],
+      "purl": "pkg:npm/json-schema@0.4.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "JSON Schema validation and specifications"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/json-stringify-safe@5.0.1",
+      "name": "json-stringify-safe",
+      "version": "5.0.1",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/json-stringify-safe@5.0.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Like JSON.stringify, but doesn't blow up on circular refs.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/isaacs/json-stringify-safe"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/json5@2.2.3",
+      "name": "json5",
+      "version": "2.2.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/json5@2.2.3",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "JSON for Humans",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "http://json5.org/"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/jsprim@1.4.2",
+      "name": "jsprim",
+      "version": "1.4.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/jsprim@1.4.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "utilities for primitive JavaScript types"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/long@4.0.0",
+      "name": "long",
+      "version": "4.0.0",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "purl": "pkg:npm/long@4.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A Long class for representing a 64-bit two's-complement integer value."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/lru-cache@11.5.2",
+      "name": "lru-cache",
+      "version": "11.5.2",
+      "licenses": [
+        {
+          "expression": "BlueOak-1.0.0"
+        }
+      ],
+      "purl": "pkg:npm/lru-cache@11.5.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A cache object that deletes the least-recently-used items."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/lru-cache@5.1.1",
+      "name": "lru-cache",
+      "version": "5.1.1",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/lru-cache@5.1.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A cache object that deletes the least-recently-used items."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/map-stream@0.1.0",
+      "name": "map-stream",
+      "version": "0.1.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/map-stream@0.1.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "reviewed-installed-license-file"
+        }
+      ],
+      "description": "construct pipes of streams of events",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "http://github.com/dominictarr/map-stream"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/mime-db@1.52.0",
+      "name": "mime-db",
+      "version": "1.52.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/mime-db@1.52.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Media Type Database"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/mime-types@2.1.35",
+      "name": "mime-types",
+      "version": "2.1.35",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/mime-types@2.1.35",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "The ultimate javascript content-type utility."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/minimatch@10.2.5",
+      "name": "minimatch",
+      "version": "10.2.5",
+      "licenses": [
+        {
+          "expression": "BlueOak-1.0.0"
+        }
+      ],
+      "purl": "pkg:npm/minimatch@10.2.5",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "a glob matcher in javascript"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/minimatch@3.1.2",
+      "name": "minimatch",
+      "version": "3.1.2",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/minimatch@3.1.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "a glob matcher in javascript"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/minipass@3.3.6",
+      "name": "minipass",
+      "version": "3.3.6",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/minipass@3.3.6",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "minimal implementation of a PassThrough stream"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/minipass@5.0.0",
+      "name": "minipass",
+      "version": "5.0.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/minipass@5.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "minimal implementation of a PassThrough stream"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/minipass@7.1.3",
+      "name": "minipass",
+      "version": "7.1.3",
+      "licenses": [
+        {
+          "expression": "BlueOak-1.0.0"
+        }
+      ],
+      "purl": "pkg:npm/minipass@7.1.3",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "minimal implementation of a PassThrough stream"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/minizlib@2.1.2",
+      "name": "minizlib",
+      "version": "2.1.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/minizlib@2.1.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A small fast zlib stream built on [minipass](http://npm.im/minipass) and Node.js's zlib binding."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/minizlib@3.1.0",
+      "name": "minizlib",
+      "version": "3.1.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/minizlib@3.1.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A small fast zlib stream built on [minipass](http://npm.im/minipass) and Node.js's zlib binding."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/mkdirp@1.0.4",
+      "name": "mkdirp",
+      "version": "1.0.4",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/mkdirp@1.0.4",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Recursively mkdir, like `mkdir -p`"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/ms@2.1.3",
+      "name": "ms",
+      "version": "2.1.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/ms@2.1.3",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Tiny millisecond conversion utility"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/nan@2.23.0",
+      "name": "nan",
+      "version": "2.23.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/nan@2.23.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Native Abstractions for Node.js: C++ header for Node 0.8 -> 24 compatibility"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/node-addon-api@8.9.0",
+      "name": "node-addon-api",
+      "version": "8.9.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/node-addon-api@8.9.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Node.js API (Node-API)",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/nodejs/node-addon-api"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/node-gyp@12.4.0",
+      "name": "node-gyp",
+      "version": "12.4.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/node-gyp@12.4.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Node.js native addon build tool"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/node-gyp@7.1.2",
+      "name": "node-gyp",
+      "version": "7.1.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/node-gyp@7.1.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Node.js native addon build tool"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/node-releases@2.0.50",
+      "name": "node-releases",
+      "version": "2.0.50",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/node-releases@2.0.50",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Node.js releases data"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/nopt@5.0.0",
+      "name": "nopt",
+      "version": "5.0.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/nopt@5.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Option parsing for Node, supporting types, shorthands, etc. Used by npm."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/nopt@9.0.0",
+      "name": "nopt",
+      "version": "9.0.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/nopt@9.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Option parsing for Node, supporting types, shorthands, etc. Used by npm."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/npmlog@4.1.2",
+      "name": "npmlog",
+      "version": "4.1.2",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/npmlog@4.1.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "logger for npm"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/number-is-nan@1.0.1",
+      "name": "number-is-nan",
+      "version": "1.0.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/number-is-nan@1.0.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "ES2015 Number.isNaN() ponyfill"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/oauth-sign@0.9.0",
+      "name": "oauth-sign",
+      "version": "0.9.0",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "purl": "pkg:npm/oauth-sign@0.9.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "OAuth 1 signing. Formerly a vendor lib in mikeal/request, now a standalone module."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/object-assign@4.1.1",
+      "name": "object-assign",
+      "version": "4.1.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/object-assign@4.1.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "ES2015 `Object.assign()` ponyfill"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/once@1.4.0",
+      "name": "once",
+      "version": "1.4.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/once@1.4.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Run a function exactly one time"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/path-is-absolute@1.0.1",
+      "name": "path-is-absolute",
+      "version": "1.0.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/path-is-absolute@1.0.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Node.js 0.12 path.isAbsolute() ponyfill"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/path-scurry@2.0.2",
+      "name": "path-scurry",
+      "version": "2.0.2",
+      "licenses": [
+        {
+          "expression": "BlueOak-1.0.0"
+        }
+      ],
+      "purl": "pkg:npm/path-scurry@2.0.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "walk paths fast and efficiently"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/pause-stream@0.0.11",
+      "name": "pause-stream",
+      "version": "0.0.11",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/pause-stream@0.0.11",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "a ThroughStream that strictly buffers all readable events when paused."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/performance-now@2.1.0",
+      "name": "performance-now",
+      "version": "2.1.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/performance-now@2.1.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Implements performance.now (based on process.hrtime).",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/braveg1rl/performance-now"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/picocolors@1.1.1",
+      "name": "picocolors",
+      "version": "1.1.1",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/picocolors@1.1.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "The tiniest and the fastest library for terminal output formatting with ANSI colors"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/picomatch@4.0.5",
+      "name": "picomatch",
+      "version": "4.0.5",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/picomatch@4.0.5",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Blazing fast and accurate glob matcher written in JavaScript, with no dependencies and full support for standard and extended Bash glob features, including braces, extglobs, POSIX brackets, and regular expressions.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/micromatch/picomatch"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/plist@3.1.0",
+      "name": "plist",
+      "version": "3.1.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/plist@3.1.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Apple's property list parser/builder for Node.js and browsers"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/proc-log@6.1.0",
+      "name": "proc-log",
+      "version": "6.1.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/proc-log@6.1.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "just emit 'log' events on the process object"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/process-nextick-args@2.0.1",
+      "name": "process-nextick-args",
+      "version": "2.0.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/process-nextick-args@2.0.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "process.nextTick but always with args",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/calvinmetcalf/process-nextick-args"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/psl@1.15.0",
+      "name": "psl",
+      "version": "1.15.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/psl@1.15.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Domain name parser based on the Public Suffix List"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/punycode@2.3.1",
+      "name": "punycode",
+      "version": "2.3.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/punycode@2.3.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A robust Punycode converter that fully complies to RFC 3492 and RFC 5891, and works on nearly all JavaScript platforms.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://mths.be/punycode"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/qs@6.5.5",
+      "name": "qs",
+      "version": "6.5.5",
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "purl": "pkg:npm/qs@6.5.5",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A querystring parser that supports nesting and arrays, with a depth limit",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/ljharb/qs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/readable-stream@2.3.8",
+      "name": "readable-stream",
+      "version": "2.3.8",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/readable-stream@2.3.8",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Streams3, a user-land copy of the stream library from Node.js"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/request@2.88.2",
+      "name": "request",
+      "version": "2.88.2",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "purl": "pkg:npm/request@2.88.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Simplified HTTP request client."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/rimraf@3.0.2",
+      "name": "rimraf",
+      "version": "3.0.2",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/rimraf@3.0.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A deep deletion module for node (like `rm -rf`)"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/safe-buffer@5.1.2",
+      "name": "safe-buffer",
+      "version": "5.1.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/safe-buffer@5.1.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Safer Node.js Buffer API",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/feross/safe-buffer"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/safe-buffer@5.2.1",
+      "name": "safe-buffer",
+      "version": "5.2.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/safe-buffer@5.2.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Safer Node.js Buffer API",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/feross/safe-buffer"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/safer-buffer@2.1.2",
+      "name": "safer-buffer",
+      "version": "2.1.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/safer-buffer@2.1.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Modern Buffer API polyfill without footguns"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/sax@1.4.1",
+      "name": "sax",
+      "version": "1.4.1",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/sax@1.4.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "An evented streaming XML parser in JavaScript"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/semver@6.3.1",
+      "name": "semver",
+      "version": "6.3.1",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/semver@6.3.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "The semantic version parser used by npm."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/semver@7.8.5",
+      "name": "semver",
+      "version": "7.8.5",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/semver@7.8.5",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "The semantic version parser used by npm."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/set-blocking@2.0.0",
+      "name": "set-blocking",
+      "version": "2.0.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/set-blocking@2.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "set blocking stdio and stderr ensuring that terminal output does not truncate",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/yargs/set-blocking#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/signal-exit@3.0.7",
+      "name": "signal-exit",
+      "version": "3.0.7",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/signal-exit@3.0.7",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "when you want to fire an event no matter how a process exits.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/tapjs/signal-exit"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/simple-plist@1.3.1",
+      "name": "simple-plist",
+      "version": "1.3.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/simple-plist@1.3.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A wrapper utility for interacting with plist data.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/wollardj/simple-plist.git"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/slugify@1.6.6",
+      "name": "slugify",
+      "version": "1.6.6",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/slugify@1.6.6",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Slugifies a String",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/simov/slugify"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/split@0.3.3",
+      "name": "split",
+      "version": "0.3.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/split@0.3.3",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "split a Text Stream into a Line Stream",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "http://github.com/dominictarr/split"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/sshpk@1.18.0",
+      "name": "sshpk",
+      "version": "1.18.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/sshpk@1.18.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A library for finding and using SSH public keys",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/arekinath/node-sshpk#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/stream-buffers@2.2.0",
+      "name": "stream-buffers",
+      "version": "2.2.0",
+      "licenses": [
+        {
+          "expression": "Unlicense"
+        }
+      ],
+      "purl": "pkg:npm/stream-buffers@2.2.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Buffer-backed Streams for reading and writing."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/stream-combiner@0.0.4",
+      "name": "stream-combiner",
+      "version": "0.0.4",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/stream-combiner@0.0.4",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/dominictarr/stream-combiner"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/string_decoder@1.1.1",
+      "name": "string_decoder",
+      "version": "1.1.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/string_decoder@1.1.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "The string_decoder module from Node core",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/nodejs/string_decoder"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/string-width@1.0.2",
+      "name": "string-width",
+      "version": "1.0.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/string-width@1.0.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Get the visual width of a string - the number of columns required to display it"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/string-width@4.2.3",
+      "name": "string-width",
+      "version": "4.2.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/string-width@4.2.3",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Get the visual width of a string - the number of columns required to display it"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/strip-ansi@3.0.1",
+      "name": "strip-ansi",
+      "version": "3.0.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/strip-ansi@3.0.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Strip ANSI escape codes"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/strip-ansi@6.0.1",
+      "name": "strip-ansi",
+      "version": "6.0.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/strip-ansi@6.0.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Strip ANSI escape codes from a string"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/supports-color@7.2.0",
+      "name": "supports-color",
+      "version": "7.2.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/supports-color@7.2.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Detect whether a terminal supports color"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/tar@6.2.1",
+      "name": "tar",
+      "version": "6.2.1",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/tar@6.2.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "tar for node"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/tar@7.5.22",
+      "name": "tar",
+      "version": "7.5.22",
+      "licenses": [
+        {
+          "expression": "BlueOak-1.0.0"
+        }
+      ],
+      "purl": "pkg:npm/tar@7.5.22",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "tar for node"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/through@2.3.8",
+      "name": "through",
+      "version": "2.3.8",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/through@2.3.8",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "simplified stream construction",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/dominictarr/through"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/tinyglobby@0.2.17",
+      "name": "tinyglobby",
+      "version": "0.2.17",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/tinyglobby@0.2.17",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A fast and minimal alternative to globby and fast-glob",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://superchupu.dev/tinyglobby"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/tough-cookie@2.5.0",
+      "name": "tough-cookie",
+      "version": "2.5.0",
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "purl": "pkg:npm/tough-cookie@2.5.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "RFC6265 Cookies and Cookie Jar for node.js",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/salesforce/tough-cookie"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/tunnel-agent@0.6.0",
+      "name": "tunnel-agent",
+      "version": "0.6.0",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "purl": "pkg:npm/tunnel-agent@0.6.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "HTTP proxy tunneling agent. Formerly part of mikeal/request, now a standalone module."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/tweetnacl@0.14.5",
+      "name": "tweetnacl",
+      "version": "0.14.5",
+      "licenses": [
+        {
+          "expression": "Unlicense"
+        }
+      ],
+      "purl": "pkg:npm/tweetnacl@0.14.5",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Port of TweetNaCl cryptographic library to JavaScript",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://tweetnacl.js.org"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/typescript@5.8.3",
+      "name": "typescript",
+      "version": "5.8.3",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "purl": "pkg:npm/typescript@5.8.3",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "TypeScript is a language for application scale JavaScript development",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.typescriptlang.org/"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/undici@6.28.0",
+      "name": "undici",
+      "version": "6.28.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/undici@6.28.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "An HTTP/1.1 client, written from scratch for Node.js",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://undici.nodejs.org"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/update-browserslist-db@1.2.3",
+      "name": "update-browserslist-db",
+      "version": "1.2.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/update-browserslist-db@1.2.3",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "CLI tool to update caniuse-lite to refresh target browsers from Browserslist config"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/uri-js@4.4.1",
+      "name": "uri-js",
+      "version": "4.4.1",
+      "licenses": [
+        {
+          "expression": "BSD-2-Clause"
+        }
+      ],
+      "purl": "pkg:npm/uri-js@4.4.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "An RFC 3986/3987 compliant, scheme extendable URI/IRI parsing/validating/resolving library for JavaScript.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/garycourt/uri-js"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/usocket@0.3.0",
+      "name": "usocket",
+      "version": "0.3.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/usocket@0.3.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "unix local sockets with descriptor passing",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/jhs67/usocket#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/util-deprecate@1.0.2",
+      "name": "util-deprecate",
+      "version": "1.0.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/util-deprecate@1.0.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "The Node.js `util.deprecate()` function with browser support",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/TooTallNate/util-deprecate"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/uuid@3.4.0",
+      "name": "uuid",
+      "version": "3.4.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/uuid@3.4.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "RFC4122 (v1, v4, and v5) UUIDs"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/uuid@7.0.3",
+      "name": "uuid",
+      "version": "7.0.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/uuid@7.0.3",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "RFC4122 (v1, v4, and v5) UUIDs"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/verror@1.10.0",
+      "name": "verror",
+      "version": "1.10.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/verror@1.10.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "richer JavaScript errors"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/which@2.0.2",
+      "name": "which",
+      "version": "2.0.2",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/which@2.0.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Like which(1) unix command. Find the first instance of an executable in the PATH."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/which@6.0.1",
+      "name": "which",
+      "version": "6.0.1",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/which@6.0.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Like which(1) unix command. Find the first instance of an executable in the PATH."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/wide-align@1.1.5",
+      "name": "wide-align",
+      "version": "1.1.5",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/wide-align@1.1.5",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "A wide-character aware text alignment function for use on the console or with fixed width fonts."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/wrappy@1.0.2",
+      "name": "wrappy",
+      "version": "1.0.2",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/wrappy@1.0.2",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Callback wrapping utility",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/npm/wrappy"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/xcode@3.0.1",
+      "name": "xcode",
+      "version": "3.0.1",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "purl": "pkg:npm/xcode@3.0.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "parser for xcodeproj/project.pbxproj files"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/xml2js@0.4.23",
+      "name": "xml2js",
+      "version": "0.4.23",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/xml2js@0.4.23",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Simple XML to JavaScript object converter.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/Leonidas-from-XIV/node-xml2js"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/xml2js@0.6.0",
+      "name": "xml2js",
+      "version": "0.6.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/xml2js@0.6.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Simple XML to JavaScript object converter.",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/Leonidas-from-XIV/node-xml2js"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/xmlbuilder@11.0.1",
+      "name": "xmlbuilder",
+      "version": "11.0.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/xmlbuilder@11.0.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "An XML builder for node.js",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "http://github.com/oozcitak/xmlbuilder-js"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/xmlbuilder@15.1.1",
+      "name": "xmlbuilder",
+      "version": "15.1.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:npm/xmlbuilder@15.1.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "An XML builder for node.js",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "http://github.com/oozcitak/xmlbuilder-js"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/yallist@3.1.1",
+      "name": "yallist",
+      "version": "3.1.1",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/yallist@3.1.1",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Yet Another Linked List"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/yallist@4.0.0",
+      "name": "yallist",
+      "version": "4.0.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:npm/yallist@4.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Yet Another Linked List"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/yallist@5.0.0",
+      "name": "yallist",
+      "version": "5.0.0",
+      "licenses": [
+        {
+          "expression": "BlueOak-1.0.0"
+        }
+      ],
+      "purl": "pkg:npm/yallist@5.0.0",
+      "properties": [
+        {
+          "name": "unified-ble-manager:license-source",
+          "value": "package-metadata"
+        }
+      ],
+      "description": "Yet Another Linked List"
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:npm/unified-ble-manager@4.0.0-alpha.29",
+      "dependsOn": [
+        "pkg:npm/%40babel/code-frame@7.29.7",
+        "pkg:npm/%40babel/compat-data@7.29.7",
+        "pkg:npm/%40babel/core@7.29.7",
+        "pkg:npm/%40babel/generator@7.29.7",
+        "pkg:npm/%40babel/helper-compilation-targets@7.29.7",
+        "pkg:npm/%40babel/helper-globals@7.29.7",
+        "pkg:npm/%40babel/helper-module-imports@7.29.7",
+        "pkg:npm/%40babel/helper-module-transforms@7.29.7",
+        "pkg:npm/%40babel/helper-plugin-utils@7.29.7",
+        "pkg:npm/%40babel/helper-string-parser@7.29.7",
+        "pkg:npm/%40babel/helper-validator-identifier@7.29.7",
+        "pkg:npm/%40babel/helper-validator-option@7.29.7",
+        "pkg:npm/%40babel/helpers@7.29.7",
+        "pkg:npm/%40babel/parser@7.29.7",
+        "pkg:npm/%40babel/plugin-transform-modules-commonjs@7.29.7",
+        "pkg:npm/%40babel/template@7.29.7",
+        "pkg:npm/%40babel/traverse@7.29.7",
+        "pkg:npm/%40babel/types@7.29.7",
+        "pkg:npm/%40expo/config-plugins@57.0.6",
+        "pkg:npm/%40expo/config-types@57.0.2",
+        "pkg:npm/%40expo/json-file@11.0.1",
+        "pkg:npm/%40expo/plist@0.8.1",
+        "pkg:npm/%40expo/require-utils@57.0.4",
+        "pkg:npm/%40expo/sdk-runtime-versions@1.0.0",
+        "pkg:npm/%40isaacs/fs-minipass@4.0.1",
+        "pkg:npm/%40jridgewell/gen-mapping@0.3.12",
+        "pkg:npm/%40jridgewell/gen-mapping@0.3.13",
+        "pkg:npm/%40jridgewell/remapping@2.3.5",
+        "pkg:npm/%40jridgewell/resolve-uri@3.1.2",
+        "pkg:npm/%40jridgewell/sourcemap-codec@1.5.4",
+        "pkg:npm/%40jridgewell/sourcemap-codec@1.5.5",
+        "pkg:npm/%40jridgewell/trace-mapping@0.3.31",
+        "pkg:npm/%40nornagon/put@0.0.8",
+        "pkg:npm/%40xmldom/xmldom@0.8.10",
+        "pkg:npm/abbrev@1.1.1",
+        "pkg:npm/abbrev@4.0.0",
+        "pkg:npm/ajv@6.15.0",
+        "pkg:npm/ansi-regex@2.1.1",
+        "pkg:npm/ansi-regex@5.0.1",
+        "pkg:npm/ansi-styles@4.3.0",
+        "pkg:npm/aproba@1.2.0",
+        "pkg:npm/are-we-there-yet@1.1.7",
+        "pkg:npm/asn1@0.2.6",
+        "pkg:npm/assert-plus@1.0.0",
+        "pkg:npm/asynckit@0.4.0",
+        "pkg:npm/aws-sign2@0.7.0",
+        "pkg:npm/aws4@1.13.2",
+        "pkg:npm/balanced-match@1.0.2",
+        "pkg:npm/balanced-match@4.0.4",
+        "pkg:npm/base64-js@1.5.1",
+        "pkg:npm/baseline-browser-mapping@2.10.42",
+        "pkg:npm/bcrypt-pbkdf@1.0.2",
+        "pkg:npm/big-integer@1.6.52",
+        "pkg:npm/bindings@1.5.0",
+        "pkg:npm/bplist-creator@0.1.0",
+        "pkg:npm/bplist-parser@0.3.1",
+        "pkg:npm/brace-expansion@1.1.12",
+        "pkg:npm/brace-expansion@5.0.7",
+        "pkg:npm/browserslist@4.28.5",
+        "pkg:npm/caniuse-lite@1.0.30001803",
+        "pkg:npm/caseless@0.12.0",
+        "pkg:npm/chalk@4.1.2",
+        "pkg:npm/chownr@2.0.0",
+        "pkg:npm/chownr@3.0.0",
+        "pkg:npm/code-point-at@1.1.0",
+        "pkg:npm/color-convert@2.0.1",
+        "pkg:npm/color-name@1.1.4",
+        "pkg:npm/combined-stream@1.0.8",
+        "pkg:npm/concat-map@0.0.1",
+        "pkg:npm/console-control-strings@1.1.0",
+        "pkg:npm/convert-source-map@2.0.0",
+        "pkg:npm/core-util-is@1.0.2",
+        "pkg:npm/core-util-is@1.0.3",
+        "pkg:npm/dashdash@1.14.1",
+        "pkg:npm/dbus-next@0.10.2",
+        "pkg:npm/debug@4.4.1",
+        "pkg:npm/debug@4.4.3",
+        "pkg:npm/delayed-stream@1.0.0",
+        "pkg:npm/delegates@1.0.0",
+        "pkg:npm/duplexer@0.1.2",
+        "pkg:npm/ecc-jsbn@0.1.2",
+        "pkg:npm/electron-to-chromium@1.5.389",
+        "pkg:npm/emoji-regex@8.0.0",
+        "pkg:npm/env-paths@2.2.1",
+        "pkg:npm/escalade@3.2.0",
+        "pkg:npm/event-stream@3.3.4",
+        "pkg:npm/exponential-backoff@3.1.2",
+        "pkg:npm/extend@3.0.2",
+        "pkg:npm/extsprintf@1.3.0",
+        "pkg:npm/fast-deep-equal@3.1.3",
+        "pkg:npm/fast-json-stable-stringify@2.1.0",
+        "pkg:npm/fdir@6.5.0",
+        "pkg:npm/file-uri-to-path@1.0.0",
+        "pkg:npm/forever-agent@0.6.1",
+        "pkg:npm/form-data@2.3.3",
+        "pkg:npm/from@0.1.7",
+        "pkg:npm/fs-minipass@2.1.0",
+        "pkg:npm/fs.realpath@1.0.0",
+        "pkg:npm/gauge@2.7.4",
+        "pkg:npm/gensync@1.0.0-beta.2",
+        "pkg:npm/getenv@2.0.0",
+        "pkg:npm/getpass@0.1.7",
+        "pkg:npm/glob@13.0.6",
+        "pkg:npm/glob@7.2.3",
+        "pkg:npm/graceful-fs@4.2.11",
+        "pkg:npm/har-schema@2.0.0",
+        "pkg:npm/har-validator@5.1.5",
+        "pkg:npm/has-flag@4.0.0",
+        "pkg:npm/has-unicode@2.0.1",
+        "pkg:npm/hexy@0.2.11",
+        "pkg:npm/http-signature@1.2.0",
+        "pkg:npm/inflight@1.0.6",
+        "pkg:npm/inherits@2.0.4",
+        "pkg:npm/is-fullwidth-code-point@1.0.0",
+        "pkg:npm/is-fullwidth-code-point@3.0.0",
+        "pkg:npm/is-typedarray@1.0.0",
+        "pkg:npm/isarray@1.0.0",
+        "pkg:npm/isexe@2.0.0",
+        "pkg:npm/isexe@4.0.0",
+        "pkg:npm/isstream@0.1.2",
+        "pkg:npm/js-tokens@4.0.0",
+        "pkg:npm/jsbi@2.0.5",
+        "pkg:npm/jsbn@0.1.1",
+        "pkg:npm/jsesc@3.1.0",
+        "pkg:npm/json-schema-traverse@0.4.1",
+        "pkg:npm/json-schema@0.4.0",
+        "pkg:npm/json-stringify-safe@5.0.1",
+        "pkg:npm/json5@2.2.3",
+        "pkg:npm/jsprim@1.4.2",
+        "pkg:npm/long@4.0.0",
+        "pkg:npm/lru-cache@11.5.2",
+        "pkg:npm/lru-cache@5.1.1",
+        "pkg:npm/map-stream@0.1.0",
+        "pkg:npm/mime-db@1.52.0",
+        "pkg:npm/mime-types@2.1.35",
+        "pkg:npm/minimatch@10.2.5",
+        "pkg:npm/minimatch@3.1.2",
+        "pkg:npm/minipass@3.3.6",
+        "pkg:npm/minipass@5.0.0",
+        "pkg:npm/minipass@7.1.3",
+        "pkg:npm/minizlib@2.1.2",
+        "pkg:npm/minizlib@3.1.0",
+        "pkg:npm/mkdirp@1.0.4",
+        "pkg:npm/ms@2.1.3",
+        "pkg:npm/nan@2.23.0",
+        "pkg:npm/node-addon-api@8.9.0",
+        "pkg:npm/node-gyp@12.4.0",
+        "pkg:npm/node-gyp@7.1.2",
+        "pkg:npm/node-releases@2.0.50",
+        "pkg:npm/nopt@5.0.0",
+        "pkg:npm/nopt@9.0.0",
+        "pkg:npm/npmlog@4.1.2",
+        "pkg:npm/number-is-nan@1.0.1",
+        "pkg:npm/oauth-sign@0.9.0",
+        "pkg:npm/object-assign@4.1.1",
+        "pkg:npm/once@1.4.0",
+        "pkg:npm/path-is-absolute@1.0.1",
+        "pkg:npm/path-scurry@2.0.2",
+        "pkg:npm/pause-stream@0.0.11",
+        "pkg:npm/performance-now@2.1.0",
+        "pkg:npm/picocolors@1.1.1",
+        "pkg:npm/picomatch@4.0.5",
+        "pkg:npm/plist@3.1.0",
+        "pkg:npm/proc-log@6.1.0",
+        "pkg:npm/process-nextick-args@2.0.1",
+        "pkg:npm/psl@1.15.0",
+        "pkg:npm/punycode@2.3.1",
+        "pkg:npm/qs@6.5.5",
+        "pkg:npm/readable-stream@2.3.8",
+        "pkg:npm/request@2.88.2",
+        "pkg:npm/rimraf@3.0.2",
+        "pkg:npm/safe-buffer@5.1.2",
+        "pkg:npm/safe-buffer@5.2.1",
+        "pkg:npm/safer-buffer@2.1.2",
+        "pkg:npm/sax@1.4.1",
+        "pkg:npm/semver@6.3.1",
+        "pkg:npm/semver@7.8.5",
+        "pkg:npm/set-blocking@2.0.0",
+        "pkg:npm/signal-exit@3.0.7",
+        "pkg:npm/simple-plist@1.3.1",
+        "pkg:npm/slugify@1.6.6",
+        "pkg:npm/split@0.3.3",
+        "pkg:npm/sshpk@1.18.0",
+        "pkg:npm/stream-buffers@2.2.0",
+        "pkg:npm/stream-combiner@0.0.4",
+        "pkg:npm/string_decoder@1.1.1",
+        "pkg:npm/string-width@1.0.2",
+        "pkg:npm/string-width@4.2.3",
+        "pkg:npm/strip-ansi@3.0.1",
+        "pkg:npm/strip-ansi@6.0.1",
+        "pkg:npm/supports-color@7.2.0",
+        "pkg:npm/tar@6.2.1",
+        "pkg:npm/tar@7.5.22",
+        "pkg:npm/through@2.3.8",
+        "pkg:npm/tinyglobby@0.2.17",
+        "pkg:npm/tough-cookie@2.5.0",
+        "pkg:npm/tunnel-agent@0.6.0",
+        "pkg:npm/tweetnacl@0.14.5",
+        "pkg:npm/typescript@5.8.3",
+        "pkg:npm/undici@6.28.0",
+        "pkg:npm/update-browserslist-db@1.2.3",
+        "pkg:npm/uri-js@4.4.1",
+        "pkg:npm/usocket@0.3.0",
+        "pkg:npm/util-deprecate@1.0.2",
+        "pkg:npm/uuid@3.4.0",
+        "pkg:npm/uuid@7.0.3",
+        "pkg:npm/verror@1.10.0",
+        "pkg:npm/which@2.0.2",
+        "pkg:npm/which@6.0.1",
+        "pkg:npm/wide-align@1.1.5",
+        "pkg:npm/wrappy@1.0.2",
+        "pkg:npm/xcode@3.0.1",
+        "pkg:npm/xml2js@0.4.23",
+        "pkg:npm/xml2js@0.6.0",
+        "pkg:npm/xmlbuilder@11.0.1",
+        "pkg:npm/xmlbuilder@15.1.1",
+        "pkg:npm/yallist@3.1.1",
+        "pkg:npm/yallist@4.0.0",
+        "pkg:npm/yallist@5.0.0"
+      ]
+    },
+    {
+      "ref": "pkg:npm/%40babel/code-frame@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/compat-data@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/core@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/generator@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/helper-compilation-targets@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/helper-globals@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/helper-module-imports@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/helper-module-transforms@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/helper-plugin-utils@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/helper-string-parser@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/helper-validator-identifier@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/helper-validator-option@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/helpers@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/parser@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/plugin-transform-modules-commonjs@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/template@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/traverse@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40babel/types@7.29.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40expo/config-plugins@57.0.6",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40expo/config-types@57.0.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40expo/json-file@11.0.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40expo/plist@0.8.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40expo/require-utils@57.0.4",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40expo/sdk-runtime-versions@1.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40isaacs/fs-minipass@4.0.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40jridgewell/gen-mapping@0.3.12",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40jridgewell/gen-mapping@0.3.13",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40jridgewell/remapping@2.3.5",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40jridgewell/resolve-uri@3.1.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40jridgewell/sourcemap-codec@1.5.4",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40jridgewell/sourcemap-codec@1.5.5",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40jridgewell/trace-mapping@0.3.31",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40nornagon/put@0.0.8",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/%40xmldom/xmldom@0.8.10",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/abbrev@1.1.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/abbrev@4.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/ajv@6.15.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/ansi-regex@2.1.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/ansi-regex@5.0.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/ansi-styles@4.3.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/aproba@1.2.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/are-we-there-yet@1.1.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/asn1@0.2.6",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/assert-plus@1.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/asynckit@0.4.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/aws-sign2@0.7.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/aws4@1.13.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/balanced-match@1.0.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/balanced-match@4.0.4",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/base64-js@1.5.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/baseline-browser-mapping@2.10.42",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/bcrypt-pbkdf@1.0.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/big-integer@1.6.52",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/bindings@1.5.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/bplist-creator@0.1.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/bplist-parser@0.3.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/brace-expansion@1.1.12",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/brace-expansion@5.0.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/browserslist@4.28.5",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/caniuse-lite@1.0.30001803",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/caseless@0.12.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/chalk@4.1.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/chownr@2.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/chownr@3.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/code-point-at@1.1.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/color-convert@2.0.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/color-name@1.1.4",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/combined-stream@1.0.8",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/concat-map@0.0.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/console-control-strings@1.1.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/convert-source-map@2.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/core-util-is@1.0.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/core-util-is@1.0.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/dashdash@1.14.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/dbus-next@0.10.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/debug@4.4.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/debug@4.4.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/delayed-stream@1.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/delegates@1.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/duplexer@0.1.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/ecc-jsbn@0.1.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/electron-to-chromium@1.5.389",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/emoji-regex@8.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/env-paths@2.2.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/escalade@3.2.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/event-stream@3.3.4",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/exponential-backoff@3.1.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/extend@3.0.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/extsprintf@1.3.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/fast-deep-equal@3.1.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/fast-json-stable-stringify@2.1.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/fdir@6.5.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/file-uri-to-path@1.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/forever-agent@0.6.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/form-data@2.3.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/from@0.1.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/fs-minipass@2.1.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/fs.realpath@1.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/gauge@2.7.4",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/gensync@1.0.0-beta.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/getenv@2.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/getpass@0.1.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/glob@13.0.6",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/glob@7.2.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/graceful-fs@4.2.11",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/har-schema@2.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/har-validator@5.1.5",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/has-flag@4.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/has-unicode@2.0.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/hexy@0.2.11",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/http-signature@1.2.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/inflight@1.0.6",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/inherits@2.0.4",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/is-fullwidth-code-point@1.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/is-fullwidth-code-point@3.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/is-typedarray@1.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/isarray@1.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/isexe@2.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/isexe@4.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/isstream@0.1.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/js-tokens@4.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/jsbi@2.0.5",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/jsbn@0.1.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/jsesc@3.1.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/json-schema-traverse@0.4.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/json-schema@0.4.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/json-stringify-safe@5.0.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/json5@2.2.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/jsprim@1.4.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/long@4.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/lru-cache@11.5.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/lru-cache@5.1.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/map-stream@0.1.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/mime-db@1.52.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/mime-types@2.1.35",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/minimatch@10.2.5",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/minimatch@3.1.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/minipass@3.3.6",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/minipass@5.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/minipass@7.1.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/minizlib@2.1.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/minizlib@3.1.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/mkdirp@1.0.4",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/ms@2.1.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/nan@2.23.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/node-addon-api@8.9.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/node-gyp@12.4.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/node-gyp@7.1.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/node-releases@2.0.50",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/nopt@5.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/nopt@9.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/npmlog@4.1.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/number-is-nan@1.0.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/oauth-sign@0.9.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/object-assign@4.1.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/once@1.4.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/path-is-absolute@1.0.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/path-scurry@2.0.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/pause-stream@0.0.11",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/performance-now@2.1.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/picocolors@1.1.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/picomatch@4.0.5",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/plist@3.1.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/proc-log@6.1.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/process-nextick-args@2.0.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/psl@1.15.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/punycode@2.3.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/qs@6.5.5",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/readable-stream@2.3.8",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/request@2.88.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/rimraf@3.0.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/safe-buffer@5.1.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/safe-buffer@5.2.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/safer-buffer@2.1.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/sax@1.4.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/semver@6.3.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/semver@7.8.5",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/set-blocking@2.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/signal-exit@3.0.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/simple-plist@1.3.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/slugify@1.6.6",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/split@0.3.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/sshpk@1.18.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/stream-buffers@2.2.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/stream-combiner@0.0.4",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/string_decoder@1.1.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/string-width@1.0.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/string-width@4.2.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/strip-ansi@3.0.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/strip-ansi@6.0.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/supports-color@7.2.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/tar@6.2.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/tar@7.5.22",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/through@2.3.8",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/tinyglobby@0.2.17",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/tough-cookie@2.5.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/tunnel-agent@0.6.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/tweetnacl@0.14.5",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/typescript@5.8.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/undici@6.28.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/update-browserslist-db@1.2.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/uri-js@4.4.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/usocket@0.3.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/util-deprecate@1.0.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/uuid@3.4.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/uuid@7.0.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/verror@1.10.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/which@2.0.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/which@6.0.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/wide-align@1.1.5",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/wrappy@1.0.2",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/xcode@3.0.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/xml2js@0.4.23",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/xml2js@0.6.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/xmlbuilder@11.0.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/xmlbuilder@15.1.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/yallist@3.1.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/yallist@4.0.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/yallist@5.0.0",
+      "dependsOn": []
+    }
+  ]
+}

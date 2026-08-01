@@ -33,6 +33,18 @@ const stableMinimumSupportLabels = {
   'electron-ipc': 'Supported'
 }
 const stableReleaseCheckKinds = ['governance', 'security', 'sbom', 'license', 'provenance', 'package-shape']
+const stableReleaseCheckSubjects = Object.freeze({
+  governance: Object.freeze(['CONTRIBUTING.md', 'GOVERNANCE.md']),
+  security: Object.freeze(['SECURITY.md', 'docs/security/UNIFIED_BLE_4.0_THREAT_MODEL.md']),
+  sbom: Object.freeze(['SBOM.cdx.json', 'scripts/release/generate-dependency-artifacts.js']),
+  license: Object.freeze(['LICENSE', 'THIRD_PARTY_LICENSES.json', 'docs/DEPENDENCY_AND_ARTIFACT_POLICY.md']),
+  provenance: Object.freeze(['.github/workflows/publish.yml', 'package.json']),
+  'package-shape': Object.freeze([
+    'package.json',
+    'scripts/ci/verify-package-artifacts.js',
+    'scripts/ci/verify-package-tarballs.js',
+  ]),
+})
 const stableSection31ItemIds = [
   'foundation-zero-diagnostics',
   'evidence-label-truth',
@@ -601,8 +613,8 @@ function validateCheckArtifact(kind, check, release, root, errors) {
       document,
       `${location}.artifact`,
       errors,
-      ['schema', 'version', 'kind', 'status', 'release', 'summary'],
-      ['schema', 'version', 'kind', 'status', 'release', 'summary']
+      ['schema', 'version', 'kind', 'status', 'subjects', 'release', 'summary'],
+      ['schema', 'version', 'kind', 'status', 'subjects', 'release', 'summary']
     )
   )
     return
@@ -612,6 +624,25 @@ function validateCheckArtifact(kind, check, release, root, errors) {
   if (document.kind !== kind) addError(errors, `${location}.artifact.kind`, `must be ${kind}`)
   if (document.status !== 'passed') addError(errors, `${location}.artifact.status`, 'must be passed')
   validateString(document.summary, `${location}.artifact.summary`, errors)
+  const expectedSubjects = stableReleaseCheckSubjects[kind]
+  if (!Array.isArray(document.subjects)) {
+    addError(errors, `${location}.artifact.subjects`, 'must be an array')
+  } else {
+    if (document.subjects.length !== expectedSubjects.length)
+      addError(
+        errors,
+        `${location}.artifact.subjects`,
+        `must contain exactly ${String(expectedSubjects.length)} required subject(s)`
+      )
+    expectedSubjects.forEach((expectedPath, index) => {
+      const subject = document.subjects[index]
+      const subjectLocation = `${location}.artifact.subjects[${String(index)}]`
+      if (!validateObject(subject, subjectLocation, errors, ['path', 'sha256'], ['path', 'sha256'])) return
+      if (subject.path !== expectedPath) addError(errors, `${subjectLocation}.path`, `must be ${expectedPath}`)
+      const subjectFile = readRepositoryFile(root, subject.path, `${subjectLocation}.path`, errors, '')
+      verifyDigest(subjectFile, subject.sha256, subjectLocation, errors)
+    })
+  }
   const artifactRelease = document.release
   if (
     !validateObject(
@@ -727,8 +758,11 @@ function validateStableRelease(release, evidence, root, context = {}) {
   if (!isObject(release)) return errors
   if (context.tag !== release.tag) addError(errors, 'tag', 'must exactly match the stable release manifest tag')
   validateCommit(context.tagCommit, 'tag commit', errors)
-  if (context.tagCommit !== release.sourceCommit)
-    addError(errors, 'tag commit', 'must exactly match the stable release source commit')
+  validateCommit(context.verifiedSourceCommit, 'verified source commit', errors)
+  if (context.verifiedSourceCommit !== release.sourceCommit)
+    addError(errors, 'verified source commit', 'must exactly match the stable release source commit')
+  if (context.tagCommit === release.sourceCommit)
+    addError(errors, 'tag commit', 'must be the evidence-only descendant verified by the release CLI')
   if (!isObject(context.publishArtifact)) {
     addError(errors, 'publish artifact', 'must provide the exact generated tarball selected for npm publish')
   } else {
@@ -758,6 +792,7 @@ module.exports = {
   stableEvidenceAreas,
   stableMinimumSupportLabels,
   stableReleaseCheckKinds,
+  stableReleaseCheckSubjects,
   stableSection31ItemIds,
   validateStableRelease
 }

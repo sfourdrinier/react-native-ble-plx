@@ -20,10 +20,11 @@ const {
   stableEvidenceAreas,
   stableMinimumSupportLabels,
   stableReleaseCheckKinds,
+  stableReleaseCheckSubjects,
   stableSection31ItemIds,
   validateStableRelease
 } = require(gatePath)
-const { approvedCiFromRun, generatedPublishArtifact, parseArguments, verifyExactTagCommit } = require(
+const { approvedCiFromRun, generatedPublishArtifact, parseArguments, verifyStableTagCommit } = require(
   stableReleaseCliPath
 )
 
@@ -97,6 +98,13 @@ function writeCheckArtifact(root, check, release) {
     version: 1,
     kind: check,
     status: 'passed',
+    subjects: stableReleaseCheckSubjects[check].map(relativePath => {
+      const source = path.join(repositoryRoot, relativePath)
+      const target = path.join(root, relativePath)
+      fs.mkdirSync(path.dirname(target), { recursive: true })
+      fs.copyFileSync(source, target)
+      return { path: relativePath, sha256: sha256(fs.readFileSync(target)) }
+    }),
     release: {
       packageName: release.packageName,
       version: release.version,
@@ -218,7 +226,8 @@ function createCompleteStableFixture() {
 function verificationContext(fixture, overrides = {}) {
   return {
     tag: 'v4.0.0',
-    tagCommit: fixture.release.sourceCommit,
+    tagCommit: '1111111111111111111111111111111111111111',
+    verifiedSourceCommit: fixture.release.sourceCommit,
     package: { name: 'unified-ble-manager', version: '4.0.0' },
     approvedCi: fixture.release.approvedCi,
     publishArtifact: {
@@ -232,6 +241,8 @@ function verificationContext(fixture, overrides = {}) {
 describe('stable release evidence gate', () => {
   test('runs the GA evidence gate only for final version tags', () => {
     const workflow = fs.readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'publish.yml'), 'utf8')
+    const releaseGuide = fs.readFileSync(path.join(repositoryRoot, 'RELEASE.md'), 'utf8')
+    const evidenceGuide = fs.readFileSync(path.join(repositoryRoot, 'evidence', 'v1', 'README.md'), 'utf8')
     expect(workflow).toContain('id: release_channel')
     expect(workflow).toContain('echo "is_stable=false" >> "$GITHUB_OUTPUT"')
     expect(workflow).toContain('echo "is_stable=true" >> "$GITHUB_OUTPUT"')
@@ -245,6 +256,8 @@ describe('stable release evidence gate', () => {
     expect(workflow).toContain('npm registry metadata did not become visible within the bounded retry window')
     expect(workflow).toContain('Registry tarball SHA-256 does not match the exact generated publish tarball')
     expect(workflow).toContain("curl --fail --location --silent --show-error --proto '=https'")
+    expect(releaseGuide).toContain('evidence-only release commit')
+    expect(evidenceGuide).toContain('evidence-only descendant')
   })
 
   test('keeps the runtime requirements synchronized with the stable release schema', () => {
@@ -254,6 +267,10 @@ describe('stable release evidence gate', () => {
     )
     expect(schema.$defs.requiredClaim.properties.area.enum).toEqual(stableEvidenceAreas)
     expect(schema.properties.checks.required).toEqual(stableReleaseCheckKinds)
+    expect(stableReleaseCheckSubjects.sbom).toEqual([
+      'SBOM.cdx.json',
+      'scripts/release/generate-dependency-artifacts.js',
+    ])
     expect(schema.$defs.section31Item.properties.id.enum).toEqual(stableSection31ItemIds)
     expect(stableMinimumSupportLabels.deterministic).toBe('Preview')
     stableEvidenceAreas
@@ -278,7 +295,7 @@ describe('stable release evidence gate', () => {
     })
   })
 
-  test('accepts only exact source/tag equality and rejects ancestor or newer source commits', () => {
+  test('accepts only an evidence-only release commit over the tested source commit', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'stable-release-git-'))
     try {
       runGit(root, ['init', '--initial-branch=master'])
@@ -288,21 +305,26 @@ describe('stable release evidence gate', () => {
       runGit(root, ['add', 'fixture.txt'])
       runGit(root, ['commit', '-m', 'first'])
       const approvedCommit = runGit(root, ['rev-parse', 'HEAD'])
-      fs.writeFileSync(path.join(root, 'fixture.txt'), 'second\n')
-      runGit(root, ['add', 'fixture.txt'])
-      runGit(root, ['commit', '-m', 'second'])
+      fs.mkdirSync(path.join(root, 'evidence', 'v1', 'releases'), { recursive: true })
+      fs.writeFileSync(path.join(root, 'evidence', 'v1', 'releases', 'v4.0.0.json'), '{}\n')
+      runGit(root, ['add', 'evidence/v1/releases/v4.0.0.json'])
+      runGit(root, ['commit', '-m', 'release evidence'])
       const releaseCommit = runGit(root, ['rev-parse', 'HEAD'])
       runGit(root, ['update-ref', 'refs/remotes/origin/master', releaseCommit])
       runGit(root, ['tag', 'v4.0.0', releaseCommit])
-      expect(verifyExactTagCommit(root, 'v4.0.0', releaseCommit)).toEqual({ tagCommit: releaseCommit })
-      expect(() => verifyExactTagCommit(root, 'v4.0.0', approvedCommit)).toThrow('does not exactly match')
+      expect(verifyStableTagCommit(root, 'v4.0.0', approvedCommit)).toEqual({
+        sourceCommit: approvedCommit,
+        tagCommit: releaseCommit,
+      })
+      expect(() => verifyStableTagCommit(root, 'v4.0.0', releaseCommit)).toThrow('evidence-only descendant')
 
       fs.writeFileSync(path.join(root, 'fixture.txt'), 'third\n')
       runGit(root, ['add', 'fixture.txt'])
       runGit(root, ['commit', '-m', 'third'])
       const unapprovedCommit = runGit(root, ['rev-parse', 'HEAD'])
       runGit(root, ['tag', 'v4.0.1', unapprovedCommit])
-      expect(() => verifyExactTagCommit(root, 'v4.0.0', unapprovedCommit)).toThrow('does not exactly match')
+      runGit(root, ['update-ref', 'refs/remotes/origin/master', unapprovedCommit])
+      expect(() => verifyStableTagCommit(root, 'v4.0.1', approvedCommit)).toThrow('non-release path fixture.txt')
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
@@ -341,7 +363,7 @@ describe('stable release evidence gate', () => {
     }
   })
 
-  test('rejects non-identical tag, approved CI, and generated publish tarball bindings', () => {
+  test('rejects unverified source, approved CI, and generated publish tarball bindings', () => {
     const fixture = createCompleteStableFixture()
     try {
       const differentCommit = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -349,9 +371,9 @@ describe('stable release evidence gate', () => {
         fixture.release,
         fixture.records,
         fixture.root,
-        verificationContext(fixture, { tagCommit: differentCommit })
+        verificationContext(fixture, { verifiedSourceCommit: differentCommit })
       ).join('\n')
-      expect(tagErrors).toContain('tag commit: must exactly match the stable release source commit')
+      expect(tagErrors).toContain('verified source commit: must exactly match the stable release source commit')
 
       fixture.release.approvedCi.headCommit = differentCommit
       const ciErrors = validateStableRelease(
@@ -413,6 +435,7 @@ describe('stable release evidence gate', () => {
       const securityCheckPath = path.join(fixture.root, fixture.release.checks.security.path)
       const securityCheck = JSON.parse(fs.readFileSync(securityCheckPath, 'utf8'))
       securityCheck.status = 'failed'
+      securityCheck.subjects[0].sha256 = 'a'.repeat(64)
       writeJson(securityCheckPath, securityCheck)
       fixture.release.checks.security.sha256 = sha256(fs.readFileSync(securityCheckPath))
       const unapprovedCi = { ...fixture.release.approvedCi, headCommit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }
@@ -425,6 +448,7 @@ describe('stable release evidence gate', () => {
       expect(errors).toContain('must equal the deterministic generated stable support matrix')
       expect(errors).toContain('section31.items[0].status: must be passed for a stable release')
       expect(errors).toContain('checks.security.artifact.status: must be passed')
+      expect(errors).toContain('checks.security.artifact.subjects[0].sha256: does not match the retained file digest')
       expect(errors).toContain('approvedCi.headCommit: does not match the externally verified CI run')
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true })

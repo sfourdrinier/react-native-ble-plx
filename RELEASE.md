@@ -69,8 +69,10 @@ The tag workflow runs these release gates before publication:
 - deterministic Electron main/router/renderer L1 smoke;
 - classic React Native Android assembly plus Expo SDK 57 CNG prebuild and
   Android assembly; and
-- npm OIDC trusted publishing with `--provenance`, followed by the GitHub
-  Release creation from the changelog.
+- reproducible CycloneDX SBOM and production-license audit; and
+- npm OIDC trusted publishing with `--provenance`, followed by a GitHub Release
+  containing the canonical tarball, SBOM, license inventory, and verified
+  SHA-256 checksums.
 
 Final SemVer tags have an additional fail-closed GA gate before any `latest`
 publication. It requires a versioned stable release manifest under
@@ -78,9 +80,20 @@ publication. It requires a versioned stable release manifest under
 collection, generated support matrix, Section 31 reconciliation, verified
 successful `ci.yml` run, clean source/tag/master ancestry, and governance,
 security, SBOM, license, provenance, and package-shape artifacts all bind the
-same source commit. The manifest does not exist while the required stable proof
-is incomplete, so a stable tag is intentionally rejected. This gate is not a
-support-label waiver and does not change prerelease publication to `next`.
+same tested source commit and package artifact.
+
+The stable tag points to an **evidence-only release commit** above that tested
+source commit. This avoids the impossible requirement for a committed manifest
+to contain its own future Git hash. The validator proves ancestry and rejects
+every change between source and tag except evidence records/artifacts/releases
+and the deterministically generated platform-support page. Deletions and all
+implementation, package metadata, policy, or hand-edited documentation changes
+are rejected. Publication reruns package gates at the tagged commit and verifies
+that its generated tarball exactly matches the retained artifact.
+
+The manifest does not exist while the required stable proof is incomplete, so a
+stable tag is intentionally rejected. This gate is not a support-label waiver
+and does not change prerelease publication to `next`.
 
 Apple and Windows host gates remain their own CI lanes. A green package release
 does not silently convert a platform's compile, ABI, deterministic, or system
@@ -116,12 +129,10 @@ backend, hardware, Live Preview, Supported, or Reliability-qualified claims.
 Deterministic fault injection remains useful 4.0 contract proof but is never
 physical-radio proof.
 
-At the time of the alpha.29 prerelease, GitHub private vulnerability reporting is
-disabled and
-no private reporting channel or supported-version response policy is published.
-Release notes and support material must not claim otherwise. Establish and
-publish that external repository policy before advertising a confidential
-security-reporting route.
+GitHub private vulnerability reporting is enabled for the repository. Report
+suspected vulnerabilities through the private GitHub Security Advisory flow and
+follow the supported-version and response policy in [`SECURITY.md`](SECURITY.md).
+Do not open a public issue before coordinated disclosure.
 
 ## Related records
 

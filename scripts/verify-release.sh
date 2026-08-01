@@ -56,6 +56,9 @@ pnpm prepack
 echo "== production performance benchmark gate (host-native + JS) =="
 pnpm performance:check
 
+echo "== reproducible SBOM + audited production licenses =="
+pnpm release:artifacts:check
+
 echo "== host export resolution (post-prepack, typeof BleManager) =="
 node scripts/ci/check-host-exports.js
 

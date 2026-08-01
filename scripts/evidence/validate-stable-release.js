@@ -98,19 +98,47 @@ function requireGitOutput(root, gitArguments) {
   return result.stdout.trim()
 }
 
-function verifyExactTagCommit(root, tag, sourceCommit) {
+const allowedReleaseCommitPaths = Object.freeze([
+  'docs/generated/PLATFORM_SUPPORT.md',
+  'evidence/v1/artifacts/',
+  'evidence/v1/records/',
+  'evidence/v1/releases/',
+])
+
+function isAllowedReleaseCommitPath(relativePath) {
+  return allowedReleaseCommitPaths.some(allowed =>
+    allowed.endsWith('/') ? relativePath.startsWith(allowed) : relativePath === allowed
+  )
+}
+
+function verifyStableTagCommit(root, tag, sourceCommit) {
   if (!/^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(tag))
     throw new Error('tag ancestry verification requires a stable vX.Y.Z tag')
   if (!/^[a-f0-9]{40}$/u.test(sourceCommit))
     throw new Error('tag ancestry verification requires a full source commit SHA')
   const tagCommit = requireGitOutput(root, ['rev-parse', `${tag}^{commit}`])
-  if (sourceCommit !== tagCommit)
-    throw new Error(`evidence source commit ${sourceCommit} does not exactly match tag commit ${tagCommit}`)
+  if (sourceCommit === tagCommit)
+    throw new Error('stable tag commit must be an evidence-only descendant of the tested source commit')
+  const sourceAncestry = git(root, ['merge-base', '--is-ancestor', sourceCommit, tagCommit])
+  if (sourceAncestry.status !== 0)
+    throw new Error(`tested source commit ${sourceCommit} is not an ancestor of stable tag commit ${tagCommit}`)
+  const changedPaths = requireGitOutput(root, ['diff', '--name-status', '--no-renames', sourceCommit, tagCommit])
+  for (const line of changedPaths.split('\n').filter(Boolean)) {
+    const separator = line.indexOf('\t')
+    if (separator < 1) throw new Error(`cannot parse stable release commit change: ${line}`)
+    const status = line.slice(0, separator)
+    const relativePath = line.slice(separator + 1)
+    if (!['A', 'M'].includes(status))
+      throw new Error(`stable release commit may not ${status} path ${relativePath}`)
+    if (!isAllowedReleaseCommitPath(relativePath))
+      throw new Error(`stable release commit changed non-release path ${relativePath}`)
+  }
+  if (changedPaths.length === 0) throw new Error('stable release commit contains no evidence or generated support change')
   const masterAncestry = git(root, ['merge-base', '--is-ancestor', tagCommit, 'refs/remotes/origin/master'])
   if (masterAncestry.error) throw new Error(`cannot verify tag/master ancestry: ${masterAncestry.error.message}`)
   if (masterAncestry.status !== 0)
     throw new Error(`tag commit ${tagCommit} is not an ancestor of refs/remotes/origin/master`)
-  return { tagCommit }
+  return { sourceCommit, tagCommit }
 }
 
 function generatedPublishArtifact(root, relativePath) {
@@ -176,12 +204,13 @@ function main() {
     const packageJsonPath = repositoryPath(root, options.packageJson, '')
     const packageJson = readContainedJson(root, packageJsonPath)
     const records = readRecords(root, options.recordsDirectory)
-    const tag = verifyExactTagCommit(root, options.tag, release.sourceCommit)
+    const tag = verifyStableTagCommit(root, options.tag, release.sourceCommit)
     const approvedCi = verifiedApprovedCi(release)
     const publishArtifact = generatedPublishArtifact(root, options.publishTarball)
     const errors = validateStableRelease(release, records, root, {
       tag: options.tag,
       tagCommit: tag.tagCommit,
+      verifiedSourceCommit: tag.sourceCommit,
       package: { name: packageJson.name, version: packageJson.version },
       approvedCi,
       publishArtifact
@@ -205,6 +234,6 @@ module.exports = {
   parseArguments,
   readRecords,
   validateStableRelease,
-  verifyExactTagCommit,
+  verifyStableTagCommit,
   verifiedApprovedCi
 }
