@@ -18,21 +18,25 @@ especially its package, evidence, deletion, and Section 31 release gates.
 [`ROADMAP.4.0.md`](ROADMAP.4.0.md) controls product scope and
 [`docs/GAPS.4.0.md`](docs/GAPS.4.0.md) controls the platform-proof inventory.
 
-## Current public prerelease
+## Current release candidate
 
-`unified-ble-manager@4.0.0-alpha.25` is published from
-`v4.0.0-alpha.25` by GitHub Actions trusted publishing. The published npm
-metadata identifies GitHub Actions as the trusted publisher and includes an npm
-SLSA provenance attestation. Its
-[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.25)
-is a prerelease and its notes are generated from the alpha.25 section of
+`unified-ble-manager@4.0.0-alpha.26` is the prepared release candidate for
+`v4.0.0-alpha.26`. It is pending GitHub Actions trusted publication; do not
+claim that the npm package, tag, or GitHub Release exists until the workflow
+completes. After publication, npm metadata is expected to identify GitHub Actions
+as the trusted publisher and include an npm SLSA provenance attestation.
+The planned
+[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.26)
+will be a prerelease with notes generated from the alpha.26 section of
 [`CHANGELOG.md`](CHANGELOG.md).
 
-This is an Experimental package release. It proves a public package, tested
+The candidate support label is Experimental. It proves a public package, tested
 exports, and the workflow's deterministic/package gates; it does not establish
-hardware support for a backend. The repository's current evidence records do
-not bind alpha.25's package artifact to a passed physical-radio scenario. No
-backend is thereby Preview, Live Preview, Supported, or Reliability-qualified.
+hardware support for a backend. The candidate has no bound physical-radio
+scenario. No backend is thereby Preview, Live Preview, Supported, or
+Reliability-qualified.
+WinRT compile and ABI checks are L2/L3 evidence only; alpha.26 makes no Windows
+live-radio claim.
 See [`docs/PLATFORMS.md`](docs/PLATFORMS.md) and
 [`evidence/v1/README.md`](evidence/v1/README.md).
 
@@ -47,7 +51,7 @@ verifying that the pushed `vX.Y.Z` tag exactly matches `package.json`:
 
 | Version form | npm dist-tag | GitHub Release state | Consumer guidance |
 | --- | --- | --- | --- |
-| Hyphenated SemVer prerelease, such as `4.0.0-alpha.25` | `next` | prerelease | Pin the exact version for reproducible evaluation; `@next` is mutable. |
+| Hyphenated SemVer prerelease, such as `4.0.0-alpha.26` | `next` | prerelease | Pin the exact version for reproducible evaluation; `@next` is mutable. |
 | Final SemVer version, such as `4.0.0` | `latest` | normal release | Use the final version only after its published evidence supports the required host claim. |
 
 Do not use a bare install or `@latest` to select a 4.0 alpha. The exact package
@@ -87,21 +91,22 @@ Check the published version, dist-tag, integrity, attestation, and trusted
 publisher from npm:
 
 ```sh
-npm view unified-ble-manager@4.0.0-alpha.25 version dist-tags dist.integrity dist.attestations _npmUser --json
+npm view unified-ble-manager@4.0.0-alpha.26 version dist-tags dist.integrity dist.attestations _npmUser --json
 ```
 
 Then cross-check the matching tag and GitHub Release:
 
 ```sh
-gh release view v4.0.0-alpha.25 --repo sfourdrinier/react-native-ble-plx --json tagName,isPrerelease,publishedAt,url
+gh release view v4.0.0-alpha.26 --repo sfourdrinier/react-native-ble-plx --json tagName,isPrerelease,publishedAt,url
 ```
 
-For alpha.25, npm must report the exact version, `next`, integrity, a SLSA
-provenance attestation, and GitHub Actions trusted publisher; GitHub must report
-the matching `v4.0.0-alpha.25` tag with `isPrerelease: true`. These checks
-verify release identity and supply chain metadata only. They do not verify BLE
-hardware behavior, platform permissions, browser availability, background
-operation, restoration, reconnect, or reliability.
+After alpha.26 publication, npm must report the exact version, `next`, integrity,
+a SLSA provenance attestation, and GitHub Actions trusted publisher; GitHub must
+report the matching `v4.0.0-alpha.26` tag with `isPrerelease: true`. Before
+publication, these checks are expected to fail closed. They verify release
+identity and supply chain metadata only. They do not verify BLE hardware
+behavior, platform permissions, browser availability, background operation,
+restoration, reconnect, or reliability.
 
 ## Support, security, and deferred work
 
@@ -111,7 +116,8 @@ backend, hardware, Live Preview, Supported, or Reliability-qualified claims.
 Deterministic fault injection remains useful 4.0 contract proof but is never
 physical-radio proof.
 
-At the time of alpha.25, GitHub private vulnerability reporting is disabled and
+At the time of the alpha.26 candidate, GitHub private vulnerability reporting is
+disabled and
 no private reporting channel or supported-version response policy is published.
 Release notes and support material must not claim otherwise. Establish and
 publish that external repository policy before advertising a confidential

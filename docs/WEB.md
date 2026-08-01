@@ -8,9 +8,10 @@
 
 Web Bluetooth is a first-party 4.0 backend with browser chooser constraints
 represented as a typed feature. It is not continuous scanning in disguise and
-does not grant a static support claim. `unified-ble-manager@4.0.0-alpha.25`
-publishes this API under npm's `next` tag, but no current evidence record binds
-that artifact to a browser/adapter/peripheral live-radio scenario. Web is
+does not grant a static support claim. `unified-ble-manager@4.0.0-alpha.26` is
+the prepared candidate pending publication under npm's `next` tag, but no
+current evidence record binds that candidate artifact to a
+browser/adapter/peripheral live-radio scenario. Web is
 therefore Experimental, not Preview-or-higher.
 
 Current WebBluetooth-port code, chooser examples, byte convenience calls, and services-reset test injection are characterization inputs. They must not be treated as a stable 4.0 API, a proof of radio fidelity, or a reason to preserve the port architecture or dual Base64/bytes public surface.

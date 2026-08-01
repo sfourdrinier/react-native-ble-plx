@@ -8,8 +8,9 @@ This page is an evidence index, not a static 4.0 capability matrix. In 4.0, an a
 
 ## Current alpha maturity
 
-`unified-ble-manager@4.0.0-alpha.25` is an **Experimental** package release.
-No current evidence record binds the published alpha.25 artifact to a passed
+`unified-ble-manager@4.0.0-alpha.26` is the prepared **Experimental** package
+candidate, pending publication. No current evidence record binds the alpha.26
+candidate artifact to a passed
 physical-radio backend scenario. Consequently, no backend below is currently
 Preview, Live Preview, Supported, or Reliability-qualified. This is not a
 static 4.0 capability matrix: the table says what public surface and automated
@@ -26,7 +27,7 @@ Neither has a 4.0 entrypoint, support label, or release gate.
 | Web Bluetooth | `unified-ble-manager/web`; deterministic browser-boundary and host-contract tests exercise the chooser/GATT integration. | Experimental. No current physical-browser live-radio record. The chooser requires user activation; continuous scan, background execution, and process-level restoration are unsupported. |
 | Node BlueZ | `unified-ble-manager/node/bluez`; `dbus-next` is optional and loaded only by this host path. | Experimental. No current artifact-bound Linux/adapter/peripheral record; historical BlueZ reports are blocked L0 context, not live proof. |
 | Node CoreBluetooth | `unified-ble-manager/node/corebluetooth`; package-controlled Node-API source must be built for the exact ABI. | Experimental. No prebuilt addon and no current artifact-bound macOS/hardware record; historical CoreBluetooth reports are blocked L0 context. |
-| Node WinRT | `unified-ble-manager/node/winrt`; package-controlled WinRT Node-API source validates its boundary protocol. | Experimental. No current artifact-bound Windows/adapter/peripheral record. |
+| Node WinRT | `unified-ble-manager/node/winrt`; package-controlled WinRT Node-API source validates its boundary protocol. | Experimental. No current artifact-bound Windows/adapter/peripheral record; compile/ABI proof is L2/L3 only and makes no Windows live-radio claim. |
 | Electron | `unified-ble-manager/electron/main` and `/electron/renderer`; release CI runs the packed deterministic router/client L1 smoke. | Experimental IPC/package proof only. The renderer cannot select a radio; the L1 smoke is not Electron live-radio evidence. |
 | Meta Quest | No 4.0 entrypoint, support label, or release gate. | Deferred to 4.1; see [`platforms/META_QUEST_4.1_SCOPE.md`](platforms/META_QUEST_4.1_SCOPE.md). |
 | nRF52840 controllable fault-injection controller | No 4.0 controller integration or physical-controller claim. | Deferred to 4.1. Deterministic fault injection remains L1 contract proof only. |

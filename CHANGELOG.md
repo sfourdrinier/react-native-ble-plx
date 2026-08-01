@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.26] - 2026-07-31
+
+### Changed
+
+- Hardened the WinRT operation and notification lifecycle across cancellation,
+  adapter loss, retryable cleanup, generation quarantine, and validated GATT
+  error preservation.
+- Shipped the strict WinRT private boundary v2 with exact scan-terminal
+  records, token- and generation-correlated advertisements, connection-loss
+  and database-change events carrying strict connection generations, GATT
+  `ServicesChanged` revision invalidation, retryable native teardown, and
+  Node/Electron ABI CI rebuild-and-load wiring.
+
+### Support boundary
+
+- Kept the package support label **Experimental**. WinRT compile and ABI
+  checks are L2/L3 evidence only; alpha.26 makes no Windows live-radio claim.
+
 ## [4.0.0-alpha.25] - 2026-07-31
 
 ### Fixed

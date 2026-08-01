@@ -214,8 +214,8 @@ describe('4.0 documentation honesty', () => {
     const migration = read('MIGRATION_4.0.md')
     const release = read('RELEASE.md')
 
-    expect(migration).toContain('current public 4.0 package line')
-    expect(migration).toContain('unified-ble-manager@4.0.0-alpha.25')
+    expect(migration).toContain('current 4.0 prerelease candidate')
+    expect(migration).toContain('unified-ble-manager@4.0.0-alpha.26')
     expect(migration).toContain('stable `hostSessionScope`')
     expect(migration).toContain('`Uint8Array`')
     expect(migration).toContain('`AbortSignal`')
@@ -232,12 +232,12 @@ describe('4.0 documentation honesty', () => {
     expect(release).not.toMatch(/publishes the \*\*4\.0 dual identity\*\*/i)
   })
 
-  test('public README provides only current alpha.25 construction and plugin guidance', () => {
+  test('public README provides only current alpha.26 candidate construction and plugin guidance', () => {
     const readme = read('README.md')
     const changelog = read('CHANGELOG.md')
 
-    expect(readme).toContain('unified-ble-manager@4.0.0-alpha.25')
-    expect(readme).toContain('pnpm add unified-ble-manager@4.0.0-alpha.25')
+    expect(readme).toContain('unified-ble-manager@4.0.0-alpha.26')
+    expect(readme).toContain('pnpm add unified-ble-manager@4.0.0-alpha.26')
     expect(readme).toContain('createReactNativeBleManager')
     expect(readme).toContain('stable `hostSessionScope`')
     expect(readme).toContain('`Uint8Array`')
@@ -253,17 +253,19 @@ describe('4.0 documentation honesty', () => {
     expect(changelog).toContain('hostSessionScope')
   })
 
-  test('published alpha documentation preserves exact release, evidence, and deferral boundaries', () => {
+  test('alpha.26 candidate documentation preserves exact release, evidence, and deferral boundaries', () => {
     const readme = read('README.md')
     const release = read('RELEASE.md')
     const platforms = read('docs/PLATFORMS.md')
 
     expect(readme).toContain('`next` dist-tag')
     expect(readme).toMatch(/Do not install\s+the bare package name or `@latest`/)
-    expect(release).toContain('v4.0.0-alpha.25')
-    expect(release).toContain('GitHub Actions trusted publishing')
+    expect(release).toContain('v4.0.0-alpha.26')
+    expect(release).toContain('pending GitHub Actions trusted publication')
+    expect(release).toMatch(/GitHub Actions\s+as the trusted publisher/)
     expect(release).toContain('SLSA provenance')
-    expect(platforms).toContain('No current evidence record binds the published alpha.25 artifact')
+    expect(platforms).toContain('No current evidence record binds the alpha.26')
+    expect(platforms).toContain('makes no Windows live-radio claim')
     expect(platforms).toContain('Meta Quest and an nRF52840-based controllable fault-injection controller are deferred to 4.1')
   })
 

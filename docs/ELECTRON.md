@@ -19,10 +19,14 @@ There is no Noble dependency, renderer Web Bluetooth fallback, legacy
 `BlePort`, `PortBleManager`, or mock-radio production fallback in these
 entrypoints.
 
-The published `4.0.0-alpha.25` Electron surface is Experimental. The release
+The prepared `4.0.0-alpha.26` Electron candidate is Experimental and pending
+publication. The release
 workflow's packed Electron smoke is deterministic L1 package/IPC proof, not an
 Electron host, adapter, or peripheral support claim. No current evidence record
-binds alpha.25 to a physical Electron radio journey.
+binds alpha.26 to a physical Electron radio journey.
+
+WinRT compile and ABI checks are L2/L3 evidence only; alpha.26 makes no Windows
+live-radio claim.
 
 ## Main-process backend selection
 
