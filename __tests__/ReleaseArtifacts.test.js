@@ -93,6 +93,7 @@ describe('open-source release policies and dependency artifacts', () => {
     const ci = read('.github/workflows/ci.yml')
     const publish = read('.github/workflows/publish.yml')
     const verifyRelease = read('scripts/verify-release.sh')
+    const tarballVerifier = read('scripts/ci/verify-package-tarballs.js')
 
     expect(packageJson.scripts['release:artifacts']).toBe(
       'node scripts/release/generate-dependency-artifacts.js'
@@ -109,6 +110,7 @@ describe('open-source release policies and dependency artifacts', () => {
       'THIRD_PARTY_LICENSES.json',
     ]) {
       expect(packageJson.files).toContain(publishedFile)
+      expect(tarballVerifier).toContain(`package/${publishedFile}`)
     }
     expect(ci).toContain('pnpm release:artifacts:check')
     expect(publish).toContain('pnpm release:artifacts:check')

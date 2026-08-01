@@ -311,11 +311,17 @@ function isRootArchiveEntryAllowed(
     'package/package.json',
     'package/README.md',
     'package/CHANGELOG.md',
+    'package/CONTRIBUTING.md',
+    'package/GOVERNANCE.md',
     'package/LICENSE',
     'package/MIGRATION_4.0.md',
     'package/ROADMAP.md',
     'package/ROADMAP.4.0.md',
     'package/RELEASE.md',
+    'package/SBOM.cdx.json',
+    'package/SECURITY.md',
+    'package/SUPPORT.md',
+    'package/THIRD_PARTY_LICENSES.json',
     'package/app.plugin.js',
     'package/bin/ubm.js'
   ])
