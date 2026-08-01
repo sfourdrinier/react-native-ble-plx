@@ -42,6 +42,21 @@ describe('WinRT native boundary source contract', () => {
     expect(electronDocs).toContain('onScanTerminal(listener)')
   })
 
+  test('adopts an existing Electron COM apartment without hiding unrelated initialization failures', () => {
+    const addon = read('native/electron/winrt/src/addon.cpp')
+    const ensureApartment = section(addon, 'void EnsureWinRtApartment()', 'std::string ToUtf8')
+    const electronSmoke = read('scripts/ci/electron-main-smoke.js')
+
+    expect(ensureApartment).toContain('try')
+    expect(ensureApartment).toContain('catch (const winrt::hresult_error& error)')
+    expect(ensureApartment).toContain('error.code().value == RPC_E_CHANGED_MODE')
+    expect(ensureApartment).toContain('throw;')
+    expect(ensureApartment).not.toContain('catch (...)')
+    expect(electronSmoke).toContain('const boundary = createNativeWinRtBoundary()')
+    expect(electronSmoke).toContain('await cleanup.completion')
+    expect(electronSmoke).toContain("Electron main-process L3 WinRT public boundary ok")
+  })
+
   test('waits for an actual GATT confirmation and makes queued connection work cancellable', () => {
     const addon = read('native/electron/winrt/src/addon.cpp')
     const boundary = read('native/electron/winrt/src/winrt-boundary.inc')

@@ -56,7 +56,14 @@ using winrt::Windows::Security::Cryptography::CryptographicBuffer;
 using winrt::Windows::Storage::Streams::DataReader;
 
 void EnsureWinRtApartment() {
-  winrt::init_apartment(winrt::apartment_type::multi_threaded);
+  try {
+    winrt::init_apartment(winrt::apartment_type::multi_threaded);
+  } catch (const winrt::hresult_error& error) {
+    if (error.code().value == RPC_E_CHANGED_MODE) {
+      return;
+    }
+    throw;
+  }
 }
 
 std::string ToUtf8(const winrt::hstring& value) {
