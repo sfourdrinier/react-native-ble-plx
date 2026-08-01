@@ -651,10 +651,10 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
         return adapter.native_id == requested;
       });
       if (selected == adapters.end()) throw std::runtime_error("The selected Windows Bluetooth adapter is unavailable");
-      const BluetoothAdapter native_adapter = AwaitWinRt(BluetoothAdapter::FromIdAsync(requested));
+      const BluetoothAdapter native_adapter = AwaitWinRt(BluetoothAdapter::FromIdAsync(winrt::to_hstring(requested)));
       if (native_adapter == nullptr) throw std::runtime_error("The selected Windows Bluetooth adapter could not be opened");
       std::optional<Radio> radio;
-      if (selected->state.authorization == "granted") {
+      if (selected->authorization == "granted") {
         const Radio native_radio = AwaitWinRt(native_adapter.GetRadioAsync());
         if (native_radio == nullptr) throw std::runtime_error("The selected Windows Bluetooth adapter has no associated radio");
         radio = native_radio;

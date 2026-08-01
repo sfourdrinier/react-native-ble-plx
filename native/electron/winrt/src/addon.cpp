@@ -226,7 +226,7 @@ std::vector<AdapterView> ReadAdapters() {
   adapters.reserve(devices.Size());
   for (uint32_t index = 0; index < devices.Size(); ++index) {
     const DeviceInformation device = devices.GetAt(index);
-    const BluetoothAdapter adapter = AwaitWinRt(BluetoothAdapter::FromIdAsync(ToUtf8(device.Id())));
+    const BluetoothAdapter adapter = AwaitWinRt(BluetoothAdapter::FromIdAsync(device.Id()));
     if (adapter == nullptr) {
       throw std::runtime_error("Windows enumerated a Bluetooth adapter that could not be opened");
     }
