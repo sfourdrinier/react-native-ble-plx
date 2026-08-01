@@ -76,7 +76,11 @@ import {
 import { VirtualPeripheral, createDefaultVirtualPeripheral } from './virtual-peripheral'
 import { DeterministicVirtualClock } from './virtual-clock'
 import type { ScheduledTaskHandle } from './virtual-clock'
-import type { DiagnosticTraceRecord } from '../../diagnostics/trace-format'
+import {
+  UNIFIED_BLE_TRACE_FORMAT,
+  type DiagnosticTraceDocument,
+  type DiagnosticTraceRecord
+} from '../../diagnostics/trace-format'
 
 export interface DeterministicBackendTraceRecord extends DiagnosticTraceRecord {
   readonly cause: BleErrorCode | null
@@ -205,6 +209,7 @@ export abstract class DeterministicBackendBase {
   protected scanGroup: ScanGroup | null = null
   protected readonly plans = new Map<DeterministicCompletionStage, ProgrammableCompletion[]>()
   protected readonly traceRecords: DeterministicBackendTraceRecord[] = []
+  protected traceTruncated = false
   protected readonly operations: DeterministicOperationRuntime
   protected adapterState: AdapterStateSnapshot<string>
   protected backendGeneration = 1
@@ -366,6 +371,14 @@ export abstract class DeterministicBackendBase {
 
   traceSnapshot(): readonly DeterministicBackendTraceRecord[] {
     return this.traceRecords.map(record => ({ ...record }))
+  }
+
+  traceDocument(): DiagnosticTraceDocument {
+    return Object.freeze({
+      format: UNIFIED_BLE_TRACE_FORMAT,
+      truncated: this.traceTruncated,
+      records: Object.freeze(this.traceRecords.map(record => Object.freeze({ ...record })))
+    })
   }
 
   pendingBackendAcknowledgements(): number {
@@ -649,7 +662,8 @@ export abstract class DeterministicBackendBase {
   protected recordTrace(
     kind: DeterministicBackendTraceRecord['kind'],
     event: string,
-    cause: BleErrorCode | null
+    cause: BleErrorCode | null,
+    correlation: string | null = null
   ): void {
     this.traceRecords.push({
       ordinal: this.ingressOrdinal,
@@ -657,6 +671,7 @@ export abstract class DeterministicBackendBase {
       kind,
       event,
       cause,
+      correlation,
       redactedClient: true,
       redactedPeer: true,
       redactedPath: true,
@@ -665,6 +680,7 @@ export abstract class DeterministicBackendBase {
     this.ingressOrdinal += 1
     while (this.traceRecords.length > 256) {
       this.traceRecords.shift()
+      this.traceTruncated = true
     }
   }
 
@@ -781,7 +797,7 @@ export abstract class DeterministicBackendBase {
   }
 
   private recordOperationTrace(trace: DeterministicOperationTrace): void {
-    this.recordTrace('operation', trace.event, trace.cause)
+    this.recordTrace('operation', trace.event, trace.cause, trace.operationId)
   }
 
   protected broadcastEvent(event: BackendEvent<string>): void {

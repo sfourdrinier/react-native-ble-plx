@@ -4,6 +4,7 @@ import type { BleErrorCode, BleErrorDomain } from '../backend-contract/errors'
 import type { ConnectionLifecycleCause } from '../backend-contract/connection-lifecycle'
 import type { OverflowPolicy } from '../backend-contract/streams'
 import type { WriteMode } from '../backend-contract/operations'
+import type { DiagnosticTraceDocument } from '../diagnostics/trace-format'
 
 /** A cleanup result that can cross a boundary between independently installed package copies. */
 export interface PortableCleanupRecord {
@@ -272,6 +273,7 @@ export interface PortableConnectionLifecycleEvent {
 /** A public lifetime boundary for a manager created in any physical package copy. */
 export interface BleManagerLifetime {
   destroy(): Promise<PortableCleanupRecord>
+  traceDocument(): DiagnosticTraceDocument
 }
 
 /** Public, unbranded connection contract for domain consumers. */

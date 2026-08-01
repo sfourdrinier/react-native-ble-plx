@@ -130,6 +130,9 @@ fi
 echo "== canonical pack+install export smoke (R3-F044) =="
 node scripts/ci/pack-install-smoke.js
 
+echo "== G6A independent packed-consumer deterministic proof =="
+node scripts/ci/g6a-packed-consumer-proof.js
+
 echo "== npm pack (canonical unified-ble-manager) =="
 npm pack --dry-run
 

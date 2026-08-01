@@ -54,7 +54,26 @@ describe('WinRT native boundary source contract', () => {
     expect(ensureApartment).not.toContain('catch (...)')
     expect(electronSmoke).toContain('const boundary = createNativeWinRtBoundary()')
     expect(electronSmoke).toContain('await cleanup.completion')
-    expect(electronSmoke).toContain("Electron main-process L3 WinRT public boundary ok")
+    expect(electronSmoke).toContain('Electron main-process L3 WinRT public boundary ok')
+  })
+
+  test('enumerates every Windows Bluetooth adapter and binds state events to the selected device id', () => {
+    const addon = read('native/electron/winrt/src/addon.cpp')
+    const boundary = read('native/electron/winrt/src/winrt-boundary.inc')
+
+    expect(addon).toContain('#include <winrt/Windows.Devices.Enumeration.h>')
+    expect(addon).toContain('DeviceInformation::FindAllAsync(BluetoothAdapter::GetDeviceSelector())')
+    expect(addon).toContain('BluetoothAdapter::FromIdAsync(ToUtf8(device.Id()))')
+    expect(addon).toContain('DeviceAccessInformation::CreateFromId(adapter.DeviceId())')
+    expect(addon).toContain('if (authorization != "granted")')
+    expect(addon).toContain('std::optional<Radio> radio')
+    expect(addon).toContain('std::vector<AdapterView> ReadAdapters()')
+    expect(addon).toContain('selected_adapter_id = selected_adapter')
+    expect(addon).toContain('adapter = ReadAdapter(selected_adapter_id)')
+    expect(boundary).toContain('return ReadAdapters();')
+    expect(boundary).toContain('BluetoothAdapter::FromIdAsync(requested)')
+    expect(boundary).not.toContain('BluetoothAdapter::GetDefaultAsync()')
+    expect(boundary).toContain('ReadAdapter(selected_adapter)')
   })
 
   test('waits for an actual GATT confirmation and makes queued connection work cancellable', () => {
@@ -103,6 +122,40 @@ describe('WinRT native boundary source contract', () => {
     expect(addon).toContain('error_object.Set("winRtGattStatus"')
     expect(addon).toContain('error_object.Set("winRtHresult"')
     expect(addon).toContain("std::setfill('0') << std::setw(8)")
+  })
+
+  test('clears worker operation state on every terminal exception path', () => {
+    const addon = read('native/electron/winrt/src/addon.cpp')
+    const execute = section(addon, 'void Execute() override', 'void OnOK() override')
+
+    expect(addon).toContain('class CurrentOperationStatusScope final')
+    expect(addon).toContain('current_operation_status.reset();')
+    expect(execute).toContain('CurrentOperationStatusScope operation_scope(status_)')
+    expect(execute).toContain('status_->terminal.store(true)')
+    expect(execute).toContain('catch (const winrt::hresult_error& error)')
+    expect(execute).toContain('catch (const std::exception& error)')
+    expect(execute).toContain('catch (...)')
+    expect(execute).toContain('SetError("WinRT native operation failed with a non-standard exception")')
+    expect(execute).not.toContain('current_operation_status.reset();')
+  })
+
+  test('isolates every non-control native-to-JavaScript callback exception', () => {
+    const addon = read('native/electron/winrt/src/addon.cpp')
+    const callbackSections = [
+      ['class NotificationListener', 'struct AdvertisementPayload', 'notification callback'],
+      ['class AdvertisementListener', 'struct ConnectionEventPayload', 'advertisement callback'],
+      ['class ConnectionLossListener', 'class AdapterListener', 'connection-loss callback'],
+      ['class DatabaseListener', 'class AdapterListener', 'database-changed callback']
+    ]
+
+    for (const [start, end, delegate] of callbackSections) {
+      const callback = section(addon, start, end)
+      expect(callback).toContain('callback.Call({')
+      expect(callback).toContain('catch (const std::exception& error)')
+      expect(callback).toContain('catch (...)')
+      expect(callback).toContain(`ReportWinRtDelegateFailure("${delegate}", error)`)
+      expect(callback).toContain(`ReportWinRtDelegateFailure("${delegate}")`)
+    }
   })
 
   test('uses complete current C++/WinRT APIs without default-constructing projected GATT values', () => {
@@ -324,6 +377,28 @@ describe('WinRT native boundary source contract', () => {
     expect(packageJson).toContain('test:native-protocol:winrt')
   })
 
+  test('rejects listener registration during teardown and releases every created listener on failure', () => {
+    const boundary = read('native/electron/winrt/src/winrt-boundary.inc')
+    const nativeHarness = read('native/electron/winrt/tests/WinRtConnectionOwnershipHarness.cpp')
+    const addListener = section(
+      boundary,
+      'template <typename Listener>\n  Napi::Value AddListener',
+      '  std::shared_ptr<BoundaryState> state_;'
+    )
+
+    expect(addListener).toContain('state->destroying || state->destroyed')
+    expect(addListener).toContain('Napi::ThreadSafeFunction function')
+    expect(addListener).toContain('function.Release();')
+    expect(addListener).toContain('listener->Release();')
+    expect(addListener).toContain('WinRT listener creation')
+    expect(addListener).toContain('WinRT listener removal function creation')
+    expect(addListener).toContain('listeners.push_back(listener)')
+    expect(nativeHarness).toContain('listener registration crossed the destroying guard')
+    expect(nativeHarness).toContain('listener registration crossed the destroyed guard')
+    expect(nativeHarness).toContain('teardown/register race retained a listener')
+    expect(nativeHarness).toContain('creation failure did not release its owner')
+  })
+
   test('makes scan cleanup and Destroy retryable without discarding ownership early', () => {
     const addon = read('native/electron/winrt/src/addon.cpp')
     const boundary = read('native/electron/winrt/src/winrt-boundary.inc')
@@ -350,7 +425,11 @@ describe('WinRT native boundary source contract', () => {
     const addon = read('native/electron/winrt/src/addon.cpp')
     const boundary = read('native/electron/winrt/src/winrt-boundary.inc')
     const discovery = section(boundary, 'Napi::Value Discover', 'Napi::Value Read')
-    const servicesChanged = section(boundary, 'void BoundaryState::HandleGattServicesChanged', 'void BoundaryState::HandleScanStopped')
+    const servicesChanged = section(
+      boundary,
+      'void BoundaryState::HandleGattServicesChanged',
+      'void BoundaryState::HandleScanStopped'
+    )
 
     expect(addon).toContain('connection.services_revision.fetch_add(1U)')
     expect(servicesChanged).toContain('ClearGattServices(*connection)')
@@ -400,7 +479,11 @@ describe('WinRT native boundary source contract', () => {
 
   test('keeps connection-loss and database-change records strict and semantically distinct', () => {
     const boundary = read('src/backends/winrt/winrt-boundary.ts')
-    const loss = section(boundary, 'export function validateWinRtConnectionLossRecord', 'export function validateWinRtDatabaseChangedRecord')
+    const loss = section(
+      boundary,
+      'export function validateWinRtConnectionLossRecord',
+      'export function validateWinRtDatabaseChangedRecord'
+    )
     const database = boundary.slice(boundary.indexOf('export function validateWinRtDatabaseChangedRecord'))
 
     expect(boundary).toMatch(/\[\s*'nativePeerId',\s*'connectionGeneration',\s*'safeReason'\s*\]/)

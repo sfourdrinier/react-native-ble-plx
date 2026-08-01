@@ -15,6 +15,7 @@ const os = require('os')
 const path = require('path')
 const semver = require('semver')
 const { spawnSync } = require('child_process')
+const { runG6APackedConsumerProof, validateThirdPartyTckProof } = require('./g6a-packed-consumer-proof')
 
 const root = path.resolve(__dirname, '../..')
 const rootPackage = require(path.join(root, 'package.json'))
@@ -22,6 +23,7 @@ const isolatedConsumerToolVersions = Object.freeze({
   typescript: '5.8.3',
   webpack: '5.109.2'
 })
+const G6A_CHILD_TIMEOUT_MS = 120000
 const requiredPackedOptionalHostDependencies = Object.freeze({
   '@expo/config-plugins': '57.0.6',
   'dbus-next': '^0.10.2',
@@ -43,21 +45,37 @@ function npmCommand() {
 }
 
 function run(cmd, args, opts = {}) {
+  const command = `${cmd} ${args.join(' ')}`
+  const timeoutMs = opts.timeoutMs
+  if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)) {
+    throw new Error(`${command} received an invalid timeoutMs value: ${String(timeoutMs)}`)
+  }
   const r = spawnSync(cmd, args, {
     encoding: 'utf8',
     cwd: opts.cwd || root,
     env: { ...process.env, ...(opts.env || {}) },
-    shell: false
+    shell: false,
+    timeout: timeoutMs
   })
   const out = `${r.stdout || ''}${r.stderr || ''}`
+  if (r.error?.code === 'ETIMEDOUT') {
+    throw new Error(`${command} timed out after ${String(timeoutMs)}ms (cwd: ${opts.cwd || root})\n${out}`)
+  }
   if (r.error) {
-    throw new Error(`${cmd} ${args.join(' ')} could not start: ${r.error.message}`)
+    throw new Error(`${command} could not start: ${r.error.message}`)
+  }
+  if (r.signal !== null) {
+    throw new Error(`${command} terminated by signal ${r.signal} (cwd: ${opts.cwd || root})\n${out}`)
   }
   if (r.status !== 0) {
-    throw new Error(`${cmd} ${args.join(' ')} failed (${r.status}):\n${out}`)
+    throw new Error(`${command} failed (${r.status}):\n${out}`)
   }
-  if (/^(?:npm )?(?:WARN|warn)\b|^warning\b|^⚠|(?:^|\n).*?(?:DeprecationWarning|\bdeprecated\b|\bdeprecation\b)/im.test(out)) {
-    throw new Error(`${cmd} ${args.join(' ')} produced a warning:\n${out}`)
+  if (
+    /^(?:npm )?(?:WARN|warn)\b|^warning\b|^⚠|(?:^|\n).*?(?:DeprecationWarning|\bdeprecated\b|\bdeprecation\b)/im.test(
+      out
+    )
+  ) {
+    throw new Error(`${command} produced a warning:\n${out}`)
   }
   return r.stdout || ''
 }
@@ -124,7 +142,7 @@ function writeExternalTypeScriptFixture(consumer, module, moduleResolution) {
     path.join(fixtureDirectory, 'backend-author.ts'),
     [
       "import { BleManager } from 'unified-ble-manager';",
-      "import { createFeatureRegistry, type BackendAuthorDefinition, type HostNeutralBackendIdentity } from 'unified-ble-manager/backend-sdk';",
+      "import { createFeatureRegistry, type BackendAuthoringDefinition, type BleCentralBackend, type HostNeutralBackendIdentity } from 'unified-ble-manager/backend-sdk';",
       "import { runUnifiedBleCli } from 'unified-ble-manager/cli';",
       "import { createDeterministicBackendTckFactory, createDeterministicTestBackend, runBackendTck, type BluezNotificationInput, type DeterministicBluezTckBoundary } from 'unified-ble-manager/testing';",
       "import { createNavigatorWebBluetoothProvider } from 'unified-ble-manager/web';",
@@ -132,8 +150,8 @@ function writeExternalTypeScriptFixture(consumer, module, moduleResolution) {
       "import { createNativeWinRtBackendProvider, type NativeWinRtProviderOptions } from 'unified-ble-manager/node/winrt';",
       '',
       'export function preserveAuthorDefinition(',
-      '  definition: BackendAuthorDefinition<string, HostNeutralBackendIdentity<string>>',
-      '): BackendAuthorDefinition<string, HostNeutralBackendIdentity<string>> {',
+      '  definition: BackendAuthoringDefinition<string, HostNeutralBackendIdentity<string>, BleCentralBackend<string, HostNeutralBackendIdentity<string>>>',
+      '): BackendAuthoringDefinition<string, HostNeutralBackendIdentity<string>, BleCentralBackend<string, HostNeutralBackendIdentity<string>>> {',
       '  return definition;',
       '}',
       '',
@@ -200,9 +218,14 @@ function compileExternalConsumerFixtures(consumer) {
   }
 }
 
-function runPackedThirdPartyBackendFixture(consumer, artifactDirectory, npmEnvironment) {
+function runPackedThirdPartyBackendFixture(consumer, artifactDirectory, npmEnvironment, timeoutMs) {
   const fixtureSource = path.join(root, 'fixtures', 'third-party-backend-sdk')
   const fixtureDirectory = path.join(consumer, 'third-party-backend-sdk')
+  const executionOptions = (cwd, env) => ({
+    cwd,
+    ...(env === undefined ? {} : { env }),
+    ...(timeoutMs === undefined ? {} : { timeoutMs })
+  })
   if (!fs.existsSync(path.join(fixtureSource, 'package.json'))) {
     throw new Error(`Third-party backend fixture package is missing: ${fixtureSource}`)
   }
@@ -222,38 +245,61 @@ function runPackedThirdPartyBackendFixture(consumer, artifactDirectory, npmEnvir
     'typescript/bin/tsc'
   )
   for (const configuration of ['bundler', 'node16', 'nodenext']) {
-    run(process.execPath, [tsc, '--project', path.join(fixtureDirectory, `tsconfig.${configuration}.json`)], {
-      cwd: consumer
-    })
+    run(
+      process.execPath,
+      [tsc, '--project', path.join(fixtureDirectory, `tsconfig.${configuration}.json`)],
+      executionOptions(consumer)
+    )
   }
-  run(process.execPath, [tsc, '--project', path.join(fixtureDirectory, 'tsconfig.build.json')], { cwd: consumer })
+  run(
+    process.execPath,
+    [tsc, '--project', path.join(fixtureDirectory, 'tsconfig.build.json')],
+    executionOptions(consumer)
+  )
 
   const fixtureTarball = assertTarballIsAbsent(artifactDirectory, fixtureManifest.name, fixtureManifest.version)
   run(npmCommand(), ['pack', '--pack-destination', artifactDirectory, '--loglevel=error'], {
-    cwd: fixtureDirectory,
-    env: npmEnvironment
+    ...executionOptions(fixtureDirectory, npmEnvironment)
   })
   if (!fs.existsSync(fixtureTarball)) {
     throw new Error(`third-party backend fixture tarball not found after npm pack: ${fixtureTarball}`)
   }
   run(npmCommand(), ['install', '--ignore-scripts', '--prefer-offline', '--loglevel=error', fixtureTarball], {
-    cwd: consumer,
-    env: npmEnvironment
+    ...executionOptions(consumer, npmEnvironment)
   })
 
   const proofScript = [
-    "import assert from 'node:assert/strict';",
     "const fixture = await import('@example/packed-third-party-backend');",
     'const proof = await fixture.runPackedThirdPartyBackendFixture();',
-    "assert.equal(proof.report.backendId, 'example:packed-author-backend', 'external fixture backend identity');",
-    "assert.equal(proof.report.identity.registeredPlatformId, 'example:deterministic-host', 'external fixture platform identity');",
-    "assert.equal(proof.report.verification, 'runner-controlled', 'external fixture runner controls receipts');",
-    "assert.equal(proof.report.proofScope, 'deterministic', 'external fixture makes only deterministic proof');",
-    "assert.equal(proof.unavailableCapabilityDeclared, true, 'external fixture retains explicit unavailable capability');",
-    "assert.ok(proof.report.receipts.every(receipt => receipt.error === null && receipt.facts.every(fact => fact.holds)), 'external fixture TCK receipts hold');",
-    "console.log('packed third-party backend fixture: deterministic TCK, version-skew, capability-binding, and cleanup proof complete');"
+    'console.log(JSON.stringify({ report: proof.report, unavailableCapabilityDeclared: proof.unavailableCapabilityDeclared }));'
   ].join('\n')
-  run(process.execPath, ['--input-type=module', '-e', proofScript], { cwd: consumer })
+  const proofOutput = run(process.execPath, ['--input-type=module', '-e', proofScript], executionOptions(consumer))
+  const proofLines = proofOutput
+    .split(/\r?\n/u)
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+  if (proofLines.length !== 1) {
+    throw new Error(
+      `third-party packed fixture emitted ${String(proofLines.length)} non-empty output lines; expected one JSON report`
+    )
+  }
+  let proof
+  try {
+    proof = JSON.parse(proofLines[0])
+  } catch (error) {
+    throw new Error('third-party packed fixture emitted invalid JSON report', { cause: error })
+  }
+  const tckSummary = validateThirdPartyTckProof(proof)
+  return {
+    packageName: fixtureManifest.name,
+    packageVersion: fixtureManifest.version,
+    status: 'passed',
+    imports: 'public-exports-only',
+    proofScope: 'deterministic',
+    artifactSource: 'packed-tarball',
+    physicalRadio: 'hardware-only',
+    tckSummary
+  }
 }
 
 function browserHostDependencyPaths(consumer, dependencyName) {
@@ -272,10 +318,7 @@ function moveBrowserBundleHostDependenciesAside(consumer) {
       if (!fs.existsSync(dependencyPath)) {
         continue
       }
-      const hiddenDependencyPath = path.join(
-        hiddenDependenciesDirectory,
-        dependencyName.replace('/', '__')
-      )
+      const hiddenDependencyPath = path.join(hiddenDependenciesDirectory, dependencyName.replace('/', '__'))
       if (fs.existsSync(hiddenDependencyPath)) {
         throw new Error(`Browser bundle dependency was installed more than once: ${dependencyName}`)
       }
@@ -289,9 +332,7 @@ function assertBrowserBundleHostDependenciesAreUnavailable(consumer) {
   for (const dependencyName of browserBundleForbiddenHostDependencies) {
     try {
       const resolvedPath = consumerRequire.resolve(`${dependencyName}/package.json`)
-      throw new Error(
-        `Browser bundle consumer must not resolve ${dependencyName}, but resolved ${resolvedPath}`
-      )
+      throw new Error(`Browser bundle consumer must not resolve ${dependencyName}, but resolved ${resolvedPath}`)
     } catch (error) {
       if (error instanceof Error && error.message.startsWith('Browser bundle consumer must not resolve')) {
         throw error
@@ -351,15 +392,7 @@ function createPackedBrowserBundleConsumer(tmp, rootTgz, npmEnvironment) {
   console.log('installing packed artifact into Web-only browser consumer')
   run(
     npmCommand(),
-    [
-      'install',
-      '--ignore-scripts',
-      '--include=dev',
-      '--omit=optional',
-      '--prefer-offline',
-      '--loglevel=warn',
-      rootTgz
-    ],
+    ['install', '--ignore-scripts', '--include=dev', '--omit=optional', '--prefer-offline', '--loglevel=warn', rootTgz],
     { cwd: consumer, env: npmEnvironment }
   )
   moveBrowserBundleHostDependenciesAside(consumer)
@@ -493,7 +526,9 @@ function resolveIsolatedConsumerToolEntrypoint(consumer, toolName, expectedVersi
   }
   const entrypointPath = resolveInstalledConsumerModule(consumer, entrypoint)
   if (!fs.realpathSync(entrypointPath).startsWith(`${toolRoot}${path.sep}`)) {
-    throw new Error(`Isolated consumer tool ${toolName} entrypoint resolved outside its installed package: ${entrypointPath}`)
+    throw new Error(
+      `Isolated consumer tool ${toolName} entrypoint resolved outside its installed package: ${entrypointPath}`
+    )
   }
   return entrypointPath
 }
@@ -575,16 +610,14 @@ function buildAndLoadInstalledCoreBluetoothAddon(consumer) {
   const nodeGypOutput = run(process.execPath, [nodeGypCli, 'rebuild', '--release'], { cwd: addonDirectory })
   const addonPath = path.join(addonDirectory, 'build', 'Release', 'unified_ble_corebluetooth.node')
   if (!fs.existsSync(addonPath)) {
-    throw new Error(
-      `Installed CoreBluetooth node-gyp build did not produce ${addonPath}: ${nodeGypOutput}`
-    )
+    throw new Error(`Installed CoreBluetooth node-gyp build did not produce ${addonPath}: ${nodeGypOutput}`)
   }
   const boundaryScript = [
     "const assert = require('assert');",
     "const path = require('path');",
     "const packageRoot = path.dirname(require.resolve('unified-ble-manager/package.json'));",
     "const loader = require(path.join(packageRoot, 'native', 'electron', 'corebluetooth'));",
-    "const native = loader.tryLoadNative();",
+    'const native = loader.tryLoadNative();',
     "assert.strictEqual(typeof native?.createNativeRadio, 'function', `installed CoreBluetooth loader loads the node-gyp output; exports: ${Object.keys(native ?? {}).join(',')}`);",
     "const { createNativeCoreBluetoothBoundary } = require('unified-ble-manager/node/corebluetooth');",
     'const boundary = createNativeCoreBluetoothBoundary();',
@@ -752,7 +785,7 @@ function runInstalledElectronL1Scenario(consumer) {
     "  assert.deepStrictEqual(bindingCleanup.failures, [], 'packed Electron L1 main cleanup has no failures');",
     '  assert.ok(authenticatedDispatches >= routedEnvelopeCount + acknowledgementCount + 2, "packed Electron L1 authenticates bootstrap, routes, acknowledgements, and release");',
     '  for (const [resource, count] of Object.entries(fixture.backend.resourceCounters())) {',
-    "    assert.strictEqual(Number(count), 0, `packed Electron L1 scenario leaked ${resource}=${String(count)}`);",
+    '    assert.strictEqual(Number(count), 0, `packed Electron L1 scenario leaked ${resource}=${String(count)}`);',
     '  }',
     "  console.log('pack+install Electron L1 router/client scenario ok');",
     '})().catch(error => { console.error(error); process.exitCode = 1; });'
@@ -760,7 +793,7 @@ function runInstalledElectronL1Scenario(consumer) {
   run(process.execPath, ['-e', scenarioScript], { cwd: consumer })
 }
 
-function main() {
+function main(options = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ubm-pack-install-'))
   let primaryError = null
   try {
@@ -778,16 +811,39 @@ function main() {
     const rootTgz = assertTarballIsAbsent(artifactDirectory, rootPackage.name, rootPackage.version)
 
     // Pack the canonical package into an isolated artifact directory; never create or delete repo-root tarballs.
+    const g6aPreflightOptions = options.g6aOnly === true ? { timeoutMs: G6A_CHILD_TIMEOUT_MS } : {}
     run(npmCommand(), ['pack', '--pack-destination', artifactDirectory, '--loglevel=warn'], {
       cwd: root,
-      env: npmEnvironment
+      env: npmEnvironment,
+      ...g6aPreflightOptions
     })
     if (!fs.existsSync(rootTgz)) {
       throw new Error(`canonical unified-ble-manager tarball not found after npm pack: ${rootTgz}`)
     }
     console.log('canonical tarball:', rootTgz)
 
-    run(process.execPath, ['scripts/ci/verify-package-tarballs.js', rootTgz], { cwd: root })
+    run(process.execPath, ['scripts/ci/verify-package-tarballs.js', rootTgz], {
+      cwd: root,
+      ...g6aPreflightOptions
+    })
+
+    if (options.g6aOnly === true) {
+      const proof = runG6APackedConsumerProof({
+        tmp,
+        rootTgz,
+        artifactDirectory,
+        npmEnvironment,
+        run,
+        npmCommand,
+        runPackedThirdPartyBackendFixture,
+        childTimeoutMs: G6A_CHILD_TIMEOUT_MS,
+        typescriptVersion: isolatedConsumerToolVersions.typescript,
+        packageName: rootPackage.name,
+        packageVersion: rootPackage.version
+      })
+      console.log(JSON.stringify(proof))
+      return proof
+    }
 
     const browserConsumer = createPackedBrowserBundleConsumer(tmp, rootTgz, npmEnvironment)
     bundlePackedBrowserConsumer(browserConsumer)
@@ -972,6 +1028,7 @@ function main() {
       tracePath,
       JSON.stringify({
         format: 'unified-ble-trace-v1',
+        truncated: false,
         records: [
           {
             ordinal: 1,
@@ -979,6 +1036,7 @@ function main() {
             kind: 'attachment',
             event: 'created',
             cause: null,
+            correlation: null,
             redactedClient: true,
             redactedPeer: true,
             redactedPath: true,
@@ -1027,6 +1085,7 @@ function main() {
     console.log(
       'pack-install-smoke: OK (canonical CJS/ESM, zero-warning browser public-surface bundle, native build tooling, Electron L1 + data-only preload-surface membrane, CLI, Web, BlueZ, external third-party TCK, Bundler, Node16, NodeNext)'
     )
+    return undefined
   } catch (error) {
     primaryError = error
     throw error
@@ -1042,9 +1101,13 @@ function main() {
   }
 }
 
-try {
-  main()
-} catch (e) {
-  console.error(e && e.stack ? e.stack : e)
-  process.exit(1)
+if (require.main === module) {
+  try {
+    main()
+  } catch (e) {
+    console.error(e && e.stack ? e.stack : e)
+    process.exitCode = 1
+  }
 }
+
+module.exports = { G6A_CHILD_TIMEOUT_MS, main, run, runPackedThirdPartyBackendFixture }

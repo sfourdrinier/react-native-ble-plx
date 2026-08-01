@@ -121,6 +121,13 @@ export type {
 export type { ConnectionLifecycleCause, ConnectionLifecycleEvent } from './backend-contract/connection-lifecycle'
 export type { BackendIdentity } from './backend-contract/identity'
 export type {
+  DiagnosticTraceDocument,
+  DiagnosticTraceKind,
+  DiagnosticTraceRecord,
+  TraceValidationFailure,
+  TraceValidationResult
+} from './diagnostics/trace-format'
+export type {
   LongWriteChunkProgress,
   LongWriteNotPlannedReceipt,
   LongWritePlannedReceipt,

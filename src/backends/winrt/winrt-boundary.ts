@@ -1,5 +1,7 @@
 // src/backends/winrt/winrt-boundary.ts
 
+import { contractError, type BackendContractError } from '../../backend-contract/errors'
+
 /**
  * The only interface between the shared backend and the Windows native addon.
  * Native device identifiers are deliberately boundary-local: the backend maps
@@ -32,6 +34,186 @@ export interface WinRtAdapterRecord {
   readonly displayName: string | null
   readonly state: WinRtAdapterSnapshot
   readonly deployment: 'packaged' | 'unpackaged'
+}
+
+function invalidWinRtAdapterRecord(message: string, operation: string): BackendContractError {
+  return contractError('protocol.malformed', 'boundary', operation, {
+    domain: 'winrt',
+    code: 'malformed-adapter-record',
+    safeMessage: `The WinRT native adapter boundary record ${message}`,
+    metadata: Object.freeze({})
+  })
+}
+
+function isWinRtArray(value: unknown, operation: string): value is readonly unknown[] {
+  try {
+    return Array.isArray(value)
+  } catch {
+    throw invalidWinRtAdapterRecord('could not inspect its array shape', operation)
+  }
+}
+
+function requireWinRtAdapterRecordObject(value: unknown, operation: string): object {
+  if (typeof value !== 'object' || value === null || isWinRtArray(value, operation)) {
+    throw invalidWinRtAdapterRecord('must be a non-array object', operation)
+  }
+  let keys: readonly PropertyKey[]
+  try {
+    keys = Reflect.ownKeys(value)
+  } catch {
+    throw invalidWinRtAdapterRecord('could not enumerate its fields', operation)
+  }
+  for (const key of keys) {
+    if (
+      typeof key !== 'string' ||
+      (key !== 'nativeAdapterId' && key !== 'displayName' && key !== 'state' && key !== 'deployment')
+    ) {
+      throw invalidWinRtAdapterRecord('contains an unknown field', operation)
+    }
+  }
+  return value
+}
+
+function requireWinRtAdapterStateObject(value: unknown): object {
+  if (typeof value !== 'object' || value === null || isWinRtArray(value, 'winrt.boundary.adapter-snapshot')) {
+    throw invalidWinRtAdapterRecord('state must be a non-array object', 'winrt.boundary.adapter-snapshot')
+  }
+  let keys: readonly PropertyKey[]
+  try {
+    keys = Reflect.ownKeys(value)
+  } catch {
+    throw invalidWinRtAdapterRecord('state fields could not be enumerated', 'winrt.boundary.adapter-snapshot')
+  }
+  for (const key of keys) {
+    if (
+      typeof key !== 'string' ||
+      (key !== 'availability' && key !== 'authorization' && key !== 'power' && key !== 'safeReason')
+    ) {
+      throw invalidWinRtAdapterRecord('state contains an unknown field', 'winrt.boundary.adapter-snapshot')
+    }
+  }
+  return value
+}
+
+function requiredWinRtAdapterField(record: object, name: string, operation: string): unknown {
+  let hasField = false
+  try {
+    hasField = Object.prototype.hasOwnProperty.call(record, name)
+  } catch {
+    throw invalidWinRtAdapterRecord(`field ${name} could not be inspected`, operation)
+  }
+  if (!hasField) {
+    throw invalidWinRtAdapterRecord(`is missing required field ${name}`, operation)
+  }
+  try {
+    return Reflect.get(record, name)
+  } catch {
+    throw invalidWinRtAdapterRecord(`field ${name} could not be read`, operation)
+  }
+}
+
+function isWinRtAdapterAvailability(value: unknown): value is WinRtAdapterSnapshot['availability'] {
+  switch (value) {
+    case 'available':
+    case 'unavailable':
+    case 'unsupported':
+    case 'unknown':
+      return true
+    default:
+      return false
+  }
+}
+
+function isWinRtAdapterAuthorization(value: unknown): value is WinRtAdapterSnapshot['authorization'] {
+  switch (value) {
+    case 'granted':
+    case 'denied':
+    case 'restricted':
+    case 'not-determined':
+    case 'unavailable':
+      return true
+    default:
+      return false
+  }
+}
+
+function isWinRtAdapterPower(value: unknown): value is WinRtAdapterSnapshot['power'] {
+  switch (value) {
+    case 'on':
+    case 'off':
+    case 'resetting':
+    case 'unsupported':
+    case 'unknown':
+      return true
+    default:
+      return false
+  }
+}
+
+function validateWinRtAdapterState(value: unknown): WinRtAdapterSnapshot {
+  const record = requireWinRtAdapterStateObject(value)
+  const operation = 'winrt.boundary.adapter-snapshot'
+  const availability = requiredWinRtAdapterField(record, 'availability', operation)
+  const authorization = requiredWinRtAdapterField(record, 'authorization', operation)
+  const power = requiredWinRtAdapterField(record, 'power', operation)
+  const safeReason = requiredWinRtAdapterField(record, 'safeReason', operation)
+  if (!isWinRtAdapterAvailability(availability)) {
+    throw invalidWinRtAdapterRecord('state availability has an unsupported value', operation)
+  }
+  if (!isWinRtAdapterAuthorization(authorization)) {
+    throw invalidWinRtAdapterRecord('state authorization has an unsupported value', operation)
+  }
+  if (!isWinRtAdapterPower(power)) {
+    throw invalidWinRtAdapterRecord('state power has an unsupported value', operation)
+  }
+  if (safeReason !== null && typeof safeReason !== 'string') {
+    throw invalidWinRtAdapterRecord('state safeReason must be a string or null', operation)
+  }
+  return Object.freeze({ availability, authorization, power, safeReason })
+}
+
+/** Validates the closed adapter-state record before it can affect backend admission. */
+export function validateWinRtAdapterSnapshot(value: unknown): WinRtAdapterSnapshot {
+  return validateWinRtAdapterState(value)
+}
+
+/** Validates and copies every native adapter record, rejecting duplicate native identities. */
+export function validateWinRtAdapterRecords(value: unknown): readonly WinRtAdapterRecord[] {
+  const operation = 'winrt.boundary.adapter-record'
+  if (!isWinRtArray(value, operation)) {
+    throw invalidWinRtAdapterRecord('enumeration result must be an array', operation)
+  }
+  const adapterIds = new Set<string>()
+  const adapters: WinRtAdapterRecord[] = []
+  for (const entry of value) {
+    const record = requireWinRtAdapterRecordObject(entry, operation)
+    const nativeAdapterId = requiredWinRtAdapterField(record, 'nativeAdapterId', operation)
+    const displayName = requiredWinRtAdapterField(record, 'displayName', operation)
+    const state = requiredWinRtAdapterField(record, 'state', operation)
+    const deployment = requiredWinRtAdapterField(record, 'deployment', operation)
+    if (typeof nativeAdapterId !== 'string' || nativeAdapterId.length === 0) {
+      throw invalidWinRtAdapterRecord('nativeAdapterId must be a non-empty string', operation)
+    }
+    if (adapterIds.has(nativeAdapterId)) {
+      throw invalidWinRtAdapterRecord('contains a duplicate nativeAdapterId', operation)
+    }
+    if (displayName !== null && typeof displayName !== 'string') {
+      throw invalidWinRtAdapterRecord('displayName must be a string or null', operation)
+    }
+    if (deployment !== 'packaged' && deployment !== 'unpackaged') {
+      throw invalidWinRtAdapterRecord('deployment has an unsupported value', operation)
+    }
+    adapterIds.add(nativeAdapterId)
+    adapters.push(
+      Object.freeze({
+        nativeAdapterId,
+        displayName,
+        state: validateWinRtAdapterState(state),
+        deployment
+      })
+    )
+  }
+  return Object.freeze(adapters)
 }
 
 export interface WinRtAdvertisement {

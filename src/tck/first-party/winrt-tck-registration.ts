@@ -1,7 +1,11 @@
 // src/tck/first-party/winrt-tck-registration.ts
 
 import { WinRtBackend } from '../../backends/winrt/winrt-backend'
-import type { WinRtBoundary, WinRtCharacteristicAddress } from '../../backends/winrt/winrt-boundary'
+import {
+  validateWinRtAdapterRecords,
+  type WinRtBoundary,
+  type WinRtCharacteristicAddress
+} from '../../backends/winrt/winrt-boundary'
 import { adapterIdFor, createWinRtBackendProvider } from '../../backends/winrt/winrt-provider'
 import { opaqueId, type SerializableRecord } from '../../backend-contract/primitives'
 import type { TckControllerAction, TckScenarioController, TckScenarioId } from '../contracts'
@@ -64,7 +68,7 @@ async function createFixture(options: WinRtFirstPartyTckRegistrationOptions) {
   const boundary = options.createBoundary()
   let backend: WinRtBackend | null = null
   try {
-    const adapters = await boundary.listAdapters().completion
+    const adapters = validateWinRtAdapterRecords(await boundary.listAdapters().completion)
     const selected = adapters.find(adapter => String(adapterIdFor(adapter)) === 'winrt-tck-adapter')
     if (selected === undefined) {
       throw new Error('Deterministic WinRT boundary did not expose the selected adapter')

@@ -34,6 +34,9 @@ export function assertWinRtAdapterReady(state: WinRtAdapterSnapshot, operation: 
   if (state.authorization === 'restricted') {
     throw contractError('permission.restricted', 'adapter', operation)
   }
+  if (state.authorization === 'unavailable') {
+    throw contractError('adapter.unavailable', 'adapter', operation)
+  }
   if (state.authorization !== 'granted') {
     throw contractError('permission.not-determined', 'adapter', operation)
   }
@@ -42,5 +45,8 @@ export function assertWinRtAdapterReady(state: WinRtAdapterSnapshot, operation: 
   }
   if (state.power === 'resetting') {
     throw contractError('adapter.resetting', 'adapter', operation)
+  }
+  if (state.power !== 'on') {
+    throw contractError('adapter.unavailable', 'adapter', operation)
   }
 }

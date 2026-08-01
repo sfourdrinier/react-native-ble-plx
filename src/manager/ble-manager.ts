@@ -25,6 +25,7 @@ import { capacity, deadline } from '../backend-contract/primitives'
 import type { AttachedBackend, BleCentralBackend, OwningManagerConstruction } from '../backend-contract/backend'
 import type { BoundedAsyncStream } from '../backend-contract/streams'
 import type { RestorationAdoptionRequest, RestorationAdoptionResult } from '../backend-contract/restoration'
+import type { DiagnosticTraceDocument } from '../diagnostics/trace-format'
 import { DEFAULT_CORE_MAXIMUM_VALUE_BYTES, UnifiedBleCore } from '../core/unified-ble-core'
 import type { CoreDeadlineHandle, CoreScanSession, UnifiedBleCoreOptions } from '../core/unified-ble-core'
 import { CoreConnection, CoreGattDatabase } from '../core/core-gatt-handles'
@@ -242,6 +243,10 @@ export class BleManager<Attachment extends string, Identity extends BackendIdent
 
   traces() {
     return this.core.traces()
+  }
+
+  traceDocument(): DiagnosticTraceDocument {
+    return this.core.traceDocument()
   }
 
   monotonicNow(): number {

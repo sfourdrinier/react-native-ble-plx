@@ -85,7 +85,8 @@ import {
 import {
   validateWinRtConnectionLossRecord,
   validateWinRtDatabaseChangedRecord,
-  validateWinRtScanTerminalRecord
+  validateWinRtScanTerminalRecord,
+  validateWinRtAdapterSnapshot
 } from './winrt-boundary'
 import type {
   WinRtAdapterRecord,
@@ -393,7 +394,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     private readonly hostKind: 'node' | 'electron-main'
   ) {
     this.backendInstanceId = opaqueId(`winrt-backend-${allocateBackendInstance()}`, 'backend-instance', 'winrt')
-    this.adapterStateSnapshot = boundary.adapterSnapshot()
+    this.adapterStateSnapshot = validateWinRtAdapterSnapshot(boundary.adapterSnapshot())
     this.dispatcher = new WinRtOperationDispatcher({
       now,
       onLateSuccess: operation => console.info(`[WinRtBackend] Late WinRT completion quarantined: ${operation}`),
@@ -441,7 +442,11 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
       this.handleScanTerminal(record)
     })
     this.removeAdapterStateListener = boundary.onAdapterState(state => {
-      this.handleAdapterState(state)
+      try {
+        this.handleAdapterState(validateWinRtAdapterSnapshot(state))
+      } catch (error) {
+        console.error('[WinRtBackend.onAdapterState] Dropped malformed native adapter-state record:', error)
+      }
     })
   }
 

@@ -11,16 +11,8 @@ export {
   inspectBackendCapabilities,
   runBackendAuthorTck
 } from './backend-sdk-authoring'
-export type {
-  BackendAuthorDefinition,
-  BackendAuthorMetadata,
-  BackendConformanceProfile
-} from './backend-contract/backend-sdk'
-export type {
-  BackendAuthoringDefinition,
-  BackendCapabilityReport,
-  BackendCapabilityReportEntry
-} from './backend-sdk-authoring'
+export type { BackendAuthoringDefinition, BackendAuthorMetadata } from './backend-sdk-authoring'
+export type { BackendCapabilityReport, BackendCapabilityReportEntry } from './backend-sdk-authoring'
 export { runBackendTck } from './tck/runner'
 export { baseTckScenarios, findTckScenario } from './tck/scenarios'
 export { TckAssertionError } from './tck/contracts'

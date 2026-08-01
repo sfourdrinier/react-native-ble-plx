@@ -29,9 +29,7 @@ function requireScenarioImplementations(ids, contractSource, scenarioSource) {
     if (scenarioSource.includes(`id: '${id}'`)) {
       continue
     }
-    const declaration = new RegExp(
-      `export const ([A-Z][A-Z0-9_]*)\\s*=\\s*'${escapeRegExp(id)}'`
-    ).exec(contractSource)
+    const declaration = new RegExp(`export const ([A-Z][A-Z0-9_]*)\\s*=\\s*'${escapeRegExp(id)}'`).exec(contractSource)
     const identifier = declaration?.[1]
     if (identifier === undefined || !scenarioSource.includes(`id: ${identifier}`)) {
       throw new Error(`Canonical TCK scenario ${id} has no literal or exported-constant scenario definition`)
@@ -82,7 +80,7 @@ The CLI-selected module must export \`unifiedBleBackend\`, an authoring definiti
 
 ## Trace format v1
 
-\`unified-ble-trace-v1\` contains ordered, bounded records with an ordinal, time, kind, event, dotted error cause, and four mandatory redaction markers. The schema has no peer, path, payload, or platform-message field. \`ubm trace validate <file>\` rejects malformed or unredacted input; \`ubm trace redact <file>\` strips unsupported fields and emits a redacted trace document without writing the source file.
+\`unified-ble-trace-v1\` contains ordered, bounded records with an ordinal, time, kind, event, dotted error cause, a per-capture operation correlation token, and four mandatory redaction markers. The document reports whether producer bounds truncated the record window. Correlation tokens are bounded lowercase opaque labels; the schema has no peer, path, payload, or platform-message field. \`ubm trace validate <file>\` rejects malformed or unredacted input; \`ubm trace redact <file>\` strips unsupported fields and emits a redacted trace document without writing the source file.
 `
 }
 

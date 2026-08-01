@@ -3,14 +3,63 @@
 #include "../src/WinRtConnectionOwnership.hpp"
 
 #include <iostream>
+#include <mutex>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace {
 
 struct Owner final {
   explicit Owner(std::string identifierValue) : identifier(std::move(identifierValue)) {}
   std::string identifier;
+};
+
+struct Listener final {
+  void Release() {
+    ++release_count;
+  }
+
+  int release_count{0};
+};
+
+class ListenerRegistry final {
+ public:
+  bool Register(const std::shared_ptr<Listener>& listener) {
+    std::lock_guard<std::mutex> guard(mutex_);
+    if (destroying_ || destroyed_) {
+      listener->Release();
+      return false;
+    }
+    listeners_.push_back(listener);
+    return true;
+  }
+
+  std::vector<std::shared_ptr<Listener>> BeginDestroy() {
+    std::lock_guard<std::mutex> guard(mutex_);
+    destroying_ = true;
+    std::vector<std::shared_ptr<Listener>> snapshot = listeners_;
+    listeners_.clear();
+    return snapshot;
+  }
+
+  void FinishDestroy() {
+    std::lock_guard<std::mutex> guard(mutex_);
+    destroyed_ = true;
+    destroying_ = false;
+  }
+
+  std::size_t RetainedCount() const {
+    std::lock_guard<std::mutex> guard(mutex_);
+    return listeners_.size();
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  bool destroyed_{false};
+  bool destroying_{false};
+  std::vector<std::shared_ptr<Listener>> listeners_;
 };
 
 using Ownership = unified_ble::winrt_boundary::WinRtConnectionOwnership<Owner>;
@@ -49,5 +98,31 @@ int main() {
   if (!require(Ownership::reserve(active, connecting, cleanupPending, peer, second), "Connect after exact owner cleanup was rejected")) return 1;
   if (!require(Ownership::promote(active, connecting, cleanupPending, peer, second), "active promotion did not preserve the second owner")) return 1;
   if (!require(active.at(peer) == second && !connecting.contains(peer), "active promotion changed the owner identity")) return 1;
+
+  // Model the AddListener linearization point: once Destroy snapshots the
+  // listener vector under the state mutex, registrations are rejected while
+  // teardown owns the snapshot and after the boundary is destroyed.
+  ListenerRegistry registry;
+  const auto accepted_listener = std::make_shared<Listener>();
+  if (!require(registry.Register(accepted_listener), "pre-destroy listener registration was rejected")) return 1;
+  std::vector<std::shared_ptr<Listener>> teardown_snapshot = registry.BeginDestroy();
+  const auto destroying_listener = std::make_shared<Listener>();
+  if (!require(!registry.Register(destroying_listener), "listener registration crossed the destroying guard")) return 1;
+  if (!require(destroying_listener->release_count == 1, "destroying listener was not released after rejection")) return 1;
+  for (const std::shared_ptr<Listener>& listener : teardown_snapshot) listener->Release();
+  teardown_snapshot.clear();
+  registry.FinishDestroy();
+  const auto destroyed_listener = std::make_shared<Listener>();
+  if (!require(!registry.Register(destroyed_listener), "listener registration crossed the destroyed guard")) return 1;
+  if (!require(destroyed_listener->release_count == 1, "destroyed listener was not released after rejection")) return 1;
+  if (!require(accepted_listener->release_count == 1, "teardown snapshot did not release its listener")) return 1;
+  if (!require(registry.RetainedCount() == 0U, "teardown/register race retained a listener")) return 1;
+
+  // A failure while creating the returned removal function occurs after the
+  // ThreadSafeFunction exists but before registration; the native path must
+  // release that listener rather than leave an unremovable owner.
+  const auto creation_failure_listener = std::make_shared<Listener>();
+  creation_failure_listener->Release();
+  if (!require(creation_failure_listener->release_count == 1, "listener creation failure did not release its owner")) return 1;
   return 0;
 }

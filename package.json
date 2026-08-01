@@ -67,6 +67,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"plugin/src/**/*.{ts,tsx}\" --max-warnings 0 && pnpm typecheck",
     "prepack": "node scripts/ci/build-package.js",
+    "test:g6a": "pnpm prepack && node scripts/ci/g6a-packed-consumer-proof.js",
     "verify:release": "bash scripts/verify-release.sh",
     "release": "release-it",
     "example": "pnpm --dir example",

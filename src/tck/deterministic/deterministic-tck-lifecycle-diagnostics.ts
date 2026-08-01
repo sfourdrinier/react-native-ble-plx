@@ -3,6 +3,7 @@
 import type { AdvertisementObservation } from '../../backend-contract/advertisement'
 import { BackendContractError } from '../../backend-contract/errors'
 import type { StreamItem } from '../../backend-contract/streams'
+import { validateTraceDocument } from '../../diagnostics/trace-format'
 import {
   createDeterministicTestBackend,
   type DeterministicBackendFixture
@@ -14,6 +15,7 @@ import {
   nextStreamItem,
   nextValue,
   noOperationOptions,
+  releaseConnection,
   scanOptions,
   subscriptionOptions,
   type FactObservation
@@ -126,10 +128,30 @@ export async function deterministicDiagnosticsFacts(
   const stop = scan.stop()
   fixture.controller.clock.runUntilIdle()
   await stop
+  const connected = await connectAndDiscover(fixture, 'trace-sensitive-gatt')
+  const characteristic = connected.snapshot.characteristics[0]
+  if (characteristic === undefined) {
+    throw new Error('diagnostics probe has no readable characteristic')
+  }
+  const read = connected.database.read(characteristic.path, noOperationOptions())
+  fixture.controller.clock.runUntilIdle()
+  await read
+  await releaseConnection(fixture, connected.lease)
+  const preTruncationTraceDocument = fixture.controller.traceDocument()
+  const preTruncationOperationTraces = preTruncationTraceDocument.records.filter(entry => entry.kind === 'operation')
+  const correlated = preTruncationOperationTraces.some(
+    entry =>
+      entry.event === 'queued' &&
+      entry.correlation !== null &&
+      preTruncationOperationTraces.some(
+        candidate => candidate.event === 'dispatched' && candidate.correlation === entry.correlation
+      )
+  )
   for (let index = 0; index < 300; index += 1) {
     fixture.controller.emitAdvertisement(sensitiveAdvertisement)
   }
-  const trace = fixture.controller.traceSnapshot()
+  const traceDocument = fixture.controller.traceDocument()
+  const trace = traceDocument.records
   const redacted = trace.every(
     entry => entry.redactedClient && entry.redactedPeer && entry.redactedPath && entry.redactedPayload
   )
@@ -144,17 +166,29 @@ export async function deterministicDiagnosticsFacts(
   const zeroCounters = Object.values(counters).every(value => Number(value) === 0)
   const serializedTrace = JSON.stringify(trace)
   const boundedRollover = trace.length === 256
+  const portableSnapshotValid =
+    validateTraceDocument(preTruncationTraceDocument).valid && validateTraceDocument(traceDocument).valid
   const serializedTraceDoesNotLeak = !serializedTrace.includes(sentinel)
   return [
     fact(
       'trace-is-ordered-bounded-and-redacted',
-      sensitiveInputObserved && ordered && redacted && boundedRollover && serializedTraceDoesNotLeak,
+      sensitiveInputObserved &&
+        ordered &&
+        redacted &&
+        boundedRollover &&
+        traceDocument.truncated &&
+        correlated &&
+        portableSnapshotValid &&
+        serializedTraceDoesNotLeak,
       {
         sensitiveInputObserved,
         ordered,
         redacted,
         traceCount: trace.length,
         boundedRollover,
+        truncated: traceDocument.truncated,
+        correlated,
+        portableSnapshotValid,
         serializedTraceDoesNotLeak
       }
     ),

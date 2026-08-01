@@ -5,6 +5,10 @@ import type { SerializableRecord, SerializableValue } from '../backend-contract/
 
 export const UNIFIED_BLE_TRACE_FORMAT = 'unified-ble-trace-v1'
 export const UNIFIED_BLE_TRACE_MAXIMUM_RECORDS = 10_000
+export const UNIFIED_BLE_TRACE_MAXIMUM_BYTES = 512 * 1024
+export const UNIFIED_BLE_TRACE_MAXIMUM_EVENT_LENGTH = 128
+export const UNIFIED_BLE_TRACE_MAXIMUM_CORRELATION_LENGTH = 64
+export const UNIFIED_BLE_TRACE_MAXIMUM_CAUSE_LENGTH = 128
 
 export type DiagnosticTraceKind = 'operation' | 'resource' | 'stream' | 'attachment'
 
@@ -18,6 +22,8 @@ export interface DiagnosticTraceRecord extends SerializableRecord {
   readonly kind: DiagnosticTraceKind
   readonly event: string
   readonly cause: string | null
+  /** A per-capture opaque token used only to join records for one operation. */
+  readonly correlation: string | null
   readonly redactedClient: boolean
   readonly redactedPeer: boolean
   readonly redactedPath: boolean
@@ -26,6 +32,8 @@ export interface DiagnosticTraceRecord extends SerializableRecord {
 
 export interface DiagnosticTraceDocument extends SerializableRecord {
   readonly format: typeof UNIFIED_BLE_TRACE_FORMAT
+  /** True when records were evicted or rejected by the producer's bound. */
+  readonly truncated: boolean
   readonly records: readonly DiagnosticTraceRecord[]
 }
 
@@ -37,6 +45,48 @@ export interface TraceValidationFailure {
 export interface TraceValidationResult {
   readonly valid: boolean
   readonly failures: readonly TraceValidationFailure[]
+}
+
+/** Measures the exact UTF-8 byte length of the canonical JSON document. */
+export function measureTraceDocumentBytes(document: DiagnosticTraceDocument): number {
+  return utf8ByteLength(serializeTraceValue(document))
+}
+
+/** Measures the exact UTF-8 byte length of one canonical JSON record. */
+export function measureTraceRecordBytes(record: DiagnosticTraceRecord): number {
+  return utf8ByteLength(serializeTraceValue(record))
+}
+
+/** Measures a canonical document from already-measured record JSON bytes. */
+export function measureTraceDocumentBytesFromRecordBytes(
+  truncated: boolean,
+  recordCount: number,
+  recordsByteLength: number
+): number {
+  if (
+    typeof truncated !== 'boolean' ||
+    !Number.isSafeInteger(recordCount) ||
+    recordCount < 0 ||
+    !Number.isSafeInteger(recordsByteLength) ||
+    recordsByteLength < 0
+  ) {
+    throw contractError('argument.invalid', 'boundary', 'diagnostic-trace.measure-bytes')
+  }
+  const emptyDocumentBytes = measureTraceDocumentBytes({
+    format: UNIFIED_BLE_TRACE_FORMAT,
+    truncated,
+    records: []
+  })
+  if (recordCount === 0) {
+    if (recordsByteLength !== 0) {
+      throw contractError('argument.invalid', 'boundary', 'diagnostic-trace.measure-bytes')
+    }
+    return emptyDocumentBytes
+  }
+  if (recordsByteLength === 0) {
+    throw contractError('argument.invalid', 'boundary', 'diagnostic-trace.measure-bytes')
+  }
+  return emptyDocumentBytes + recordsByteLength + Math.max(0, recordCount - 1)
 }
 
 /** Validates bounded, ordered, payload-free trace format v1 input. */
@@ -53,8 +103,11 @@ export function redactTraceDocument(input: SerializableValue): DiagnosticTraceDo
   if (decoded.document === null) {
     throw contractError('protocol.malformed', 'boundary', 'diagnostic-trace.redact')
   }
-  return Object.freeze({
+  const correlationTokens = new Map<string, string>()
+  let nextCorrelationToken = 1
+  const redacted = Object.freeze({
     format: UNIFIED_BLE_TRACE_FORMAT,
+    truncated: decoded.document.truncated,
     records: Object.freeze(
       decoded.document.records.map(record =>
         Object.freeze({
@@ -63,6 +116,11 @@ export function redactTraceDocument(input: SerializableValue): DiagnosticTraceDo
           kind: record.kind,
           event: record.event,
           cause: record.cause,
+          correlation: redactCorrelation(record.correlation, correlationTokens, () => {
+            const token = `correlation-${nextCorrelationToken}`
+            nextCorrelationToken += 1
+            return token
+          }),
           redactedClient: true,
           redactedPeer: true,
           redactedPath: true,
@@ -71,6 +129,27 @@ export function redactTraceDocument(input: SerializableValue): DiagnosticTraceDo
       )
     )
   })
+  if (measureTraceDocumentBytes(redacted) > UNIFIED_BLE_TRACE_MAXIMUM_BYTES) {
+    throw contractError('protocol.malformed', 'boundary', 'diagnostic-trace.redact')
+  }
+  return redacted
+}
+
+function redactCorrelation(
+  correlation: string | null,
+  tokens: Map<string, string>,
+  createToken: () => string
+): string | null {
+  if (correlation === null) {
+    return null
+  }
+  const existing = tokens.get(correlation)
+  if (existing !== undefined) {
+    return existing
+  }
+  const token = createToken()
+  tokens.set(correlation, token)
+  return token
 }
 
 interface DecodedTrace {
@@ -84,7 +163,7 @@ function decodeTraceDocument(input: SerializableValue, requireRedaction: boolean
     failures.push(failure('$', 'trace document must be an object'))
     return invalid(failures)
   }
-  assertExactKeys(input, ['format', 'records'], '$', failures, requireRedaction)
+  assertExactKeys(input, ['format', 'truncated', 'records'], '$', failures, requireRedaction)
   if (input.format !== UNIFIED_BLE_TRACE_FORMAT) {
     failures.push(failure('$.format', `must equal ${UNIFIED_BLE_TRACE_FORMAT}`))
   }
@@ -92,8 +171,13 @@ function decodeTraceDocument(input: SerializableValue, requireRedaction: boolean
     failures.push(failure('$.records', 'must be an array'))
     return invalid(failures)
   }
+  const truncated = input.truncated
+  if (typeof truncated !== 'boolean') {
+    failures.push(failure('$.truncated', 'must be boolean'))
+  }
   if (input.records.length > UNIFIED_BLE_TRACE_MAXIMUM_RECORDS) {
     failures.push(failure('$.records', `must contain at most ${UNIFIED_BLE_TRACE_MAXIMUM_RECORDS} records`))
+    return invalid(failures)
   }
 
   const records: DiagnosticTraceRecord[] = []
@@ -105,11 +189,22 @@ function decodeTraceDocument(input: SerializableValue, requireRedaction: boolean
       previousOrdinal = record.ordinal
     }
   }
-  if (failures.length > 0) {
+  if (records[0] !== undefined && records[0].ordinal > 1 && truncated === false) {
+    failures.push(failure('$.truncated', 'must be true when the first retained ordinal is greater than one'))
+  }
+  if (failures.length > 0 || typeof truncated !== 'boolean') {
     return invalid(failures)
   }
+  const document = Object.freeze({
+    format: UNIFIED_BLE_TRACE_FORMAT,
+    truncated,
+    records: Object.freeze(records)
+  })
+  if (measureTraceDocumentBytes(document) > UNIFIED_BLE_TRACE_MAXIMUM_BYTES) {
+    return invalid([...failures, failure('$', `must contain at most ${UNIFIED_BLE_TRACE_MAXIMUM_BYTES} UTF-8 bytes`)])
+  }
   return {
-    document: Object.freeze({ format: UNIFIED_BLE_TRACE_FORMAT, records: Object.freeze(records) }),
+    document,
     result: { valid: true, failures: [] }
   }
 }
@@ -128,7 +223,18 @@ function decodeTraceRecord(
   }
   assertExactKeys(
     input,
-    ['ordinal', 'time', 'kind', 'event', 'cause', 'redactedClient', 'redactedPeer', 'redactedPath', 'redactedPayload'],
+    [
+      'ordinal',
+      'time',
+      'kind',
+      'event',
+      'cause',
+      'correlation',
+      'redactedClient',
+      'redactedPeer',
+      'redactedPath',
+      'redactedPayload'
+    ],
     path,
     failures,
     requireRedaction
@@ -138,6 +244,7 @@ function decodeTraceRecord(
   const kind = input.kind
   const event = input.event
   const cause = input.cause
+  const correlation = input.correlation
   const redactedClient = input.redactedClient
   const redactedPeer = input.redactedPeer
   const redactedPath = input.redactedPath
@@ -153,11 +260,24 @@ function decodeTraceRecord(
   if (!isDiagnosticTraceKind(kind)) {
     failures.push(failure(`${path}.kind`, 'must be operation, resource, stream, or attachment'))
   }
-  if (typeof event !== 'string' || event.length === 0) {
-    failures.push(failure(`${path}.event`, 'must be a non-empty string'))
+  if (typeof event !== 'string' || event.length === 0 || event.length > UNIFIED_BLE_TRACE_MAXIMUM_EVENT_LENGTH) {
+    failures.push(
+      failure(
+        `${path}.event`,
+        `must be a non-empty string of at most ${UNIFIED_BLE_TRACE_MAXIMUM_EVENT_LENGTH} characters`
+      )
+    )
   }
   if (cause !== null && (typeof cause !== 'string' || !isDottedCode(cause))) {
     failures.push(failure(`${path}.cause`, 'must be null or a dotted code'))
+  }
+  if (!isTraceCorrelation(correlation)) {
+    failures.push(
+      failure(
+        `${path}.correlation`,
+        `must be null or a lowercase opaque token of at most ${UNIFIED_BLE_TRACE_MAXIMUM_CORRELATION_LENGTH} characters`
+      )
+    )
   }
   if (typeof redactedClient !== 'boolean') {
     failures.push(failure(`${path}.redactedClient`, 'must be boolean'))
@@ -188,7 +308,9 @@ function decodeTraceRecord(
     !isDiagnosticTraceKind(kind) ||
     typeof event !== 'string' ||
     event.length === 0 ||
+    event.length > UNIFIED_BLE_TRACE_MAXIMUM_EVENT_LENGTH ||
     !isTraceCause(cause) ||
+    !isTraceCorrelation(correlation) ||
     typeof redactedClient !== 'boolean' ||
     typeof redactedPeer !== 'boolean' ||
     typeof redactedPath !== 'boolean' ||
@@ -202,6 +324,7 @@ function decodeTraceRecord(
     kind,
     event,
     cause,
+    correlation,
     redactedClient,
     redactedPeer,
     redactedPath,
@@ -211,6 +334,14 @@ function decodeTraceRecord(
 
 function invalid(failures: readonly TraceValidationFailure[]): DecodedTrace {
   return { document: null, result: { valid: false, failures: Object.freeze([...failures]) } }
+}
+
+function serializeTraceValue(value: DiagnosticTraceDocument | DiagnosticTraceRecord): string {
+  const serialized = JSON.stringify(value)
+  if (serialized === undefined) {
+    throw contractError('protocol.malformed', 'boundary', 'diagnostic-trace.serialize')
+  }
+  return serialized
 }
 
 function failure(path: string, reason: string): TraceValidationFailure {
@@ -256,9 +387,44 @@ function isDiagnosticTraceKind(value: SerializableValue | undefined): value is D
 }
 
 function isDottedCode(value: string): boolean {
-  return /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(value)
+  return value.length <= UNIFIED_BLE_TRACE_MAXIMUM_CAUSE_LENGTH && /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(value)
+}
+
+function isTraceCorrelation(value: SerializableValue | undefined): value is string | null {
+  return (
+    value === null ||
+    (typeof value === 'string' &&
+      value.length > 0 &&
+      value.length <= UNIFIED_BLE_TRACE_MAXIMUM_CORRELATION_LENGTH &&
+      /^[a-z][a-z0-9-]*$/.test(value))
+  )
 }
 
 function isTraceCause(value: SerializableValue | undefined): value is string | null {
   return value === null || (typeof value === 'string' && isDottedCode(value))
+}
+
+function utf8ByteLength(value: string): number {
+  let bytes = 0
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index)
+    if (codeUnit < 0x80) {
+      bytes += 1
+      continue
+    }
+    if (codeUnit < 0x800) {
+      bytes += 2
+      continue
+    }
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff && index + 1 < value.length) {
+      const nextCodeUnit = value.charCodeAt(index + 1)
+      if (nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff) {
+        bytes += 4
+        index += 1
+        continue
+      }
+    }
+    bytes += 3
+  }
+  return bytes
 }

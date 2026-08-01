@@ -2,6 +2,7 @@
 
 import type { BleCentralBackend } from '../backend-contract/backend'
 import type { BackendIdentity } from '../backend-contract/identity'
+import { validateTraceDocument } from '../diagnostics/trace-format'
 import { DEFAULT_BLE_MANAGER_OPTIONS } from '../manager/ble-manager'
 import type { BackendTckFixture, TckFact, TckScenarioDefinition } from './contracts'
 import { TckAssertionError } from './contracts'
@@ -126,11 +127,23 @@ export async function executeDiagnosticsScenario<
   if (characteristic === undefined) {
     throw new TckAssertionError(definition.id, 'diagnostics discovery returned no characteristic')
   }
+  await fixture.controller.settle(database.read(characteristic.path, operationOptions))
+  const preTruncationTraceDocument = manager.traceDocument()
+  const preTruncationOperationTraces = preTruncationTraceDocument.records.filter(entry => entry.kind === 'operation')
+  const correlated = preTruncationOperationTraces.some(
+    entry =>
+      entry.event === 'queued' &&
+      entry.correlation !== null &&
+      preTruncationOperationTraces.some(
+        candidate => candidate.event === 'dispatched' && candidate.correlation === entry.correlation
+      )
+  )
   for (let index = 0; index < DEFAULT_BLE_MANAGER_OPTIONS.traceMaximumRecords; index += 1) {
     await fixture.controller.settle(database.read(characteristic.path, operationOptions))
   }
   assertCleanupReleased(definition, await fixture.controller.settle(connection.release()), 'diagnostics connection')
   const traces = manager.traces()
+  const traceDocument = manager.traceDocument()
   const ordered = traces.every((entry, index) => index === 0 || entry.ordinal > (traces[index - 1]?.ordinal ?? 0))
   const bounded = traces.length <= DEFAULT_BLE_MANAGER_OPTIONS.traceMaximumRecords
   const payloadFree = traces.every(
@@ -139,18 +152,31 @@ export async function executeDiagnosticsScenario<
   const boundedRollover =
     traces.length === DEFAULT_BLE_MANAGER_OPTIONS.traceMaximumRecords && (traces[0]?.ordinal ?? 0) > 1
   const sensitiveValueRedacted = sensitivePeerId.length > 0 && !JSON.stringify(traces).includes(sensitivePeerId)
+  const portableSnapshotValid =
+    validateTraceDocument(preTruncationTraceDocument).valid && validateTraceDocument(traceDocument).valid
   const localCountersZero = Object.values(manager.localResourceCounters()).every(value => Number(value) === 0)
   const backendCountersZero = Object.values(fixture.backend.resourceCounters()).every(value => Number(value) === 0)
   return [
     fact(
       'trace-is-ordered-bounded-and-redacted',
-      observed && ordered && bounded && payloadFree && boundedRollover && sensitiveValueRedacted,
+      observed &&
+        ordered &&
+        bounded &&
+        payloadFree &&
+        boundedRollover &&
+        traceDocument.truncated &&
+        correlated &&
+        portableSnapshotValid &&
+        sensitiveValueRedacted,
       {
         observed,
         ordered,
         bounded,
         payloadFree,
         boundedRollover,
+        truncated: traceDocument.truncated,
+        correlated,
+        portableSnapshotValid,
         sensitiveValueRedacted,
         traceCount: traces.length
       }

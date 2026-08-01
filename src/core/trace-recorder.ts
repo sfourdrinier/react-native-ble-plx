@@ -2,6 +2,20 @@
 
 import { contractError } from '../backend-contract/errors'
 import type { BleErrorCode } from '../backend-contract/errors'
+import {
+  UNIFIED_BLE_TRACE_FORMAT,
+  UNIFIED_BLE_TRACE_MAXIMUM_BYTES,
+  UNIFIED_BLE_TRACE_MAXIMUM_CAUSE_LENGTH,
+  UNIFIED_BLE_TRACE_MAXIMUM_CORRELATION_LENGTH,
+  UNIFIED_BLE_TRACE_MAXIMUM_EVENT_LENGTH,
+  UNIFIED_BLE_TRACE_MAXIMUM_RECORDS,
+  measureTraceDocumentBytes,
+  measureTraceDocumentBytesFromRecordBytes,
+  measureTraceRecordBytes,
+  type DiagnosticTraceDocument,
+  type DiagnosticTraceRecord,
+  type DiagnosticTraceKind
+} from '../diagnostics/trace-format'
 
 export type CoreTraceResource = 'manager' | 'scan' | 'connection' | 'database' | 'operation' | 'subscription'
 
@@ -35,24 +49,29 @@ export interface CoreTraceInput {
 export class CoreTraceRecorder {
   private readonly records: CoreTraceRecord[] = []
   private nextOrdinal = 1
-  private retainedBytes = 0
+  private retainedDocumentRecordBytes = 0
 
   constructor(
     private readonly maximumRecords: number,
     private readonly maximumBytes: number
   ) {
-    if (!Number.isSafeInteger(maximumRecords) || maximumRecords < 1) {
+    if (
+      !Number.isSafeInteger(maximumRecords) ||
+      maximumRecords < 1 ||
+      maximumRecords > UNIFIED_BLE_TRACE_MAXIMUM_RECORDS
+    ) {
       throw contractError('argument.invalid', 'core', 'trace-recorder.maximum-records')
     }
-    if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
+    if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1 || maximumBytes > UNIFIED_BLE_TRACE_MAXIMUM_BYTES) {
+      throw contractError('argument.invalid', 'core', 'trace-recorder.maximum-bytes')
+    }
+    if (measureTraceDocumentBytes({ format: UNIFIED_BLE_TRACE_FORMAT, truncated: false, records: [] }) > maximumBytes) {
       throw contractError('argument.invalid', 'core', 'trace-recorder.maximum-bytes')
     }
   }
 
   record(input: CoreTraceInput): void {
-    if (input.transition.length === 0) {
-      throw contractError('argument.invalid', 'core', 'trace-recorder.transition')
-    }
+    assertTraceInput(input)
     const record: CoreTraceRecord = {
       ordinal: this.nextOrdinal,
       timestamp: input.timestamp,
@@ -65,55 +84,153 @@ export class CoreTraceRecorder {
       quarantinedOperations: input.quarantinedOperations
     }
     this.nextOrdinal += 1
-    const byteLength = utf8ByteLength(JSON.stringify(record))
-    if (byteLength > this.maximumBytes) {
-      return
-    }
-    while (
-      this.records.length > 0 &&
-      (this.records.length >= this.maximumRecords || this.retainedBytes + byteLength > this.maximumBytes)
-    ) {
-      const removed = this.records.shift()
+    const diagnosticRecord = toDiagnosticTraceRecord(record)
+    const recordByteLength = measureTraceRecordBytes(diagnosticRecord)
+    let removedRecordCount = 0
+    let removedRecordBytes = 0
+    let documentTruncated = this.truncated
+    while (this.records.length - removedRecordCount > 0) {
+      const remainingRecordCount = this.records.length - removedRecordCount
+      const candidateDocumentBytes = measureTraceDocumentBytesFromRecordBytes(
+        documentTruncated,
+        remainingRecordCount + 1,
+        this.retainedDocumentRecordBytes + recordByteLength - removedRecordBytes
+      )
+      if (remainingRecordCount < this.maximumRecords && candidateDocumentBytes <= this.maximumBytes) {
+        break
+      }
+      const removed = this.records[removedRecordCount]
       if (removed === undefined) {
         throw contractError('lifecycle.invariant-violation', 'core', 'trace-recorder.evict')
       }
-      this.retainedBytes -= utf8ByteLength(JSON.stringify(removed))
+      removedRecordCount += 1
+      removedRecordBytes += measureTraceRecordBytes(toDiagnosticTraceRecord(removed))
+      documentTruncated = true
+    }
+    if (removedRecordCount > 0) {
+      this.records.splice(0, removedRecordCount)
+      this.retainedDocumentRecordBytes -= removedRecordBytes
+      this.truncated = true
+    }
+    const candidateDocumentBytes = measureTraceDocumentBytesFromRecordBytes(
+      this.truncated,
+      this.records.length + 1,
+      this.retainedDocumentRecordBytes + recordByteLength
+    )
+    if (candidateDocumentBytes > this.maximumBytes) {
+      this.truncated = true
+      return
     }
     this.records.push(record)
-    this.retainedBytes += byteLength
+    this.retainedDocumentRecordBytes += recordByteLength
   }
 
   snapshot(): readonly CoreTraceRecord[] {
     return this.records.map(record => ({ ...record }))
   }
 
+  snapshotDocument(): DiagnosticTraceDocument {
+    const document = Object.freeze({
+      format: UNIFIED_BLE_TRACE_FORMAT,
+      truncated: this.truncated,
+      records: Object.freeze(this.records.map(record => Object.freeze(toDiagnosticTraceRecord(record))))
+    })
+    if (measureTraceDocumentBytes(document) > this.maximumBytes) {
+      throw contractError('lifecycle.invariant-violation', 'core', 'trace-recorder.snapshot-document')
+    }
+    return document
+  }
+
   clear(): void {
     this.records.length = 0
-    this.retainedBytes = 0
+    this.nextOrdinal = 1
+    this.retainedDocumentRecordBytes = 0
+    this.truncated = false
+  }
+
+  private truncated = false
+}
+
+function assertTraceInput(input: CoreTraceInput): void {
+  if (!isCoreTraceResource(input.resource)) {
+    throw contractError('argument.invalid', 'core', 'trace-recorder.resource')
+  }
+  if (input.transition.length === 0 || input.transition.length > UNIFIED_BLE_TRACE_MAXIMUM_EVENT_LENGTH) {
+    throw contractError('argument.invalid', 'core', 'trace-recorder.transition')
+  }
+  if (!isTraceCorrelation(input.operation)) {
+    throw contractError('argument.invalid', 'core', 'trace-recorder.operation')
+  }
+  if (!isTraceCause(input.cause)) {
+    throw contractError('argument.invalid', 'core', 'trace-recorder.cause')
+  }
+  if (!Number.isFinite(input.timestamp) || input.timestamp < 0) {
+    throw contractError('argument.invalid', 'core', 'trace-recorder.timestamp')
+  }
+  if (
+    !isNonNegativeSafeInteger(input.queuedOperations) ||
+    !isNonNegativeSafeInteger(input.dispatchedOperations) ||
+    !isNonNegativeSafeInteger(input.quarantinedOperations)
+  ) {
+    throw contractError('argument.invalid', 'core', 'trace-recorder.operation-counts')
   }
 }
 
-function utf8ByteLength(value: string): number {
-  let bytes = 0
-  for (let index = 0; index < value.length; index += 1) {
-    const codeUnit = value.charCodeAt(index)
-    if (codeUnit < 0x80) {
-      bytes += 1
-      continue
-    }
-    if (codeUnit < 0x800) {
-      bytes += 2
-      continue
-    }
-    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff && index + 1 < value.length) {
-      const nextCodeUnit = value.charCodeAt(index + 1)
-      if (nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff) {
-        bytes += 4
-        index += 1
-        continue
-      }
-    }
-    bytes += 3
+function diagnosticTraceKind(resource: CoreTraceResource): DiagnosticTraceKind {
+  if (resource === 'manager') {
+    return 'attachment'
   }
-  return bytes
+  if (resource === 'scan') {
+    return 'stream'
+  }
+  if (resource === 'operation') {
+    return 'operation'
+  }
+  return 'resource'
+}
+
+function toDiagnosticTraceRecord(record: CoreTraceRecord): DiagnosticTraceRecord {
+  return {
+    ordinal: record.ordinal,
+    time: record.timestamp,
+    kind: diagnosticTraceKind(record.resource),
+    event: record.transition,
+    cause: record.cause,
+    correlation: record.operation,
+    redactedClient: true,
+    redactedPeer: true,
+    redactedPath: true,
+    redactedPayload: true
+  }
+}
+
+function isCoreTraceResource(value: string): value is CoreTraceResource {
+  return (
+    value === 'manager' ||
+    value === 'scan' ||
+    value === 'connection' ||
+    value === 'database' ||
+    value === 'operation' ||
+    value === 'subscription'
+  )
+}
+
+function isTraceCorrelation(value: string | null): boolean {
+  return (
+    value === null ||
+    (value.length > 0 &&
+      value.length <= UNIFIED_BLE_TRACE_MAXIMUM_CORRELATION_LENGTH &&
+      /^[a-z][a-z0-9-]*$/.test(value))
+  )
+}
+
+function isTraceCause(value: BleErrorCode | null): boolean {
+  return (
+    value === null ||
+    (value.length <= UNIFIED_BLE_TRACE_MAXIMUM_CAUSE_LENGTH && /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(value))
+  )
+}
+
+function isNonNegativeSafeInteger(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 0
 }

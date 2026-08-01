@@ -6,6 +6,7 @@
 #include <winrt/Windows.Devices.Bluetooth.h>
 #include <winrt/Windows.Devices.Bluetooth.Advertisement.h>
 #include <winrt/Windows.Devices.Bluetooth.GenericAttributeProfile.h>
+#include <winrt/Windows.Devices.Enumeration.h>
 #include <winrt/Windows.Devices.Radios.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -55,10 +56,16 @@ using winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattDeviceSer
 using winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattSession;
 using winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattSessionStatus;
 using winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattWriteOption;
+using winrt::Windows::Devices::Enumeration::DeviceAccessInformation;
+using winrt::Windows::Devices::Enumeration::DeviceAccessStatus;
+using winrt::Windows::Devices::Enumeration::DeviceInformation;
 using winrt::Windows::Devices::Radios::Radio;
 using winrt::Windows::Devices::Radios::RadioState;
 using winrt::Windows::Security::Cryptography::CryptographicBuffer;
 using winrt::Windows::Storage::Streams::DataReader;
+
+template <typename Result>
+Result AwaitWinRt(const winrt::Windows::Foundation::IAsyncOperation<Result>& operation);
 
 void EnsureWinRtApartment() {
   try {
@@ -158,21 +165,86 @@ bool IsAdapterReadyForScanTerminal(const AdapterView& adapter) {
   return adapter.availability == "available" && adapter.authorization == "granted" && adapter.power == "on";
 }
 
-AdapterView ReadAdapter() {
-  EnsureWinRtApartment();
-  const BluetoothAdapter adapter = BluetoothAdapter::GetDefaultAsync().get();
-  if (adapter == nullptr) {
-    return {"", "", "unavailable", "unavailable", "unknown", "No Windows Bluetooth adapter is available", IsPackagedProcess() ? "packaged" : "unpackaged"};
+std::string AdapterAuthorization(DeviceAccessStatus status) {
+  switch (status) {
+    case DeviceAccessStatus::Allowed:
+      return "granted";
+    case DeviceAccessStatus::DeniedByUser:
+      return "denied";
+    case DeviceAccessStatus::DeniedBySystem:
+      return "restricted";
+    case DeviceAccessStatus::Unspecified:
+      return "not-determined";
   }
-  const Radio radio = adapter.GetRadioAsync().get();
+  return "unavailable";
+}
+
+std::string AdapterDeployment() {
+  return IsPackagedProcess() ? "packaged" : "unpackaged";
+}
+
+AdapterView ReadAdapter(BluetoothAdapter adapter, const std::string& display_name) {
+  const DeviceAccessInformation access = DeviceAccessInformation::CreateFromId(adapter.DeviceId());
+  const std::string authorization = AdapterAuthorization(access.CurrentStatus());
+  const std::string native_id = ToUtf8(adapter.DeviceId());
+  const std::string safe_display_name = display_name.empty() ? "" : display_name;
+  if (authorization != "granted") {
+    return {
+        native_id,
+        safe_display_name,
+        "available",
+        authorization,
+        "unknown",
+        "Windows Bluetooth adapter access is not granted",
+        AdapterDeployment()};
+  }
+  const Radio radio = AwaitWinRt(adapter.GetRadioAsync());
+  if (radio == nullptr) {
+    return {
+        native_id,
+        safe_display_name,
+        "available",
+        authorization,
+        "unknown",
+        "The Windows Bluetooth adapter has no associated radio",
+        AdapterDeployment()};
+  }
   return {
-      ToUtf8(adapter.DeviceId()),
-      "Windows Bluetooth Adapter",
+      native_id,
+      safe_display_name,
       "available",
-      "granted",
+      authorization,
       RadioPower(radio),
       std::nullopt,
-      IsPackagedProcess() ? "packaged" : "unpackaged"};
+      AdapterDeployment()};
+}
+
+std::vector<AdapterView> ReadAdapters() {
+  EnsureWinRtApartment();
+  const auto devices = AwaitWinRt(DeviceInformation::FindAllAsync(BluetoothAdapter::GetDeviceSelector()));
+  std::vector<AdapterView> adapters;
+  adapters.reserve(devices.Size());
+  for (uint32_t index = 0; index < devices.Size(); ++index) {
+    const DeviceInformation device = devices.GetAt(index);
+    const BluetoothAdapter adapter = AwaitWinRt(BluetoothAdapter::FromIdAsync(ToUtf8(device.Id())));
+    if (adapter == nullptr) {
+      throw std::runtime_error("Windows enumerated a Bluetooth adapter that could not be opened");
+    }
+    adapters.push_back(ReadAdapter(adapter, ToUtf8(device.Name())));
+  }
+  return adapters;
+}
+
+AdapterView ReadAdapter(const std::string& selected_adapter) {
+  const std::vector<AdapterView> adapters = ReadAdapters();
+  if (selected_adapter.empty()) {
+    if (!adapters.empty()) return adapters.front();
+    return {"", "", "unavailable", "unavailable", "unknown", "No Windows Bluetooth adapter is available", AdapterDeployment()};
+  }
+  for (const AdapterView& adapter : adapters) {
+    if (adapter.native_id == selected_adapter) return adapter;
+  }
+  return {"", "", "unavailable", "unavailable", "unknown", "The selected Windows Bluetooth adapter is unavailable", AdapterDeployment()};
 }
 
 Napi::Object ToJsAdapterState(Napi::Env env, const AdapterView& view) {
@@ -201,6 +273,20 @@ struct OperationStatus {
 };
 
 thread_local std::shared_ptr<OperationStatus> current_operation_status;
+
+class CurrentOperationStatusScope final {
+ public:
+  explicit CurrentOperationStatusScope(const std::shared_ptr<OperationStatus>& status) {
+    current_operation_status = status;
+  }
+
+  ~CurrentOperationStatusScope() {
+    current_operation_status.reset();
+  }
+
+  CurrentOperationStatusScope(const CurrentOperationStatusScope&) = delete;
+  CurrentOperationStatusScope& operator=(const CurrentOperationStatusScope&) = delete;
+};
 
 void ThrowIfCurrentOperationWasCancelled() {
   if (current_operation_status != nullptr && current_operation_status->cancellation_requested.load()) {
@@ -360,9 +446,9 @@ class PromiseWorker final : public Napi::AsyncWorker {
   }
 
   void Execute() override {
+    CurrentOperationStatusScope operation_scope(status_);
     try {
       EnsureWinRtApartment();
-      current_operation_status = status_;
       result_ = execute_();
       status_->terminal.store(true);
     } catch (const WinRtNativeStatusError& error) {
@@ -376,8 +462,10 @@ class PromiseWorker final : public Napi::AsyncWorker {
     } catch (const std::exception& error) {
       status_->terminal.store(true);
       SetError(error.what());
+    } catch (...) {
+      status_->terminal.store(true);
+      SetError("WinRT native operation failed with a non-standard exception");
     }
-    current_operation_status.reset();
   }
 
   void OnOK() override {
@@ -630,9 +718,15 @@ class NotificationListener final : public ListenerLifecycle {
     auto* payload = new NotificationPayload{std::move(bytes)};
     const napi_status status = function_.NonBlockingCall(payload, [](Napi::Env env, Napi::Function callback, NotificationPayload* value) {
       std::unique_ptr<NotificationPayload> owned(value);
-      Napi::Uint8Array bytes = Napi::Uint8Array::New(env, value->bytes.size());
-      std::copy(value->bytes.begin(), value->bytes.end(), bytes.Data());
-      callback.Call({bytes});
+      try {
+        Napi::Uint8Array bytes = Napi::Uint8Array::New(env, value->bytes.size());
+        std::copy(value->bytes.begin(), value->bytes.end(), bytes.Data());
+        callback.Call({bytes});
+      } catch (const std::exception& error) {
+        ReportWinRtDelegateFailure("notification callback", error);
+      } catch (...) {
+        ReportWinRtDelegateFailure("notification callback");
+      }
     });
     if (status != napi_ok) {
       delete payload;
@@ -659,19 +753,25 @@ class AdvertisementListener final : public ListenerLifecycle {
     auto* payload = new AdvertisementPayload{std::move(scan_token), generation, std::move(peer), std::move(name), rssi, std::move(service_uuids)};
     const napi_status status = function_.NonBlockingCall(payload, [](Napi::Env env, Napi::Function callback, AdvertisementPayload* value) {
       std::unique_ptr<AdvertisementPayload> owned(value);
-      Napi::Object advertisement = Napi::Object::New(env);
-      advertisement.Set("scanToken", Napi::String::New(env, value->scan_token));
-      advertisement.Set("generation", Napi::String::New(env, std::to_string(value->generation)));
-      advertisement.Set("nativePeerId", Napi::String::New(env, value->peer));
-      advertisement.Set("localName", value->name.empty() ? env.Null() : Napi::String::New(env, value->name));
-      advertisement.Set("rssi", Napi::Number::New(env, value->rssi));
-      Napi::Array service_uuids = Napi::Array::New(env, value->service_uuids.size());
-      for (uint32_t index = 0; index < value->service_uuids.size(); ++index) {
-        service_uuids.Set(index, Napi::String::New(env, value->service_uuids[index]));
+      try {
+        Napi::Object advertisement = Napi::Object::New(env);
+        advertisement.Set("scanToken", Napi::String::New(env, value->scan_token));
+        advertisement.Set("generation", Napi::String::New(env, std::to_string(value->generation)));
+        advertisement.Set("nativePeerId", Napi::String::New(env, value->peer));
+        advertisement.Set("localName", value->name.empty() ? env.Null() : Napi::String::New(env, value->name));
+        advertisement.Set("rssi", Napi::Number::New(env, value->rssi));
+        Napi::Array service_uuids = Napi::Array::New(env, value->service_uuids.size());
+        for (uint32_t index = 0; index < value->service_uuids.size(); ++index) {
+          service_uuids.Set(index, Napi::String::New(env, value->service_uuids[index]));
+        }
+        advertisement.Set("serviceUuids", service_uuids);
+        advertisement.Set("connectable", env.Null());
+        callback.Call({advertisement});
+      } catch (const std::exception& error) {
+        ReportWinRtDelegateFailure("advertisement callback", error);
+      } catch (...) {
+        ReportWinRtDelegateFailure("advertisement callback");
       }
-      advertisement.Set("serviceUuids", service_uuids);
-      advertisement.Set("connectable", env.Null());
-      callback.Call({advertisement});
     });
     if (status != napi_ok) {
       delete payload;
@@ -695,11 +795,17 @@ class ConnectionLossListener final : public ListenerLifecycle {
     // State-control events apply bounded backpressure rather than silently dropping loss signals.
     const napi_status status = function_.BlockingCall(payload, [](Napi::Env env, Napi::Function callback, ConnectionEventPayload* value) {
       std::unique_ptr<ConnectionEventPayload> owned(value);
-      Napi::Object event = Napi::Object::New(env);
-      event.Set("nativePeerId", Napi::String::New(env, value->peer));
-      event.Set("connectionGeneration", Napi::String::New(env, value->connection_generation));
-      event.Set("safeReason", value->reason.has_value() ? Napi::String::New(env, *value->reason) : env.Null());
-      callback.Call({event});
+      try {
+        Napi::Object event = Napi::Object::New(env);
+        event.Set("nativePeerId", Napi::String::New(env, value->peer));
+        event.Set("connectionGeneration", Napi::String::New(env, value->connection_generation));
+        event.Set("safeReason", value->reason.has_value() ? Napi::String::New(env, *value->reason) : env.Null());
+        callback.Call({event});
+      } catch (const std::exception& error) {
+        ReportWinRtDelegateFailure("connection-loss callback", error);
+      } catch (...) {
+        ReportWinRtDelegateFailure("connection-loss callback");
+      }
     });
     if (status != napi_ok) {
       delete payload;
@@ -717,10 +823,16 @@ class DatabaseListener final : public ListenerLifecycle {
     // State-control events apply bounded backpressure rather than silently dropping invalidation signals.
     const napi_status status = function_.BlockingCall(payload, [](Napi::Env env, Napi::Function callback, ConnectionEventPayload* value) {
       std::unique_ptr<ConnectionEventPayload> owned(value);
-      Napi::Object event = Napi::Object::New(env);
-      event.Set("nativePeerId", Napi::String::New(env, value->peer));
-      event.Set("connectionGeneration", Napi::String::New(env, value->connection_generation));
-      callback.Call({event});
+      try {
+        Napi::Object event = Napi::Object::New(env);
+        event.Set("nativePeerId", Napi::String::New(env, value->peer));
+        event.Set("connectionGeneration", Napi::String::New(env, value->connection_generation));
+        callback.Call({event});
+      } catch (const std::exception& error) {
+        ReportWinRtDelegateFailure("database-changed callback", error);
+      } catch (...) {
+        ReportWinRtDelegateFailure("database-changed callback");
+      }
     });
     if (status != napi_ok) {
       delete payload;
@@ -955,10 +1067,15 @@ struct BoundaryState : public std::enable_shared_from_this<BoundaryState> {
 
   AdapterView EmitAdapterState(bool wait_for_callbacks = false) {
     AdapterView adapter;
+    std::string selected_adapter_id;
+    {
+      std::lock_guard<std::mutex> guard(mutex);
+      selected_adapter_id = selected_adapter;
+    }
     try {
-      adapter = ReadAdapter();
+      adapter = ReadAdapter(selected_adapter_id);
     } catch (const std::exception& error) {
-      adapter = {"", "", "unavailable", "unavailable", "unknown", error.what(), IsPackagedProcess() ? "packaged" : "unpackaged"};
+      adapter = {"", "", "unavailable", "unavailable", "unknown", error.what(), AdapterDeployment()};
     }
     std::vector<std::shared_ptr<AdapterListener>> listeners;
     {

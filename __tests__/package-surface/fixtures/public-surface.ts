@@ -17,6 +17,7 @@ import type {
   CleanupRecord,
   ConnectionLifecycleCause,
   ConnectionLifecycleEvent,
+  DiagnosticTraceDocument,
   DiscoveredGattDatabaseHandle,
   FeatureRegistry,
   LongWriteChunkProgress,
@@ -33,10 +34,12 @@ import type {
 } from 'unified-ble-manager'
 import { createFeatureRegistry, runBackendTck } from 'unified-ble-manager/backend-sdk'
 import type {
-  BackendAuthorDefinition,
+  BackendAuthoringDefinition,
+  BleCentralBackend,
   CharacteristicPath,
   DatabasePath,
   DescriptorPath,
+  HostNeutralBackendIdentity,
   ServicePath,
   Subscription
 } from 'unified-ble-manager/backend-sdk'
@@ -120,7 +123,11 @@ declare const notPlannedLongWriteReceipt: LongWriteNotPlannedReceipt<string, str
 declare const plannedLongWriteReceipt: LongWritePlannedReceipt<string, string>
 declare const scopedLongWriteReceipt: LongWriteReceipt<'package-surface-attachment', 'package-surface-write'>
 declare const normalizedError: NormalizedBleError
-declare const backendAuthor: BackendAuthorDefinition<string, never>
+declare const backendAuthor: BackendAuthoringDefinition<
+  string,
+  HostNeutralBackendIdentity<string>,
+  BleCentralBackend<string, HostNeutralBackendIdentity<string>>
+>
 declare const deterministicFixture: DeterministicBackendFixture
 declare const firstPartyRegistry: FirstPartyBackendTckRegistry
 declare const bluezFirstPartyTckOptions: BluezFirstPartyTckRegistrationOptions
@@ -269,7 +276,11 @@ interface PeerStreamIterator<Value> extends AsyncIterator<PeerStreamItem<Value>,
 }
 
 interface PeerStream<Value> extends AsyncIterable<PeerStreamItem<Value>, undefined, undefined> {
-  readonly limits: { readonly itemCapacity: number; readonly byteCapacity: number; readonly reservedControlCapacity: number }
+  readonly limits: {
+    readonly itemCapacity: number
+    readonly byteCapacity: number
+    readonly reservedControlCapacity: number
+  }
   readonly overflowPolicy: 'latest' | 'drop-oldest' | 'drop-newest' | 'error'
   [Symbol.asyncIterator](): PeerStreamIterator<Value>
   close(): Promise<PeerCleanupRecord>
@@ -283,24 +294,139 @@ interface PeerSubscriptionDeclaration {
 }
 
 interface PeerDatabaseDeclaration {
-  readonly path: Omit<PeerCharacteristicPath, 'serviceUuid' | 'serviceOccurrence' | 'characteristicUuid' | 'characteristicOccurrence' | 'validity'>
+  readonly path: Omit<
+    PeerCharacteristicPath,
+    'serviceUuid' | 'serviceOccurrence' | 'characteristicUuid' | 'characteristicOccurrence' | 'validity'
+  >
   monotonicNow(): number
   scheduleDeadline(deadlineValue: number, action: () => void): { cancel(): void }
   snapshot(): Promise<{
     readonly path: PeerDatabaseDeclaration['path']
-    readonly services: readonly { readonly path: Omit<PeerCharacteristicPath, 'characteristicUuid' | 'characteristicOccurrence' | 'validity'> }[]
+    readonly services: readonly {
+      readonly path: Omit<PeerCharacteristicPath, 'characteristicUuid' | 'characteristicOccurrence' | 'validity'>
+    }[]
     readonly characteristics: readonly {
       readonly path: PeerCharacteristicPath
-      readonly properties: { readonly read: boolean; readonly writeWithResponse: boolean; readonly writeWithoutResponse: boolean; readonly notify: boolean }
+      readonly properties: {
+        readonly read: boolean
+        readonly writeWithResponse: boolean
+        readonly writeWithoutResponse: boolean
+        readonly notify: boolean
+      }
     }[]
     readonly descriptors: readonly { readonly path: PeerDescriptorPath }[]
   }>
   read(path: PeerCharacteristicPath, options: PeerOperationOptions): Promise<Uint8Array>
-  write(path: PeerCharacteristicPath, bytes: Readonly<Uint8Array>, options: PeerWritePolicy): Promise<{ readonly terminal: { readonly correlation: string; readonly outcome: 'succeeded' | 'failed' | 'aborted' | 'timed-out' | 'disconnected' | 'reset' | 'adapter-unavailable' | 'destroyed'; readonly cause: never }; readonly commitState: 'confirmed' | 'unknown' }>
-  maximumWriteLength(path: PeerCharacteristicPath, mode: 'with-response' | 'without-response'): Promise<{ readonly connectionId: string; readonly connectionGeneration: string; readonly mode: 'with-response' | 'without-response'; readonly maximumWriteLength: number; readonly observedAtMonotonicMs: number }>
-  writeLong(path: PeerCharacteristicPath, bytes: Readonly<Uint8Array>, options: PeerWritePolicy): Promise<{ readonly terminal: { readonly correlation: string; readonly outcome: 'succeeded' | 'failed' | 'aborted' | 'timed-out' | 'disconnected' | 'reset' | 'adapter-unavailable' | 'destroyed'; readonly cause: never }; readonly planState: 'not-planned'; readonly commitState: 'not-started'; readonly totalBytes: number; readonly chunkSize: 0; readonly totalChunks: 0; readonly chunks: readonly never[]; readonly completedChunks: 0; readonly committedBytes: 0; readonly failedChunkIndex: null } | { readonly terminal: { readonly correlation: string; readonly outcome: 'succeeded' | 'failed' | 'aborted' | 'timed-out' | 'disconnected' | 'reset' | 'adapter-unavailable' | 'destroyed'; readonly cause: never }; readonly planState: 'planned'; readonly commitState: 'confirmed' | 'unknown'; readonly totalBytes: number; readonly chunkSize: number; readonly totalChunks: number; readonly chunks: readonly { readonly index: number; readonly byteOffset: number; readonly byteLength: number; readonly state: 'confirmed' | 'uncertain' | 'not-started' }[]; readonly completedChunks: number; readonly committedBytes: number; readonly failedChunkIndex: number | null }>
+  write(
+    path: PeerCharacteristicPath,
+    bytes: Readonly<Uint8Array>,
+    options: PeerWritePolicy
+  ): Promise<{
+    readonly terminal: {
+      readonly correlation: string
+      readonly outcome:
+        | 'succeeded'
+        | 'failed'
+        | 'aborted'
+        | 'timed-out'
+        | 'disconnected'
+        | 'reset'
+        | 'adapter-unavailable'
+        | 'destroyed'
+      readonly cause: never
+    }
+    readonly commitState: 'confirmed' | 'unknown'
+  }>
+  maximumWriteLength(
+    path: PeerCharacteristicPath,
+    mode: 'with-response' | 'without-response'
+  ): Promise<{
+    readonly connectionId: string
+    readonly connectionGeneration: string
+    readonly mode: 'with-response' | 'without-response'
+    readonly maximumWriteLength: number
+    readonly observedAtMonotonicMs: number
+  }>
+  writeLong(
+    path: PeerCharacteristicPath,
+    bytes: Readonly<Uint8Array>,
+    options: PeerWritePolicy
+  ): Promise<
+    | {
+        readonly terminal: {
+          readonly correlation: string
+          readonly outcome:
+            | 'succeeded'
+            | 'failed'
+            | 'aborted'
+            | 'timed-out'
+            | 'disconnected'
+            | 'reset'
+            | 'adapter-unavailable'
+            | 'destroyed'
+          readonly cause: never
+        }
+        readonly planState: 'not-planned'
+        readonly commitState: 'not-started'
+        readonly totalBytes: number
+        readonly chunkSize: 0
+        readonly totalChunks: 0
+        readonly chunks: readonly never[]
+        readonly completedChunks: 0
+        readonly committedBytes: 0
+        readonly failedChunkIndex: null
+      }
+    | {
+        readonly terminal: {
+          readonly correlation: string
+          readonly outcome:
+            | 'succeeded'
+            | 'failed'
+            | 'aborted'
+            | 'timed-out'
+            | 'disconnected'
+            | 'reset'
+            | 'adapter-unavailable'
+            | 'destroyed'
+          readonly cause: never
+        }
+        readonly planState: 'planned'
+        readonly commitState: 'confirmed' | 'unknown'
+        readonly totalBytes: number
+        readonly chunkSize: number
+        readonly totalChunks: number
+        readonly chunks: readonly {
+          readonly index: number
+          readonly byteOffset: number
+          readonly byteLength: number
+          readonly state: 'confirmed' | 'uncertain' | 'not-started'
+        }[]
+        readonly completedChunks: number
+        readonly committedBytes: number
+        readonly failedChunkIndex: number | null
+      }
+  >
   readDescriptor(path: PeerDescriptorPath, options: PeerOperationOptions): Promise<Uint8Array>
-  writeDescriptor(path: PeerDescriptorPath, bytes: Readonly<Uint8Array>, options: PeerWritePolicy): Promise<{ readonly terminal: { readonly correlation: string; readonly outcome: 'succeeded' | 'failed' | 'aborted' | 'timed-out' | 'disconnected' | 'reset' | 'adapter-unavailable' | 'destroyed'; readonly cause: never }; readonly commitState: 'confirmed' | 'unknown' }>
+  writeDescriptor(
+    path: PeerDescriptorPath,
+    bytes: Readonly<Uint8Array>,
+    options: PeerWritePolicy
+  ): Promise<{
+    readonly terminal: {
+      readonly correlation: string
+      readonly outcome:
+        | 'succeeded'
+        | 'failed'
+        | 'aborted'
+        | 'timed-out'
+        | 'disconnected'
+        | 'reset'
+        | 'adapter-unavailable'
+        | 'destroyed'
+      readonly cause: never
+    }
+    readonly commitState: 'confirmed' | 'unknown'
+  }>
   subscribe(path: PeerCharacteristicPath, options: PeerSubscriptionOptions): Promise<PeerSubscriptionDeclaration>
 }
 
@@ -320,22 +446,69 @@ interface PeerConnectionDeclaration {
     readonly backendIngressOrdinal: number | null
     readonly previous: 'connecting' | 'connected' | 'disconnecting' | 'disconnected' | 'lost'
     readonly current: 'connecting' | 'connected' | 'disconnecting' | 'disconnected' | 'lost'
-    readonly cause: 'connected' | 'backend-transition' | 'requested-disconnect' | 'peer-link-loss' | 'adapter-loss' | 'backend-restart' | 'released' | 'manager-destroyed' | 'backend-failure'
+    readonly cause:
+      | 'connected'
+      | 'backend-transition'
+      | 'requested-disconnect'
+      | 'peer-link-loss'
+      | 'adapter-loss'
+      | 'backend-restart'
+      | 'released'
+      | 'manager-destroyed'
+      | 'backend-failure'
   }>
   discover(options: PeerOperationOptions): Promise<PeerDatabaseDeclaration>
   release(): Promise<PeerCleanupRecord>
   disconnect(): Promise<PeerCleanupRecord>
-  readRssi(options: PeerOperationOptions): Promise<{ readonly rssi: number; readonly terminal: { readonly correlation: string; readonly outcome: 'succeeded' | 'failed' | 'aborted' | 'timed-out' | 'disconnected' | 'reset' | 'adapter-unavailable' | 'destroyed'; readonly cause: never } }>
-  requestMtu(requestedMtu: number, options: PeerOperationOptions): Promise<{ readonly requestedMtu: number; readonly negotiatedMtu: number; readonly terminal: { readonly correlation: string; readonly outcome: 'succeeded' | 'failed' | 'aborted' | 'timed-out' | 'disconnected' | 'reset' | 'adapter-unavailable' | 'destroyed'; readonly cause: never } }>
+  readRssi(
+    options: PeerOperationOptions
+  ): Promise<{
+    readonly rssi: number
+    readonly terminal: {
+      readonly correlation: string
+      readonly outcome:
+        | 'succeeded'
+        | 'failed'
+        | 'aborted'
+        | 'timed-out'
+        | 'disconnected'
+        | 'reset'
+        | 'adapter-unavailable'
+        | 'destroyed'
+      readonly cause: never
+    }
+  }>
+  requestMtu(
+    requestedMtu: number,
+    options: PeerOperationOptions
+  ): Promise<{
+    readonly requestedMtu: number
+    readonly negotiatedMtu: number
+    readonly terminal: {
+      readonly correlation: string
+      readonly outcome:
+        | 'succeeded'
+        | 'failed'
+        | 'aborted'
+        | 'timed-out'
+        | 'disconnected'
+        | 'reset'
+        | 'adapter-unavailable'
+        | 'destroyed'
+      readonly cause: never
+    }
+  }>
 }
 
 declare class PeerOneManager {
   private readonly peerOneManagerBrand: undefined
   destroy(): Promise<PeerCleanupRecord>
+  traceDocument(): DiagnosticTraceDocument
 }
 declare class PeerTwoManager {
   private readonly peerTwoManagerBrand: undefined
   destroy(): Promise<PeerCleanupRecord>
+  traceDocument(): DiagnosticTraceDocument
 }
 declare class PeerOneConnection implements PeerConnectionDeclaration {
   private readonly peerOneConnectionBrand: undefined
@@ -368,11 +541,26 @@ declare class PeerOneDatabase implements PeerDatabaseDeclaration {
   scheduleDeadline(deadlineValue: number, action: () => void): { cancel(): void }
   snapshot(): ReturnType<PeerDatabaseDeclaration['snapshot']>
   read(path: PeerCharacteristicPath, options: PeerOperationOptions): Promise<Uint8Array>
-  write(path: PeerCharacteristicPath, bytes: Readonly<Uint8Array>, options: PeerWritePolicy): ReturnType<PeerDatabaseDeclaration['write']>
-  maximumWriteLength(path: PeerCharacteristicPath, mode: 'with-response' | 'without-response'): ReturnType<PeerDatabaseDeclaration['maximumWriteLength']>
-  writeLong(path: PeerCharacteristicPath, bytes: Readonly<Uint8Array>, options: PeerWritePolicy): ReturnType<PeerDatabaseDeclaration['writeLong']>
+  write(
+    path: PeerCharacteristicPath,
+    bytes: Readonly<Uint8Array>,
+    options: PeerWritePolicy
+  ): ReturnType<PeerDatabaseDeclaration['write']>
+  maximumWriteLength(
+    path: PeerCharacteristicPath,
+    mode: 'with-response' | 'without-response'
+  ): ReturnType<PeerDatabaseDeclaration['maximumWriteLength']>
+  writeLong(
+    path: PeerCharacteristicPath,
+    bytes: Readonly<Uint8Array>,
+    options: PeerWritePolicy
+  ): ReturnType<PeerDatabaseDeclaration['writeLong']>
   readDescriptor(path: PeerDescriptorPath, options: PeerOperationOptions): Promise<Uint8Array>
-  writeDescriptor(path: PeerDescriptorPath, bytes: Readonly<Uint8Array>, options: PeerWritePolicy): ReturnType<PeerDatabaseDeclaration['writeDescriptor']>
+  writeDescriptor(
+    path: PeerDescriptorPath,
+    bytes: Readonly<Uint8Array>,
+    options: PeerWritePolicy
+  ): ReturnType<PeerDatabaseDeclaration['writeDescriptor']>
   subscribe(path: PeerCharacteristicPath, options: PeerSubscriptionOptions): Promise<PeerSubscriptionDeclaration>
 }
 declare class PeerTwoDatabase implements PeerDatabaseDeclaration {
@@ -382,11 +570,26 @@ declare class PeerTwoDatabase implements PeerDatabaseDeclaration {
   scheduleDeadline(deadlineValue: number, action: () => void): { cancel(): void }
   snapshot(): ReturnType<PeerDatabaseDeclaration['snapshot']>
   read(path: PeerCharacteristicPath, options: PeerOperationOptions): Promise<Uint8Array>
-  write(path: PeerCharacteristicPath, bytes: Readonly<Uint8Array>, options: PeerWritePolicy): ReturnType<PeerDatabaseDeclaration['write']>
-  maximumWriteLength(path: PeerCharacteristicPath, mode: 'with-response' | 'without-response'): ReturnType<PeerDatabaseDeclaration['maximumWriteLength']>
-  writeLong(path: PeerCharacteristicPath, bytes: Readonly<Uint8Array>, options: PeerWritePolicy): ReturnType<PeerDatabaseDeclaration['writeLong']>
+  write(
+    path: PeerCharacteristicPath,
+    bytes: Readonly<Uint8Array>,
+    options: PeerWritePolicy
+  ): ReturnType<PeerDatabaseDeclaration['write']>
+  maximumWriteLength(
+    path: PeerCharacteristicPath,
+    mode: 'with-response' | 'without-response'
+  ): ReturnType<PeerDatabaseDeclaration['maximumWriteLength']>
+  writeLong(
+    path: PeerCharacteristicPath,
+    bytes: Readonly<Uint8Array>,
+    options: PeerWritePolicy
+  ): ReturnType<PeerDatabaseDeclaration['writeLong']>
   readDescriptor(path: PeerDescriptorPath, options: PeerOperationOptions): Promise<Uint8Array>
-  writeDescriptor(path: PeerDescriptorPath, bytes: Readonly<Uint8Array>, options: PeerWritePolicy): ReturnType<PeerDatabaseDeclaration['writeDescriptor']>
+  writeDescriptor(
+    path: PeerDescriptorPath,
+    bytes: Readonly<Uint8Array>,
+    options: PeerWritePolicy
+  ): ReturnType<PeerDatabaseDeclaration['writeDescriptor']>
   subscribe(path: PeerCharacteristicPath, options: PeerSubscriptionOptions): Promise<PeerSubscriptionDeclaration>
 }
 declare class PeerOneSubscription implements PeerSubscriptionDeclaration {
@@ -524,11 +727,15 @@ observe<CharacteristicPath<'scope-test', 'connection-one', 'database-one', 'serv
   // @ts-expect-error GATT characteristic paths must retain their literal characteristic occurrence scope.
   characteristicTwoPath
 )
-observe<DescriptorPath<'scope-test', 'connection-one', 'database-one', 'service-one', 'characteristic-one', 'descriptor-one'>>(
+observe<
+  DescriptorPath<'scope-test', 'connection-one', 'database-one', 'service-one', 'characteristic-one', 'descriptor-one'>
+>(
   // @ts-expect-error GATT descriptor paths must retain their literal descriptor occurrence scope.
   descriptorTwoPath
 )
-observe<Subscription<'scope-test', 'connection-one', 'database-one', 'service-one', 'characteristic-one', 'subscription-one'>>(
+observe<
+  Subscription<'scope-test', 'connection-one', 'database-one', 'service-one', 'characteristic-one', 'subscription-one'>
+>(
   // @ts-expect-error GATT subscriptions must retain their literal subscription scope.
   subscriptionTwo
 )

@@ -10,15 +10,23 @@ import {
 import type { BleCentralBackend } from './backend-contract/backend'
 import { contractError } from './backend-contract/errors'
 import type { BackendIdentity } from './backend-contract/identity'
-import type { BackendAuthorMetadata } from './backend-contract/backend-sdk'
+import type { BackendCompatibilityOffer } from './backend-contract/primitives'
 import { runBackendTck } from './tck/runner'
 import type { BackendTckFactory, TckFeatureSuite, TckRunReport } from './tck/contracts'
 
+export interface BackendAuthorMetadata {
+  readonly packageName: string
+  readonly authorNamespace: string
+  readonly backendId: string
+  readonly platformId: string
+  readonly compatibility: BackendCompatibilityOffer
+}
+
 /**
  * A complete external backend declaration. The factory and feature suites are
- * runner-controlled adapter selects executable TCK behavior; capability
- * details remain in the runtime feature registry rather than being duplicated
- * in this descriptor.
+ * The factory owns runner-controlled adapter selection, while feature suites
+ * bind executable TCK scenarios; capability details remain in the runtime
+ * feature registry rather than being duplicated in this descriptor.
  */
 export interface BackendAuthoringDefinition<
   Attachment extends string,

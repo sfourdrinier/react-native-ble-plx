@@ -633,8 +633,7 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
  private:
   Napi::Value ListAdapters(const Napi::CallbackInfo& info) {
     return StartOperation<std::vector<AdapterView>>(info.Env(), [] {
-      const AdapterView adapter = ReadAdapter();
-      return adapter.native_id.empty() ? std::vector<AdapterView>{} : std::vector<AdapterView>{adapter};
+      return ReadAdapters();
     }, [](Napi::Env env, const std::vector<AdapterView>& adapters) {
       Napi::Array result = Napi::Array::New(env, adapters.size());
       for (uint32_t index = 0; index < adapters.size(); ++index) result.Set(index, ToJsAdapter(env, adapters[index]));
@@ -647,10 +646,19 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
     const std::string requested = info[0].As<Napi::String>().Utf8Value();
     const std::shared_ptr<BoundaryState> state = state_;
     return StartOperation<VoidResult>(info.Env(), [state, requested] {
-      const AdapterView adapter = ReadAdapter();
-      if (adapter.native_id != requested) throw std::runtime_error("The selected Windows Bluetooth adapter is unavailable");
-      const BluetoothAdapter native_adapter = AwaitWinRt(BluetoothAdapter::GetDefaultAsync());
-      const Radio radio = AwaitWinRt(native_adapter.GetRadioAsync());
+      const std::vector<AdapterView> adapters = ReadAdapters();
+      const auto selected = std::find_if(adapters.begin(), adapters.end(), [&requested](const AdapterView& adapter) {
+        return adapter.native_id == requested;
+      });
+      if (selected == adapters.end()) throw std::runtime_error("The selected Windows Bluetooth adapter is unavailable");
+      const BluetoothAdapter native_adapter = AwaitWinRt(BluetoothAdapter::FromIdAsync(requested));
+      if (native_adapter == nullptr) throw std::runtime_error("The selected Windows Bluetooth adapter could not be opened");
+      std::optional<Radio> radio;
+      if (selected->state.authorization == "granted") {
+        const Radio native_radio = AwaitWinRt(native_adapter.GetRadioAsync());
+        if (native_radio == nullptr) throw std::runtime_error("The selected Windows Bluetooth adapter has no associated radio");
+        radio = native_radio;
+      }
       std::lock_guard<std::mutex> guard(state->mutex);
       if (state->destroyed || state->destroying) throw std::runtime_error("The WinRT native boundary has been destroyed or is tearing down");
       if (state->radio_handler_registered && state->radio.has_value() && state->radio_token.has_value()) {
@@ -667,18 +675,28 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
       }
       state->selected_adapter = requested;
       state->radio = radio;
-      const std::weak_ptr<BoundaryState> weak_state = state;
-      state->radio_token = radio.StateChanged([weak_state](const Radio&, const winrt::Windows::Foundation::IInspectable&) {
-        if (const std::shared_ptr<BoundaryState> live_state = weak_state.lock()) live_state->EmitAdapterState();
-      });
-      state->radio_handler_registered = true;
+      if (radio.has_value()) {
+        const std::weak_ptr<BoundaryState> weak_state = state;
+        state->radio_token = radio->StateChanged([weak_state](const Radio&, const winrt::Windows::Foundation::IInspectable&) {
+          if (const std::shared_ptr<BoundaryState> live_state = weak_state.lock()) live_state->EmitAdapterState();
+        });
+        state->radio_handler_registered = true;
+      } else {
+        state->radio_token.reset();
+        state->radio_handler_registered = false;
+      }
       return VoidResult{};
     }, ToJsVoid);
   }
 
   Napi::Value AdapterSnapshot(const Napi::CallbackInfo& info) {
     try {
-      return ToJsAdapterState(info.Env(), ReadAdapter());
+      std::string selected_adapter;
+      {
+        std::lock_guard<std::mutex> guard(state_->mutex);
+        selected_adapter = state_->selected_adapter;
+      }
+      return ToJsAdapterState(info.Env(), ReadAdapter(selected_adapter));
     } catch (const winrt::hresult_error& error) {
       return ToJsAdapterState(info.Env(), {"", "", "unavailable", "unavailable", "unknown", ToUtf8(error.message()), IsPackagedProcess() ? "packaged" : "unpackaged"});
     } catch (const std::exception& error) {
@@ -1288,28 +1306,71 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
   template <typename Listener>
   Napi::Value AddListener(const Napi::CallbackInfo& info, std::vector<std::shared_ptr<Listener>>& listeners, const char* resource_name) {
     if (info.Length() != 1 || !info[0].IsFunction()) throw Napi::TypeError::New(info.Env(), "WinRT event registration requires a callback");
-    const std::shared_ptr<Listener> listener = std::make_shared<Listener>(Napi::ThreadSafeFunction::New(info.Env(), info[0].As<Napi::Function>(), resource_name, kControlIngressQueueCapacity, 1));
-    const std::shared_ptr<BoundaryState> state = state_;
-    {
-      std::lock_guard<std::mutex> guard(state->mutex);
-      if (state->destroyed) {
-        listener->Release();
-        throw Napi::Error::New(info.Env(), "The WinRT native boundary has been destroyed");
-      }
-      listeners.push_back(listener);
+    Napi::ThreadSafeFunction function;
+    try {
+      function = Napi::ThreadSafeFunction::New(info.Env(), info[0].As<Napi::Function>(), resource_name, kControlIngressQueueCapacity, 1);
+    } catch (const std::exception& error) {
+      ReportWinRtDelegateFailure("WinRT listener creation", error);
+      throw;
+    } catch (...) {
+      ReportWinRtDelegateFailure("WinRT listener creation");
+      throw;
     }
-    return Napi::Function::New(info.Env(), [state, listener](const Napi::CallbackInfo& callback) {
-      std::lock_guard<std::mutex> guard(state->mutex);
-      auto erase_from = [listener](auto& entries) {
-        entries.erase(std::remove(entries.begin(), entries.end(), listener), entries.end());
-      };
-      if constexpr (std::is_same_v<Listener, ConnectionLossListener>) erase_from(state->connection_listeners);
-      if constexpr (std::is_same_v<Listener, DatabaseListener>) erase_from(state->database_listeners);
-      if constexpr (std::is_same_v<Listener, AdapterListener>) erase_from(state->adapter_listeners);
-      if constexpr (std::is_same_v<Listener, ScanTerminalListener>) erase_from(state->scan_terminal_listeners);
+    std::shared_ptr<Listener> listener;
+    try {
+      listener = std::make_shared<Listener>(function);
+    } catch (const std::exception& error) {
+      function.Release();
+      ReportWinRtDelegateFailure("WinRT listener creation", error);
+      throw;
+    } catch (...) {
+      function.Release();
+      ReportWinRtDelegateFailure("WinRT listener creation");
+      throw;
+    }
+    const std::shared_ptr<BoundaryState> state = state_;
+    Napi::Function remove_listener;
+    try {
+      remove_listener = Napi::Function::New(info.Env(), [state, listener](const Napi::CallbackInfo& callback) {
+        std::lock_guard<std::mutex> guard(state->mutex);
+        auto erase_from = [listener](auto& entries) {
+          entries.erase(std::remove(entries.begin(), entries.end(), listener), entries.end());
+        };
+        if constexpr (std::is_same_v<Listener, ConnectionLossListener>) erase_from(state->connection_listeners);
+        if constexpr (std::is_same_v<Listener, DatabaseListener>) erase_from(state->database_listeners);
+        if constexpr (std::is_same_v<Listener, AdapterListener>) erase_from(state->adapter_listeners);
+        if constexpr (std::is_same_v<Listener, ScanTerminalListener>) erase_from(state->scan_terminal_listeners);
+        listener->Release();
+        return callback.Env().Undefined();
+      });
+    } catch (const std::exception& error) {
       listener->Release();
-      return callback.Env().Undefined();
-    });
+      ReportWinRtDelegateFailure("WinRT listener removal function creation", error);
+      throw;
+    } catch (...) {
+      listener->Release();
+      ReportWinRtDelegateFailure("WinRT listener removal function creation");
+      throw;
+    }
+    {
+      try {
+        std::lock_guard<std::mutex> guard(state->mutex);
+        if (state->destroying || state->destroyed) {
+          listener->Release();
+          throw Napi::Error::New(info.Env(), "The WinRT native boundary has been destroyed or is tearing down");
+        }
+        listeners.push_back(listener);
+      } catch (const std::exception& error) {
+        listener->Release();
+        ReportWinRtDelegateFailure("WinRT listener registration", error);
+        throw;
+      } catch (...) {
+        listener->Release();
+        ReportWinRtDelegateFailure("WinRT listener registration");
+        throw;
+      }
+    }
+    return remove_listener;
   }
 
   std::shared_ptr<BoundaryState> state_;

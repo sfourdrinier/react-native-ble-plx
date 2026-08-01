@@ -16,7 +16,7 @@ import {
   type BackendCompatibilityOffer
 } from '../../backend-contract/primitives'
 import { WinRtBackend } from './winrt-backend'
-import type { WinRtAdapterRecord, WinRtBoundary } from './winrt-boundary'
+import { validateWinRtAdapterRecords, type WinRtAdapterRecord, type WinRtBoundary } from './winrt-boundary'
 
 export const WINRT_BACKEND_ID = 'unified-ble:winrt'
 export const WINRT_PLATFORM_ID = 'unified-ble:windows-winrt'
@@ -81,7 +81,7 @@ export function createWinRtBackendProvider(
       }
       let adapters: readonly WinRtAdapterRecord[]
       try {
-        adapters = await boundary.listAdapters().completion
+        adapters = validateWinRtAdapterRecords(await boundary.listAdapters().completion)
       } catch (error) {
         try {
           await boundary.destroy().completion
@@ -131,7 +131,7 @@ export function createWinRtBackendProvider(
       try {
         let adapters: readonly WinRtAdapterRecord[]
         try {
-          adapters = await boundary.listAdapters().completion
+          adapters = validateWinRtAdapterRecords(await boundary.listAdapters().completion)
         } catch (error) {
           throw winRtProviderError(
             error,

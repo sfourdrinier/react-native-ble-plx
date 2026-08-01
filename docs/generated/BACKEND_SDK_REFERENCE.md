@@ -57,4 +57,4 @@ The CLI-selected module must export `unifiedBleBackend`, an authoring definition
 
 ## Trace format v1
 
-`unified-ble-trace-v1` contains ordered, bounded records with an ordinal, time, kind, event, dotted error cause, and four mandatory redaction markers. The schema has no peer, path, payload, or platform-message field. `ubm trace validate <file>` rejects malformed or unredacted input; `ubm trace redact <file>` strips unsupported fields and emits a redacted trace document without writing the source file.
+`unified-ble-trace-v1` contains ordered, bounded records with an ordinal, time, kind, event, dotted error cause, a per-capture operation correlation token, and four mandatory redaction markers. The document reports whether producer bounds truncated the record window. Correlation tokens are bounded lowercase opaque labels; the schema has no peer, path, payload, or platform-message field. `ubm trace validate <file>` rejects malformed or unredacted input; `ubm trace redact <file>` strips unsupported fields and emits a redacted trace document without writing the source file.

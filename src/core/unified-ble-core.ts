@@ -63,6 +63,7 @@ import {
 } from './unified-ble-core-helpers'
 import { forwardCoreBackendEvents } from './core-backend-event-stream'
 import { isConnectionLossCause, lifecycleCauseFromBackendDisconnect } from './connection-lifecycle-rules'
+import type { DiagnosticTraceDocument } from '../diagnostics/trace-format'
 export { DEFAULT_CORE_MAXIMUM_VALUE_BYTES } from './unified-ble-core-helpers'
 export type { CoreDeadlineHandle, CoreDeadlineScheduler } from './unified-ble-core-helpers'
 
@@ -195,6 +196,10 @@ export class UnifiedBleCore<Attachment extends string, Identity extends BackendI
 
   traces(): readonly import('./trace-recorder').CoreTraceRecord[] {
     return this.trace.snapshot()
+  }
+
+  traceDocument(): DiagnosticTraceDocument {
+    return this.trace.snapshotDocument()
   }
 
   monotonicNow(): number {

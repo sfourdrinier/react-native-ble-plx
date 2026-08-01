@@ -5,6 +5,7 @@ import type { ConnectionPath } from '../../backend-contract/gatt'
 import type { AdapterStateSnapshot } from '../../backend-contract/identity'
 import type { PeerId } from '../../backend-contract/primitives'
 import type { DeterministicBackendTraceRecord, DeterministicTestBackend } from './deterministic-test-backend'
+import type { DiagnosticTraceDocument } from '../../diagnostics/trace-format'
 import type { DeterministicCompletionStage, ProgrammableCompletion } from './deterministic-operation-runtime'
 import type { VirtualCharacteristicAddress, VirtualPeripheral, VirtualPeripheralOperation } from './virtual-peripheral'
 import type { BleErrorCode } from '../../backend-contract/errors'
@@ -29,6 +30,7 @@ export interface DeterministicBackendController {
   ): void
   reset(): void
   traceSnapshot(): readonly DeterministicBackendTraceRecord[]
+  traceDocument(): DiagnosticTraceDocument
   pendingBackendAcknowledgements(): number
 }
 

@@ -14,15 +14,7 @@ const { pathToFileURL } = require('url')
 const nativeVmModulesEnabled = process.execArgv.includes('--experimental-vm-modules')
 
 function createNativeVmJestArguments(jestCli, configPath, testPath) {
-  return [
-    '--experimental-vm-modules',
-    jestCli,
-    '--config',
-    configPath,
-    '--runInBand',
-    '--runTestsByPath',
-    testPath
-  ]
+  return ['--experimental-vm-modules', jestCli, '--config', configPath, '--runInBand', '--runTestsByPath', testPath]
 }
 
 function createDeterministicAuthorDefinition() {
@@ -104,6 +96,7 @@ describe('external backend SDK and offline CLI', () => {
   test('validates and redacts deterministic trace records without retaining sensitive input fields', () => {
     const trace = {
       format: 'unified-ble-trace-v1',
+      truncated: false,
       records: [
         {
           ordinal: 1,
@@ -111,6 +104,7 @@ describe('external backend SDK and offline CLI', () => {
           kind: 'operation',
           event: 'read-complete',
           cause: null,
+          correlation: 'device-sensitive-value',
           redactedClient: false,
           redactedPeer: false,
           redactedPath: false,
@@ -129,11 +123,13 @@ describe('external backend SDK and offline CLI', () => {
       kind: 'operation',
       event: 'read-complete',
       cause: null,
+      correlation: 'correlation-1',
       redactedClient: true,
       redactedPeer: true,
       redactedPath: true,
       redactedPayload: true
     })
+    expect(redacted.truncated).toBe(false)
     expect(validateTraceDocument(redacted)).toEqual({ valid: true, failures: [] })
     expect(JSON.stringify(redacted)).not.toContain('sensitive')
   })
