@@ -18,25 +18,23 @@ especially its package, evidence, deletion, and Section 31 release gates.
 [`ROADMAP.4.0.md`](ROADMAP.4.0.md) controls product scope and
 [`docs/GAPS.4.0.md`](docs/GAPS.4.0.md) controls the platform-proof inventory.
 
-## Current release candidate
+## Current prerelease
 
-`unified-ble-manager@4.0.0-alpha.28` is the prepared release candidate for
-`v4.0.0-alpha.28`. It is pending GitHub Actions trusted publication; do not
-claim that the npm package, tag, or GitHub Release exists until the workflow
-completes. After publication, npm metadata is expected to identify GitHub Actions
-as the trusted publisher and include an npm SLSA provenance attestation.
-The planned
+`unified-ble-manager@4.0.0-alpha.28` was published from
+`v4.0.0-alpha.28` by the protected GitHub Actions trusted-publishing workflow.
+npm identifies GitHub Actions as the trusted publisher, exposes the package on
+the `next` dist-tag, and includes an npm SLSA provenance attestation. The
 [GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.28)
-will be a prerelease with notes generated from the alpha.28 section of
+is a prerelease with notes generated from the alpha.28 section of
 [`CHANGELOG.md`](CHANGELOG.md).
 
 `v4.0.0-alpha.27` is an already-published historical prerelease. It is not the
 current candidate and does not bind alpha.28's package or evidence state.
 
-The candidate support label is Experimental. Its source and deterministic
-package gates verify the intended public package contract; they do not establish
-that an npm artifact exists or that any backend has hardware support. The
-candidate has no bound physical-radio scenario. No backend is thereby Preview,
+The prerelease support label is Experimental. Its source and deterministic
+package gates verify the intended public package contract; publication does not
+establish that any backend has hardware support. The prerelease has no bound
+physical-radio scenario. No backend is thereby Preview,
 Live Preview, Supported, or Reliability-qualified.
 WinRT compile and ABI checks are L2/L3 evidence only; alpha.28 makes no Windows
 live-radio claim.

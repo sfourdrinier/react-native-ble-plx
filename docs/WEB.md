@@ -9,8 +9,8 @@
 Web Bluetooth is a first-party 4.0 backend with browser chooser constraints
 represented as a typed feature. It is not continuous scanning in disguise and
 does not grant a static support claim. `unified-ble-manager@4.0.0-alpha.28` is
-the prepared candidate pending publication under npm's `next` tag, but no
-current evidence record binds that candidate artifact to a
+published under npm's `next` tag, but no current evidence record binds that
+published artifact to a
 browser/adapter/peripheral live-radio scenario. Web is
 therefore Experimental, not Preview-or-higher.
 

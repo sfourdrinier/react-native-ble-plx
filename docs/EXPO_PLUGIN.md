@@ -10,8 +10,8 @@ remain host-specific
 Configure the published plugin as `unified-ble-manager`. The plugin's supported
 options are exactly the schema implemented in `plugin/src/withBLE.ts`:
 
-The plugin configuration is part of the Experimental 4.0 alpha.28 candidate,
-pending publication. The
+The plugin configuration is part of the published Experimental 4.0 alpha.28
+prerelease. The
 release workflow validates Expo SDK 57 CNG prebuild and Android assembly, but no
 current evidence record binds alpha.28 to a physical device, permission,
 background, or restoration scenario. Configuration and compilation therefore do
