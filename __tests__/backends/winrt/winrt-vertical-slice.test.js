@@ -165,10 +165,14 @@ class DeterministicWinRtBoundary {
     this.state = { availability: 'available', authorization: 'granted', power: 'on', safeReason: null }
     this.selected = false
     this.connected = new Set()
+    this.connectionGenerations = new Map()
     this.scanHandler = null
+    this.scanToken = null
+    this.scanHandlers = new Map()
     this.notificationHandlers = new Map()
     this.connectionListeners = new Set()
     this.databaseListeners = new Set()
+    this.scanTerminalListeners = new Set()
     this.adapterListeners = new Set()
     this.readGate = null
     this.writeGate = null
@@ -187,6 +191,7 @@ class DeterministicWinRtBoundary {
     this.emitAdapterLossDuringNextConnect = false
     this.emitAdapterLossDuringNextScanStart = false
     this.scanStartGate = null
+    this.startScanHook = null
     this.emitDatabaseChangedDuringNextRead = false
     this.emitAdapterLossDuringNextGattOperationStart = false
     this.emitConnectionLossDuringNextStartNotify = false
@@ -238,12 +243,21 @@ class DeterministicWinRtBoundary {
     return this.state
   }
 
-  startScan(_serviceUuids, handler) {
+  startScan(scanToken, _serviceUuids, handler) {
+    this.scanToken = scanToken
+    this.scanHandler = handler
+    this.scanHandlers.set(scanToken, handler)
+    const startScanHook = this.startScanHook
+    this.startScanHook = null
+    if (startScanHook !== null) {
+      startScanHook(scanToken)
+    }
     if (this.throwNextScanStart) {
       this.throwNextScanStart = false
+      this.scanHandler = null
+      this.scanToken = null
       throw new Error('Deterministic synchronous WinRT scan start failure')
     }
-    this.scanHandler = handler
     if (this.emitAdapterLossDuringNextScanStart) {
       this.emitAdapterLossDuringNextScanStart = false
       this.emitAdapterLoss()
@@ -258,7 +272,14 @@ class DeterministicWinRtBoundary {
     this.scanStartGate = gate
   }
 
-  stopScan() {
+  setScanStartHook(hook) {
+    this.startScanHook = hook
+  }
+
+  stopScan(scanToken) {
+    if (this.scanToken !== scanToken) {
+      return pending(Promise.reject(new Error('Deterministic WinRT scan token mismatch during stop')))
+    }
     if (this.throwNextStopScan) {
       this.throwNextStopScan = false
       throw new Error('Deterministic synchronous WinRT scan stop failure')
@@ -271,10 +292,14 @@ class DeterministicWinRtBoundary {
       return pending(
         this.stopScanGate.then(() => {
           this.scanHandler = null
+          this.scanToken = null
+          this.emitScanTerminal({ scanToken, status: 'stopped', error: 'success' })
         })
       )
     }
     this.scanHandler = null
+    this.scanToken = null
+    this.emitScanTerminal({ scanToken, status: 'stopped', error: 'success' })
     return completed(undefined)
   }
 
@@ -282,23 +307,41 @@ class DeterministicWinRtBoundary {
     this.stopScanGate = gate
   }
 
+  onScanTerminal(listener) {
+    this.scanTerminalListeners.add(listener)
+    return () => this.scanTerminalListeners.delete(listener)
+  }
+
+  emitScanTerminal(record) {
+    for (const listener of this.scanTerminalListeners) listener(record)
+  }
+
   emitAdvertisement(advertisement = null) {
-    if (this.scanHandler === null) {
+    if (this.scanToken === null) {
       throw new Error('Deterministic WinRT advertisement emitted after the physical watcher stopped')
     }
-    this.scanHandler(advertisement ?? {
+    this.emitAdvertisementForToken(this.scanToken, advertisement)
+  }
+
+  emitAdvertisementForToken(scanToken, advertisement = null) {
+    const handler = this.scanHandlers.get(scanToken)
+    if (handler === undefined) {
+      throw new Error('Deterministic WinRT advertisement emitted for an unknown scan token')
+    }
+    handler({ scanToken, ...(advertisement ?? {
       nativePeerId: 'C0FFEE000001',
       localName: 'Polar H10',
       rssi: -47,
       serviceUuids: [serviceUuid],
       connectable: true
-    })
+    }) })
   }
 
-  connect(nativePeerId) {
+  connect(nativePeerId, connectionGeneration) {
     if (nativePeerId !== 'C0FFEE000001') {
       return pending(Promise.reject(new Error('Unknown deterministic WinRT peer')))
     }
+    this.connectionGenerations.set(nativePeerId, connectionGeneration)
     if (this.throwNextConnect) {
       this.throwNextConnect = false
       throw new Error('Deterministic synchronous WinRT connect failure')
@@ -315,6 +358,11 @@ class DeterministicWinRtBoundary {
       return cancellablePending(
         this.connectGate.then(() => {
           this.connected.add(nativePeerId)
+        }, error => {
+          if (this.connectionGenerations.get(nativePeerId) === connectionGeneration) {
+            this.connectionGenerations.delete(nativePeerId)
+          }
+          throw error
         }),
         () => {
           this.connectCancelCalls += 1
@@ -343,10 +391,12 @@ class DeterministicWinRtBoundary {
       return pending(
         this.disconnectGate.then(() => {
           this.connected.delete(nativePeerId)
+          this.connectionGenerations.delete(nativePeerId)
         })
       )
     }
     this.connected.delete(nativePeerId)
+    this.connectionGenerations.delete(nativePeerId)
     return completed(undefined)
   }
 
@@ -605,17 +655,29 @@ class DeterministicWinRtBoundary {
     for (const listener of this.adapterListeners) listener(this.state)
   }
 
-  emitConnectionLoss() {
-    for (const listener of this.connectionListeners) listener('C0FFEE000001', null)
+  emitConnectionLoss(connectionGeneration = this.connectionGenerations.get('C0FFEE000001')) {
+    if (connectionGeneration === undefined) {
+      throw new Error('Deterministic WinRT connection loss requires a connectionGeneration')
+    }
+    for (const listener of this.connectionListeners) {
+      listener({ nativePeerId: 'C0FFEE000001', connectionGeneration, safeReason: null })
+    }
   }
 
-  emitDatabaseChanged() {
-    for (const listener of this.databaseListeners) listener('C0FFEE000001')
+  emitDatabaseChanged(connectionGeneration = this.connectionGenerations.get('C0FFEE000001')) {
+    if (connectionGeneration === undefined) {
+      throw new Error('Deterministic WinRT database change requires a connectionGeneration')
+    }
+    for (const listener of this.databaseListeners) {
+      listener({ nativePeerId: 'C0FFEE000001', connectionGeneration })
+    }
   }
 
   destroy() {
     this.destroyed = true
     this.scanHandler = null
+    this.scanToken = null
+    this.scanHandlers.clear()
     this.notificationHandlers.clear()
     return completed(undefined)
   }
@@ -660,7 +722,7 @@ async function connectedDatabaseFixture(scope) {
   return { backend, boundary, lease, database, snapshot }
 }
 
-describe('WinRT contract-v1 deterministic native-boundary vertical slice', () => {
+describe('WinRT contract-v2 deterministic native-boundary vertical slice', () => {
   test('releases closed backend-event and adapter-watch streams from native fan-out ownership', async () => {
     const { backend } = await backendFixture()
     const events = backend.events()
@@ -700,6 +762,123 @@ describe('WinRT contract-v1 deterministic native-boundary vertical slice', () =>
     await lease.release()
     await backend.destroy()
     expect(boundary.destroyed).toBe(true)
+  })
+
+  test('requires the v2 terminal record model and ignores malformed terminal ingress', async () => {
+    const { backend, boundary } = await backendFixture()
+    const scan = await backend.scanner.start(scanOptions(), opaqueId('terminal-model-client', 'client', 'winrt:tck'))
+    for (const record of [
+      { scanToken: boundary.scanToken, status: 'aborted', error: 'not-a-winrt-error' },
+      { scanToken: boundary.scanToken, status: 'stopped', error: 'other' },
+      { scanToken: boundary.scanToken, status: 'aborted', error: 'success' },
+      { scanToken: boundary.scanToken, status: 'aborted', error: 'other', unexpected: true }
+    ]) {
+      boundary.emitScanTerminal(record)
+      expectConsoleErrorMatching(
+        '[WinRtBackend.handleScanTerminal] Dropped malformed native scan terminal:',
+        expect.any(Error)
+      )
+    }
+    boundary.emitAdvertisement()
+    await expect(scan.observations[Symbol.asyncIterator]().next()).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'value' }
+    })
+    await expect(scan.stop()).resolves.toEqual({ state: 'released', failures: [] })
+    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+  })
+
+  test('reports the private boundary as v2', async () => {
+    const { backend } = await backendFixture()
+    expect(backend.identity.runtime.diagnostics.boundary).toBe('winrt-direct-v2')
+    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+  })
+
+  test('correlates terminal ownership across start-time, active, old-token, and local-stop ordering', async () => {
+    const { backend, boundary } = await backendFixture()
+    const startTerminal = deferred()
+    boundary.setScanStartGate(startTerminal.promise)
+    const starting = backend.scanner.start(
+      scanOptions(),
+      opaqueId('start-terminal-client', 'client', 'winrt:terminal-order')
+    )
+    await flushMicrotasks()
+    const startToken = boundary.scanToken
+    expect(startToken).toEqual(expect.any(String))
+    boundary.emitScanTerminal({ scanToken: startToken, status: 'aborted', error: 'other' })
+    expectConsoleErrorMatching(
+      '[WinRtBackend.handleScanTerminal] Native scan terminated:',
+      expect.objectContaining({ status: 'aborted', error: 'other' })
+    )
+    startTerminal.resolve()
+    await expect(starting).rejects.toMatchObject({ normalized: { code: 'scan.start-failed' } })
+    await flushMicrotasks()
+    expectConsoleInfo('[WinRtBackend] Late WinRT completion quarantined: winrt.scan.start')
+    expect(boundary.scanHandler).toBeNull()
+
+    const first = await backend.scanner.start(
+      scanOptions(),
+      opaqueId('active-terminal-client', 'client', 'winrt:terminal-order')
+    )
+    const firstToken = boundary.scanToken
+    expect(firstToken).not.toBe(startToken)
+    const firstIterator = first.observations[Symbol.asyncIterator]()
+    boundary.emitScanTerminal({ scanToken: firstToken, status: 'aborted', error: 'other' })
+    expectConsoleErrorMatching(
+      '[WinRtBackend.handleScanTerminal] Native scan terminated:',
+      expect.objectContaining({ status: 'aborted', error: 'other' })
+    )
+    await expect(firstIterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'terminal', reason: 'source-failed' }
+    })
+
+    const second = await backend.scanner.start(
+      scanOptions(),
+      opaqueId('old-token-client', 'client', 'winrt:terminal-order')
+    )
+    const secondToken = boundary.scanToken
+    expect(secondToken).not.toBe(firstToken)
+    boundary.emitScanTerminal({ scanToken: firstToken, status: 'aborted', error: 'other' })
+    boundary.emitAdvertisementForToken(firstToken, {
+      nativePeerId: 'STALE000001',
+      localName: 'Stale peer',
+      rssi: -50,
+      serviceUuids: [serviceUuid],
+      connectable: true
+    })
+    expect(backend.peerIdsByNativeId.has('STALE000001')).toBe(false)
+    boundary.emitAdvertisement()
+    await expect(second.observations[Symbol.asyncIterator]().next()).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'value' }
+    })
+    await expect(second.stop()).resolves.toEqual({ state: 'released', failures: [] })
+    expect(boundary.scanHandler).toBeNull()
+    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+  })
+
+  test('retires a stopping group after native start failure and reconciles before destroy', async () => {
+    const { backend, boundary } = await backendFixture()
+    const controller = new AbortController()
+    boundary.setScanStartHook(() => controller.abort())
+    boundary.throwNextScanStart = true
+
+    await expect(
+      backend.scanner.start(
+        scanOptions(controller.signal),
+        opaqueId('stopping-start-failure-client', 'client', 'winrt:stopping-start-failure')
+      )
+    ).rejects.toMatchObject({ normalized: { code: 'scan.start-failed' } })
+    expect(backend.resourceCounters()).toMatchObject({ activeScanControllers: 0, scanConsumers: 0 })
+
+    const retry = await backend.scanner.start(
+      scanOptions(),
+      opaqueId('stopping-start-retry-client', 'client', 'winrt:stopping-start-failure')
+    )
+    await expect(retry.stop()).resolves.toEqual({ state: 'released', failures: [] })
+    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+    expect(Object.values(backend.resourceCounters()).every(value => Number(value) === 0)).toBe(true)
   })
 
   test.each([
@@ -2465,6 +2644,34 @@ describe('WinRT contract-v1 deterministic native-boundary vertical slice', () =>
     expect(Object.values(backend.resourceCounters()).every(value => Number(value) === 0)).toBe(true)
   })
 
+  test('ignores delayed connection loss from generation N after generation N+1 replaces the peer', async () => {
+    const { backend, boundary } = await backendFixture()
+    const peerId = await observedPeerId(backend, boundary)
+    const first = await backend.connections.connect(
+      peerId,
+      opaqueId('delayed-loss-first', 'client', 'winrt:delayed-loss-generation'),
+      operation()
+    )
+    const firstGeneration = String(first.connection.connectionGeneration)
+    await expect(first.release()).resolves.toEqual({ state: 'released', failures: [] })
+
+    const replacement = await backend.connections.connect(
+      peerId,
+      opaqueId('delayed-loss-replacement', 'client', 'winrt:delayed-loss-generation'),
+      operation()
+    )
+    expect(String(replacement.connection.connectionGeneration)).not.toBe(firstGeneration)
+
+    boundary.emitConnectionLoss(firstGeneration)
+    await flushMicrotasks()
+    await expect(backend.gatt.discover(replacement.connection, operation())).resolves.toMatchObject({
+      path: expect.any(Object)
+    })
+
+    await expect(replacement.release()).resolves.toEqual({ state: 'released', failures: [] })
+    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+  })
+
   test('retries a failed late-connect disconnect after connection loss before admitting replacement ownership', async () => {
     const { backend, boundary } = await backendFixture()
     const peerId = await observedPeerId(backend, boundary)
@@ -2709,6 +2916,33 @@ describe('WinRT contract-v1 deterministic native-boundary vertical slice', () =>
     await expect(backend.gatt.discover(lease.connection, operation())).resolves.toMatchObject({ path: expect.any(Object) })
     await expect(lease.release()).resolves.toEqual({ state: 'released', failures: [] })
     await backend.destroy()
+  })
+
+  test('ignores delayed database change from generation N after generation N+1 replaces the peer', async () => {
+    const { backend, boundary } = await backendFixture()
+    const peerId = await observedPeerId(backend, boundary)
+    const first = await backend.connections.connect(
+      peerId,
+      opaqueId('delayed-database-first', 'client', 'winrt:delayed-database-generation'),
+      operation()
+    )
+    const firstGeneration = String(first.connection.connectionGeneration)
+    await expect(first.release()).resolves.toEqual({ state: 'released', failures: [] })
+
+    const replacement = await backend.connections.connect(
+      peerId,
+      opaqueId('delayed-database-replacement', 'client', 'winrt:delayed-database-generation'),
+      operation()
+    )
+    const replacementDatabase = await backend.gatt.discover(replacement.connection, operation())
+    boundary.emitDatabaseChanged(firstGeneration)
+    await flushMicrotasks()
+
+    await expect(replacementDatabase.snapshot()).resolves.toMatchObject({
+      services: expect.any(Array)
+    })
+    await expect(replacement.release()).resolves.toEqual({ state: 'released', failures: [] })
+    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
   })
 
   test('rejects a read when Services Changed is emitted synchronously by native start', async () => {

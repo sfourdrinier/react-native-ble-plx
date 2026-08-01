@@ -178,7 +178,7 @@ jobs:
 
       # This is Node-API ABI and boundary-shape proof only. It does not claim a
       # live adapter, advertisement, peripheral, or radio-support result.
-      - name: WinRT native boundary compile and ABI load (Windows; no live radio)
+      - name: WinRT native boundary Node ABI build and load (Windows; no live radio)
         if: runner.os == 'Windows' && matrix.node == '22'
         shell: bash
         run: |
@@ -187,15 +187,15 @@ jobs:
           test -f native/electron/winrt/build/Release/unified_ble_winrt.node
           node -e "
             const native = require('./native/electron/winrt');
-            if (native.nativeProtocolVersion !== 1 || typeof native.createContractBoundary !== 'function') {
-              throw new Error('WinRT addon does not expose boundary protocol v1');
+            if (native.boundaryVersion !== 2 || typeof native.createContractBoundary !== 'function') {
+              throw new Error('WinRT addon does not expose boundary protocol v2');
             }
             const boundary = native.createContractBoundary();
             const required = [
               'listAdapters', 'selectAdapter', 'adapterSnapshot', 'startScan', 'stopScan',
               'connect', 'disconnect', 'discover', 'read', 'write', 'readDescriptor',
               'writeDescriptor', 'startNotify', 'stopNotify', 'onConnectionLost',
-              'onDatabaseChanged', 'onAdapterState', 'destroy'
+              'onDatabaseChanged', 'onAdapterState', 'onScanTerminal', 'ingressTelemetry', 'destroy'
             ];
             for (const method of required) {
               if (typeof boundary[method] !== 'function') {
@@ -209,6 +209,25 @@ jobs:
               process.exitCode = 1;
             });
           "
+
+      # Rebuild the actual addon for Electron's Node ABI, then load the public
+      # WinRT boundary from Electron main. This remains compile/load evidence;
+      # electron-main-smoke does not start a scan or claim live-radio support.
+      - name: WinRT native boundary Electron ABI rebuild and load (Windows; no live radio)
+        if: runner.os == 'Windows' && matrix.node == '22'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ELECTRON_VERSION=$(node -p "require('./node_modules/electron/package.json').version")
+          (
+            cd native/electron/winrt
+            ../../../node_modules/.bin/node-gyp rebuild \
+              --target="$ELECTRON_VERSION" \
+              --arch="$(node -p 'process.arch')" \
+              --dist-url=https://electronjs.org/headers
+          )
+          test -f native/electron/winrt/build/Release/unified_ble_winrt.node
+          ./node_modules/.bin/electron scripts/ci/electron-main-smoke.js
 
       # L2 packaging: resolve every canonical host entrypoint after prepack.
       - name: Canonical host export resolve (L2)

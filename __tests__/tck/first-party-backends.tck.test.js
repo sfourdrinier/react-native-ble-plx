@@ -556,9 +556,12 @@ class DeterministicReactNativeProtocolRuntime {
 class DeterministicWinRtBoundary {
   constructor() {
     this.scanHandler = null
+    this.scanToken = null
+    this.scanHandlers = new Map()
     this.notificationHandlers = new Map()
     this.connectionListeners = new Set()
     this.databaseListeners = new Set()
+    this.scanTerminalListeners = new Set()
     this.adapterListeners = new Set()
   }
 
@@ -578,13 +581,22 @@ class DeterministicWinRtBoundary {
   adapterSnapshot() {
     return { availability: 'available', authorization: 'granted', power: 'on', safeReason: null }
   }
-  startScan(_services, handler) {
+  startScan(scanToken, _services, handler) {
+    this.scanToken = scanToken
     this.scanHandler = handler
+    this.scanHandlers.set(scanToken, handler)
     return winRtOperation(undefined)
   }
-  stopScan() {
+  stopScan(scanToken) {
+    if (this.scanToken !== scanToken) return winRtOperation(Promise.reject(new Error('scan token mismatch')))
     this.scanHandler = null
+    this.scanToken = null
+    this.emitScanTerminal({ scanToken, status: 'stopped', error: 'success' })
     return winRtOperation(undefined)
+  }
+  onScanTerminal(listener) {
+    this.scanTerminalListeners.add(listener)
+    return () => this.scanTerminalListeners.delete(listener)
   }
   connect() {
     return winRtOperation(undefined)
@@ -657,18 +669,26 @@ class DeterministicWinRtBoundary {
   }
   destroy() {
     this.scanHandler = null
+    this.scanToken = null
+    this.scanHandlers.clear()
     this.notificationHandlers.clear()
     return winRtOperation(undefined)
   }
   emitAdvertisement() {
-    if (this.scanHandler === null) throw new Error('WinRT scan is not active')
-    this.scanHandler({
+    if (this.scanToken === null) throw new Error('WinRT scan is not active')
+    const handler = this.scanHandlers.get(this.scanToken)
+    if (handler === undefined) throw new Error('WinRT scan handler is not registered')
+    handler({
+      scanToken: this.scanToken,
       nativePeerId: REACT_NATIVE_PEER_ID,
       localName: 'WinRT TCK peer',
       rssi: -40,
       serviceUuids: [SERVICE_UUID],
       connectable: true
     })
+  }
+  emitScanTerminal(record) {
+    for (const listener of this.scanTerminalListeners) listener(record)
   }
   emitNotification(address, bytes) {
     const handler = this.notificationHandlers.get(winRtAddressKey(address))

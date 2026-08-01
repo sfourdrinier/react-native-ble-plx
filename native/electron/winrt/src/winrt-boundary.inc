@@ -1,9 +1,10 @@
 // native/electron/winrt/src/winrt-boundary.inc
 
 template <typename Cleanup>
-void ContinueWinRtTeardown(std::vector<std::string>& failures, const char* operation, Cleanup&& cleanup) {
+bool ContinueWinRtTeardown(std::vector<std::string>& failures, const char* operation, Cleanup&& cleanup) {
   try {
     std::forward<Cleanup>(cleanup)();
+    return true;
   } catch (const winrt::hresult_error& error) {
     const std::string detail = ToUtf8(error.message());
     std::fprintf(stderr, "[unified_ble_winrt] Destroy %s failed: %s\n", operation, detail.c_str());
@@ -14,62 +15,340 @@ void ContinueWinRtTeardown(std::vector<std::string>& failures, const char* opera
   } catch (...) {
     std::fprintf(stderr, "[unified_ble_winrt] Destroy %s failed with a non-standard error\n", operation);
     failures.push_back(std::string(operation) + ": non-standard error");
+    return false;
   }
+  return false;
+}
+
+bool CleanupScanEntry(const std::shared_ptr<ScanEntry>& entry, std::vector<std::string>& failures, bool stop_watcher) {
+  if (entry == nullptr) return true;
+  if (stop_watcher) entry->lifecycle->stop_requested.store(true);
+  std::lock_guard<std::mutex> startup_guard(entry->lifecycle->startup_mutex);
+  std::lock_guard<std::mutex> cleanup_guard(entry->lifecycle->cleanup_mutex);
+  entry->lifecycle->ingress_open.store(false);
+  bool complete = true;
+  if (entry->lifecycle->received_handler_registered) {
+    if (ContinueWinRtTeardown(failures, "scan advertisement event deregistration", [&] {
+          entry->watcher.Received(entry->received_token);
+        })) {
+      entry->lifecycle->received_handler_registered = false;
+    } else {
+      complete = false;
+    }
+  }
+  if (entry->lifecycle->stopped_handler_registered) {
+    if (ContinueWinRtTeardown(failures, "scan stopped event deregistration", [&] {
+          entry->watcher.Stopped(entry->stopped_token);
+        })) {
+      entry->lifecycle->stopped_handler_registered = false;
+    } else {
+      complete = false;
+    }
+  }
+  if (!entry->lifecycle->watcher_stopped) {
+    if (!entry->lifecycle->stop_requested.load()) {
+      entry->lifecycle->watcher_stopped = true;
+    } else if (ContinueWinRtTeardown(failures, "scan stop", [&] { entry->watcher.Stop(); })) {
+      entry->lifecycle->watcher_stopped = true;
+    } else {
+      complete = false;
+    }
+  }
+  if (!entry->lifecycle->listener_released) {
+    if (ContinueWinRtTeardown(failures, "scan listener release", [&] { entry->listener->Release(); })) {
+      entry->lifecycle->listener_released = true;
+    } else {
+      complete = false;
+    }
+  }
+  complete = complete && !entry->lifecycle->received_handler_registered &&
+      !entry->lifecycle->stopped_handler_registered && entry->lifecycle->watcher_stopped &&
+      entry->lifecycle->listener_released;
+  entry->lifecycle->cleanup_complete = complete;
+  return complete;
+}
+
+bool CleanupNotificationEntry(NotificationEntry& entry, std::vector<std::string>& failures, bool disable_cccd) {
+  if (entry.lifecycle == nullptr) return true;
+  std::lock_guard<std::mutex> guard(entry.lifecycle->mutex);
+  bool complete = true;
+  if (disable_cccd && entry.lifecycle->cccd_enabled) {
+    if (ContinueWinRtTeardown(failures, "notification CCCD disable", [&] {
+          RequireSuccess(
+              AwaitWinRt(entry.characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
+                  GattClientCharacteristicConfigurationDescriptorValue::None)),
+              "Gatt CCCD disable");
+        })) {
+      entry.lifecycle->cccd_enabled = false;
+    } else {
+      complete = false;
+    }
+  }
+  if (entry.lifecycle->value_handler_registered) {
+    if (ContinueWinRtTeardown(failures, "notification event deregistration", [&] { entry.characteristic.ValueChanged(entry.value_token); })) {
+      entry.lifecycle->value_handler_registered = false;
+    } else {
+      complete = false;
+    }
+  }
+  if (!entry.lifecycle->listener_released) {
+    if (ContinueWinRtTeardown(failures, "notification listener release", [&] { entry.listener->Release(); })) {
+      entry.lifecycle->listener_released = true;
+    } else {
+      complete = false;
+    }
+  }
+  return complete && (!disable_cccd || !entry.lifecycle->cccd_enabled) &&
+      !entry.lifecycle->value_handler_registered && entry.lifecycle->listener_released;
+}
+
+bool CleanupConnectionEntry(const std::shared_ptr<ConnectionEntry>& connection, std::vector<std::string>& failures) {
+  std::lock_guard<std::mutex> guard(connection->lifecycle_mutex);
+  std::lock_guard<std::mutex> gatt_guard(connection->gatt_mutex);
+  bool complete = true;
+  if (connection->connection_handler_registered) {
+    if (ContinueWinRtTeardown(failures, "connection event deregistration", [&] {
+          connection->device.ConnectionStatusChanged(connection->connection_token);
+        })) {
+      connection->connection_handler_registered = false;
+    } else {
+      complete = false;
+    }
+  }
+  if (connection->session_handler_registered) {
+    if (ContinueWinRtTeardown(failures, "session event deregistration", [&] {
+          connection->session.SessionStatusChanged(connection->session_token);
+        })) {
+      connection->session_handler_registered = false;
+    } else {
+      complete = false;
+    }
+  }
+  if (connection->services_changed_handler_registered) {
+    if (ContinueWinRtTeardown(failures, "services-changed event deregistration", [&] {
+          connection->device.GattServicesChanged(connection->services_changed_token);
+        })) {
+      connection->services_changed_handler_registered = false;
+    } else {
+      complete = false;
+    }
+  }
+  if (connection->maintenance_enabled) {
+    if (ContinueWinRtTeardown(failures, "connection maintenance release", [&] { connection->session.MaintainConnection(false); })) {
+      connection->maintenance_enabled = false;
+    } else {
+      complete = false;
+    }
+  }
+  if (connection->session_open) {
+    if (ContinueWinRtTeardown(failures, "session close", [&] { connection->session.Close(); })) {
+      connection->session_open = false;
+    } else {
+      complete = false;
+    }
+  }
+  if (connection->device_open) {
+    if (ContinueWinRtTeardown(failures, "device close", [&] { connection->device.Close(); })) {
+      connection->device_open = false;
+    } else {
+      complete = false;
+    }
+  }
+  return complete && !connection->connection_handler_registered && !connection->session_handler_registered &&
+      !connection->services_changed_handler_registered && !connection->maintenance_enabled &&
+      !connection->session_open && !connection->device_open;
+}
+
+void BoundaryState::HandleGattServicesChanged(const std::string& peer, const std::shared_ptr<ConnectionEntry>& expected) {
+  std::shared_ptr<ConnectionEntry> connection;
+  {
+    std::lock_guard<std::mutex> guard(mutex);
+    if (destroyed || destroying) return;
+    const auto found = connections.find(peer);
+    if (found == connections.end() || found->second != expected) return;
+    connection = found->second;
+  }
+  ClearGattServices(*connection);
+  {
+    std::lock_guard<std::mutex> guard(mutex);
+    const auto found = connections.find(peer);
+    if (destroyed || destroying || found == connections.end() || found->second != connection) return;
+  }
+  EmitDatabaseChanged(peer, connection->connection_generation);
+}
+
+void BoundaryState::HandleScanStopped(const std::shared_ptr<ScanEntry>& entry, BluetoothError error) {
+  bool emit_terminal = false;
+  bool locally_requested = false;
+  if (entry == nullptr || entry->lifecycle == nullptr) return;
+  {
+    std::lock_guard<std::mutex> guard(mutex);
+    if (destroyed || destroying || scan == nullptr || scan->lifecycle != entry->lifecycle) return;
+    if (entry->lifecycle->startup_in_progress.load()) {
+      std::lock_guard<std::mutex> cleanup_guard(entry->lifecycle->cleanup_mutex);
+      entry->lifecycle->deferred_error = error;
+      entry->lifecycle->deferred_stopped.store(true);
+      entry->lifecycle->ingress_open.store(false);
+      entry->lifecycle->watcher_stopped = true;
+      return;
+    }
+    locally_requested = entry->lifecycle->local_stop_requested.load();
+    entry->lifecycle->ingress_open.store(false);
+    if (!locally_requested) {
+      emit_terminal = !entry->lifecycle->terminal_emitted.exchange(true);
+    }
+  }
+
+  std::vector<std::string> failures;
+  const bool cleanup_complete = CleanupScanEntry(entry, failures, false);
+  if (cleanup_complete) {
+    std::lock_guard<std::mutex> guard(mutex);
+    if (scan != nullptr && scan->lifecycle == entry->lifecycle) scan.reset();
+  }
+  if (!failures.empty()) {
+    std::fprintf(stderr, "[unified_ble_winrt] Correlated scan terminal cleanup encountered failures\n");
+  }
+  if (!emit_terminal) {
+    return;
+  }
+  if (ScanTerminalNeedsAdapterState(error)) {
+    EmitAdapterState(true);
+  }
+  EmitScanTerminal(entry->scan_token, error == BluetoothError::Success ? "stopped" : "aborted", error);
+}
+
+void BoundaryState::StopScan(const std::string& scan_token) {
+  std::shared_ptr<ScanEntry> entry;
+  {
+    std::lock_guard<std::mutex> guard(mutex);
+    if (destroyed || destroying) throw std::runtime_error("The WinRT native boundary is tearing down");
+    if (scan == nullptr) {
+      return;
+    }
+    if (scan->scan_token != scan_token) {
+      throw std::runtime_error("The WinRT scan token does not identify the active physical scan");
+    }
+    entry = scan;
+    entry->lifecycle->local_stop_requested.store(true);
+    entry->lifecycle->ingress_open.store(false);
+    entry->lifecycle->stop_requested.store(true);
+  }
+  std::vector<std::string> failures;
+  const bool cleanup_complete = CleanupScanEntry(entry, failures, true);
+  if (cleanup_complete) {
+    std::lock_guard<std::mutex> guard(mutex);
+    if (scan != nullptr && scan->lifecycle == entry->lifecycle) scan.reset();
+  }
+  if (!failures.empty()) {
+    std::ostringstream message;
+    message << "WinRT scan stop encountered teardown failures";
+    for (const std::string& failure : failures) {
+      message << "; " << failure;
+    }
+    throw std::runtime_error(message.str());
+  }
+}
+
+bool BoundaryState::RemoveConnection(const std::string& peer, const std::shared_ptr<ConnectionEntry>& expected) {
+  std::shared_ptr<ConnectionEntry> connection;
+  std::vector<NotificationEntry> notifications_for_peer;
+  std::string peer_prefix = peer;
+  peer_prefix.push_back('\0');
+  {
+    std::lock_guard<std::mutex> guard(mutex);
+    if (destroyed || destroying) return false;
+    const auto found = connections.find(peer);
+    if (found == connections.end() || (expected != nullptr && found->second != expected)) return false;
+    connection = found->second;
+    {
+      std::lock_guard<std::mutex> lifecycle_guard(connection->lifecycle_mutex);
+      if (connection->removal_claimed) return false;
+      connection->removal_claimed = true;
+    }
+    for (const auto& notification : notifications) {
+      if (notification.first.rfind(peer_prefix, 0) == 0) notifications_for_peer.push_back(notification.second);
+    }
+  }
+
+  std::vector<std::string> failures;
+  for (NotificationEntry& notification : notifications_for_peer) {
+    CleanupNotificationEntry(notification, failures, true);
+  }
+  CleanupConnectionEntry(connection, failures);
+  if (!failures.empty()) {
+    std::fprintf(stderr, "[unified_ble_winrt] Connection teardown retained after cleanup failures\n");
+    return true;
+  }
+
+  {
+    std::lock_guard<std::mutex> guard(mutex);
+    const auto found = connections.find(peer);
+    if (found != connections.end() && found->second == connection) connections.erase(found);
+    for (auto notification = notifications.begin(); notification != notifications.end();) {
+      if (notification->first.rfind(peer_prefix, 0) == 0) {
+        notification = notifications.erase(notification);
+      } else {
+        ++notification;
+      }
+    }
+  }
+  return true;
 }
 
 void BoundaryState::Destroy() {
   std::vector<std::shared_ptr<ConnectionEntry>> live_connections;
   std::vector<NotificationEntry> live_notifications;
-  std::optional<ScanEntry> active_scan;
+  std::shared_ptr<ScanEntry> active_scan;
   std::optional<Radio> active_radio;
   std::optional<winrt::event_token> active_radio_token;
+  bool active_radio_handler_registered = false;
   std::vector<std::shared_ptr<ConnectionLossListener>> loss_listeners;
   std::vector<std::shared_ptr<DatabaseListener>> changed_listeners;
   std::vector<std::shared_ptr<AdapterListener>> state_listeners;
+  std::vector<std::shared_ptr<ScanTerminalListener>> scan_terminal_listeners;
   {
     std::lock_guard<std::mutex> guard(mutex);
     if (destroyed) {
       return;
     }
-    destroyed = true;
-    active_scan = std::move(scan);
-    scan.reset();
+    if (destroying) throw std::runtime_error("WinRT native boundary teardown is already in progress");
+    destroying = true;
+    active_scan = scan;
+    if (active_scan != nullptr) {
+      active_scan->lifecycle->local_stop_requested.store(true);
+      active_scan->lifecycle->ingress_open.store(false);
+      active_scan->lifecycle->stop_requested.store(true);
+    }
     for (const auto& pair : connections) {
       live_connections.push_back(pair.second);
     }
-    connections.clear();
-    for (auto& pair : notifications) {
-      live_notifications.push_back(std::move(pair.second));
+    for (const auto& pair : notifications) {
+      live_notifications.push_back(pair.second);
     }
-    notifications.clear();
-    active_radio = std::move(radio);
+    active_radio = radio;
     active_radio_token = radio_token;
-    radio.reset();
-    radio_token.reset();
-    loss_listeners = std::move(connection_listeners);
-    changed_listeners = std::move(database_listeners);
-    state_listeners = std::move(adapter_listeners);
+    active_radio_handler_registered = radio_handler_registered;
+    loss_listeners = connection_listeners;
+    changed_listeners = database_listeners;
+    state_listeners = adapter_listeners;
+    scan_terminal_listeners = this->scan_terminal_listeners;
   }
 
   std::vector<std::string> failures;
-  if (active_scan.has_value()) {
-    ContinueWinRtTeardown(failures, "scan event deregistration", [&] { active_scan->watcher.Received(active_scan->received_token); });
-    ContinueWinRtTeardown(failures, "scan stop", [&] { active_scan->watcher.Stop(); });
-    ContinueWinRtTeardown(failures, "scan listener release", [&] { active_scan->listener->Release(); });
+  if (!CleanupScanEntry(active_scan, failures, true)) {
+    failures.push_back("scan cleanup incomplete");
   }
-  if (active_radio.has_value() && active_radio_token.has_value()) {
-    ContinueWinRtTeardown(failures, "radio event deregistration", [&] { active_radio->StateChanged(*active_radio_token); });
+    if (active_radio_handler_registered && active_radio.has_value() && active_radio_token.has_value()) {
+      if (ContinueWinRtTeardown(failures, "radio event deregistration", [&] { active_radio->StateChanged(*active_radio_token); })) {
+        std::lock_guard<std::mutex> guard(mutex);
+        radio_handler_registered = false;
+      }
   }
   for (NotificationEntry& notification : live_notifications) {
-    ContinueWinRtTeardown(failures, "notification event deregistration", [&] { notification.characteristic.ValueChanged(notification.value_token); });
-    ContinueWinRtTeardown(failures, "notification listener release", [&] { notification.listener->Release(); });
+    if (!CleanupNotificationEntry(notification, failures, true)) failures.push_back("notification cleanup incomplete");
   }
   for (const std::shared_ptr<ConnectionEntry>& connection : live_connections) {
-    ContinueWinRtTeardown(failures, "connection event deregistration", [&] { connection->device.ConnectionStatusChanged(connection->connection_token); });
-    ContinueWinRtTeardown(failures, "session event deregistration", [&] { connection->session.SessionStatusChanged(connection->session_token); });
-    ContinueWinRtTeardown(failures, "connection maintenance release", [&] { connection->session.MaintainConnection(false); });
-    ContinueWinRtTeardown(failures, "session close", [&] { connection->session.Close(); });
-    ContinueWinRtTeardown(failures, "device close", [&] { connection->device.Close(); });
+    if (!CleanupConnectionEntry(connection, failures)) failures.push_back("connection cleanup incomplete");
   }
   for (const std::shared_ptr<ConnectionLossListener>& listener : loss_listeners) {
     ContinueWinRtTeardown(failures, "connection-loss listener release", [&] { listener->Release(); });
@@ -80,13 +359,33 @@ void BoundaryState::Destroy() {
   for (const std::shared_ptr<AdapterListener>& listener : state_listeners) {
     ContinueWinRtTeardown(failures, "adapter-state listener release", [&] { listener->Release(); });
   }
+  for (const std::shared_ptr<ScanTerminalListener>& listener : scan_terminal_listeners) {
+    ContinueWinRtTeardown(failures, "scan-terminal listener release", [&] { listener->Release(); });
+  }
   if (!failures.empty()) {
+    std::lock_guard<std::mutex> guard(mutex);
+    destroying = false;
     std::ostringstream message;
     message << "WinRT destroy encountered teardown failures";
     for (const std::string& failure : failures) {
       message << "; " << failure;
     }
     throw std::runtime_error(message.str());
+  }
+  {
+    std::lock_guard<std::mutex> guard(mutex);
+    scan.reset();
+    connections.clear();
+    notifications.clear();
+    radio.reset();
+    radio_token.reset();
+    radio_handler_registered = false;
+    connection_listeners.clear();
+    database_listeners.clear();
+    adapter_listeners.clear();
+    scan_terminal_listeners.clear();
+    destroyed = true;
+    destroying = false;
   }
 }
 
@@ -113,6 +412,7 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
       InstanceMethod("onConnectionLost", &WinRtContractBoundary::OnConnectionLost),
       InstanceMethod("onDatabaseChanged", &WinRtContractBoundary::OnDatabaseChanged),
       InstanceMethod("onAdapterState", &WinRtContractBoundary::OnAdapterState),
+      InstanceMethod("onScanTerminal", &WinRtContractBoundary::OnScanTerminal),
       InstanceMethod("ingressTelemetry", &WinRtContractBoundary::IngressTelemetrySnapshot),
       InstanceMethod("destroy", &WinRtContractBoundary::Destroy)
     });
@@ -158,13 +458,26 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
       const BluetoothAdapter native_adapter = AwaitWinRt(BluetoothAdapter::GetDefaultAsync());
       const Radio radio = AwaitWinRt(native_adapter.GetRadioAsync());
       std::lock_guard<std::mutex> guard(state->mutex);
-      if (state->destroyed) throw std::runtime_error("The WinRT native boundary has been destroyed");
+      if (state->destroyed || state->destroying) throw std::runtime_error("The WinRT native boundary has been destroyed or is tearing down");
+      if (state->radio_handler_registered && state->radio.has_value() && state->radio_token.has_value()) {
+        std::vector<std::string> failures;
+        if (!ContinueWinRtTeardown(failures, "previous radio event deregistration", [&] { state->radio->StateChanged(*state->radio_token); })) {
+          throw std::runtime_error("The previous WinRT adapter state subscription could not be revoked");
+        }
+        state->radio_handler_registered = false;
+        state->radio.reset();
+        state->radio_token.reset();
+      } else {
+        state->radio.reset();
+        state->radio_token.reset();
+      }
       state->selected_adapter = requested;
       state->radio = radio;
       const std::weak_ptr<BoundaryState> weak_state = state;
       state->radio_token = radio.StateChanged([weak_state](const Radio&, const winrt::Windows::Foundation::IInspectable&) {
         if (const std::shared_ptr<BoundaryState> live_state = weak_state.lock()) live_state->EmitAdapterState();
       });
+      state->radio_handler_registered = true;
       return VoidResult{};
     }, ToJsVoid);
   }
@@ -180,71 +493,147 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
   }
 
   Napi::Value StartScan(const Napi::CallbackInfo& info) {
-    if (info.Length() != 2 || !info[0].IsArray() || !info[1].IsFunction()) throw Napi::TypeError::New(info.Env(), "WinRT scan requires service UUIDs and an advertisement callback");
+    if (info.Length() != 3 || !info[0].IsString() || !info[1].IsArray() || !info[2].IsFunction()) throw Napi::TypeError::New(info.Env(), "WinRT scan requires scanToken, service UUIDs, and an advertisement callback");
+    const std::string scan_token = info[0].As<Napi::String>().Utf8Value();
+    if (scan_token.empty()) throw Napi::TypeError::New(info.Env(), "WinRT scan requires a non-empty scanToken");
     std::vector<std::string> service_uuids;
-    const Napi::Array requested = info[0].As<Napi::Array>();
+    const Napi::Array requested = info[1].As<Napi::Array>();
     for (uint32_t index = 0; index < requested.Length(); ++index) {
       if (!requested.Get(index).IsString()) throw Napi::TypeError::New(info.Env(), "WinRT scan service UUIDs must be strings");
       service_uuids.push_back(requested.Get(index).As<Napi::String>().Utf8Value());
     }
     const std::shared_ptr<BoundaryState> state = state_;
     const std::shared_ptr<AdvertisementListener> listener = std::make_shared<AdvertisementListener>(
-        Napi::ThreadSafeFunction::New(info.Env(), info[1].As<Napi::Function>(), "winrt-advertisement", kAdvertisementIngressQueueCapacity, 1),
+        Napi::ThreadSafeFunction::New(info.Env(), info[2].As<Napi::Function>(), "winrt-advertisement", kAdvertisementIngressQueueCapacity, 1),
         state->ingress_telemetry);
-    return StartOperation<VoidResult>(info.Env(), [state, service_uuids, listener] {
+    return StartOperation<VoidResult>(info.Env(), [state, scan_token, service_uuids, listener] {
+      const std::shared_ptr<ScanEntry> entry = std::make_shared<ScanEntry>();
+      entry->scan_token = scan_token;
+      entry->listener = listener;
+      entry->lifecycle = std::make_shared<ScanLifecycle>();
       try {
         EnsureWinRtApartment();
         ThrowIfCurrentOperationWasCancelled();
-        BluetoothLEAdvertisementWatcher watcher;
-        for (const std::string& service_uuid : service_uuids) watcher.AdvertisementFilter().Advertisement().ServiceUuids().Append(ParseUuid(service_uuid));
-        const std::weak_ptr<BoundaryState> weak_state = state;
-        const winrt::event_token received_token = watcher.Received([weak_state, listener](const BluetoothLEAdvertisementWatcher&, const BluetoothLEAdvertisementReceivedEventArgs& event) {
-          if (weak_state.expired()) return;
-          const auto advertisement = event.Advertisement();
-          const std::string peer = AddressKey(event.BluetoothAddress());
-          const std::string name = ToUtf8(advertisement.LocalName());
-          std::vector<std::string> services;
-          const auto advertised_service_uuids = advertisement.ServiceUuids();
-          for (uint32_t index = 0; index < advertised_service_uuids.Size(); ++index) {
-            services.push_back(CanonicalUuid(advertised_service_uuids.GetAt(index)));
+        entry->watcher = BluetoothLEAdvertisementWatcher{};
+        for (const std::string& service_uuid : service_uuids) entry->watcher.AdvertisementFilter().Advertisement().ServiceUuids().Append(ParseUuid(service_uuid));
+        entry->received_token = entry->watcher.Received([entry](const BluetoothLEAdvertisementWatcher&, const BluetoothLEAdvertisementReceivedEventArgs& event) {
+          if (!entry->lifecycle->ingress_open.load()) return;
+          try {
+            const auto advertisement = event.Advertisement();
+            const std::string peer = AddressKey(event.BluetoothAddress());
+            const std::string name = ToUtf8(advertisement.LocalName());
+            std::vector<std::string> services;
+            const auto advertised_service_uuids = advertisement.ServiceUuids();
+            for (uint32_t index = 0; index < advertised_service_uuids.Size(); ++index) {
+              services.push_back(CanonicalUuid(advertised_service_uuids.GetAt(index)));
+            }
+            entry->listener->Emit(entry->scan_token, entry->generation, peer, name, event.RawSignalStrengthInDBm(), std::move(services));
+          } catch (const winrt::hresult_error& error) {
+            ReportWinRtDelegateFailure("watcher Received", error);
+          } catch (const std::exception& error) {
+            ReportWinRtDelegateFailure("watcher Received", error);
+          } catch (...) {
+            ReportWinRtDelegateFailure("watcher Received");
           }
-          listener->Emit(peer, name, event.RawSignalStrengthInDBm(), std::move(services));
         });
-        std::lock_guard<std::mutex> guard(state->mutex);
-        if (state->destroyed || state->scan.has_value()) throw std::runtime_error("A WinRT physical scan is already active or destroyed");
+        entry->lifecycle->received_handler_registered = true;
+        entry->stopped_token = entry->watcher.Stopped([state, entry](const BluetoothLEAdvertisementWatcher&, const winrt::Windows::Devices::Bluetooth::Advertisement::BluetoothLEAdvertisementWatcherStoppedEventArgs& event) {
+          try {
+            state->HandleScanStopped(entry, event.Error());
+          } catch (const winrt::hresult_error& error) {
+            ReportWinRtDelegateFailure("watcher Stopped", error);
+          } catch (const std::exception& error) {
+            ReportWinRtDelegateFailure("watcher Stopped", error);
+          } catch (...) {
+            ReportWinRtDelegateFailure("watcher Stopped");
+          }
+        });
+        entry->lifecycle->stopped_handler_registered = true;
+        {
+          std::lock_guard<std::mutex> guard(state->mutex);
+          if (state->destroyed || state->destroying || state->scan != nullptr) throw std::runtime_error("A WinRT physical scan is already active or destroyed");
+          entry->generation = state->next_scan_generation++;
+          state->scan = entry;
+        }
+        try {
+          std::lock_guard<std::mutex> startup_guard(entry->lifecycle->startup_mutex);
+          entry->lifecycle->startup_in_progress.store(true);
+          ThrowIfCurrentOperationWasCancelled();
+          entry->watcher.Start();
+          entry->lifecycle->startup_in_progress.store(false);
+        } catch (...) {
+          entry->lifecycle->startup_in_progress.store(false);
+          throw;
+        }
+        {
+          std::optional<BluetoothError> deferred_error;
+          {
+            std::lock_guard<std::mutex> cleanup_guard(entry->lifecycle->cleanup_mutex);
+            if (entry->lifecycle->deferred_stopped.load() && entry->lifecycle->deferred_error.has_value()) {
+              deferred_error = entry->lifecycle->deferred_error;
+              entry->lifecycle->deferred_error.reset();
+              entry->lifecycle->deferred_stopped.store(false);
+            }
+          }
+          if (deferred_error.has_value()) state->HandleScanStopped(entry, *deferred_error);
+        }
+        {
+          std::lock_guard<std::mutex> guard(state->mutex);
+          if (state->destroyed || state->destroying || state->scan == nullptr || state->scan->lifecycle != entry->lifecycle || entry->lifecycle->local_stop_requested.load()) {
+            throw std::runtime_error("The WinRT scan was stopped or destroyed while it was starting");
+          }
+        }
         ThrowIfCurrentOperationWasCancelled();
-        watcher.Start();
-        state->scan = ScanEntry{watcher, received_token, listener};
+        if (entry->lifecycle->terminal_emitted.load()) throw std::runtime_error("The WinRT scan stopped while it was starting");
         return VoidResult{};
       } catch (...) {
-        listener->Release();
+        entry->lifecycle->stop_requested.store(true);
+        entry->lifecycle->ingress_open.store(false);
+        std::vector<std::string> failures;
+        const bool cleanup_complete = CleanupScanEntry(entry, failures, true);
+        if (cleanup_complete) {
+          std::lock_guard<std::mutex> guard(state->mutex);
+          if (state->scan != nullptr && state->scan->lifecycle == entry->lifecycle) state->scan.reset();
+        }
+        if (!failures.empty()) {
+          std::fprintf(stderr, "[unified_ble_winrt] Scan start cleanup encountered failures\n");
+        }
         throw;
       }
     }, ToJsVoid);
   }
 
   Napi::Value StopScan(const Napi::CallbackInfo& info) {
+    if (info.Length() != 1 || !info[0].IsString()) throw Napi::TypeError::New(info.Env(), "WinRT scan stop requires the active scanToken");
+    const std::string scan_token = info[0].As<Napi::String>().Utf8Value();
     const std::shared_ptr<BoundaryState> state = state_;
-    return StartOperation<VoidResult>(info.Env(), [state] { state->StopScan(); return VoidResult{}; }, ToJsVoid);
+    return StartOperation<VoidResult>(info.Env(), [state, scan_token] { state->StopScan(scan_token); return VoidResult{}; }, ToJsVoid);
   }
 
   Napi::Value Connect(const Napi::CallbackInfo& info) {
-    if (info.Length() != 1 || !info[0].IsString()) throw Napi::TypeError::New(info.Env(), "WinRT connect requires a native peer identifier");
+    if (info.Length() != 2 || !info[0].IsString() || !info[1].IsString()) throw Napi::TypeError::New(info.Env(), "WinRT connect requires a native peer identifier and connectionGeneration");
     const std::string peer = info[0].As<Napi::String>().Utf8Value();
+    const std::string connection_generation = info[1].As<Napi::String>().Utf8Value();
+    if (connection_generation.empty()) throw Napi::TypeError::New(info.Env(), "WinRT connect requires a non-empty connectionGeneration");
     const std::shared_ptr<BoundaryState> state = state_;
-    return StartOperation<VoidResult>(info.Env(), [state, peer] {
+    return StartOperation<VoidResult>(info.Env(), [state, peer, connection_generation] {
       EnsureWinRtApartment();
       const BluetoothLEDevice device = AwaitWinRt(BluetoothLEDevice::FromBluetoothAddressAsync(ParseAddress(peer)));
       if (device == nullptr) throw std::runtime_error("Windows could not open the selected BLE peer");
       const GattSession session = AwaitWinRt(GattSession::FromDeviceIdAsync(device.BluetoothDeviceId()));
       if (session == nullptr) throw std::runtime_error("Windows could not open a GATT session for the selected BLE peer");
-      bool handlers_registered = false;
+      {
+        std::lock_guard<std::mutex> guard(state->mutex);
+        if (state->destroyed || state->destroying || state->connections.contains(peer)) {
+          throw std::runtime_error("The WinRT peer connection is no longer admissible");
+        }
+      }
+      const std::shared_ptr<ConnectionEntry> connection = std::make_shared<ConnectionEntry>(device, session, connection_generation);
       bool connection_registered = false;
-      winrt::event_token connection_token{};
-      winrt::event_token session_token{};
       try {
         ThrowIfCurrentOperationWasCancelled();
         session.MaintainConnection(true);
+        connection->maintenance_enabled = true;
         const auto confirmation = AwaitWinRt(device.GetGattServicesAsync(winrt::Windows::Devices::Bluetooth::BluetoothCacheMode::Uncached));
         RequireSuccess(confirmation.Status(), "WinRT connection confirmation");
         ThrowIfCurrentOperationWasCancelled();
@@ -252,50 +641,99 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
           throw std::runtime_error("Windows did not confirm an active BLE link after GATT connection probing");
         }
         const std::weak_ptr<BoundaryState> weak_state = state;
-        connection_token = device.ConnectionStatusChanged([weak_state, peer](const BluetoothLEDevice& source, const winrt::Windows::Foundation::IInspectable&) {
-          if (source.ConnectionStatus() == BluetoothConnectionStatus::Disconnected) {
-            if (const std::shared_ptr<BoundaryState> live_state = weak_state.lock()) {
-              live_state->RemoveConnection(peer);
-              live_state->EmitConnectionLoss(peer, std::string("Windows reported BLE link loss"));
+        const std::weak_ptr<ConnectionEntry> weak_connection = connection;
+        connection->connection_token = device.ConnectionStatusChanged([weak_state, weak_connection, peer](const BluetoothLEDevice& source, const winrt::Windows::Foundation::IInspectable&) {
+          try {
+            if (source.ConnectionStatus() == BluetoothConnectionStatus::Disconnected) {
+              if (const std::shared_ptr<BoundaryState> live_state = weak_state.lock()) {
+                if (const std::shared_ptr<ConnectionEntry> live_connection = weak_connection.lock(); live_connection != nullptr && live_state->RemoveConnection(peer, live_connection)) {
+                  bool emit_loss = false;
+                  {
+                    std::lock_guard<std::mutex> guard(live_connection->lifecycle_mutex);
+                    if (!live_connection->loss_emitted) {
+                      live_connection->loss_emitted = true;
+                      emit_loss = true;
+                    }
+                  }
+                  if (emit_loss) live_state->EmitConnectionLoss(peer, live_connection->connection_generation, std::string("Windows reported BLE link loss"));
+                }
+              }
             }
+          } catch (const winrt::hresult_error& error) {
+            ReportWinRtDelegateFailure("connection status", error);
+          } catch (const std::exception& error) {
+            ReportWinRtDelegateFailure("connection status", error);
+          } catch (...) {
+            ReportWinRtDelegateFailure("connection status");
           }
         });
-        session_token = session.SessionStatusChanged([weak_state, peer](const GattSession& source, const winrt::Windows::Foundation::IInspectable&) {
-          if (source.SessionStatus() == GattSessionStatus::Closed) {
-            if (const std::shared_ptr<BoundaryState> live_state = weak_state.lock()) {
-              live_state->EmitDatabaseChanged(peer);
-              live_state->RemoveConnection(peer);
-              live_state->EmitConnectionLoss(peer, std::string("Windows reported GATT session loss"));
+        connection->connection_handler_registered = true;
+        connection->session_token = session.SessionStatusChanged([weak_state, weak_connection, peer](const GattSession& source, const winrt::Windows::Foundation::IInspectable&) {
+          try {
+            if (source.SessionStatus() == GattSessionStatus::Closed) {
+              if (const std::shared_ptr<BoundaryState> live_state = weak_state.lock()) {
+                if (const std::shared_ptr<ConnectionEntry> live_connection = weak_connection.lock(); live_connection != nullptr && live_state->RemoveConnection(peer, live_connection)) {
+                  live_state->EmitDatabaseChanged(peer, live_connection->connection_generation);
+                  bool emit_loss = false;
+                  {
+                    std::lock_guard<std::mutex> guard(live_connection->lifecycle_mutex);
+                    if (!live_connection->loss_emitted) {
+                      live_connection->loss_emitted = true;
+                      emit_loss = true;
+                    }
+                  }
+                  if (emit_loss) live_state->EmitConnectionLoss(peer, live_connection->connection_generation, std::string("Windows reported GATT session loss"));
+                }
+              }
             }
+          } catch (const winrt::hresult_error& error) {
+            ReportWinRtDelegateFailure("session status", error);
+          } catch (const std::exception& error) {
+            ReportWinRtDelegateFailure("session status", error);
+          } catch (...) {
+            ReportWinRtDelegateFailure("session status");
           }
         });
-        handlers_registered = true;
+        connection->session_handler_registered = true;
+        connection->services_changed_token = device.GattServicesChanged([weak_state, weak_connection, peer](const BluetoothLEDevice&, const winrt::Windows::Foundation::IInspectable&) {
+          try {
+            if (const std::shared_ptr<BoundaryState> live_state = weak_state.lock()) {
+              if (const std::shared_ptr<ConnectionEntry> live_connection = weak_connection.lock(); live_connection != nullptr) {
+                live_state->HandleGattServicesChanged(peer, live_connection);
+              }
+            }
+          } catch (const winrt::hresult_error& error) {
+            ReportWinRtDelegateFailure("GattServicesChanged", error);
+          } catch (const std::exception& error) {
+            ReportWinRtDelegateFailure("GattServicesChanged", error);
+          } catch (...) {
+            ReportWinRtDelegateFailure("GattServicesChanged");
+          }
+        });
+        connection->services_changed_handler_registered = true;
         {
           std::lock_guard<std::mutex> guard(state->mutex);
-          if (state->destroyed || state->connections.contains(peer)) {
+          if (state->destroyed || state->destroying || state->connections.contains(peer)) {
             throw std::runtime_error("The WinRT peer connection is no longer admissible");
           }
-          state->connections.emplace(peer, std::make_shared<ConnectionEntry>(device, session, connection_token, session_token));
+          state->connections.emplace(peer, connection);
           connection_registered = true;
         }
         if (device.ConnectionStatus() != BluetoothConnectionStatus::Connected) {
-          state->RemoveConnection(peer);
+          state->RemoveConnection(peer, connection);
           connection_registered = false;
-          handlers_registered = false;
           throw std::runtime_error("Windows lost the BLE link while finalizing the confirmed connection");
         }
         return VoidResult{};
       } catch (...) {
+        std::vector<std::string> cleanup_failures;
         if (connection_registered) {
-          state->RemoveConnection(peer);
-        } else {
-          if (handlers_registered) {
-            device.ConnectionStatusChanged(connection_token);
-            session.SessionStatusChanged(session_token);
-          }
-          session.MaintainConnection(false);
-          session.Close();
-          device.Close();
+          state->RemoveConnection(peer, connection);
+        } else if (!CleanupConnectionEntry(connection, cleanup_failures)) {
+          std::fprintf(stderr, "[unified_ble_winrt] Connect rollback retained after cleanup failures\n");
+        }
+        if (!cleanup_failures.empty()) {
+          std::fprintf(stderr, "[unified_ble_winrt] Connect rollback cleanup encountered failures\n");
         }
         throw;
       }
@@ -315,6 +753,11 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
     const std::shared_ptr<BoundaryState> state = state_;
     return StartOperation<DiscoveryView>(info.Env(), [state, peer] {
       std::shared_ptr<ConnectionEntry> connection = RequiredConnection(state, peer);
+      uint64_t discovery_revision = 0U;
+      {
+        std::lock_guard<std::mutex> gatt_guard(connection->gatt_mutex);
+        discovery_revision = connection->services_revision.load();
+      }
       const auto services_result = AwaitWinRt(connection->device.GetGattServicesAsync(winrt::Windows::Devices::Bluetooth::BluetoothCacheMode::Uncached));
       RequireSuccess(services_result.Status(), "Gatt service discovery");
       std::vector<ServiceEntry> services;
@@ -369,14 +812,16 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
         services.push_back(std::move(service));
       }
       {
-        std::lock_guard<std::mutex> gatt_guard(connection->gatt_mutex);
-        connection->services = std::move(services);
-      }
-      {
         std::lock_guard<std::mutex> state_guard(state->mutex);
-        if (state->destroyed || !state->connections.contains(peer)) {
+        const auto found = state->connections.find(peer);
+        if (state->destroyed || state->destroying || found == state->connections.end() || found->second != connection) {
           throw std::runtime_error("The WinRT connection was lost during discovery");
         }
+        std::lock_guard<std::mutex> gatt_guard(connection->gatt_mutex);
+        if (connection->services_revision.load() != discovery_revision) {
+          throw std::runtime_error("The WinRT GATT discovery result belongs to a stale services revision");
+        }
+        connection->services = std::move(services);
       }
       return view;
     }, ToJsDiscovery);
@@ -458,6 +903,7 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
       std::shared_ptr<ConnectionEntry> connection;
       GattCharacteristic characteristic{nullptr};
       winrt::event_token token{};
+      const std::shared_ptr<NotificationEntry::Lifecycle> notification_lifecycle = std::make_shared<NotificationEntry::Lifecycle>();
       bool value_handler_registered = false;
       bool cccd_enabled = false;
       try {
@@ -479,10 +925,11 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
         const std::string key = CharacteristicKey(address);
         {
           std::lock_guard<std::mutex> state_guard(state->mutex);
-          if (state->destroyed || !state->connections.contains(address.peer) || state->notifications.contains(key)) {
+          const auto found = state->connections.find(address.peer);
+          if (state->destroyed || state->destroying || found == state->connections.end() || found->second != connection || state->notifications.contains(key)) {
             throw std::runtime_error("The WinRT notification subscription is no longer admissible");
           }
-          state->notifications.emplace(key, NotificationEntry{characteristic, token, listener});
+          state->notifications.emplace(key, NotificationEntry{characteristic, token, listener, notification_lifecycle});
         }
         return VoidResult{};
       } catch (...) {
@@ -540,6 +987,10 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
     return AddListener<AdapterListener>(info, state_->adapter_listeners, "winrt-adapter-state");
   }
 
+  Napi::Value OnScanTerminal(const Napi::CallbackInfo& info) {
+    return AddListener<ScanTerminalListener>(info, state_->scan_terminal_listeners, "winrt-scan-terminal");
+  }
+
   Napi::Value IngressTelemetrySnapshot(const Napi::CallbackInfo& info) {
     const std::shared_ptr<IngressTelemetry> telemetry = state_->ingress_telemetry;
     Napi::Object result = Napi::Object::New(info.Env());
@@ -576,6 +1027,7 @@ class WinRtContractBoundary final : public Napi::ObjectWrap<WinRtContractBoundar
       if constexpr (std::is_same_v<Listener, ConnectionLossListener>) erase_from(state->connection_listeners);
       if constexpr (std::is_same_v<Listener, DatabaseListener>) erase_from(state->database_listeners);
       if constexpr (std::is_same_v<Listener, AdapterListener>) erase_from(state->adapter_listeners);
+      if constexpr (std::is_same_v<Listener, ScanTerminalListener>) erase_from(state->scan_terminal_listeners);
       listener->Release();
       return callback.Env().Undefined();
     });
@@ -592,7 +1044,7 @@ Napi::Value CreateContractBoundary(const Napi::CallbackInfo& info) {
 
 Napi::Object Initialize(Napi::Env env, Napi::Object exports) {
   WinRtContractBoundary::Init(env, exports);
-  exports.Set("nativeProtocolVersion", Napi::Number::New(env, 1));
+  exports.Set("boundaryVersion", Napi::Number::New(env, 2));
   exports.Set("createContractBoundary", Napi::Function::New(env, CreateContractBoundary));
   return exports;
 }

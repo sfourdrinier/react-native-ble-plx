@@ -17,6 +17,7 @@
 #include <atomic>
 #include <cctype>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdint>
 #include <functional>
@@ -36,6 +37,7 @@ namespace {
 
 using winrt::Windows::Devices::Bluetooth::BluetoothAdapter;
 using winrt::Windows::Devices::Bluetooth::BluetoothConnectionStatus;
+using winrt::Windows::Devices::Bluetooth::BluetoothError;
 using winrt::Windows::Devices::Bluetooth::BluetoothLEDevice;
 using winrt::Windows::Devices::Bluetooth::Advertisement::BluetoothLEAdvertisementReceivedEventArgs;
 using winrt::Windows::Devices::Bluetooth::Advertisement::BluetoothLEAdvertisementWatcher;
@@ -59,6 +61,18 @@ void EnsureWinRtApartment() {
 
 std::string ToUtf8(const winrt::hstring& value) {
   return winrt::to_string(value);
+}
+
+void ReportWinRtDelegateFailure(const char* delegate, const winrt::hresult_error& error) {
+  std::fprintf(stderr, "[unified_ble_winrt] %s delegate failed: %s\n", delegate, ToUtf8(error.message()).c_str());
+}
+
+void ReportWinRtDelegateFailure(const char* delegate, const std::exception& error) {
+  std::fprintf(stderr, "[unified_ble_winrt] %s delegate failed: %s\n", delegate, error.what());
+}
+
+void ReportWinRtDelegateFailure(const char* delegate) {
+  std::fprintf(stderr, "[unified_ble_winrt] %s delegate failed with a non-standard error\n", delegate);
 }
 
 std::string CanonicalUuid(const winrt::guid& value) {
@@ -228,6 +242,90 @@ std::string GattCommunicationStatusCode(GattCommunicationStatus status) {
       return "unreachable";
     default:
       return "unknown";
+  }
+}
+
+enum class ScanTerminalError {
+  success,
+  radio_not_available,
+  resource_in_use,
+  device_not_connected,
+  other,
+  disabled_by_policy,
+  not_supported,
+  disabled_by_user,
+  consent_required,
+  transport_not_supported
+};
+
+ScanTerminalError ScanTerminalErrorFor(BluetoothError error) {
+  switch (error) {
+    case BluetoothError::Success:
+      return ScanTerminalError::success;
+    case BluetoothError::RadioNotAvailable:
+      return ScanTerminalError::radio_not_available;
+    case BluetoothError::ResourceInUse:
+      return ScanTerminalError::resource_in_use;
+    case BluetoothError::DeviceNotConnected:
+      return ScanTerminalError::device_not_connected;
+    case BluetoothError::OtherError:
+      return ScanTerminalError::other;
+    case BluetoothError::DisabledByPolicy:
+      return ScanTerminalError::disabled_by_policy;
+    case BluetoothError::NotSupported:
+      return ScanTerminalError::not_supported;
+    case BluetoothError::DisabledByUser:
+      return ScanTerminalError::disabled_by_user;
+    case BluetoothError::ConsentRequired:
+      return ScanTerminalError::consent_required;
+    case BluetoothError::TransportNotSupported:
+      return ScanTerminalError::transport_not_supported;
+    default:
+      return ScanTerminalError::other;
+  }
+}
+
+const char* ScanTerminalErrorCode(ScanTerminalError error) {
+  switch (error) {
+    case ScanTerminalError::success:
+      return "success";
+    case ScanTerminalError::radio_not_available:
+      return "radio-not-available";
+    case ScanTerminalError::resource_in_use:
+      return "resource-in-use";
+    case ScanTerminalError::device_not_connected:
+      return "device-not-connected";
+    case ScanTerminalError::other:
+      return "other";
+    case ScanTerminalError::disabled_by_policy:
+      return "disabled-by-policy";
+    case ScanTerminalError::not_supported:
+      return "not-supported";
+    case ScanTerminalError::disabled_by_user:
+      return "disabled-by-user";
+    case ScanTerminalError::consent_required:
+      return "consent-required";
+    case ScanTerminalError::transport_not_supported:
+      return "transport-not-supported";
+  }
+  return "other";
+}
+
+bool ScanTerminalNeedsAdapterState(BluetoothError error) {
+  switch (error) {
+    case BluetoothError::RadioNotAvailable:
+    case BluetoothError::DisabledByPolicy:
+    case BluetoothError::NotSupported:
+    case BluetoothError::DisabledByUser:
+    case BluetoothError::ConsentRequired:
+    case BluetoothError::TransportNotSupported:
+      return true;
+    case BluetoothError::Success:
+    case BluetoothError::ResourceInUse:
+    case BluetoothError::DeviceNotConnected:
+    case BluetoothError::OtherError:
+    default:
+      return false;
   }
 }
 
@@ -467,10 +565,10 @@ class ListenerLifecycle {
       : function_(std::move(function)), telemetry_(std::move(telemetry)), channel_(channel) {}
 
   void Release() {
-    bool expected = false;
-    if (released_.compare_exchange_strong(expected, true)) {
-      function_.Release();
-    }
+    std::lock_guard<std::mutex> guard(release_mutex_);
+    if (released_) return;
+    function_.Release();
+    released_ = true;
   }
 
  protected:
@@ -494,9 +592,31 @@ class ListenerLifecycle {
   }
 
  private:
-  std::atomic_bool released_{false};
+  std::mutex release_mutex_;
+  bool released_{false};
   std::shared_ptr<IngressTelemetry> telemetry_;
   std::optional<IngressChannel> channel_;
+};
+
+class ControlDeliveryAck final {
+ public:
+  void Signal() {
+    {
+      std::lock_guard<std::mutex> guard(mutex_);
+      signaled_ = true;
+    }
+    condition_.notify_one();
+  }
+
+  void Wait() {
+    std::unique_lock<std::mutex> guard(mutex_);
+    condition_.wait(guard, [this] { return signaled_; });
+  }
+
+ private:
+  std::condition_variable condition_;
+  std::mutex mutex_;
+  bool signaled_{false};
 };
 
 struct NotificationPayload {
@@ -524,6 +644,8 @@ class NotificationListener final : public ListenerLifecycle {
 };
 
 struct AdvertisementPayload {
+  std::string scan_token;
+  uint64_t generation;
   std::string peer;
   std::string name;
   int16_t rssi;
@@ -535,11 +657,13 @@ class AdvertisementListener final : public ListenerLifecycle {
   explicit AdvertisementListener(Napi::ThreadSafeFunction function, std::shared_ptr<IngressTelemetry> telemetry)
       : ListenerLifecycle(std::move(function), std::move(telemetry), IngressChannel::advertisement) {}
 
-  void Emit(std::string peer, std::string name, int16_t rssi, std::vector<std::string> service_uuids) {
-    auto* payload = new AdvertisementPayload{std::move(peer), std::move(name), rssi, std::move(service_uuids)};
+  void Emit(std::string scan_token, uint64_t generation, std::string peer, std::string name, int16_t rssi, std::vector<std::string> service_uuids) {
+    auto* payload = new AdvertisementPayload{std::move(scan_token), generation, std::move(peer), std::move(name), rssi, std::move(service_uuids)};
     const napi_status status = function_.NonBlockingCall(payload, [](Napi::Env env, Napi::Function callback, AdvertisementPayload* value) {
       std::unique_ptr<AdvertisementPayload> owned(value);
       Napi::Object advertisement = Napi::Object::New(env);
+      advertisement.Set("scanToken", Napi::String::New(env, value->scan_token));
+      advertisement.Set("generation", Napi::String::New(env, std::to_string(value->generation)));
       advertisement.Set("nativePeerId", Napi::String::New(env, value->peer));
       advertisement.Set("localName", value->name.empty() ? env.Null() : Napi::String::New(env, value->name));
       advertisement.Set("rssi", Napi::Number::New(env, value->rssi));
@@ -558,8 +682,9 @@ class AdvertisementListener final : public ListenerLifecycle {
   }
 };
 
-struct ConnectionLossPayload {
+struct ConnectionEventPayload {
   std::string peer;
+  std::string connection_generation;
   std::optional<std::string> reason;
 };
 
@@ -567,12 +692,16 @@ class ConnectionLossListener final : public ListenerLifecycle {
  public:
   explicit ConnectionLossListener(Napi::ThreadSafeFunction function) : ListenerLifecycle(std::move(function)) {}
 
-  void Emit(const std::string& peer, const std::optional<std::string>& reason) {
-    auto* payload = new ConnectionLossPayload{peer, reason};
+  void Emit(const std::string& peer, const std::string& connection_generation, const std::optional<std::string>& reason) {
+    auto* payload = new ConnectionEventPayload{peer, connection_generation, reason};
     // State-control events apply bounded backpressure rather than silently dropping loss signals.
-    const napi_status status = function_.BlockingCall(payload, [](Napi::Env env, Napi::Function callback, ConnectionLossPayload* value) {
-      std::unique_ptr<ConnectionLossPayload> owned(value);
-      callback.Call({Napi::String::New(env, value->peer), value->reason.has_value() ? Napi::String::New(env, *value->reason) : env.Null()});
+    const napi_status status = function_.BlockingCall(payload, [](Napi::Env env, Napi::Function callback, ConnectionEventPayload* value) {
+      std::unique_ptr<ConnectionEventPayload> owned(value);
+      Napi::Object event = Napi::Object::New(env);
+      event.Set("nativePeerId", Napi::String::New(env, value->peer));
+      event.Set("connectionGeneration", Napi::String::New(env, value->connection_generation));
+      event.Set("safeReason", value->reason.has_value() ? Napi::String::New(env, *value->reason) : env.Null());
+      callback.Call({event});
     });
     if (status != napi_ok) {
       delete payload;
@@ -585,12 +714,15 @@ class DatabaseListener final : public ListenerLifecycle {
  public:
   explicit DatabaseListener(Napi::ThreadSafeFunction function) : ListenerLifecycle(std::move(function)) {}
 
-  void Emit(const std::string& peer) {
-    auto* payload = new std::string(peer);
+  void Emit(const std::string& peer, const std::string& connection_generation) {
+    auto* payload = new ConnectionEventPayload{peer, connection_generation, std::nullopt};
     // State-control events apply bounded backpressure rather than silently dropping invalidation signals.
-    const napi_status status = function_.BlockingCall(payload, [](Napi::Env env, Napi::Function callback, std::string* value) {
-      std::unique_ptr<std::string> owned(value);
-      callback.Call({Napi::String::New(env, *value)});
+    const napi_status status = function_.BlockingCall(payload, [](Napi::Env env, Napi::Function callback, ConnectionEventPayload* value) {
+      std::unique_ptr<ConnectionEventPayload> owned(value);
+      Napi::Object event = Napi::Object::New(env);
+      event.Set("nativePeerId", Napi::String::New(env, value->peer));
+      event.Set("connectionGeneration", Napi::String::New(env, value->connection_generation));
+      callback.Call({event});
     });
     if (status != napi_ok) {
       delete payload;
@@ -603,16 +735,62 @@ class AdapterListener final : public ListenerLifecycle {
  public:
   explicit AdapterListener(Napi::ThreadSafeFunction function) : ListenerLifecycle(std::move(function)) {}
 
-  void Emit(const AdapterView& adapter) {
-    auto* payload = new AdapterView(adapter);
+  void Emit(const AdapterView& adapter, const std::shared_ptr<ControlDeliveryAck>& completion = nullptr) {
+    struct AdapterPayload {
+      AdapterView adapter;
+      std::shared_ptr<ControlDeliveryAck> completion;
+    };
+    auto* payload = new AdapterPayload{adapter, completion};
     // State-control events apply bounded backpressure rather than silently dropping adapter state.
-    const napi_status status = function_.BlockingCall(payload, [](Napi::Env env, Napi::Function callback, AdapterView* value) {
-      std::unique_ptr<AdapterView> owned(value);
-      callback.Call({ToJsAdapterState(env, *value)});
+    const napi_status status = function_.BlockingCall(payload, [](Napi::Env env, Napi::Function callback, AdapterPayload* value) {
+      std::unique_ptr<AdapterPayload> owned(value);
+      try {
+        callback.Call({ToJsAdapterState(env, value->adapter)});
+      } catch (const std::exception& error) {
+        std::fprintf(stderr, "[unified_ble_winrt] adapter-state callback failed: %s\n", error.what());
+      } catch (...) {
+        std::fprintf(stderr, "[unified_ble_winrt] adapter-state callback failed with a non-standard error\n");
+      }
+      if (value->completion != nullptr) value->completion->Signal();
     });
     if (status != napi_ok) {
       delete payload;
+      if (completion != nullptr) completion->Signal();
       ReportControlIngressFailure("adapter-state", status);
+    }
+  }
+};
+
+struct ScanTerminalPayload {
+  std::string scan_token;
+  std::string status;
+  ScanTerminalError error;
+};
+
+class ScanTerminalListener final : public ListenerLifecycle {
+ public:
+  explicit ScanTerminalListener(Napi::ThreadSafeFunction function) : ListenerLifecycle(std::move(function)) {}
+
+  void Emit(const std::string& scan_token, const char* status, BluetoothError error) {
+    auto* payload = new ScanTerminalPayload{scan_token, status, ScanTerminalErrorFor(error)};
+    // Scan terminals are lifecycle control and must not be dropped when the bounded queue is full.
+    const napi_status delivery_status = function_.BlockingCall(payload, [](Napi::Env env, Napi::Function callback, ScanTerminalPayload* value) {
+      std::unique_ptr<ScanTerminalPayload> owned(value);
+      try {
+        Napi::Object terminal = Napi::Object::New(env);
+        terminal.Set("scanToken", Napi::String::New(env, value->scan_token));
+        terminal.Set("status", Napi::String::New(env, value->status));
+        terminal.Set("error", Napi::String::New(env, ScanTerminalErrorCode(value->error)));
+        callback.Call({terminal});
+      } catch (const std::exception& callback_error) {
+        std::fprintf(stderr, "[unified_ble_winrt] scan-terminal callback failed: %s\n", callback_error.what());
+      } catch (...) {
+        std::fprintf(stderr, "[unified_ble_winrt] scan-terminal callback failed with a non-standard error\n");
+      }
+    });
+    if (delivery_status != napi_ok) {
+      delete payload;
+      ReportControlIngressFailure("scan-terminal", delivery_status);
     }
   }
 };
@@ -638,76 +816,119 @@ struct ServiceEntry {
 };
 
 struct ConnectionEntry {
-  ConnectionEntry(
-      BluetoothLEDevice device_value,
-      GattSession session_value,
-      winrt::event_token connection_event_token,
-      winrt::event_token session_event_token)
-      : device(std::move(device_value)),
-        session(std::move(session_value)),
-        connection_token(connection_event_token),
-        session_token(session_event_token) {}
+  ConnectionEntry(BluetoothLEDevice device_value, GattSession session_value, std::string connection_generation_value)
+      : device(std::move(device_value)), session(std::move(session_value)), connection_generation(std::move(connection_generation_value)) {}
 
   ConnectionEntry(const ConnectionEntry&) = delete;
   ConnectionEntry& operator=(const ConnectionEntry&) = delete;
 
   std::mutex gatt_mutex;
+  std::mutex lifecycle_mutex;
   BluetoothLEDevice device;
   GattSession session;
+  std::string connection_generation;
   winrt::event_token connection_token{};
   winrt::event_token session_token{};
+  winrt::event_token services_changed_token{};
+  bool connection_handler_registered{false};
+  bool session_handler_registered{false};
+  bool services_changed_handler_registered{false};
+  bool maintenance_enabled{false};
+  bool session_open{true};
+  bool device_open{true};
+  bool removal_claimed{false};
+  bool loss_emitted{false};
+  std::atomic_uint64_t services_revision{0U};
   std::vector<ServiceEntry> services;
+};
+
+struct ScanLifecycle {
+  std::mutex startup_mutex;
+  std::mutex cleanup_mutex;
+  std::atomic_bool ingress_open{true};
+  std::atomic_bool local_stop_requested{false};
+  std::atomic_bool terminal_emitted{false};
+  std::atomic_bool startup_in_progress{false};
+  std::atomic_bool deferred_stopped{false};
+  std::optional<BluetoothError> deferred_error;
+  bool received_handler_registered{false};
+  bool stopped_handler_registered{false};
+  bool watcher_stopped{false};
+  bool listener_released{false};
+  bool cleanup_complete{false};
+  std::atomic_bool stop_requested{false};
 };
 
 struct ScanEntry {
   BluetoothLEAdvertisementWatcher watcher;
   winrt::event_token received_token{};
+  winrt::event_token stopped_token{};
+  std::string scan_token;
+  uint64_t generation{0U};
   std::shared_ptr<AdvertisementListener> listener;
+  std::shared_ptr<ScanLifecycle> lifecycle;
 };
 
 struct NotificationEntry {
   GattCharacteristic characteristic;
   winrt::event_token value_token{};
   std::shared_ptr<NotificationListener> listener;
+  struct Lifecycle {
+    std::mutex mutex;
+    bool value_handler_registered{true};
+    bool cccd_enabled{true};
+    bool listener_released{false};
+  };
+  std::shared_ptr<Lifecycle> lifecycle;
 };
+
+void ClearGattServices(ConnectionEntry& connection) {
+  std::lock_guard<std::mutex> guard(connection.gatt_mutex);
+  connection.services.clear();
+  connection.services_revision.fetch_add(1U);
+}
 
 struct BoundaryState : public std::enable_shared_from_this<BoundaryState> {
   std::mutex mutex;
   bool destroyed = false;
+  bool destroying = false;
   std::string selected_adapter;
-  std::optional<ScanEntry> scan;
+  uint64_t next_scan_generation{1U};
+  std::shared_ptr<ScanEntry> scan;
   std::unordered_map<std::string, std::shared_ptr<ConnectionEntry>> connections;
   std::unordered_map<std::string, NotificationEntry> notifications;
   std::vector<std::shared_ptr<ConnectionLossListener>> connection_listeners;
   std::vector<std::shared_ptr<DatabaseListener>> database_listeners;
   std::vector<std::shared_ptr<AdapterListener>> adapter_listeners;
+  std::vector<std::shared_ptr<ScanTerminalListener>> scan_terminal_listeners;
   std::shared_ptr<IngressTelemetry> ingress_telemetry = std::make_shared<IngressTelemetry>();
   std::optional<Radio> radio;
   std::optional<winrt::event_token> radio_token;
+  bool radio_handler_registered{false};
 
-  void EmitConnectionLoss(const std::string& peer, const std::optional<std::string>& reason) {
+  void EmitConnectionLoss(const std::string& peer, const std::string& connection_generation, const std::optional<std::string>& reason) {
     std::vector<std::shared_ptr<ConnectionLossListener>> listeners;
     {
       std::lock_guard<std::mutex> guard(mutex);
       listeners = connection_listeners;
     }
     for (const std::shared_ptr<ConnectionLossListener>& listener : listeners) {
-      listener->Emit(peer, reason);
+      listener->Emit(peer, connection_generation, reason);
     }
   }
 
-  void EmitDatabaseChanged(const std::string& peer) {
+  void EmitDatabaseChanged(const std::string& peer, const std::string& connection_generation) {
     std::vector<std::shared_ptr<DatabaseListener>> listeners;
     {
       std::lock_guard<std::mutex> guard(mutex);
       listeners = database_listeners;
     }
     for (const std::shared_ptr<DatabaseListener>& listener : listeners) {
-      listener->Emit(peer);
+      listener->Emit(peer, connection_generation);
     }
   }
 
-  void EmitAdapterState() {
+  void EmitAdapterState(bool wait_for_callbacks = false) {
     AdapterView adapter;
     try {
       adapter = ReadAdapter();
@@ -720,63 +941,39 @@ struct BoundaryState : public std::enable_shared_from_this<BoundaryState> {
       listeners = adapter_listeners;
     }
     for (const std::shared_ptr<AdapterListener>& listener : listeners) {
-      listener->Emit(adapter);
+      const std::shared_ptr<ControlDeliveryAck> completion = wait_for_callbacks ? std::make_shared<ControlDeliveryAck>() : nullptr;
+      listener->Emit(adapter, completion);
+      if (completion != nullptr) completion->Wait();
     }
   }
 
-  void RemoveConnection(const std::string& peer) {
-    std::shared_ptr<ConnectionEntry> connection;
-    std::vector<NotificationEntry> notifications_for_peer;
-    std::string peer_prefix = peer;
-    peer_prefix.push_back('\0');
+  void EmitScanTerminal(const std::string& scan_token, const char* status, BluetoothError error) {
+    std::vector<std::shared_ptr<ScanTerminalListener>> listeners;
     {
       std::lock_guard<std::mutex> guard(mutex);
-      const auto found = connections.find(peer);
-      if (found == connections.end()) {
-        return;
-      }
-      connection = found->second;
-      connections.erase(found);
-      for (auto notification = notifications.begin(); notification != notifications.end();) {
-        if (notification->first.rfind(peer_prefix, 0) == 0) {
-          notifications_for_peer.push_back(std::move(notification->second));
-          notification = notifications.erase(notification);
-        } else {
-          ++notification;
-        }
-      }
+      listeners = scan_terminal_listeners;
     }
-    for (NotificationEntry& entry : notifications_for_peer) {
-      entry.characteristic.ValueChanged(entry.value_token);
-      entry.listener->Release();
+    for (const std::shared_ptr<ScanTerminalListener>& listener : listeners) {
+      listener->Emit(scan_token, status, error);
     }
-    connection->device.ConnectionStatusChanged(connection->connection_token);
-    connection->session.SessionStatusChanged(connection->session_token);
-    connection->session.MaintainConnection(false);
-    connection->session.Close();
-    connection->device.Close();
   }
 
-  void StopScan() {
-    std::optional<ScanEntry> entry;
-    {
-      std::lock_guard<std::mutex> guard(mutex);
-      if (!scan.has_value()) {
-        return;
-      }
-      entry = std::move(scan);
-      scan.reset();
-    }
-    entry->watcher.Received(entry->received_token);
-    entry->watcher.Stop();
-    entry->listener->Release();
-  }
+  void HandleGattServicesChanged(const std::string& peer, const std::shared_ptr<ConnectionEntry>& expected);
+
+  void HandleScanStopped(const std::shared_ptr<ScanEntry>& entry, BluetoothError error);
+
+  bool RemoveConnection(const std::string& peer, const std::shared_ptr<ConnectionEntry>& expected = nullptr);
+
+  void StopScan(const std::string& scan_token);
 
   void Destroy();
 };
 
 std::shared_ptr<ConnectionEntry> RequiredConnection(const std::shared_ptr<BoundaryState>& state, const std::string& peer) {
   std::lock_guard<std::mutex> guard(state->mutex);
+  if (state->destroyed || state->destroying) {
+    throw std::runtime_error("The WinRT native boundary is tearing down");
+  }
   const auto found = state->connections.find(peer);
   if (found == state->connections.end()) {
     throw std::runtime_error("The WinRT peer is not connected");

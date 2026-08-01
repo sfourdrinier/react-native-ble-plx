@@ -13,7 +13,8 @@
  *   npx --yes @electron/rebuild -f -w native/electron/corebluetooth   # macOS after node-gyp
  *   ./node_modules/.bin/electron scripts/ci/electron-main-smoke.js
  *
- * Non-darwin runs prove public Electron-main loading only; no radio is claimed.
+ * On Windows after a WinRT Electron-ABI rebuild, also creates and validates the
+ * public WinRT contract boundary. No branch starts a scan or claims live radio.
  */
 'use strict'
 
@@ -39,7 +40,11 @@ async function main() {
     )
   }
 
-  const { createElectronMainCoreBluetoothBackendProvider, createNativeCoreBluetoothBoundary } = loadElectronMain()
+  const {
+    createElectronMainCoreBluetoothBackendProvider,
+    createNativeCoreBluetoothBoundary,
+    createNativeWinRtBoundary
+  } = loadElectronMain()
   if (typeof createElectronMainCoreBluetoothBackendProvider !== 'function') {
     throw new Error('Electron-main CoreBluetooth provider factory is not a function under Electron')
   }
@@ -56,9 +61,20 @@ async function main() {
     }
     const boundary = createNativeCoreBluetoothBoundary()
     for (const method of [
-      'adapterSnapshot', 'startScan', 'stopScan', 'connect', 'disconnect',
-      'connectionState', 'discover', 'read', 'write', 'startNotify',
-      'stopNotify', 'onDisconnect', 'onAdapterState', 'destroy'
+      'adapterSnapshot',
+      'startScan',
+      'stopScan',
+      'connect',
+      'disconnect',
+      'connectionState',
+      'discover',
+      'read',
+      'write',
+      'startNotify',
+      'stopNotify',
+      'onDisconnect',
+      'onAdapterState',
+      'destroy'
     ]) {
       if (typeof boundary[method] !== 'function') {
         throw new Error(`CoreBluetooth contract boundary is missing ${method}`)
@@ -69,8 +85,47 @@ async function main() {
       runtime: 'electron',
       electron: process.versions.electron
     })
+  } else if (process.platform === 'win32') {
+    if (typeof createNativeWinRtBoundary !== 'function') {
+      throw new Error('createNativeWinRtBoundary missing from Electron-main entrypoint')
+    }
+    const boundary = createNativeWinRtBoundary()
+    for (const method of [
+      'listAdapters',
+      'selectAdapter',
+      'adapterSnapshot',
+      'startScan',
+      'stopScan',
+      'connect',
+      'disconnect',
+      'discover',
+      'read',
+      'write',
+      'readDescriptor',
+      'writeDescriptor',
+      'startNotify',
+      'stopNotify',
+      'onConnectionLost',
+      'onDatabaseChanged',
+      'onAdapterState',
+      'onScanTerminal',
+      'ingressTelemetry',
+      'destroy'
+    ]) {
+      if (typeof boundary[method] !== 'function') {
+        throw new Error(`WinRT contract boundary is missing ${method}`)
+      }
+    }
+    const cleanup = boundary.destroy()
+    await cleanup.completion
+    console.log('Electron main-process L3 WinRT public boundary ok', {
+      runtime: 'electron',
+      electron: process.versions.electron
+    })
   } else {
-    console.log('Electron main-process L3 CoreBluetooth boundary skipped (non-darwin; no radio claim)')
+    console.log('Electron main-process L3 native boundary skipped (unsupported host; no radio claim)', {
+      platform: process.platform
+    })
   }
 
   // Electron keeps the event loop alive until explicitly exited.

@@ -46,7 +46,7 @@ export function createWinRtFirstPartyTckRegistration(
       create: async _context => createFixture(options)
     },
     suites: Object.freeze([
-      Object.freeze({ suiteId: 'winrt-provider-contract-v1', baseScenarioIds: winRtScenarioIds })
+      Object.freeze({ suiteId: 'winrt-provider-contract-v2', baseScenarioIds: winRtScenarioIds })
     ]),
     featureSuites: Object.freeze([]),
     capabilityExclusions: Object.freeze([

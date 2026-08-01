@@ -6,8 +6,40 @@ import type { WinRtBoundary } from './backends/winrt/winrt-boundary'
 import { createWinRtBackendProvider, type WinRtBackendProviderOptions } from './backends/winrt/winrt-provider'
 
 interface WinRtNativeModule {
-  readonly nativeProtocolVersion: number
+  readonly boundaryVersion: 2
   createContractBoundary(): WinRtBoundary
+}
+
+const requiredNativeBoundaryMethods = [
+  'listAdapters',
+  'selectAdapter',
+  'adapterSnapshot',
+  'startScan',
+  'stopScan',
+  'connect',
+  'disconnect',
+  'discover',
+  'read',
+  'write',
+  'readDescriptor',
+  'writeDescriptor',
+  'startNotify',
+  'stopNotify',
+  'onConnectionLost',
+  'onDatabaseChanged',
+  'onAdapterState',
+  'onScanTerminal',
+  'ingressTelemetry',
+  'destroy'
+]
+
+function missingNativeBoundaryMethod(boundary: WinRtBoundary): string | null {
+  for (const method of requiredNativeBoundaryMethods) {
+    if (typeof Reflect.get(boundary, method) !== 'function') {
+      return method
+    }
+  }
+  return null
 }
 
 export {
@@ -30,6 +62,9 @@ export type {
   WinRtDescriptorRecord,
   WinRtGattSnapshot,
   WinRtIngressTelemetry,
+  WinRtScanTerminalError,
+  WinRtScanTerminalRecord,
+  WinRtScanTerminalStatus,
   WinRtServiceRecord
 } from './backends/winrt/winrt-boundary'
 export type { WinRtBackendProviderOptions } from './backends/winrt/winrt-provider'
@@ -70,16 +105,26 @@ export function createNativeWinRtBoundary(): WinRtBoundary {
       'The packaged WinRT native artifact could not be loaded for this Node or Electron runtime'
     )
   }
-  if (nativeModule.nativeProtocolVersion !== 1 || typeof nativeModule.createContractBoundary !== 'function') {
+  if (nativeModule.boundaryVersion !== 2 || typeof nativeModule.createContractBoundary !== 'function') {
     throw contractError('protocol.incompatible', 'boundary', 'winrt.native-boundary.version', {
       domain: 'winrt',
       code: 'native-protocol-version',
-      safeMessage: 'The packaged WinRT native artifact does not implement boundary protocol v1',
+      safeMessage: 'The packaged WinRT native artifact does not implement boundary protocol v2',
       metadata: Object.freeze({})
     })
   }
   try {
-    return nativeModule.createContractBoundary()
+    const boundary = nativeModule.createContractBoundary()
+    const missingMethod = missingNativeBoundaryMethod(boundary)
+    if (missingMethod !== null) {
+      throw contractError('protocol.incompatible', 'boundary', 'winrt.native-boundary.surface', {
+        domain: 'winrt',
+        code: 'native-boundary-surface',
+        safeMessage: `The packaged WinRT native boundary is missing required protocol v2 method ${missingMethod}`,
+        metadata: Object.freeze({ missingMethod })
+      })
+    }
+    return boundary
   } catch (error) {
     if (error instanceof BackendContractError) {
       throw error

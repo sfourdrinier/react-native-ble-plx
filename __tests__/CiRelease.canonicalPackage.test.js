@@ -102,7 +102,8 @@ describe('ci-release canonical package (4.0)', () => {
     expect(ci).toContain('Electron Fake multi-device demo smoke (L1)')
     expect(ci).toContain('CoreBluetooth native boundary L2')
     expect(ci).toContain('build:electron:macos')
-    expect(ci).toContain('WinRT native boundary compile and ABI load')
+    expect(ci).toContain('WinRT native boundary Node ABI build and load')
+    expect(ci).toContain('WinRT native boundary Electron ABI rebuild and load')
     expect(ci).toContain('createContractBoundary')
     expect(ci).toContain('Canonical host export resolve (L2)')
     expect(ci).not.toMatch(/vite build|example-web\/vite\.config\.js/)
@@ -121,7 +122,7 @@ describe('ci-release canonical package (4.0)', () => {
     expect(ci).toMatch(/Build package artifacts \(macOS\/Windows L2 hosts\)/)
     const prepackL2 = ci.indexOf('Build package artifacts (macOS/Windows L2 hosts)')
     const cbL2 = ci.indexOf('CoreBluetooth native boundary L2')
-    const winL2 = ci.indexOf('WinRT native boundary compile and ABI load')
+    const winL2 = ci.indexOf('WinRT native boundary Node ABI build and load')
     expect(prepackL2).toBeGreaterThan(-1)
     expect(cbL2).toBeGreaterThan(prepackL2)
     expect(winL2).toBeGreaterThan(prepackL2)
@@ -164,7 +165,10 @@ describe('ci-release canonical package (4.0)', () => {
       /Electron ABI rebuild \+ main-process smoke \(L3, Node ABI ≠ Electron ABI\)\n\s+if: runner\.os == 'macOS' && matrix\.node == '22'/
     )
     expect(ci).toMatch(
-      /WinRT native boundary compile and ABI load \(Windows; no live radio\)\n\s+if: runner\.os == 'Windows' && matrix\.node == '22'/
+      /WinRT native boundary Node ABI build and load \(Windows; no live radio\)\n\s+if: runner\.os == 'Windows' && matrix\.node == '22'/
+    )
+    expect(ci).toMatch(
+      /WinRT native boundary Electron ABI rebuild and load \(Windows; no live radio\)\n\s+if: runner\.os == 'Windows' && matrix\.node == '22'/
     )
   })
 

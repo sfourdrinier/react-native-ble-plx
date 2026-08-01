@@ -82,13 +82,21 @@ import {
   adapterDescriptor,
   winRtCompatibility
 } from './winrt-provider'
+import {
+  validateWinRtConnectionLossRecord,
+  validateWinRtDatabaseChangedRecord,
+  validateWinRtScanTerminalRecord
+} from './winrt-boundary'
 import type {
   WinRtAdapterRecord,
   WinRtAsyncOperation,
   WinRtAdapterSnapshot,
   WinRtBoundary,
   WinRtCancellationState,
-  WinRtCharacteristicAddress
+  WinRtCharacteristicAddress,
+  WinRtConnectionLossRecord,
+  WinRtDatabaseChangedRecord,
+  WinRtScanTerminalRecord
 } from './winrt-boundary'
 import { invalidateWinRtPhysicalSubscription } from './winrt-subscription-runtime'
 
@@ -154,11 +162,15 @@ export interface WinRtScanConsumer {
 interface WinRtScanGroup {
   readonly ownerLeaseId: LeaseId<string, string>
   readonly shareToken: ScanShareToken<string, string> | null
+  readonly scanToken: string
   /** The owner-selected session remains stable even if the owner releases before joined consumers. */
   readonly scanSessionId: ScanSessionId<string, string>
   readonly consumers: Map<string, WinRtScanConsumer>
   state: 'starting' | 'active' | 'stopping' | 'cleanup-pending'
   startTerminalError: Error | null
+  startTerminalShouldTerminalize: boolean
+  startInvocationActive: boolean
+  startDispatch: WinRtOperationDispatch<void> | null
   stopResult: Promise<CleanupRecord> | null
 }
 
@@ -175,6 +187,7 @@ interface WinRtPendingConnectionOperation {
 
 /** A fully validated native advertisement that can safely enter backend state and public observations. */
 interface ValidatedWinRtAdvertisement {
+  readonly scanToken: string
   readonly nativePeerId: string
   readonly localName: string | null
   readonly rssi: number | null
@@ -256,11 +269,16 @@ function validateWinRtAdvertisement(advertisement: unknown): ValidatedWinRtAdver
   if (typeof advertisement !== 'object' || advertisement === null || Array.isArray(advertisement)) {
     throw invalidWinRtAdvertisement('must be a non-array object')
   }
+  const scanToken = requiredWinRtAdvertisementField(advertisement, 'scanToken')
+  if (typeof scanToken !== 'string' || scanToken.length === 0) {
+    throw invalidWinRtAdvertisement('field scanToken must be a non-empty string')
+  }
   const nativePeerId = requiredWinRtAdvertisementField(advertisement, 'nativePeerId')
   if (typeof nativePeerId !== 'string' || nativePeerId.length === 0) {
     throw invalidWinRtAdvertisement('field nativePeerId must be a non-empty string')
   }
   return Object.freeze({
+    scanToken,
     nativePeerId,
     localName: nullableWinRtAdvertisementString(
       requiredWinRtAdvertisementField(advertisement, 'localName'),
@@ -345,6 +363,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
   private readonly connectionsByNativeId = new Map<string, WinRtConnectionRecord>()
   private readonly removeConnectionListener: () => void
   private readonly removeDatabaseListener: () => void
+  private readonly removeScanTerminalListener: () => void
   private readonly removeAdapterStateListener: () => void
   private adapterStateSnapshot: WinRtAdapterSnapshot
   private attached = false
@@ -402,11 +421,22 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
       subscribe: this.gattOperations.subscribe.bind(this.gattOperations),
       unsubscribe: this.gattOperations.unsubscribe.bind(this.gattOperations)
     })
-    this.removeConnectionListener = boundary.onConnectionLost((nativePeerId, safeReason) => {
-      this.handleConnectionLoss(nativePeerId, safeReason)
+    this.removeConnectionListener = boundary.onConnectionLost(record => {
+      try {
+        this.handleConnectionLoss(validateWinRtConnectionLossRecord(record))
+      } catch (error) {
+        console.error('[WinRtBackend.onConnectionLost] Dropped malformed native connection-loss record:', error)
+      }
     })
-    this.removeDatabaseListener = boundary.onDatabaseChanged(nativePeerId => {
-      this.handleDatabaseChanged(nativePeerId)
+    this.removeDatabaseListener = boundary.onDatabaseChanged(record => {
+      try {
+        this.handleDatabaseChanged(validateWinRtDatabaseChangedRecord(record))
+      } catch (error) {
+        console.error('[WinRtBackend.onDatabaseChanged] Dropped malformed native database-change record:', error)
+      }
+    })
+    this.removeScanTerminalListener = boundary.onScanTerminal(record => {
+      this.handleScanTerminal(record)
     })
     this.removeAdapterStateListener = boundary.onAdapterState(state => {
       this.handleAdapterState(state)
@@ -424,7 +454,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
         hostKind: this.hostKind,
         implementationVersion: WINRT_IMPLEMENTATION_VERSION,
         diagnostics: Object.freeze({
-          boundary: 'winrt-direct-v1',
+          boundary: 'winrt-direct-v2',
           deployment: this.selectedAdapter.deployment
         })
       })
@@ -707,7 +737,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     group.state = 'stopping'
     let nativeStop: WinRtAsyncOperation<void>
     try {
-      nativeStop = this.boundary.stopScan()
+      nativeStop = this.boundary.stopScan(group.scanToken)
     } catch (error) {
       group.state = 'cleanup-pending'
       return Promise.resolve(cleanupFailure('scan', operation, error))
@@ -730,10 +760,64 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     return stop
   }
 
+  /** Retires a scan group only after its native start has proved that no watcher remains owned. */
+  private retireScanGroup(group: WinRtScanGroup, reason: CoreStreamTerminalReason = 'owner-released'): void {
+    for (const consumer of group.consumers.values()) {
+      this.releaseScanAdmission(consumer)
+      consumer.released = true
+      consumer.stream.closeWithReason(reason)
+    }
+    group.consumers.clear()
+    if (this.scanGroup === group) {
+      this.scanGroup = null
+    }
+  }
+
+  private scanGroupStopResult(group: WinRtScanGroup): Promise<CleanupRecord> | null {
+    return group.stopResult
+  }
+
+  private scanGroupState(group: WinRtScanGroup): WinRtScanGroup['state'] {
+    return group.state
+  }
+
   /** Retries an abandoned late-start cleanup before admitting another native watcher. */
   private async reconcilePendingScanGroup(): Promise<void> {
     const group = this.scanGroup
-    if (group === null || group.state !== 'cleanup-pending') {
+    if (group === null || group.state === 'active' || group.state === 'starting') {
+      return
+    }
+    if (group.state === 'stopping') {
+      if (group.stopResult !== null) {
+        const cleanup = await group.stopResult
+        if (cleanup.state === 'release-failed') {
+          throw contractError('platform.failure', 'cleanup', 'winrt.scan.reconcile-stop')
+        }
+        return
+      }
+      if (group.startDispatch !== null) {
+        await group.startDispatch.physicalCompletion
+      }
+      if (this.scanGroup !== group) {
+        return
+      }
+      const reconciledStopResult = this.scanGroupStopResult(group)
+      if (reconciledStopResult !== null) {
+        const cleanup = await reconciledStopResult
+        if (cleanup.state === 'release-failed') {
+          throw contractError('platform.failure', 'cleanup', 'winrt.scan.reconcile-stop')
+        }
+        return
+      }
+      const reconciledState = this.scanGroupState(group)
+      if (reconciledState === 'cleanup-pending') {
+        const cleanup = await this.stopScanGroup(group, 'winrt.scan.retry-late-start-cleanup')
+        if (cleanup.state === 'release-failed') {
+          throw contractError('platform.failure', 'cleanup', 'winrt.scan.retry-late-start-cleanup')
+        }
+        return
+      }
+      this.retireScanGroup(group)
       return
     }
     const cleanup = await this.stopScanGroup(group, 'winrt.scan.retry-late-start-cleanup')
@@ -783,31 +867,46 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     const group: WinRtScanGroup = {
       ownerLeaseId: consumer.leaseId,
       shareToken: consumer.shareToken,
+      scanToken: `winrt-scan-token-${String(this.backendInstanceId)}-${ordinal}`,
       scanSessionId: consumer.scanSessionId,
       consumers: new Map([[String(consumer.leaseId), consumer]]),
       state: 'starting',
       startTerminalError: null,
+      startTerminalShouldTerminalize: false,
+      startInvocationActive: true,
+      startDispatch: null,
       stopResult: null
     }
     this.scanGroup = group
     this.bindScanAdmission(consumer)
-    const dispatch = this.dispatcher.dispatch(
-      options,
-      'winrt.scan.start',
-      () =>
-        this.boundary.startScan(options.filter.serviceUuids, advertisement => this.handleAdvertisement(advertisement)),
-      async () => {
-        const cleanup = await this.stopScanGroup(group, 'winrt.scan.late-start-cleanup')
-        if (cleanup.state === 'release-failed') {
-          throw contractError('platform.failure', 'cleanup', 'winrt.scan.late-start-cleanup')
+    let dispatch: WinRtOperationDispatch<void>
+    try {
+      dispatch = this.dispatcher.dispatch(
+        options,
+        'winrt.scan.start',
+        () =>
+          this.boundary.startScan(group.scanToken, options.filter.serviceUuids, advertisement =>
+            this.handleAdvertisement(advertisement)
+          ),
+        async () => {
+          const cleanup = await this.stopScanGroup(group, 'winrt.scan.late-start-cleanup')
+          if (cleanup.state === 'release-failed') {
+            throw contractError('platform.failure', 'cleanup', 'winrt.scan.late-start-cleanup')
+          }
+        },
+        () => {
+          if (this.scanGroup === group && (group.state === 'starting' || group.state === 'stopping')) {
+            this.retireScanGroup(group)
+          }
         }
-      },
-      () => {
-        if (this.scanGroup === group && group.state === 'stopping') {
-          this.scanGroup = null
-        }
-      }
-    )
+      )
+    } finally {
+      group.startInvocationActive = false
+    }
+    group.startDispatch = dispatch
+    if (group.startTerminalShouldTerminalize && group.startTerminalError !== null) {
+      this.dispatcher.terminalize(dispatch.handle, group.startTerminalError)
+    }
     try {
       await dispatch.completion
     } catch (error) {
@@ -815,13 +914,16 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
       consumer.released = true
       consumer.stream.closeWithReason('owner-released')
       group.consumers.delete(String(consumer.leaseId))
-      if (this.scanGroup === group && group.state === 'starting') {
+      if (this.scanGroup === group) {
         if (this.isPublicOperationCancellation(error)) {
           // Native start can still succeed after a logical cancellation. Keep the group owned until
           // its late completion either proves no watcher exists or compensating stop succeeds.
           group.state = 'stopping'
         } else {
-          this.scanGroup = null
+          await dispatch.physicalCompletion
+          if (this.scanGroup === group && (group.state === 'starting' || group.state === 'stopping')) {
+            this.retireScanGroup(group)
+          }
         }
       }
       throw winRtPlatformError('scan.start-failed', 'scan', 'winrt.scan.start', error)
@@ -928,7 +1030,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     const dispatch = this.dispatcher.dispatch(
       options,
       'winrt.connect',
-      () => this.boundary.connect(nativePeerId),
+      () => this.boundary.connect(nativePeerId, String(record.connectionGeneration)),
       async () => {
         await this.cleanupLateConnect(record, 'winrt.connect.late-success-cleanup')
       },
@@ -1029,7 +1131,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
       return
     }
     const group = this.scanGroup
-    if (group === null || group.state !== 'active') {
+    if (group === null || group.state !== 'active' || validatedAdvertisement.scanToken !== group.scanToken) {
       return
     }
     const peerId = this.peerIdForNativeId(validatedAdvertisement.nativePeerId)
@@ -1079,6 +1181,85 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     }
   }
 
+  private handleScanTerminal(record: unknown): void {
+    let terminal: WinRtScanTerminalRecord
+    try {
+      terminal = validateWinRtScanTerminalRecord(record)
+    } catch (error) {
+      this.reportMalformedScanTerminal(error)
+      return
+    }
+    const group = this.scanGroup
+    if (group === null || group.scanToken !== terminal.scanToken) {
+      return
+    }
+    if (this.adapterLossPending || group.state === 'stopping' || group.state === 'cleanup-pending') {
+      return
+    }
+    const terminalError = this.scanTerminalError(terminal)
+    if (group.state === 'starting') {
+      group.startTerminalError ??= terminalError
+      group.startTerminalShouldTerminalize = true
+      group.state = 'stopping'
+      for (const consumer of group.consumers.values()) {
+        this.releaseScanAdmission(consumer)
+        consumer.released = true
+        consumer.stream.closeWithReason('source-failed')
+      }
+      group.consumers.clear()
+      if (group.startDispatch !== null) {
+        this.dispatcher.terminalize(group.startDispatch.handle, group.startTerminalError)
+      }
+      this.reportScanTerminal(terminal, terminalError)
+      return
+    }
+    if (group.state !== 'active') {
+      return
+    }
+    group.state = 'stopping'
+    for (const consumer of group.consumers.values()) {
+      this.releaseScanAdmission(consumer)
+      consumer.released = true
+      consumer.stream.closeWithReason('source-failed')
+    }
+    group.consumers.clear()
+    if (this.scanGroup === group) {
+      this.scanGroup = null
+    }
+    this.reportScanTerminal(terminal, terminalError)
+  }
+
+  private scanTerminalError(record: WinRtScanTerminalRecord): Error {
+    return winRtPlatformError(
+      'scan.start-failed',
+      'scan',
+      record.status === 'aborted' ? 'winrt.scan.aborted' : 'winrt.scan.terminal',
+      new Error(`WinRT scan terminated with ${record.error}`)
+    )
+  }
+
+  private reportMalformedScanTerminal(error: unknown): void {
+    const report = error instanceof Error ? error : new Error('WinRT scan terminal validation failed')
+    try {
+      console.error('[WinRtBackend.handleScanTerminal] Dropped malformed native scan terminal:', report)
+    } catch {
+      // A diagnostic sink cannot be allowed to escape through the native callback stack.
+    }
+  }
+
+  private reportScanTerminal(record: WinRtScanTerminalRecord, error: Error): void {
+    try {
+      console.error('[WinRtBackend.handleScanTerminal] Native scan terminated:', {
+        scanToken: record.scanToken,
+        status: record.status,
+        error: record.error,
+        normalized: error
+      })
+    } catch {
+      // The scan is already terminal; diagnostics must not re-open ownership or throw into native code.
+    }
+  }
+
   /** A reporting failure cannot be allowed to escape through the native callback stack. */
   private reportMalformedAdvertisement(error: unknown): void {
     const report =
@@ -1102,9 +1283,12 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     return peerId
   }
 
-  private handleConnectionLoss(nativePeerId: string, safeReason: string | null): void {
-    const record = this.connectionsByNativeId.get(nativePeerId)
+  private handleConnectionLoss(event: WinRtConnectionLossRecord): void {
+    const record = this.connectionsByNativeId.get(event.nativePeerId)
     if (record === undefined || record.state === 'lost' || record.state === 'disconnected') {
+      return
+    }
+    if (String(record.connectionGeneration) !== event.connectionGeneration) {
       return
     }
     const connectionPath = Object.freeze({
@@ -1157,8 +1341,8 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     })
     this.nextIngressOrdinal += 1
     record.lease = null
-    if (safeReason !== null) {
-      console.info('[WinRtBackend.connection-loss] WinRT reported connection loss:', safeReason)
+    if (event.safeReason !== null) {
+      console.info('[WinRtBackend.connection-loss] WinRT reported connection loss:', event.safeReason)
     }
   }
 
@@ -1223,10 +1407,14 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     }
   }
 
-  private handleDatabaseChanged(nativePeerId: string): void {
-    const record = this.connectionsByNativeId.get(nativePeerId)
+  private handleDatabaseChanged(event: WinRtDatabaseChangedRecord): void {
+    const record = this.connectionsByNativeId.get(event.nativePeerId)
     const database = record?.database
-    if (record === undefined || record.state !== 'connected') {
+    if (
+      record === undefined ||
+      record.state !== 'connected' ||
+      String(record.connectionGeneration) !== event.connectionGeneration
+    ) {
       return
     }
     record.gattRevision += 1
@@ -1396,12 +1584,29 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
       }
       if (group.state === 'starting') {
         group.startTerminalError = contractError('operation.reset', 'scan', 'winrt.scan.start.adapter-loss')
+        group.state = 'stopping'
       }
       if (group.stopResult !== null) {
         failures.push(...(await group.stopResult).failures)
       } else if (group.state === 'active' || group.state === 'cleanup-pending') {
         const cleanup = await this.stopScanGroup(group, 'winrt.adapter-loss.stop-scan')
         failures.push(...cleanup.failures)
+      } else if (group.state === 'stopping') {
+        if (group.startDispatch !== null) {
+          await group.startDispatch.physicalCompletion
+        }
+        if (this.scanGroup === group) {
+          const lateStopResult = this.scanGroupStopResult(group)
+          const lateState = this.scanGroupState(group)
+          if (lateStopResult !== null) {
+            failures.push(...(await lateStopResult).failures)
+          } else if (lateState === 'cleanup-pending') {
+            // The late-start compensating stop already failed; retain ownership for the next
+            // adapter-loss cleanup pass so the failure remains observable and retryable.
+          } else if (!group.startInvocationActive) {
+            this.retireScanGroup(group, 'connection-lost')
+          }
+        }
       }
     }
     for (const cleanup of subscriptionCleanups) {
@@ -1527,8 +1732,23 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
       }
       if (group.stopResult !== null) {
         failures.push(...(await group.stopResult).failures)
-      } else if (group.state !== 'stopping') {
+      } else if (group.state === 'active' || group.state === 'cleanup-pending') {
         failures.push(...(await this.stopScanGroup(group, 'winrt.destroy.scan')).failures)
+      } else {
+        if (group.startDispatch !== null) {
+          await group.startDispatch.physicalCompletion
+        }
+        if (this.scanGroup === group) {
+          const destroyStopResult = this.scanGroupStopResult(group)
+          const destroyState = this.scanGroupState(group)
+          if (destroyStopResult !== null) {
+            failures.push(...(await destroyStopResult).failures)
+          } else if (destroyState === 'cleanup-pending') {
+            failures.push(...(await this.stopScanGroup(group, 'winrt.destroy.scan-retry')).failures)
+          } else {
+            this.retireScanGroup(group)
+          }
+        }
       }
     }
     for (const cleanup of subscriptionCleanups) {
@@ -1557,6 +1777,7 @@ export class WinRtBackend implements BleCentralBackend<string, HostNeutralBacken
     }
     this.removeConnectionListener()
     this.removeDatabaseListener()
+    this.removeScanTerminalListener()
     this.removeAdapterStateListener()
     for (const stream of this.eventStreams) {
       stream.closeWithReason('owner-released')

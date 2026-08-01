@@ -33,7 +33,10 @@ Select one concrete backend in main. The native loaders are fail-closed:
   hosts.
 - `createElectronMainWinRtBackendProvider({ now })` loads only the
   package-controlled WinRT Node-API artifact, requires Windows, and verifies
-  native boundary protocol v1.
+  native boundary protocol v2. Its private boundary fixes scan ownership at
+  `startScan(scanToken, serviceUuids, onAdvertisement)` and requires the
+  `onScanTerminal(listener)` registration method; a v1 or incomplete artifact
+  is rejected rather than adapted.
 - `createDbusNextBluezBackendProvider({ busKind, now })` constructs the owned
   BlueZ D-Bus backend for the explicitly selected system or session bus.
 
@@ -113,9 +116,12 @@ pnpm --dir node_modules/unified-ble-manager exec node-gyp rebuild --release --di
 The Node and Electron commands are not interchangeable: they produce addons
 for different ABIs. Rebuild after any target runtime, ABI, architecture, or
 package-version change. Windows and Linux have their own native/runtime
-requirements and are not implied by a macOS build. A build or deterministic
-smoke is not a live-radio support claim. Published evidence records state the
-exact backend, package digest, OS/runtime/ABI, hardware, scenario, limitations,
-and proof level.
+requirements and are not implied by a macOS build. Windows CI builds and loads
+the actual WinRT addon under Node, rebuilds it for the pinned Electron ABI, and
+loads the v2 public boundary under Electron main. That smoke checks the method
+surface and destroys the boundary; it does not start a scan, observe an
+advertisement, or establish live-radio support. Published evidence records
+state the exact backend, package digest, OS/runtime/ABI, hardware, scenario,
+limitations, and proof level.
 See [`PLATFORMS.md`](PLATFORMS.md) and the controlling
 [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
