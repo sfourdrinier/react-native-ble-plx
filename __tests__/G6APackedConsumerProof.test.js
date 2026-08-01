@@ -116,7 +116,7 @@ describe('G6A packed independent-consumer proof fixture', () => {
     const web = validHostResult('web')
     expect(parseProofResult(`${JSON.stringify(node)}\n`, 'node')).toEqual(node)
     const aggregate = validAggregate(node, web)
-    expect(validateG6AProof(aggregate, 'unified-ble-manager', '4.0.0-alpha.29')).toEqual(aggregate)
+    expect(validateG6AProof(aggregate, 'unified-ble-manager', '4.0.0-alpha.30')).toEqual(aggregate)
   })
 
   test.each([
@@ -151,7 +151,7 @@ describe('G6A packed independent-consumer proof fixture', () => {
     expect(() =>
       _name.startsWith('third-party')
         ? validateThirdPartyResult(target)
-        : validateG6AProof(aggregate, 'unified-ble-manager', '4.0.0-alpha.29')
+        : validateG6AProof(aggregate, 'unified-ble-manager', '4.0.0-alpha.30')
     ).toThrow()
   })
 
@@ -307,7 +307,7 @@ function validAggregate(node, web) {
     status: 'deterministic-packed-artifact-proof',
     artifact: {
       packageName: 'unified-ble-manager',
-      packageVersion: '4.0.0-alpha.29',
+      packageVersion: '4.0.0-alpha.30',
       installedFrom: 'packed-tarball',
       sourcePathUsedByConsumers: false
     },

@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.30] - 2026-08-01 (published prerelease)
+
+### Added
+
+- Added authoritative generated platform-support, performance-budget, SBOM,
+  license-policy, governance, security, support, and release-artifact gates.
+- Added store-independent, lockfile-derived dependency graph generation with
+  deterministic cross-platform package verification.
+
+### Fixed
+
+- Corrected WinRT adapter identifier handling across C++/WinRT enumeration and
+  renderer selection, and verified both Node and Electron ABI builds on Windows.
+- Made the complete macOS, Linux, Windows, Android, Expo Android/iOS, classic
+  iOS, and tvOS CI matrix authoritative for the clean-baseline package.
+- Updated packed-artifact verification to include every published policy,
+  SBOM, and third-party license document.
+
+### Support and evidence boundary
+
+- Alpha.30 remains Experimental until its exact package artifact is bound to
+  the required physical-radio evidence. Compile, ABI, deterministic, package,
+  and performance proof must not be presented as live-radio support.
+- Meta Quest and the controllable physical fault-injection peripheral remain
+  explicitly deferred to 4.1.
+
 ## [4.0.0-alpha.29] - 2026-08-01 (published prerelease)
 
 ### Added
