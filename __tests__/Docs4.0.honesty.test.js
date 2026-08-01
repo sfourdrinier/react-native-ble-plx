@@ -214,7 +214,7 @@ describe('4.0 documentation honesty', () => {
     const migration = read('MIGRATION_4.0.md')
     const release = read('RELEASE.md')
 
-    expect(migration).toContain('current 4.0 prerelease candidate; pending publication')
+    expect(migration).toContain('current published 4.0 prerelease')
     expect(migration).toContain('unified-ble-manager@4.0.0-alpha.29')
     expect(migration).toContain('stable `hostSessionScope`')
     expect(migration).toContain('`Uint8Array`')
@@ -239,7 +239,7 @@ describe('4.0 documentation honesty', () => {
     expect(readme).toContain('unified-ble-manager@4.0.0-alpha.29')
     expect(readme).toContain('pnpm add unified-ble-manager@4.0.0-alpha.29')
     expect(readme).toContain('`v4.0.0-alpha.27` is an already-published historical prerelease')
-    expect(changelog).toContain('## [4.0.0-alpha.29] - 2026-08-01 (prepared; pending publication)')
+    expect(changelog).toContain('## [4.0.0-alpha.29] - 2026-08-01 (published prerelease)')
     expect(changelog).toContain('## [4.0.0-alpha.28] - 2026-08-01 (published prerelease)')
     expect(changelog).toContain('## [4.0.0-alpha.27] - 2026-08-01 (published historical prerelease)')
     expect(readme).toContain('createReactNativeBleManager')
@@ -257,7 +257,7 @@ describe('4.0 documentation honesty', () => {
     expect(changelog).toContain('hostSessionScope')
   })
 
-  test('alpha.29 candidate documentation preserves exact release, evidence, and deferral boundaries', () => {
+  test('alpha.29 published documentation preserves exact release, evidence, and deferral boundaries', () => {
     const readme = read('README.md')
     const release = read('RELEASE.md')
     const platforms = read('docs/PLATFORMS.md')
@@ -265,11 +265,11 @@ describe('4.0 documentation honesty', () => {
     expect(readme).toContain('`next` dist-tag')
     expect(readme).toMatch(/Do not install\s+the bare package name or `@latest`/)
     expect(release).toContain('v4.0.0-alpha.29')
-    expect(release).toContain('pending GitHub Actions trusted publication')
+    expect(release).toContain('protected GitHub Actions trusted-publishing workflow')
     expect(release).toContain('`v4.0.0-alpha.27` is an already-published historical prerelease')
-    expect(release).toMatch(/pending GitHub Actions trusted publication/)
+    expect(release).toMatch(/GitHub Actions\s+as the trusted publisher/)
     expect(release).toContain('SLSA provenance')
-    expect(platforms).toContain('No current evidence record binds the alpha.29')
+    expect(platforms).toContain('No current evidence record binds the published alpha.29')
     expect(platforms).toContain('makes no Windows live-radio claim')
     expect(platforms).toContain('Meta Quest and an nRF52840-based controllable fault-injection controller are deferred to 4.1')
   })

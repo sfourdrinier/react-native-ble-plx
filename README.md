@@ -2,7 +2,7 @@
 
 # unified-ble-manager
 
-`unified-ble-manager@4.0.0-alpha.29` is the current 4.0 prerelease candidate for
+`unified-ble-manager@4.0.0-alpha.29` is the current published 4.0 prerelease for
 explicit, bytes-first Bluetooth Low Energy management across React Native, Web,
 Electron, and Node hosts. 4.0 is a new package line with no released 4.0
 consumer baseline; adopting it is an explicit integration, not a source-
@@ -16,18 +16,16 @@ The controlling architecture and sequencing record is
 
 ## Release status and evidence boundary
 
-`v4.0.0-alpha.29` is the prepared release candidate and is pending npm and
-GitHub publication. After publication it is intended to use npm's `next`
-dist-tag, GitHub Actions trusted publishing, and an npm SLSA provenance
-attestation. The planned
+`v4.0.0-alpha.29` was published by GitHub Actions trusted publishing under
+npm's `next` dist-tag with an npm SLSA provenance attestation. The
 [GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.29)
-will prove the package release path, not Bluetooth behavior.
+proves the package release path, not Bluetooth behavior.
 
 `v4.0.0-alpha.27` is an already-published historical prerelease; it is not the
-current candidate or an alpha.29 evidence record.
+current prerelease or an alpha.29 evidence record.
 
 The package and deterministic contract surface are **Experimental**. No current
-evidence record binds the alpha.29 candidate artifact to a hardware-backed
+evidence record binds the published alpha.29 artifact to a hardware-backed
 backend scenario, so no React Native, Web, Node, or Electron backend is
 Preview, Live Preview, Supported, or Reliability-qualified. Missing hardware
 evidence blocks those labels only; it does not invalidate deterministic or
@@ -57,8 +55,8 @@ Pin the exact prerelease you validated. pnpm is used in this repository:
 pnpm add unified-ble-manager@4.0.0-alpha.29
 ```
 
-`next` is the mutable prerelease dist-tag. It must not be treated as the
-alpha.29 `next` dist-tag until publication completes; a later alpha can change
+`next` is the mutable prerelease dist-tag. Pin the exact alpha.29 version you
+evaluate; a later alpha can change
 it without changing your lockfile intent. Do not install
 the bare package name or `@latest` when adopting 4.0 alpha: those do not select
 the 4.0 prerelease train. Use your package manager's exact-version syntax when
@@ -305,16 +303,15 @@ It publishes with GitHub OIDC and `npm publish --provenance`; it marks a
 hyphenated SemVer version as both npm `next` and a GitHub prerelease, while a
 final version uses npm `latest` and a normal GitHub Release.
 
-Check the release candidate against npm metadata before integrating it:
+Check the installed prerelease against npm metadata before integrating it:
 
 ```sh
 npm view unified-ble-manager@4.0.0-alpha.29 version dist-tags dist.integrity dist.attestations _npmUser --json
 ```
 
-After alpha.29 publication, the result must identify the exact version, `next`
+The result must identify the exact version, `next`
 dist-tag, package integrity, a SLSA provenance attestation, and GitHub Actions
-as the npm trusted publisher. Before publication, these checks are expected to
-fail closed. Cross-check the tag and release notes at the GitHub Release linked
+as the npm trusted publisher. Cross-check the tag and release notes at the GitHub Release linked
 above. Provenance and integrity do not verify live Bluetooth behavior; that
 still needs host-specific evidence.
 
