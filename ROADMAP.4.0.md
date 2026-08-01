@@ -42,24 +42,24 @@ The package owns portable BLE-central mechanics: adapter state, scanning, choose
 
 Applications and vendor libraries own device choice, vendor protocols, product reconnect policy, persistence, telemetry, UI, and product state. `bun-mono` is a proving consumer and release-blocking fixture; it is never public API authority.
 
-## Alpha prerelease and support claims
+## Alpha candidate and support claims
 
-`unified-ble-manager@4.0.0-alpha.28` is published under npm's `next` dist-tag
-through GitHub Actions trusted publishing, with npm SLSA provenance and a
-GitHub prerelease. Its host-neutral root and explicit public subpaths are the
-prerelease package contract; users must pin
+`unified-ble-manager@4.0.0-alpha.29` is the prepared prerelease candidate and
+is pending publication under npm's `next` dist-tag with GitHub Actions trusted
+publishing, npm SLSA provenance, and a GitHub prerelease. Its host-neutral root
+and explicit public subpaths are the candidate package contract; users must pin
 an exact alpha version rather than infer an API from transitional source files
 or examples. The alpha has no 3.x compatibility layer. `v4.0.0-alpha.27` is an
-already-published historical prerelease, not the current prerelease.
+already-published historical prerelease, not the current candidate.
 
-The prerelease package support label is Experimental. There is no current
-evidence record linking alpha.28's published artifact to a passed physical-radio
+The candidate package support label is Experimental. There is no current
+evidence record linking alpha.29's candidate artifact to a passed physical-radio
 backend scenario, so it makes no Preview-or-higher platform claim. Hardware
 evidence is required
 only for the corresponding support label; it does not erase package or
 deterministic proof.
 
-WinRT compile and ABI checks are L2/L3 evidence only; alpha.28 makes no Windows
+WinRT compile and ABI checks are L2/L3 evidence only; alpha.29 makes no Windows
 live-radio claim.
 
 Support labels are evidence-based:

@@ -2,7 +2,7 @@
 
 # unified-ble-manager
 
-`unified-ble-manager@4.0.0-alpha.28` is the current published 4.0 prerelease for
+`unified-ble-manager@4.0.0-alpha.29` is the current 4.0 prerelease candidate for
 explicit, bytes-first Bluetooth Low Energy management across React Native, Web,
 Electron, and Node hosts. 4.0 is a new package line with no released 4.0
 consumer baseline; adopting it is an explicit integration, not a source-
@@ -16,16 +16,18 @@ The controlling architecture and sequencing record is
 
 ## Release status and evidence boundary
 
-`v4.0.0-alpha.28` was published by GitHub Actions trusted publishing under
-npm's `next` dist-tag with an npm SLSA provenance attestation. The
-[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.28)
-proves the package release path, not Bluetooth behavior.
+`v4.0.0-alpha.29` is the prepared release candidate and is pending npm and
+GitHub publication. After publication it is intended to use npm's `next`
+dist-tag, GitHub Actions trusted publishing, and an npm SLSA provenance
+attestation. The planned
+[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.29)
+will prove the package release path, not Bluetooth behavior.
 
 `v4.0.0-alpha.27` is an already-published historical prerelease; it is not the
-current prerelease or an alpha.28 evidence record.
+current candidate or an alpha.29 evidence record.
 
 The package and deterministic contract surface are **Experimental**. No current
-evidence record binds the published alpha.28 artifact to a hardware-backed
+evidence record binds the alpha.29 candidate artifact to a hardware-backed
 backend scenario, so no React Native, Web, Node, or Electron backend is
 Preview, Live Preview, Supported, or Reliability-qualified. Missing hardware
 evidence blocks those labels only; it does not invalidate deterministic or
@@ -33,7 +35,7 @@ package-artifact proof. See [`docs/PLATFORMS.md`](docs/PLATFORMS.md) for the
 per-host boundary.
 
 The package remains **Experimental**. WinRT compile and ABI checks are L2/L3
-evidence only; alpha.28 makes no Windows live-radio claim.
+evidence only; alpha.29 makes no Windows live-radio claim.
 
 Meta Quest and an nRF52840-based controllable fault-injection controller are
 deferred to 4.1. Neither is a 4.0 backend claim, release gate, or hardware
@@ -52,11 +54,11 @@ validation substitute.
 Pin the exact prerelease you validated. pnpm is used in this repository:
 
 ```sh
-pnpm add unified-ble-manager@4.0.0-alpha.28
+pnpm add unified-ble-manager@4.0.0-alpha.29
 ```
 
 `next` is the mutable prerelease dist-tag. It must not be treated as the
-alpha.28 `next` dist-tag until publication completes; a later alpha can change
+alpha.29 `next` dist-tag until publication completes; a later alpha can change
 it without changing your lockfile intent. Do not install
 the bare package name or `@latest` when adopting 4.0 alpha: those do not select
 the 4.0 prerelease train. Use your package manager's exact-version syntax when
@@ -303,18 +305,18 @@ It publishes with GitHub OIDC and `npm publish --provenance`; it marks a
 hyphenated SemVer version as both npm `next` and a GitHub prerelease, while a
 final version uses npm `latest` and a normal GitHub Release.
 
-Check the installed prerelease against npm metadata before integrating it:
+Check the release candidate against npm metadata before integrating it:
 
 ```sh
-npm view unified-ble-manager@4.0.0-alpha.28 version dist-tags dist.integrity dist.attestations _npmUser --json
+npm view unified-ble-manager@4.0.0-alpha.29 version dist-tags dist.integrity dist.attestations _npmUser --json
 ```
 
-The result must identify the exact version, `next`
+After alpha.29 publication, the result must identify the exact version, `next`
 dist-tag, package integrity, a SLSA provenance attestation, and GitHub Actions
-as the npm trusted publisher. Cross-check the tag and release notes at the
-GitHub Release linked above. Provenance and
-integrity do not verify live Bluetooth behavior; that still needs host-specific
-evidence.
+as the npm trusted publisher. Before publication, these checks are expected to
+fail closed. Cross-check the tag and release notes at the GitHub Release linked
+above. Provenance and integrity do not verify live Bluetooth behavior; that
+still needs host-specific evidence.
 
 The repository has no published private vulnerability-reporting endpoint at the
 time of this release. Do not place secrets, user data, exploit details, or BLE

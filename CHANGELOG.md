@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.29] - 2026-08-01 (prepared; pending publication)
+
+### Added
+
+- Completed the canonical unified SDK/public export surface and independent
+  packed-consumer G6A proof for the 4.0 package line.
+- Added bounded lifecycle trace diagnostics and resource-counter coverage for
+  the public manager and backend contract paths.
+
+### Fixed
+
+- Finalized the WinRT private-boundary v2 provider, terminal, and connection
+  ownership paths with strict protocol validation and retryable cleanup.
+- Hardened backend SDK authoring, Node/Web protocol fixtures, package export
+  resolution, and packed-install smoke coverage.
+
+### Consumer contract and evidence boundary
+
+- Consumers continue to use the explicit unified SDK entrypoints and await
+  manager cleanup; no compatibility or fallback path is introduced.
+- These changes have deterministic, compile, ABI, and package-validation scope
+  only. Alpha.29 remains Experimental and has no artifact-bound live Windows,
+  Android, or Apple hardware evidence.
+
 ## [4.0.0-alpha.28] - 2026-08-01 (published prerelease)
 
 ### Fixed

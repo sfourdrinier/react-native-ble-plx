@@ -2,11 +2,12 @@
 
 # Migration to `unified-ble-manager` 4.0
 
-**Status:** current published 4.0 prerelease
+**Status:** current 4.0 prerelease candidate; pending publication
 
 **Architecture and sequencing authority:** [`docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)
 
-`unified-ble-manager@4.0.0-alpha.28` is the current published 4.0 prerelease. 4.0
+`unified-ble-manager@4.0.0-alpha.29` is the current 4.0 prerelease candidate,
+pending publication. 4.0
 started as a new package with no released 4.0 consumer baseline. This is an
 adoption guide for a project that chooses to move from another BLE integration,
 not a supported in-place upgrade from `@sfourdrinier/react-native-ble-plx`.
@@ -14,22 +15,23 @@ There is no legacy scoped-name shim, Base64 compatibility surface, public
 transaction-ID API, Noble wrapper, singleton manager fallback, or
 source-compatible rename. It is not a source-compatible rename.
 `v4.0.0-alpha.27` is an already-published historical prerelease, not the
-current prerelease.
+current candidate.
 
-Install the exact prerelease package line with your application's
+Install the exact candidate package line with your application's
 package manager:
 
 ```sh
-pnpm add unified-ble-manager@4.0.0-alpha.28
+pnpm add unified-ble-manager@4.0.0-alpha.29
 ```
 
-`next` is the mutable prerelease dist-tag. Pin the exact version you evaluate, and do not use
+`next` is the mutable prerelease dist-tag; it must not be treated as alpha.29
+until publication completes. Pin the exact version you evaluate, and do not use
 a bare install or `@latest`
 to select the 4.0 alpha train. The prerelease package is Experimental: no
-current evidence record links alpha.28's published artifact to a hardware-backed
+current evidence record links alpha.29's candidate artifact to a hardware-backed
 backend support claim. See [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
 
-WinRT compile and ABI checks are L2/L3 evidence only; alpha.28 makes no Windows
+WinRT compile and ABI checks are L2/L3 evidence only; alpha.29 makes no Windows
 live-radio claim.
 
 Use only documented package subpaths. The root export is host-neutral; import

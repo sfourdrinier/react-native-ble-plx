@@ -18,25 +18,25 @@ especially its package, evidence, deletion, and Section 31 release gates.
 [`ROADMAP.4.0.md`](ROADMAP.4.0.md) controls product scope and
 [`docs/GAPS.4.0.md`](docs/GAPS.4.0.md) controls the platform-proof inventory.
 
-## Current prerelease
+## Current release candidate
 
-`unified-ble-manager@4.0.0-alpha.28` was published from
-`v4.0.0-alpha.28` by the protected GitHub Actions trusted-publishing workflow.
-npm identifies GitHub Actions as the trusted publisher, exposes the package on
-the `next` dist-tag, and includes an npm SLSA provenance attestation. The
-[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.28)
-is a prerelease with notes generated from the alpha.28 section of
+`unified-ble-manager@4.0.0-alpha.29` is the prepared release candidate for
+`v4.0.0-alpha.29`. It is pending GitHub Actions trusted publication; do not
+claim that the npm package, tag, or GitHub Release exists until the workflow
+completes. The planned
+[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.29)
+will be a prerelease with notes generated from the alpha.29 section of
 [`CHANGELOG.md`](CHANGELOG.md).
 
 `v4.0.0-alpha.27` is an already-published historical prerelease. It is not the
-current candidate and does not bind alpha.28's package or evidence state.
+current candidate and does not bind alpha.29's package or evidence state.
 
-The prerelease support label is Experimental. Its source and deterministic
-package gates verify the intended public package contract; publication does not
-establish that any backend has hardware support. The prerelease has no bound
-physical-radio scenario. No backend is thereby Preview,
+The candidate support label is Experimental. Its source and deterministic
+package gates verify the intended public package contract; they do not establish
+that an npm artifact exists or that any backend has hardware support. The
+candidate has no bound physical-radio scenario. No backend is thereby Preview,
 Live Preview, Supported, or Reliability-qualified.
-WinRT compile and ABI checks are L2/L3 evidence only; alpha.28 makes no Windows
+WinRT compile and ABI checks are L2/L3 evidence only; alpha.29 makes no Windows
 live-radio claim.
 See [`docs/PLATFORMS.md`](docs/PLATFORMS.md) and
 [`evidence/v1/README.md`](evidence/v1/README.md).
@@ -52,7 +52,7 @@ verifying that the pushed `vX.Y.Z` tag exactly matches `package.json`:
 
 | Version form | npm dist-tag | GitHub Release state | Consumer guidance |
 | --- | --- | --- | --- |
-| Hyphenated SemVer prerelease, such as `4.0.0-alpha.28` | `next` | prerelease | Pin the exact version for reproducible evaluation; `@next` is mutable. |
+| Hyphenated SemVer prerelease, such as `4.0.0-alpha.29` | `next` | prerelease | Pin the exact version for reproducible evaluation; `@next` is mutable. |
 | Final SemVer version, such as `4.0.0` | `latest` | normal release | Use the final version only after its published evidence supports the required host claim. |
 
 Do not use a bare install or `@latest` to select a 4.0 alpha. The exact package
@@ -92,18 +92,18 @@ Check the published version, dist-tag, integrity, attestation, and trusted
 publisher from npm:
 
 ```sh
-npm view unified-ble-manager@4.0.0-alpha.28 version dist-tags dist.integrity dist.attestations _npmUser --json
+npm view unified-ble-manager@4.0.0-alpha.29 version dist-tags dist.integrity dist.attestations _npmUser --json
 ```
 
 Then cross-check the matching tag and GitHub Release:
 
 ```sh
-gh release view v4.0.0-alpha.28 --repo sfourdrinier/react-native-ble-plx --json tagName,isPrerelease,publishedAt,url
+gh release view v4.0.0-alpha.29 --repo sfourdrinier/react-native-ble-plx --json tagName,isPrerelease,publishedAt,url
 ```
 
-After alpha.28 publication, npm must report the exact version, `next`, integrity,
+After alpha.29 publication, npm must report the exact version, `next`, integrity,
 a SLSA provenance attestation, and GitHub Actions trusted publisher; GitHub must
-report the matching `v4.0.0-alpha.28` tag with `isPrerelease: true`. Before
+report the matching `v4.0.0-alpha.29` tag with `isPrerelease: true`. Before
 publication, these checks are expected to fail closed. They verify release
 identity and supply chain metadata only. They do not verify BLE hardware
 behavior, platform permissions, browser availability, background operation,
@@ -117,7 +117,7 @@ backend, hardware, Live Preview, Supported, or Reliability-qualified claims.
 Deterministic fault injection remains useful 4.0 contract proof but is never
 physical-radio proof.
 
-At the time of the alpha.28 candidate, GitHub private vulnerability reporting is
+At the time of the alpha.29 candidate, GitHub private vulnerability reporting is
 disabled and
 no private reporting channel or supported-version response policy is published.
 Release notes and support material must not claim otherwise. Establish and
