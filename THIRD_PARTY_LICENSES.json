@@ -7,7 +7,7 @@
     "version": "4.0.0-alpha.29"
   },
   "source": {
-    "command": "pnpm licenses list --json --prod",
+    "method": "installed production dependency graph traversal",
     "lockfile": "pnpm-lock.yaml",
     "lockfileSha256": "fccc000775da20f96db51f7192c3fefc0ea161f1bcecb2b1faf1567d3ef375f6"
   },
@@ -1144,7 +1144,7 @@
     {
       "name": "pause-stream",
       "version": "0.0.11",
-      "license": "MIT",
+      "license": "(Apache-2.0 OR MIT)",
       "licenseSource": "package-metadata",
       "purl": "pkg:npm/pause-stream@0.0.11"
     },

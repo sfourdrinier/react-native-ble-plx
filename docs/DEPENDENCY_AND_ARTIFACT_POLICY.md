@@ -2,7 +2,7 @@
 
 # Dependency, license, and release-artifact policy
 
-The package publishes a reproducible **CycloneDX 1.6** software bill of materials in `SBOM.cdx.json` and a normalized audit record in `THIRD_PARTY_LICENSES.json`. Both derive from the frozen pnpm production installation and `pnpm-lock.yaml`; local filesystem paths and generation timestamps are excluded so identical inputs produce identical bytes.
+The package publishes a reproducible **CycloneDX 1.6** software bill of materials in `SBOM.cdx.json` and a normalized audit record in `THIRD_PARTY_LICENSES.json`. Both derive from a direct traversal of the frozen installed production dependency graph and `pnpm-lock.yaml`; they do not depend on pnpm's mutable global-store index. Local filesystem paths and generation timestamps are excluded so identical inputs produce identical bytes.
 
 ## License gate
 

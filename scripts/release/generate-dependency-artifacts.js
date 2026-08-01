@@ -3,12 +3,12 @@
 const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
-const { spawnSync } = require('child_process')
 
 const repositoryRoot = path.resolve(__dirname, '..', '..')
 const artifactNames = ['SBOM.cdx.json', 'THIRD_PARTY_LICENSES.json']
 const allowedLicenses = new Set([
   '(AFL-2.1 OR BSD-3-Clause)',
+  '(Apache-2.0 OR MIT)',
   'Apache-2.0',
   'BSD-2-Clause',
   'BSD-3-Clause',
@@ -66,23 +66,28 @@ function parseArguments(argv) {
   return { check, outputDirectory }
 }
 
-function productionLicenseReport() {
-  const executable = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
-  const result = spawnSync(executable, ['licenses', 'list', '--json', '--prod'], {
-    cwd: repositoryRoot,
-    encoding: 'utf8',
-    maxBuffer: 32 * 1024 * 1024,
-  })
-  if (result.status !== 0) {
-    const detail = result.stderr.trim() || result.stdout.trim() || `exit code ${String(result.status)}`
-    throw new Error(`pnpm production license inventory failed: ${detail}`)
-  }
-  return JSON.parse(result.stdout)
-}
-
 function normalizeLicense(license) {
   if (license === 'MIT/X11') return 'MIT'
+  if (license === 'Apache2') return 'Apache-2.0'
   return license
+}
+
+function declaredLicense(packageJson) {
+  const declaration = packageJson.license
+  if (typeof declaration === 'string') return normalizeLicense(declaration)
+  if (
+    declaration &&
+    typeof declaration === 'object' &&
+    !Array.isArray(declaration) &&
+    typeof declaration.type === 'string'
+  ) {
+    return normalizeLicense(declaration.type)
+  }
+  if (Array.isArray(declaration) && declaration.length > 0 && declaration.every(value => typeof value === 'string')) {
+    const alternatives = [...new Set(declaration.map(normalizeLicense))].sort()
+    return alternatives.length === 1 ? alternatives[0] : `(${alternatives.join(' OR ')})`
+  }
+  return 'Unknown'
 }
 
 function packageIdentity(packageDirectory) {
@@ -95,6 +100,18 @@ function packageIdentity(packageDirectory) {
     throw new Error(`Invalid dependency package identity: ${packageJsonPath}`)
   }
   return { packageDirectory, packageJson }
+}
+
+function resolveInstalledPackage(name, fromDirectory) {
+  let currentDirectory = fromDirectory
+  const nameSegments = name.split('/')
+  while (true) {
+    const candidate = path.join(currentDirectory, 'node_modules', ...nameSegments)
+    if (fs.existsSync(path.join(candidate, 'package.json'))) return fs.realpathSync(candidate)
+    const parentDirectory = path.dirname(currentDirectory)
+    if (parentDirectory === currentDirectory) return null
+    currentDirectory = parentDirectory
+  }
 }
 
 function resolveReviewedLicense(identity, reportedLicense) {
@@ -128,38 +145,73 @@ function purlFor(name, version) {
   return `pkg:npm/${encodedName}@${encodeURIComponent(version)}`
 }
 
-function collectPackages(report) {
+function collectPackages(rootPackage) {
   const packagesByRef = new Map()
-  for (const [reportedLicense, entries] of Object.entries(report)) {
-    if (!Array.isArray(entries)) throw new Error(`Invalid pnpm license group: ${reportedLicense}`)
-    for (const entry of entries) {
-      if (!Array.isArray(entry.paths) || entry.paths.length === 0) {
-        throw new Error(`Production dependency has no installed audit path: ${entry.name}`)
+  const rootRef = purlFor(rootPackage.name, rootPackage.version)
+  const dependenciesByRef = new Map([[rootRef, new Set()]])
+  const queue = []
+
+  for (const name of Object.keys(rootPackage.dependencies || {})) {
+    queue.push({ fromDirectory: repositoryRoot, name, parentRef: rootRef, required: true })
+  }
+  for (const name of Object.keys(rootPackage.optionalDependencies || {})) {
+    queue.push({ fromDirectory: repositoryRoot, name, parentRef: rootRef, required: true })
+  }
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const request = queue[index]
+    const packageDirectory = resolveInstalledPackage(request.name, request.fromDirectory)
+    if (!packageDirectory) {
+      if (request.required) {
+        throw new Error(`Production dependency is not installed: ${request.name} (required by ${request.parentRef})`)
       }
-      for (const packageDirectory of entry.paths) {
-        const identity = packageIdentity(packageDirectory)
-        const name = identity.packageJson.name
-        const version = identity.packageJson.version
-        const bomRef = purlFor(name, version)
-        const resolvedLicense = resolveReviewedLicense(identity, reportedLicense)
-        const existing = packagesByRef.get(bomRef)
-        if (existing && existing.license !== resolvedLicense.license) {
-          throw new Error(`Conflicting licenses for ${name}@${version}: ${existing.license} and ${resolvedLicense.license}`)
-        }
-        packagesByRef.set(bomRef, {
-          bomRef,
-          description: typeof identity.packageJson.description === 'string' ? identity.packageJson.description : undefined,
-          evidence: resolvedLicense.evidence,
-          homepage: typeof identity.packageJson.homepage === 'string' ? identity.packageJson.homepage : undefined,
-          license: resolvedLicense.license,
-          licenseSource: resolvedLicense.source,
-          name,
-          version,
-        })
+      continue
+    }
+
+    const identity = packageIdentity(packageDirectory)
+    const name = identity.packageJson.name
+    const version = identity.packageJson.version
+    if (name !== request.name) {
+      throw new Error(`Installed dependency identity mismatch: requested ${request.name}, found ${name}`)
+    }
+    const bomRef = purlFor(name, version)
+    dependenciesByRef.get(request.parentRef).add(bomRef)
+    const resolvedLicense = resolveReviewedLicense(identity, declaredLicense(identity.packageJson))
+    const existing = packagesByRef.get(bomRef)
+    if (existing) {
+      if (existing.license !== resolvedLicense.license) {
+        throw new Error(`Conflicting licenses for ${name}@${version}: ${existing.license} and ${resolvedLicense.license}`)
       }
+      continue
+    }
+
+    packagesByRef.set(bomRef, {
+      bomRef,
+      description: typeof identity.packageJson.description === 'string' ? identity.packageJson.description : undefined,
+      evidence: resolvedLicense.evidence,
+      homepage: typeof identity.packageJson.homepage === 'string' ? identity.packageJson.homepage : undefined,
+      license: resolvedLicense.license,
+      licenseSource: resolvedLicense.source,
+      name,
+      version,
+    })
+    dependenciesByRef.set(bomRef, new Set())
+
+    for (const dependencyName of Object.keys(identity.packageJson.dependencies || {})) {
+      queue.push({ fromDirectory: packageDirectory, name: dependencyName, parentRef: bomRef, required: true })
+    }
+    for (const dependencyName of Object.keys(identity.packageJson.optionalDependencies || {})) {
+      queue.push({ fromDirectory: packageDirectory, name: dependencyName, parentRef: bomRef, required: false })
+    }
+    for (const dependencyName of Object.keys(identity.packageJson.peerDependencies || {})) {
+      queue.push({ fromDirectory: packageDirectory, name: dependencyName, parentRef: bomRef, required: false })
     }
   }
-  return [...packagesByRef.values()].sort((left, right) => left.bomRef.localeCompare(right.bomRef))
+
+  return {
+    dependenciesByRef,
+    packages: [...packagesByRef.values()].sort((left, right) => left.bomRef.localeCompare(right.bomRef)),
+  }
 }
 
 function componentName(name) {
@@ -171,7 +223,7 @@ function componentName(name) {
 function dependencyArtifacts() {
   const rootPackage = readJson(path.join(repositoryRoot, 'package.json'))
   const lockfileBytes = fs.readFileSync(path.join(repositoryRoot, 'pnpm-lock.yaml'))
-  const packages = collectPackages(productionLicenseReport())
+  const { dependenciesByRef, packages } = collectPackages(rootPackage)
   const rootPurl = purlFor(rootPackage.name, rootPackage.version)
 
   const components = packages.map(dependency => {
@@ -213,10 +265,9 @@ function dependencyArtifacts() {
       ],
     },
     components,
-    dependencies: [
-      { ref: rootPurl, dependsOn: packages.map(dependency => dependency.bomRef) },
-      ...packages.map(dependency => ({ ref: dependency.bomRef, dependsOn: [] })),
-    ],
+    dependencies: [...dependenciesByRef.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([ref, dependencies]) => ({ ref, dependsOn: [...dependencies].sort() })),
   }
 
   const inventory = {
@@ -225,7 +276,7 @@ function dependencyArtifacts() {
     schemaVersion: '1.0.0',
     package: { name: rootPackage.name, version: rootPackage.version },
     source: {
-      command: 'pnpm licenses list --json --prod',
+      method: 'installed production dependency graph traversal',
       lockfile: 'pnpm-lock.yaml',
       lockfileSha256: sha256(lockfileBytes),
     },

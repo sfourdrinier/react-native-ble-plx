@@ -50,8 +50,12 @@ describe('open-source release policies and dependency artifacts', () => {
     expect(new Set(sbom.components.map(component => component['bom-ref'])).size).toBe(sbom.components.length)
     expect(sbom.components.every(component => component.purl.startsWith('pkg:npm/'))).toBe(true)
     expect(inventory.schema).toBe('unified-ble-manager/third-party-license-inventory')
+    expect(inventory.source.method).toBe('installed production dependency graph traversal')
     expect(inventory.unresolved).toEqual([])
     expect(inventory.packages.length).toBe(sbom.components.length)
+    expect(sbom.dependencies).toHaveLength(sbom.components.length + 1)
+    expect(sbom.dependencies.some(dependency => dependency.dependsOn.length > 0)).toBe(true)
+    expect(read('scripts/release/generate-dependency-artifacts.js')).not.toContain('pnpm licenses')
   })
 
   test('generation is byte-for-byte reproducible and does not expose local paths', () => {
