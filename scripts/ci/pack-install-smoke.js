@@ -44,6 +44,30 @@ function npmCommand() {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm'
 }
 
+function assertChildProcessResult(command, result, output, options) {
+  if (result.error?.code === 'ETIMEDOUT') {
+    throw new Error(
+      `${command} timed out after ${String(options.timeoutMs)}ms (cwd: ${options.cwd || root})\n${output}`
+    )
+  }
+  if (result.error) {
+    throw new Error(`${command} could not start: ${result.error.message}`)
+  }
+  if (result.signal !== null) {
+    throw new Error(`${command} terminated by signal ${result.signal} (cwd: ${options.cwd || root})\n${output}`)
+  }
+  if (result.status !== 0) {
+    throw new Error(`${command} failed (${result.status}):\n${output}`)
+  }
+  if (
+    /^(?:npm )?(?:WARN|warn)\b|^warning\b|^⚠|(?:^|\n).*?(?:DeprecationWarning|\bdeprecated\b|\bdeprecation\b)/im.test(
+      output
+    )
+  ) {
+    throw new Error(`${command} produced a warning:\n${output}`)
+  }
+}
+
 function run(cmd, args, opts = {}) {
   const command = `${cmd} ${args.join(' ')}`
   const timeoutMs = opts.timeoutMs
@@ -58,25 +82,7 @@ function run(cmd, args, opts = {}) {
     timeout: timeoutMs
   })
   const out = `${r.stdout || ''}${r.stderr || ''}`
-  if (r.error?.code === 'ETIMEDOUT') {
-    throw new Error(`${command} timed out after ${String(timeoutMs)}ms (cwd: ${opts.cwd || root})\n${out}`)
-  }
-  if (r.error) {
-    throw new Error(`${command} could not start: ${r.error.message}`)
-  }
-  if (r.signal !== null) {
-    throw new Error(`${command} terminated by signal ${r.signal} (cwd: ${opts.cwd || root})\n${out}`)
-  }
-  if (r.status !== 0) {
-    throw new Error(`${command} failed (${r.status}):\n${out}`)
-  }
-  if (
-    /^(?:npm )?(?:WARN|warn)\b|^warning\b|^⚠|(?:^|\n).*?(?:DeprecationWarning|\bdeprecated\b|\bdeprecation\b)/im.test(
-      out
-    )
-  ) {
-    throw new Error(`${command} produced a warning:\n${out}`)
-  }
+  assertChildProcessResult(command, r, out, { cwd: opts.cwd || root, timeoutMs })
   return r.stdout || ''
 }
 
@@ -1110,4 +1116,10 @@ if (require.main === module) {
   }
 }
 
-module.exports = { G6A_CHILD_TIMEOUT_MS, main, run, runPackedThirdPartyBackendFixture }
+module.exports = {
+  G6A_CHILD_TIMEOUT_MS,
+  assertChildProcessResult,
+  main,
+  run,
+  runPackedThirdPartyBackendFixture,
+}

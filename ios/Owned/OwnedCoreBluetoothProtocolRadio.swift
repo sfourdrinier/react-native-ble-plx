@@ -606,8 +606,8 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
   public func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
     guard let address = address(for: characteristic, peerIdentifier: peripheral.identifier.uuidString) else { return }
     let pending = pendingNotify.removeValue(forKey: address)
-    let cancellationDesiredState = cancellationDesiredState(forNotificationAddress: address)
-    guard pending != nil || cancellationDesiredState != nil else { return }
+    let desiredCancellationState = cancellationDesiredState(forNotificationAddress: address)
+    guard pending != nil || desiredCancellationState != nil else { return }
 
     if let pending {
       if pending.enabled {
@@ -622,7 +622,7 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
       pending.completion(error as NSError?)
     }
 
-    guard let desired = cancellationDesiredState else { return }
+    guard let desired = desiredCancellationState else { return }
     markCancellationNotificationCallbackReceived(for: address)
     if error == nil && characteristic.isNotifying == desired {
       clearCancellationCleanup(forNotificationAddress: address)

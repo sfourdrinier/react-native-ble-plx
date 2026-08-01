@@ -11,7 +11,7 @@ const {
   validateThirdPartyTckProof,
   expectedThirdPartyTckProfile
 } = require('../scripts/ci/g6a-packed-consumer-proof')
-const { run: runCanonicalChild } = require('../scripts/ci/pack-install-smoke')
+const { assertChildProcessResult, run: runCanonicalChild } = require('../scripts/ci/pack-install-smoke')
 
 const root = path.join(__dirname, '..')
 const fixtureRoot = path.join(root, 'fixtures', 'g6a-packed-consumer')
@@ -236,10 +236,18 @@ describe('G6A packed independent-consumer proof fixture', () => {
 
   test.each([
     ['timeout', ['-e', 'setTimeout(() => {}, 1000)'], 50, /timed out after 50ms/u],
-    ['nonzero exit', ['-e', 'process.exitCode = 3'], 1000, /failed \(3\)/u],
-    ['signal termination', ['-e', "process.kill(process.pid, 'SIGTERM')"], 1000, /terminated by signal SIGTERM/u]
+    ['nonzero exit', ['-e', 'process.exitCode = 3'], 1000, /failed \(3\)/u]
   ])('canonical child runner fails closed on %s', (_name, args, timeoutMs, expectedError) => {
     expect(() => runCanonicalChild(process.execPath, args, { cwd: root, timeoutMs })).toThrow(expectedError)
+  })
+
+  test('canonical child result validation fails closed on signal termination on every host', () => {
+    expect(() =>
+      assertChildProcessResult('fixture command', { error: undefined, signal: 'SIGTERM', status: null }, '', {
+        cwd: root,
+        timeoutMs: 1000,
+      })
+    ).toThrow(/terminated by signal SIGTERM/u)
   })
 })
 

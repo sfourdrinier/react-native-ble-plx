@@ -39,4 +39,13 @@ describe('iOS and tvOS 4.0 Native Protocol defaults', () => {
     expect(podspec).toContain('ios/Owned/OwnedCoreBluetoothProtocolRadioSupport.swift')
     expect(podspec).not.toMatch(/ios\/\*\.\{h,m,mm\}|MultiplatformBleAdapter|Restoration|BleAdapter|SafePromise/)
   })
+
+  test('typechecks every interdependent owned Swift source in the tvOS gate', () => {
+    const tvosGate = read('scripts/ci/check-tvos-library.sh')
+    const radio = read('ios/Owned/OwnedCoreBluetoothProtocolRadio.swift')
+
+    expect(tvosGate).toContain('OwnedCoreBluetoothProtocolRadioCancellation.swift')
+    expect(radio).toContain('let desiredCancellationState = cancellationDesiredState(')
+    expect(radio).not.toContain('let cancellationDesiredState = cancellationDesiredState(')
+  })
 })
