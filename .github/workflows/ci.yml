@@ -112,6 +112,10 @@ jobs:
         if: runner.os == 'Linux'
         run: pnpm prepack
 
+      - name: Production performance benchmark gate (host-native + JS)
+        if: runner.os == 'Linux' && matrix.node == '22'
+        run: pnpm performance:check
+
       # L1 only: Fake multi-device demo under Node (not Electron binary / native radio).
       - name: Electron Fake multi-device demo smoke (L1)
         if: runner.os == 'Linux'

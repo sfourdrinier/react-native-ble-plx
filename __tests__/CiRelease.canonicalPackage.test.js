@@ -74,6 +74,8 @@ describe('ci-release canonical package (4.0)', () => {
     expect(w).toContain('Electron Fake multi-device demo smoke (L1)')
     expect(w).toContain('Assemble classic RN Android debug APK')
     expect(w).toContain('Canonical host export resolve (L2 packaging)')
+    expect(w).toContain('Production performance benchmark gate (host-native + JS)')
+    expect(w).toContain('pnpm performance:check')
     expect(w).not.toMatch(/vite build|example-web\/vite\.config\.js/)
   })
 
@@ -94,6 +96,7 @@ describe('ci-release canonical package (4.0)', () => {
     // Shared typeof BleManager checker (R2-F097) — not truthy-only inline require
     expect(sh).toContain('scripts/ci/check-host-exports.js')
     expect(sh).toContain('npm pack --dry-run')
+    expect(sh).toContain('pnpm performance:check')
     expect(sh).not.toMatch(/prepare-shim|canonical \+ shim/i)
   })
 
@@ -106,6 +109,8 @@ describe('ci-release canonical package (4.0)', () => {
     expect(ci).toContain('WinRT native boundary Electron ABI rebuild and load')
     expect(ci).toContain('createContractBoundary')
     expect(ci).toContain('Canonical host export resolve (L2)')
+    expect(ci).toContain('Production performance benchmark gate (host-native + JS)')
+    expect(ci).toContain('pnpm performance:check')
     expect(ci).not.toMatch(/vite build|example-web\/vite\.config\.js/)
     expect(ci).toContain('unified-ble-manager.podspec')
     expect(ci).not.toContain('react-native-ble-plx.podspec')

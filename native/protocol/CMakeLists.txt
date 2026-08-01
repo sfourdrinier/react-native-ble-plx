@@ -30,13 +30,15 @@ target_include_directories(
   ../../node_modules/react-native/ReactCommon/jsi
 )
 
-target_compile_options(
-  unified_ble_native_protocol_v1
-  PRIVATE
-  -Wall
-  -Wextra
-  -Werror
-)
+function(unified_ble_enable_strict_warnings target)
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /W4 /WX)
+  else()
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
+  endif()
+endfunction()
+
+unified_ble_enable_strict_warnings(unified_ble_native_protocol_v1)
 
 option(UNIFIED_BLE_NATIVE_PROTOCOL_BUILD_TESTS "Build Native Protocol v1 tests" ON)
 
@@ -55,13 +57,7 @@ if(UNIFIED_BLE_NATIVE_PROTOCOL_BUILD_TESTS)
     generated
     ../../node_modules/react-native/ReactCommon/jsi
   )
-  target_compile_options(
-    unified_ble_native_protocol_v1_host_test_runtime
-    PRIVATE
-    -Wall
-    -Wextra
-    -Werror
-  )
+  unified_ble_enable_strict_warnings(unified_ble_native_protocol_v1_host_test_runtime)
   add_executable(
     unified_ble_native_protocol_v1_tests
     tests/NativeProtocolV1Tests.cpp
@@ -71,15 +67,40 @@ if(UNIFIED_BLE_NATIVE_PROTOCOL_BUILD_TESTS)
     PRIVATE
     unified_ble_native_protocol_v1_host_test_runtime
   )
-  target_compile_options(
-    unified_ble_native_protocol_v1_tests
-    PRIVATE
-    -Wall
-    -Wextra
-    -Werror
-  )
+  unified_ble_enable_strict_warnings(unified_ble_native_protocol_v1_tests)
   add_test(
     NAME unified_ble_native_protocol_v1
     COMMAND unified_ble_native_protocol_v1_tests
   )
+endif()
+
+option(UNIFIED_BLE_NATIVE_PROTOCOL_BUILD_BENCHMARKS "Build Native Protocol v1 host benchmarks" OFF)
+
+if(UNIFIED_BLE_NATIVE_PROTOCOL_BUILD_BENCHMARKS)
+  if(NOT TARGET unified_ble_native_protocol_v1_host_test_runtime)
+    add_library(
+      unified_ble_native_protocol_v1_host_test_runtime
+      STATIC
+      ${UNIFIED_BLE_NATIVE_PROTOCOL_CORE_SOURCES}
+      tests/OwnedJsiBinaryTransportHostStub.cpp
+    )
+    target_include_directories(
+      unified_ble_native_protocol_v1_host_test_runtime
+      PUBLIC
+      include
+      generated
+      ../../node_modules/react-native/ReactCommon/jsi
+    )
+    unified_ble_enable_strict_warnings(unified_ble_native_protocol_v1_host_test_runtime)
+  endif()
+  add_executable(
+    unified_ble_native_protocol_v1_benchmark
+    performance/NativeOwnedPayloadBenchmark.cpp
+  )
+  target_link_libraries(
+    unified_ble_native_protocol_v1_benchmark
+    PRIVATE
+    unified_ble_native_protocol_v1_host_test_runtime
+  )
+  unified_ble_enable_strict_warnings(unified_ble_native_protocol_v1_benchmark)
 endif()

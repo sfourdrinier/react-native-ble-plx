@@ -80,6 +80,12 @@ describe('4.0 documentation honesty', () => {
     expect(plan).toContain('explicitly deferred to 4.1')
   })
 
+  test('platform support truth is generated from evidence rather than a maintained host matrix', () => {
+    const platforms = read('docs/PLATFORMS.md')
+    expect(platforms).toContain('generated/PLATFORM_SUPPORT.md')
+    expect(platforms).not.toContain('| Host/backend |')
+  })
+
   test('plan keeps Quest out of the 4.0 execution graph and Android acceptance checklist', () => {
     const plan = read('docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
     const graphStart = plan.indexOf('### 24.1 Hard dependency graph')

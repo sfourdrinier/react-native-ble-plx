@@ -99,6 +99,9 @@ jobs:
       - name: Build package artifacts
         run: pnpm prepack
 
+      - name: Production performance benchmark gate (host-native + JS)
+        run: pnpm performance:check
+
       # Multi-host GA smoke (Ubuntu): Fake L1 electron, host export resolution,
       # classic Android, Expo CNG Android. Apple compile is pre-merge only.
       - name: Electron Fake multi-device demo smoke (L1)
