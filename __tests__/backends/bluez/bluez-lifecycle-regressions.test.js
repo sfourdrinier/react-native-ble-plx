@@ -329,17 +329,27 @@ describe('BlueZ lifecycle regressions', () => {
   })
 
   test('bounds the Discovering confirmation by the requested scan deadline', async () => {
-    const { backend, boundary } = await fixture({ connected: false, now: () => Date.now() })
-    boundary.onCall(adapterPath, BLUEZ_ADAPTER_INTERFACE, 'StartDiscovery', async () => false)
-    await expect(
-      backend.scanner.start(
+    jest.useFakeTimers({ now: 1_000 })
+    try {
+      const { backend, boundary } = await fixture({ connected: false, now: () => Date.now() })
+      boundary.onCall(adapterPath, BLUEZ_ADAPTER_INTERFACE, 'StartDiscovery', async () => false)
+      const starting = backend.scanner.start(
         scanOptions(Date.now() + 20),
         opaqueId('confirmation-timeout', 'client', 'bluez:regression')
       )
-    ).rejects.toMatchObject({ normalized: { code: 'operation.timed-out' } })
-    expect(boundary.calls.filter(call => call.method === 'StopDiscovery')).toHaveLength(1)
-    expect(backend.resourceCounters().activeScanControllers).toBe(0)
-    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+
+      await jest.advanceTimersByTimeAsync(0)
+      expect(boundary.calls.filter(call => call.method === 'StartDiscovery')).toHaveLength(1)
+      const timedOut = expect(starting).rejects.toMatchObject({ normalized: { code: 'operation.timed-out' } })
+      await jest.advanceTimersByTimeAsync(20)
+
+      await timedOut
+      expect(boundary.calls.filter(call => call.method === 'StopDiscovery')).toHaveLength(1)
+      expect(backend.resourceCounters().activeScanControllers).toBe(0)
+      await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   test('settles a pending scan startup when destroy races its StartDiscovery result', async () => {
