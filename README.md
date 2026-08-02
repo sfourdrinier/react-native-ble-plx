@@ -2,7 +2,7 @@
 
 # unified-ble-manager
 
-`unified-ble-manager@4.0.0-alpha.38` is the current published 4.0 prerelease for
+`unified-ble-manager@4.0.0-alpha.39` is the current published 4.0 prerelease for
 explicit, bytes-first Bluetooth Low Energy management across React Native, Web,
 Electron, and Node hosts. 4.0 is a new package line with no released 4.0
 consumer baseline; adopting it is an explicit integration, not a source-
@@ -16,16 +16,16 @@ The controlling architecture and sequencing record is
 
 ## Release status and evidence boundary
 
-`v4.0.0-alpha.38` was published by GitHub Actions trusted publishing under
+`v4.0.0-alpha.39` was published by GitHub Actions trusted publishing under
 npm's `next` dist-tag with an npm SLSA provenance attestation. The
-[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.38)
+[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.39)
 proves the package release path, not Bluetooth behavior.
 
-`v4.0.0-alpha.37` is the previous published prerelease; it is not the
-current prerelease or an alpha.38 evidence record.
+`v4.0.0-alpha.38` is the previous published prerelease; it is not the
+current prerelease or an alpha.39 evidence record.
 
 The package and deterministic contract surface are **Experimental**. No current
-evidence record binds the published alpha.38 artifact to a hardware-backed
+evidence record binds the published alpha.39 artifact to a hardware-backed
 backend scenario, so no React Native, Web, Node, or Electron backend is
 Preview, Live Preview, Supported, or Reliability-qualified. Missing hardware
 evidence blocks those labels only; it does not invalidate deterministic or
@@ -33,7 +33,7 @@ package-artifact proof. See [`docs/PLATFORMS.md`](docs/PLATFORMS.md) for the
 per-host boundary.
 
 The package remains **Experimental**. WinRT compile and ABI checks are L2/L3
-evidence only; alpha.38 makes no Windows live-radio claim.
+evidence only; alpha.39 makes no Windows live-radio claim.
 
 Meta Quest and an nRF52840-based controllable fault-injection controller are
 deferred to 4.1. Neither is a 4.0 backend claim, release gate, or hardware
@@ -52,10 +52,10 @@ validation substitute.
 Pin the exact prerelease you validated. pnpm is used in this repository:
 
 ```sh
-pnpm add unified-ble-manager@4.0.0-alpha.38
+pnpm add unified-ble-manager@4.0.0-alpha.39
 ```
 
-`next` is the mutable prerelease dist-tag. Pin the exact alpha.38 version you
+`next` is the mutable prerelease dist-tag. Pin the exact alpha.39 version you
 evaluate; a later alpha can change
 it without changing your lockfile intent. Do not install
 the bare package name or `@latest` when adopting 4.0 alpha: those do not select
@@ -147,7 +147,7 @@ declares `expo` as an optional host peer, so non-Expo consumers do not receive
 Expo tooling:
 
 ```sh
-pnpm add unified-ble-manager@4.0.0-alpha.38 expo@^57.0.0
+pnpm add unified-ble-manager@4.0.0-alpha.39 expo@^57.0.0
 ```
 
 The package cannot run in Expo Go because it contains native code.
@@ -218,7 +218,7 @@ neutral root package. A Linux BlueZ host installs the selected boundary peer
 explicitly:
 
 ```sh
-pnpm add unified-ble-manager@4.0.0-alpha.38 dbus-next@^0.10.2
+pnpm add unified-ble-manager@4.0.0-alpha.39 dbus-next@^0.10.2
 ```
 
 React Native, Web, Apple desktop, and Windows consumers do not install the
@@ -322,7 +322,7 @@ final version uses npm `latest` and a normal GitHub Release.
 Check the installed prerelease against npm metadata before integrating it:
 
 ```sh
-npm view unified-ble-manager@4.0.0-alpha.38 version dist-tags dist.integrity dist.attestations _npmUser --json
+npm view unified-ble-manager@4.0.0-alpha.39 version dist-tags dist.integrity dist.attestations _npmUser --json
 ```
 
 The result must identify the exact version, `next`

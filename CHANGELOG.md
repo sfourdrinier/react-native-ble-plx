@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.39] - 2026-08-02 (published prerelease)
+
+### Fixed
+
+- Replaced the remaining inherited 3.x helper, connection-manager, tutorial,
+  fork, and generated API documentation with the public 4.0 manager,
+  generation-bound connection/database, byte, and subscription contracts.
+- Added packed-artifact and repository tests that reject retired public API
+  signatures in active guides.
+- Upgraded the documentation generator and regenerated the API site without
+  generator warnings, together with the audited SBOM and license inventory.
+
+### Support and evidence boundary
+
+- Alpha.39 contains the same verified production backend implementation as
+  alpha.38; this release aligns the published documentation and release
+  artifacts with that implementation.
+- Alpha.39 remains Experimental until its exact package artifact is bound to
+  the required physical-radio evidence. Meta Quest and the controllable
+  physical fault-injection peripheral remain deferred to 4.1.
+
 ## [4.0.0-alpha.38] - 2026-08-02 (published prerelease)
 
 ### Fixed

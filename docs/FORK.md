@@ -17,7 +17,7 @@ promise.
   [`../THIRD_PARTY_LICENSES.json`](../THIRD_PARTY_LICENSES.json)
 - migration boundary: [`../MIGRATION_4.0.md`](../MIGRATION_4.0.md)
 
-The current prerelease is `4.0.0-alpha.38`, published under npm's `next`
+The current prerelease is `4.0.0-alpha.39`, published under npm's `next`
 dist-tag. Consumers should pin the exact prerelease they validate.
 
 ## Clean-baseline architecture
