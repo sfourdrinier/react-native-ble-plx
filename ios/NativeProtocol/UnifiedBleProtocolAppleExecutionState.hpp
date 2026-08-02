@@ -37,7 +37,8 @@ class AppleNativeProtocolExecution::State final : public std::enable_shared_from
   void* radio;
   std::shared_ptr<facebook::react::CallInvoker> callInvoker;
   std::shared_ptr<facebook::jsi::Function> eventSink;
-  std::vector<std::shared_ptr<facebook::jsi::Function>> eventSinksAwaitingJavaScriptRelease;
+  std::shared_ptr<facebook::jsi::Function> fatalSink;
+  std::vector<std::shared_ptr<facebook::jsi::Function>> sinksAwaitingJavaScriptRelease;
   native_protocol::v1::BoundedNativeEventBuffer recordsAwaitingSink{
       kMaximumPreJavaScriptRecords, kMaximumPreJavaScriptBytes};
   std::vector<BinaryReferenceList> binaryReferencesAwaitingSink;

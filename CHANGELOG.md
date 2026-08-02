@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.31] - 2026-08-01 (published prerelease)
+
+### Fixed
+
+- Completed Apple JSI runtime parity by exposing the fatal-stream sink required
+  by the shared React Native binary protocol boundary.
+- Preserved event and fatal callback ownership on the JavaScript runtime thread
+  across sink replacement, attachment teardown, and execution close.
+- Added compiled Apple harness coverage proving that a native fatal attachment
+  closure schedules and delivers exactly one generation-safe JavaScript fatal
+  notification.
+
+### Support and evidence boundary
+
+- Alpha.31 remains Experimental until its exact package artifact is bound to
+  the required physical-radio evidence. The iOS Simulator proves compilation,
+  installation, launch, and native runtime construction, not BLE radio behavior.
+- Meta Quest and the controllable physical fault-injection peripheral remain
+  explicitly deferred to 4.1.
+
 ## [4.0.0-alpha.30] - 2026-08-01 (published prerelease)
 
 ### Added

@@ -230,6 +230,17 @@ int runAppleNativeProtocolExecutionHarness() {
 
     const auto throwingControl = openedRuntime();
     const auto throwingState = std::make_shared<AppleNativeProtocolExecution::State>(throwingControl, nullptr);
+    std::atomic<std::size_t> fatalDelivered{0U};
+    const auto fatalSink = std::make_shared<Function>(Function::createFromHostFunction(
+        *runtime,
+        PropNameID::forUtf8(*runtime, "appleExecutionFatalSink"),
+        1U,
+        [&fatalDelivered](Runtime&, const Value&, const Value* arguments, std::size_t count) {
+          if (count == 1U && arguments[0].isString()) {
+            fatalDelivered.fetch_add(1U, std::memory_order_relaxed);
+          }
+          return Value::undefined();
+        }));
     const auto throwingSink = std::make_shared<Function>(Function::createFromHostFunction(
         *runtime,
         PropNameID::forUtf8(*runtime, "throwingAppleExecutionSink"),
@@ -239,11 +250,23 @@ int runAppleNativeProtocolExecutionHarness() {
           return Value::undefined();
         }));
     initializeAttachment(throwingState, invoker, throwingSink);
+    BinaryRuntime binaryRuntime(throwingState);
+    auto fatalSetterValue = binaryRuntime.get(
+        *runtime,
+        PropNameID::forUtf8(*runtime, "setFatalSink"));
+    if (!require(
+            fatalSetterValue.isObject() && fatalSetterValue.asObject(*runtime).isFunction(*runtime),
+            "Apple binary runtime did not expose setFatalSink")) return 1;
+    auto fatalSetter = fatalSetterValue.asObject(*runtime).asFunction(*runtime);
+    fatalSetter.call(*runtime, *fatalSink);
     const auto sinkFailureCommand = command(1U);
     throwingControl->registerCommand(sinkFailureCommand, true);
     static_cast<void>(success(throwingState, sinkFailureCommand));
     invoker->flushOne();
     if (!require(!throwingControl->open(), "actual JSI sink failure did not fatally close the attachment")) return 1;
+    if (!require(invoker->pending() == 1U, "Apple fatal path did not schedule exactly one JavaScript fatal callback")) return 1;
+    invoker->flushOne();
+    if (!require(fatalDelivered.load(std::memory_order_relaxed) == 1U, "Apple fatal sink was not invoked exactly once")) return 1;
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Apple Native Protocol execution harness failed: " << error.what() << '\n';

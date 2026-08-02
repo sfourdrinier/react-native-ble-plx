@@ -66,7 +66,7 @@ describe('Apple Native Protocol v1 radio boundary', () => {
     expect(state).toContain('bool ingressClosed = false;')
     expect(execution).toContain('state->attachmentGeneration != attachmentGeneration')
     expect(execution).toContain('if (!admitted) state->ingressClosed = true;')
-    expect(execution).toContain('eventSinksAwaitingJavaScriptRelease')
+    expect(execution).toContain('sinksAwaitingJavaScriptRelease')
     expect(execution).toContain('retainedRecordCount=')
     expect(execution).toContain('droppedByteCount=')
     expect(execution).toContain('overflowCount=')
@@ -223,9 +223,9 @@ describe('Apple Native Protocol v1 radio boundary', () => {
 
     expect(execution).toContain('catch (const std::exception& error)')
     expect(execution).toContain('Apple execution close runtime-thread sink cleanup scheduling')
-    expect(execution).toContain('state->eventSinksAwaitingJavaScriptRelease.insert(')
-    expect(execution).toContain('state->eventSinksAwaitingJavaScriptRelease.push_back')
-    expect(state).toContain('eventSinksAwaitingJavaScriptRelease')
+    expect(execution).toContain('state->sinksAwaitingJavaScriptRelease.insert(')
+    expect(execution).toContain('state->sinksAwaitingJavaScriptRelease.push_back')
+    expect(state).toContain('sinksAwaitingJavaScriptRelease')
   })
 
   test('preserves one structured native failure and waits for CoreBluetooth disconnect completion', () => {

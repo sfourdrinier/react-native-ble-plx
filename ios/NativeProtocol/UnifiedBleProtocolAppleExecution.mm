@@ -340,6 +340,51 @@ void connectionOwnershipAfterSettlement(
     const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
     const protocol::ProtocolRecord& command);
 
+void notifyJavaScriptFatalSink(
+    const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
+    const std::string& reason,
+    std::uint64_t attachmentGeneration) noexcept {
+  {
+    std::scoped_lock lock(state->mutex);
+    if (!state->fatalSink) {
+      NSLog(@"[UnifiedBleProtocolAppleExecution] JavaScript fatal sink is unavailable: %s", reason.c_str());
+      return;
+    }
+  }
+  const auto invoker = state->callInvoker;
+  if (!invoker) {
+    NSLog(@"[UnifiedBleProtocolAppleExecution] JavaScript fatal sink scheduling unavailable: %s", reason.c_str());
+    return;
+  }
+  try {
+    invoker->invokeAsync([state, reason, attachmentGeneration](jsi::Runtime& runtime) {
+      std::shared_ptr<jsi::Function> sink;
+      {
+        std::scoped_lock lock(state->mutex);
+        if (
+            state->closed.load(std::memory_order_acquire) ||
+            !state->attachmentFatal ||
+            state->attachmentGeneration != attachmentGeneration) {
+          return;
+        }
+        sink = state->fatalSink;
+      }
+      if (!sink) return;
+      try {
+        sink->call(runtime, jsi::String::createFromUtf8(runtime, reason));
+      } catch (const std::exception& error) {
+        logNativeFailure("Apple JavaScript fatal sink callback", error);
+      } catch (...) {
+        NSLog(@"[UnifiedBleProtocolAppleExecution] Apple JavaScript fatal sink callback failed with an unknown exception");
+      }
+    });
+  } catch (const std::exception& error) {
+    logNativeFailure("Apple JavaScript fatal sink scheduling", error);
+  } catch (...) {
+    NSLog(@"[UnifiedBleProtocolAppleExecution] Apple JavaScript fatal sink scheduling failed with an unknown exception");
+  }
+}
+
 /**
  * A result is the only completion path for a JS command.  If its terminal cannot
  * be admitted to the active sink, retaining a partially-live attachment would
@@ -353,6 +398,7 @@ void failAttachmentAfterTerminalAdmissionFailure(
   try {
     protocol::NativeAttachmentIdentity attachment;
     bool releaseRadio = false;
+    std::uint64_t fatalAttachmentGeneration = 0U;
     {
       std::scoped_lock lock(state->mutex);
       if (
@@ -369,6 +415,7 @@ void failAttachmentAfterTerminalAdmissionFailure(
       if (state->attachmentGeneration != std::numeric_limits<std::uint64_t>::max()) {
         state->attachmentGeneration += 1U;
       }
+      fatalAttachmentGeneration = state->attachmentGeneration;
       releaseQueuedBinaryReferences(
           state,
           state->binaryReferencesAwaitingSink,
@@ -394,6 +441,7 @@ void failAttachmentAfterTerminalAdmissionFailure(
     } catch (...) {
       NSLog(@"[UnifiedBleProtocolAppleExecution] Apple terminal-admission runtime close failed with an unknown exception");
     }
+    notifyJavaScriptFatalSink(state, context, fatalAttachmentGeneration);
     if (releaseRadio) {
       @try {
         [radioFor(state) releaseProtocolClientWithCompletion:^(NSError* error) {
@@ -1251,6 +1299,7 @@ class BinaryRuntime final : public jsi::HostObject {
     if (property == "release") return releaseFunction(runtime, name);
     if (property == "submit") return submitFunction(runtime, name);
     if (property == "setEventSink") return sinkFunction(runtime, name);
+    if (property == "setFatalSink") return fatalSinkFunction(runtime, name);
     if (property == "retainedByteCount") return countFunction(runtime, name, true);
     if (property == "retainedPayloadCount") return countFunction(runtime, name, false);
     return jsi::Value::undefined();
@@ -1381,9 +1430,9 @@ class BinaryRuntime final : public jsi::HostObject {
           throw jsi::JSError(inner, "Native Protocol v1 runtime closed while installing its event sink");
         }
         if (self->eventSink) {
-          self->eventSinksAwaitingJavaScriptRelease.push_back(std::move(self->eventSink));
+          self->sinksAwaitingJavaScriptRelease.push_back(std::move(self->eventSink));
         }
-        retiredSinks.swap(self->eventSinksAwaitingJavaScriptRelease);
+        retiredSinks.swap(self->sinksAwaitingJavaScriptRelease);
         self->eventSink = std::make_shared<jsi::Function>(arguments[0].asObject(inner).asFunction(inner));
         if (self->recordsAwaitingSink.overflowed()) {
           const auto& overflowSnapshot = self->recordsAwaitingSink.overflowSnapshot();
@@ -1490,6 +1539,23 @@ class BinaryRuntime final : public jsi::HostObject {
         failAttachmentAfterTerminalAdmissionFailure(self, "Apple event sink installation failed with an unknown exception");
         throw;
       }
+      return jsi::Value::undefined();
+    });
+  }
+
+  jsi::Value fatalSinkFunction(jsi::Runtime& runtime, const jsi::PropNameID& name) {
+    return jsi::Function::createFromHostFunction(runtime, name, 1U, [self = state_](jsi::Runtime& inner, const jsi::Value&, const jsi::Value* arguments, std::size_t count) {
+      if (count != 1U || !arguments[0].isObject() || !arguments[0].asObject(inner).isFunction(inner)) {
+        throw jsi::JSError(inner, "Native Protocol v1 setFatalSink requires a function");
+      }
+      std::scoped_lock lock(self->mutex);
+      if (self->closed.load(std::memory_order_acquire) || self->attachmentFatal || !self->attachmentActive) {
+        throw jsi::JSError(inner, "Native Protocol v1 attachment cannot install a fatal sink");
+      }
+      if (self->fatalSink) {
+        self->sinksAwaitingJavaScriptRelease.push_back(std::move(self->fatalSink));
+      }
+      self->fatalSink = std::make_shared<jsi::Function>(arguments[0].asObject(inner).asFunction(inner));
       return jsi::Value::undefined();
     });
   }
@@ -1708,7 +1774,10 @@ void AppleNativeProtocolExecution::detachAttachment() {
   state->recordsAwaitingJavaScript.reset();
   state->drainScheduled = false;
   if (state->eventSink) {
-    state->eventSinksAwaitingJavaScriptRelease.push_back(std::move(state->eventSink));
+    state->sinksAwaitingJavaScriptRelease.push_back(std::move(state->eventSink));
+  }
+  if (state->fatalSink) {
+    state->sinksAwaitingJavaScriptRelease.push_back(std::move(state->fatalSink));
   }
   state->connections.clear();
   state->restorationAppended = false;
@@ -1854,14 +1923,15 @@ void AppleNativeProtocolExecution::close() {
     state->recordsAwaitingSink.reset();
     state->recordsAwaitingJavaScript.reset();
     state->drainScheduled = false;
-    sinksToRelease->swap(state->eventSinksAwaitingJavaScriptRelease);
+    sinksToRelease->swap(state->sinksAwaitingJavaScriptRelease);
     if (state->eventSink) sinksToRelease->push_back(std::move(state->eventSink));
+    if (state->fatalSink) sinksToRelease->push_back(std::move(state->fatalSink));
   }
   const auto invoker = state->callInvoker;
   const auto retainUnreachableSinks = [&]() {
     std::scoped_lock lock(state->mutex);
-    state->eventSinksAwaitingJavaScriptRelease.insert(
-        state->eventSinksAwaitingJavaScriptRelease.end(),
+    state->sinksAwaitingJavaScriptRelease.insert(
+        state->sinksAwaitingJavaScriptRelease.end(),
         std::make_move_iterator(sinksToRelease->begin()),
         std::make_move_iterator(sinksToRelease->end()));
   };
