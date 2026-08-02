@@ -112,6 +112,10 @@ jobs:
         if: runner.os == 'Linux'
         run: pnpm prepack
 
+      - name: Build 4.0 Web Bluetooth public example
+        if: runner.os == 'Linux' && matrix.node == '22'
+        run: pnpm build:example:web
+
       - name: Production performance benchmark gate (host-native + JS)
         if: runner.os == 'Linux' && matrix.node == '22'
         run: pnpm performance:check

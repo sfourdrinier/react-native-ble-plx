@@ -44,8 +44,10 @@ describe('4.0 Web Bluetooth public example', () => {
   test('is built with the repository-owned bundler and documented as physical evidence only when retained', () => {
     const build = read('scripts/examples/build-web-example.js')
     const readme = read('example-web/README.md')
+    const continuousIntegrationWorkflow = read('.github/workflows/ci.yml')
     const publishWorkflow = read('.github/workflows/publish.yml')
     expect(build).toContain("require('webpack')")
+    expect(continuousIntegrationWorkflow).toContain('run: pnpm build:example:web')
     expect(publishWorkflow).toContain('run: pnpm build:example:web')
     expect(readme).toContain('4.0 clean-baseline Web Bluetooth example')
     expect(readme).toMatch(/does not itself create a\s+release evidence receipt/u)
