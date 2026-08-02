@@ -28,6 +28,7 @@ export const coreBluetoothCompatibility: BackendCompatibilityOffer = Object.free
 
 export interface CoreBluetoothBackendProviderOptions {
   readonly boundaryFactory: () => CoreBluetoothBoundary
+  readonly prepareBoundary?: (boundary: CoreBluetoothBoundary) => Promise<void>
   readonly now: () => number
   readonly hostKind: 'node' | 'electron-main'
 }
@@ -46,6 +47,7 @@ export function createCoreBluetoothBackendProvider(
     listAdapters: async () => {
       const boundary = options.boundaryFactory()
       try {
+        await options.prepareBoundary?.(boundary)
         return Object.freeze([adapterDescriptor(boundary, options.now)])
       } finally {
         await boundary.destroy()
@@ -56,7 +58,14 @@ export function createCoreBluetoothBackendProvider(
       if (selected !== 'corebluetooth-default-adapter') {
         throw contractError('adapter.unavailable', 'adapter', 'corebluetooth.provider.select-adapter')
       }
-      return new CoreBluetoothBackend(options.boundaryFactory(), options.now, options.hostKind)
+      const boundary = options.boundaryFactory()
+      try {
+        await options.prepareBoundary?.(boundary)
+        return new CoreBluetoothBackend(boundary, options.now, options.hostKind)
+      } catch (error) {
+        await boundary.destroy()
+        throw error
+      }
     }
   }
 }

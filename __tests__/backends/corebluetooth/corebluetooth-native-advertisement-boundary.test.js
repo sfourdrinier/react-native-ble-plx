@@ -219,6 +219,33 @@ describe('CoreBluetooth native advertisement boundary', () => {
     })
   })
 
+  test('delivers the current adapter state when a listener registers after native initialization', async () => {
+    const radio = createRadio()
+    const createContractBoundary = loadBoundary(radio)
+
+    await withDarwinPlatform(async () => {
+      const boundary = createContractBoundary()
+      const states = []
+      const stop = boundary.onAdapterState(state => states.push(state))
+      expect(states).toEqual([
+        { availability: 'available', authorization: 'granted', power: 'on', safeReason: null }
+      ])
+
+      const nativeHandler = radio.setAdapterStateHandler.mock.calls[0][0]
+      nativeHandler('PoweredOff')
+      expect(states[1]).toEqual({
+        availability: 'available',
+        authorization: 'granted',
+        power: 'off',
+        safeReason: 'CoreBluetooth reports the adapter is powered off'
+      })
+      stop()
+      nativeHandler('PoweredOn')
+      expect(states).toHaveLength(2)
+      await boundary.destroy()
+    })
+  })
+
   test('waits for native invalidation before resolving destroy', async () => {
     const radio = createRadio()
     let completeInvalidation

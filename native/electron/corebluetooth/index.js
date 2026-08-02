@@ -198,6 +198,7 @@ function createContractBoundary() {
     },
     onAdapterState: listener => {
       stateListeners.add(listener)
+      listener(adapterSnapshot(radio.getAdapterState()))
       return () => stateListeners.delete(listener)
     },
     destroy: async () => {

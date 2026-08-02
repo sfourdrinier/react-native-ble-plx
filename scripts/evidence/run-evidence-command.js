@@ -6,7 +6,12 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const { spawnSync } = require('child_process')
-const { assertCertifiedCommandProfile, emitReceipt } = require('./evidence-command-receipt')
+const {
+  assertCertifiedCommandProfile,
+  bindScenariosToCommandWindow,
+  emitReceipt,
+  resolveCertifiedExecutable
+} = require('./evidence-command-receipt')
 
 function git(root, args, encoding = 'utf8') {
   const result = spawnSync('git', args, { cwd: root, encoding, shell: false })
@@ -46,7 +51,12 @@ function main() {
   const receiptDirectory = path.dirname(resolvedReceiptPath)
   if (!fs.existsSync(receiptDirectory) || !fs.statSync(receiptDirectory).isDirectory()) throw new Error('receipt path parent directory must already exist')
   const startedAt = new Date().toISOString()
-  const result = spawnSync(argv[0], argv.slice(1), { cwd, encoding: 'utf8', shell: false, env: {} })
+  const result = spawnSync(resolveCertifiedExecutable(root, argv[0]), argv.slice(1), {
+    cwd,
+    encoding: 'utf8',
+    shell: false,
+    env: {}
+  })
   if (result.error) throw result.error
   const output = Buffer.from(`${result.stdout ?? ''}${result.stderr ?? ''}`, 'utf8')
   fs.writeFileSync(outputPath, output)
@@ -55,7 +65,7 @@ function main() {
     root,
     profileId,
     command: { ...command, argv, startedAt, endedAt, exitCode: result.status ?? 1, profileId },
-    scenarios: command.scenarios,
+    scenarios: bindScenariosToCommandWindow(command.scenarios, startedAt, endedAt),
     outputArtifact: { artifactId: command.outputArtifactId, sha256: crypto.createHash('sha256').update(output).digest('hex') },
     repository: { claimId: command.claimId, ...repository },
     runtime: { node: process.version.replace(/^v/u, ''), nodeModuleAbi: Number(process.versions.modules) },

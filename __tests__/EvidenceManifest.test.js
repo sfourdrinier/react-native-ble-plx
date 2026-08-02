@@ -14,7 +14,11 @@ const recordsDirectory = path.join(repositoryRoot, 'evidence', 'v1', 'records')
 const schemaPath = path.join(repositoryRoot, 'evidence', 'v1', 'schema', 'evidence-manifest.schema.json')
 const validatorPath = path.join(repositoryRoot, 'scripts', 'evidence', 'validate-evidence-manifest.js')
 const { futureTimestampSkewMilliseconds, validateManifest, validateManifestCollection, validateManifestFile } = require(validatorPath)
-const { assertCertifiedCommandProfile } = require('../scripts/evidence/evidence-command-receipt')
+const {
+  assertCertifiedCommandProfile,
+  bindScenariosToCommandWindow,
+  resolveCertifiedExecutable
+} = require('../scripts/evidence/evidence-command-receipt')
 
 function readJson(directory, filename) {
   return JSON.parse(fs.readFileSync(path.join(directory, filename), 'utf8'))
@@ -88,7 +92,11 @@ describe('evidence manifest validation', () => {
     const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'))
     expect(schema.$defs.claim.required).toEqual(expect.arrayContaining(['supportMatrix']))
     expect(schema.$defs.packageArtifact.required).toEqual(expect.arrayContaining(['availability', 'path', 'sha256', 'artifactId']))
-    expect(schema.$defs.command.properties.toolIdentity.enum).toEqual(expect.arrayContaining(['unified-ble-tck', 'legacy-package-regression']))
+    expect(schema.$defs.command.properties.toolIdentity.enum).toEqual(expect.arrayContaining([
+      'unified-ble-tck',
+      'unified-ble-live-corebluetooth',
+      'legacy-package-regression'
+    ]))
     expect(schema.$defs.command.properties.receiptArtifactId.$ref).toBe('#/$defs/id')
     expect(schema.$defs.command.properties.profileId.$ref).toBe('#/$defs/id')
     expect(schema.$defs.scenario.required).toEqual(expect.arrayContaining(['commandIds', 'startedAt', 'endedAt']))
@@ -324,6 +332,47 @@ describe('evidence manifest validation', () => {
     expectInvalid(mismatchedScenarioOutcome, 'must be exactly bound by command receipt')
 
     expect(() => assertCertifiedCommandProfile('fixture-live-suite', { argv: ['sh', '-c', 'node live.js'], toolIdentity: 'unified-ble-tck' }, { claimId: 'fixture-live-preview-l4', remote: 'fixture-repository' })).toThrow('refusing to run an unregistered')
+  })
+
+  test('certifies the production CoreBluetooth live command and binds scenario time to its actual execution window', () => {
+    const command = JSON.parse(fs.readFileSync(
+      path.join(repositoryRoot, 'scripts', 'evidence', 'commands', 'corebluetooth-live-vertical-slice.json'),
+      'utf8'
+    ))
+    expect(() => assertCertifiedCommandProfile(
+      'corebluetooth-live-vertical-slice',
+      command,
+      {
+        claimId: 'macos-corebluetooth-live',
+        remote: 'https://github.com/sfourdrinier/react-native-ble-plx.git'
+      }
+    )).not.toThrow()
+    expect(command.scenarios).toEqual([
+      expect.not.objectContaining({ startedAt: expect.anything(), endedAt: expect.anything() })
+    ])
+
+    const scenarios = bindScenariosToCommandWindow(
+      [{ id: 'macos-corebluetooth-live-vertical-slice', kind: 'vertical-slice', result: 'passed', provenance: 'live-radio', level: 'L4' }],
+      '2026-08-02T08:00:00.000Z',
+      '2026-08-02T08:00:15.000Z'
+    )
+    expect(scenarios).toEqual([
+      {
+        id: 'macos-corebluetooth-live-vertical-slice',
+        kind: 'vertical-slice',
+        result: 'passed',
+        provenance: 'live-radio',
+        level: 'L4',
+        startedAt: '2026-08-02T08:00:00.000Z',
+        endedAt: '2026-08-02T08:00:15.000Z'
+      }
+    ])
+    expect(() => bindScenariosToCommandWindow(
+      [{ id: 'forged-time', startedAt: '2026-01-01T00:00:00.000Z' }],
+      '2026-08-02T08:00:00.000Z',
+      '2026-08-02T08:00:15.000Z'
+    )).toThrow('must not declare execution timestamps')
+    expect(resolveCertifiedExecutable(repositoryRoot, 'node')).toBe(process.execPath)
   })
 
   test('rejects package relabeling, unsupported source commits, and contradictory live hardware', () => {

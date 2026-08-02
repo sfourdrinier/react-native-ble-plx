@@ -1,7 +1,11 @@
 // src/electron-main.ts
 
 import type { BackendProvider, HostNeutralBackendIdentity } from './backend-contract/identity'
-import { createNativeCoreBluetoothBoundary, type NativeCoreBluetoothProviderOptions } from './node-corebluetooth'
+import {
+  createNativeCoreBluetoothBoundary,
+  prepareNativeCoreBluetoothBoundary,
+  type NativeCoreBluetoothProviderOptions
+} from './node-corebluetooth'
 import { createNativeWinRtBoundary, type NativeWinRtProviderOptions } from './node-winrt'
 import { createWinRtBackendProvider, type WinRtBackendProviderOptions } from './backends/winrt/winrt-provider'
 import {
@@ -22,6 +26,7 @@ export function createElectronMainCoreBluetoothBackendProvider(
 ): BackendProvider<string, HostNeutralBackendIdentity<string>> {
   const providerOptions: CoreBluetoothBackendProviderOptions = {
     boundaryFactory: createNativeCoreBluetoothBoundary,
+    prepareBoundary: prepareNativeCoreBluetoothBoundary,
     now: options.now,
     hostKind: 'electron-main'
   }

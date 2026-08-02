@@ -36,6 +36,46 @@ export interface NativeCoreBluetoothProviderOptions {
   readonly now: () => number
 }
 
+const NATIVE_COREBLUETOOTH_INITIALIZATION_TIMEOUT_MILLISECONDS = 10_000
+
+function isUsableAdapterState(state: ReturnType<CoreBluetoothBoundary['adapterSnapshot']>): boolean {
+  return state.availability === 'available' && state.authorization === 'granted' && state.power === 'on'
+}
+
+/** Waits for CoreBluetooth's asynchronous first central-manager state callback before backend attachment. */
+export function prepareNativeCoreBluetoothBoundary(boundary: CoreBluetoothBoundary): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    let removeListener: (() => void) | null = null
+    const timeout = setTimeout(() => {
+      if (settled) return
+      settled = true
+      removeListener?.()
+      reject(
+        nativeArtifactUnavailable(
+          'corebluetooth.native-boundary.initialize',
+          'adapter-initialization-timed-out',
+          'CoreBluetooth did not report a usable adapter state before the initialization deadline'
+        )
+      )
+    }, NATIVE_COREBLUETOOTH_INITIALIZATION_TIMEOUT_MILLISECONDS)
+    const accept = (state: ReturnType<CoreBluetoothBoundary['adapterSnapshot']>): void => {
+      if (settled || !isUsableAdapterState(state)) return
+      settled = true
+      clearTimeout(timeout)
+      removeListener?.()
+      resolve()
+    }
+    const release = boundary.onAdapterState(accept)
+    removeListener = release
+    if (settled) {
+      release()
+      return
+    }
+    accept(boundary.adapterSnapshot())
+  })
+}
+
 function nativeArtifactUnavailable(operation: string, code: string, safeMessage: string): BackendContractError {
   return contractError('capability.unavailable', 'platform', operation, {
     domain: 'corebluetooth',
@@ -88,6 +128,7 @@ export function createNativeCoreBluetoothBackendProvider(
 ): BackendProvider<string, HostNeutralBackendIdentity<string>> {
   const providerOptions: CoreBluetoothBackendProviderOptions = {
     boundaryFactory: createNativeCoreBluetoothBoundary,
+    prepareBoundary: prepareNativeCoreBluetoothBoundary,
     now: options.now,
     hostKind: 'node'
   }

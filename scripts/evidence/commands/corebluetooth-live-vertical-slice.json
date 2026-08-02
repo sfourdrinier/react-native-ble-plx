@@ -1,0 +1,18 @@
+{
+  "claimId": "macos-corebluetooth-live",
+  "id": "macos-corebluetooth-live-command",
+  "argv": ["node", "scripts/evidence/corebluetooth-live.js"],
+  "cwd": ".",
+  "outputPath": "evidence/v1/artifacts/macos-corebluetooth-live-l4.log",
+  "outputArtifactId": "macos-corebluetooth-live-log",
+  "toolIdentity": "unified-ble-live-corebluetooth",
+  "scenarios": [
+    {
+      "id": "macos-corebluetooth-live-vertical-slice",
+      "kind": "vertical-slice",
+      "result": "passed",
+      "provenance": "live-radio",
+      "level": "L4"
+    }
+  ]
+}

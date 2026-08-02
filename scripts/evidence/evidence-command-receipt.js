@@ -30,6 +30,14 @@ const certifiedProfiles = {
     scenarioKinds: ['legacy-regression'],
     environmentKeys: []
   },
+  'corebluetooth-live-vertical-slice': {
+    argv: ['node', 'scripts/evidence/corebluetooth-live.js'],
+    toolIdentity: 'unified-ble-live-corebluetooth',
+    scenarioKinds: ['vertical-slice'],
+    environmentKeys: [],
+    claimIds: ['macos-corebluetooth-live'],
+    repositories: ['https://github.com/sfourdrinier/react-native-ble-plx.git']
+  },
   'fixture-compile': {
     argv: ['pnpm', 'typecheck'],
     toolIdentity: null,
@@ -110,7 +118,25 @@ function profileFor(profileId, claimId, repository) {
   const profile = certifiedProfiles[profileId]
   if (!profile) return null
   if (profile.fixtureOnly === true && (typeof claimId !== 'string' || !claimId.startsWith('fixture-') || repository !== 'fixture-repository')) return null
+  if (Array.isArray(profile.claimIds) && !profile.claimIds.includes(claimId)) return null
+  if (Array.isArray(profile.repositories) && !profile.repositories.includes(repository)) return null
   return profile
+}
+
+function bindScenariosToCommandWindow(scenarios, startedAt, endedAt) {
+  if (!Array.isArray(scenarios) || scenarios.length === 0) throw new Error('certified command must declare at least one scenario')
+  const started = Date.parse(startedAt)
+  const ended = Date.parse(endedAt)
+  if (!Number.isFinite(started) || !Number.isFinite(ended) || started > ended) {
+    throw new Error('certified command execution window must contain ordered ISO timestamps')
+  }
+  return scenarios.map(scenario => {
+    if (!isObject(scenario)) throw new Error('certified command scenario must be an object')
+    if (Object.hasOwn(scenario, 'startedAt') || Object.hasOwn(scenario, 'endedAt')) {
+      throw new Error('certified command scenario templates must not declare execution timestamps')
+    }
+    return { ...scenario, startedAt, endedAt }
+  })
 }
 
 function assertCertifiedCommandProfile(profileId, command, repository) {
@@ -211,7 +237,8 @@ function localRepositoryContainsCommit(root, repository, commit) {
   }
 }
 
-function resolveExecutable(root, command) {
+function resolveCertifiedExecutable(root, command) {
+  if (command === 'node') return process.execPath
   if (command.includes(path.sep)) return path.resolve(root, command)
   const candidate = (process.env.PATH || '').split(path.delimiter).map(directory => path.join(directory, command)).find(file => fs.existsSync(file))
   if (!candidate) throw new Error(`cannot resolve certified executable: ${command}`)
@@ -220,7 +247,7 @@ function resolveExecutable(root, command) {
 
 function emitReceipt({ root, profileId, command, scenarios, outputArtifact, repository, runtime, environment = {} }) {
   assertCertifiedCommandProfile(profileId, command, repository)
-  const executablePath = resolveExecutable(root, command.argv[0])
+  const executablePath = resolveCertifiedExecutable(root, command.argv[0])
   const executableBytes = fs.readFileSync(executablePath)
   const versionResult = spawnSync(executablePath, ['--version'], { encoding: 'utf8', shell: false })
   const executableVersion = versionResult.status === 0 ? (versionResult.stdout || versionResult.stderr).trim() : process.version
@@ -248,4 +275,4 @@ function emitReceipt({ root, profileId, command, scenarios, outputArtifact, repo
   return receipt
 }
 
-module.exports = { assertCertifiedCommandProfile, canonicalJson, emitReceipt, localRepositoryContainsCommit, parseReceipt, receiptDigest, receiptSchema, receiptVersion, validateReceipt }
+module.exports = { assertCertifiedCommandProfile, bindScenariosToCommandWindow, canonicalJson, emitReceipt, localRepositoryContainsCommit, parseReceipt, receiptDigest, receiptSchema, receiptVersion, resolveCertifiedExecutable, validateReceipt }
