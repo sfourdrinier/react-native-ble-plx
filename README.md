@@ -2,7 +2,7 @@
 
 # unified-ble-manager
 
-`unified-ble-manager@4.0.0-alpha.32` is the current published 4.0 prerelease for
+`unified-ble-manager@4.0.0-alpha.33` is the current published 4.0 prerelease for
 explicit, bytes-first Bluetooth Low Energy management across React Native, Web,
 Electron, and Node hosts. 4.0 is a new package line with no released 4.0
 consumer baseline; adopting it is an explicit integration, not a source-
@@ -16,9 +16,9 @@ The controlling architecture and sequencing record is
 
 ## Release status and evidence boundary
 
-`v4.0.0-alpha.32` was published by GitHub Actions trusted publishing under
+`v4.0.0-alpha.33` was published by GitHub Actions trusted publishing under
 npm's `next` dist-tag with an npm SLSA provenance attestation. The
-[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.32)
+[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.33)
 proves the package release path, not Bluetooth behavior.
 
 `v4.0.0-alpha.31` is the previous published prerelease; it is not the
@@ -52,7 +52,7 @@ validation substitute.
 Pin the exact prerelease you validated. pnpm is used in this repository:
 
 ```sh
-pnpm add unified-ble-manager@4.0.0-alpha.32
+pnpm add unified-ble-manager@4.0.0-alpha.33
 ```
 
 `next` is the mutable prerelease dist-tag. Pin the exact alpha.32 version you
@@ -306,7 +306,7 @@ final version uses npm `latest` and a normal GitHub Release.
 Check the installed prerelease against npm metadata before integrating it:
 
 ```sh
-npm view unified-ble-manager@4.0.0-alpha.32 version dist-tags dist.integrity dist.attestations _npmUser --json
+npm view unified-ble-manager@4.0.0-alpha.33 version dist-tags dist.integrity dist.attestations _npmUser --json
 ```
 
 The result must identify the exact version, `next`

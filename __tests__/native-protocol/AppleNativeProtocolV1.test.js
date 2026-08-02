@@ -262,6 +262,19 @@ describe('Apple Native Protocol v1 radio boundary', () => {
     )
   })
 
+  test('owns the command record for asynchronous CoreBluetooth completions', () => {
+    const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
+    const dispatch = execution.slice(
+      execution.indexOf('void dispatchCommand('),
+      execution.indexOf('class BinaryRuntime final')
+    )
+
+    expect(dispatch).toContain('const auto command = borrowedCommand;')
+    expect(dispatch.indexOf('const auto command = borrowedCommand;')).toBeLessThan(
+      dispatch.indexOf('completion:^')
+    )
+  })
+
   test('keeps the queue-confined radio under the file cap by moving stateless projections to support', () => {
     const radio = read('ios/Owned/OwnedCoreBluetoothProtocolRadio.swift')
     const support = read('ios/Owned/OwnedCoreBluetoothProtocolRadioSupport.swift')

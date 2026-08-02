@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.33] - 2026-08-01 (published prerelease)
+
+### Fixed
+
+- Retained an owned copy of every Apple native command across asynchronous
+  CoreBluetooth completion blocks instead of capturing a borrowed decoder
+  record whose lifetime ends when dispatch returns.
+- Added a regression guard for asynchronous command ownership after the iOS
+  Simulator exposed a teardown completion reading released record storage.
+
+### Support and evidence boundary
+
+- Alpha.33 remains Experimental until its exact package artifact is bound to
+  physical-radio evidence. Simulator compilation, installation, launch, and
+  lifecycle cleanup do not establish live BLE support.
+- Meta Quest and the controllable physical fault-injection peripheral remain
+  explicitly deferred to 4.1.
+
 ## [4.0.0-alpha.32] - 2026-08-01 (published prerelease)
 
 ### Fixed

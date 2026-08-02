@@ -1092,7 +1092,8 @@ DescriptorEndpoint descriptorEndpointFor(const protocol::ProtocolRecord& path) {
 
 void dispatchCommand(
     const std::shared_ptr<AppleNativeProtocolExecution::State>& state,
-    const protocol::ProtocolRecord& command) {
+    const protocol::ProtocolRecord& borrowedCommand) {
+  const auto command = borrowedCommand;
   auto* radio = radioFor(state);
   if (radio == nil) {
     fail(state, command, "radioUnavailable", nil);

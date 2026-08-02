@@ -6,15 +6,15 @@
   "metadata": {
     "component": {
       "type": "library",
-      "bom-ref": "pkg:npm/unified-ble-manager@4.0.0-alpha.32",
+      "bom-ref": "pkg:npm/unified-ble-manager@4.0.0-alpha.33",
       "name": "unified-ble-manager",
-      "version": "4.0.0-alpha.32",
+      "version": "4.0.0-alpha.33",
       "licenses": [
         {
           "expression": "MIT"
         }
       ],
-      "purl": "pkg:npm/unified-ble-manager@4.0.0-alpha.32"
+      "purl": "pkg:npm/unified-ble-manager@4.0.0-alpha.33"
     },
     "properties": [
       {
@@ -5167,7 +5167,7 @@
       "dependsOn": []
     },
     {
-      "ref": "pkg:npm/unified-ble-manager@4.0.0-alpha.32",
+      "ref": "pkg:npm/unified-ble-manager@4.0.0-alpha.33",
       "dependsOn": [
         "pkg:npm/%40expo/config-plugins@57.0.6",
         "pkg:npm/dbus-next@0.10.2",

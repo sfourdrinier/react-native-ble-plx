@@ -4,7 +4,7 @@
 
 ## 4.0 status
 
-`unified-ble-manager@4.0.0-alpha.32` is the current published 4.0 alpha package.
+`unified-ble-manager@4.0.0-alpha.33` is the current published 4.0 alpha package.
 It is a clean API line with no released 4.0 consumer baseline:
 choose one explicit host entrypoint and build the matching native integration
 before making a Bluetooth claim. It is not a source-compatible rename of the
@@ -15,7 +15,7 @@ The architecture and implementation sequence are controlled by [`UNIFIED_BLE_4.0
 ## Install and select a host
 
 ```sh
-pnpm add unified-ble-manager@4.0.0-alpha.32
+pnpm add unified-ble-manager@4.0.0-alpha.33
 ```
 
 The alpha train is published under npm's mutable `next` dist-tag. Pin the exact version you validate; do
