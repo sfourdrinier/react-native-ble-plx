@@ -22,9 +22,9 @@ entrypoints.
 The published `4.0.0-alpha.33` Electron prerelease is Experimental. The release
 workflow's packed Electron smoke is deterministic L1 package/IPC proof, not an
 Electron host, adapter, or peripheral support claim. No current evidence record
-binds alpha.32 to a physical Electron radio journey.
+binds alpha.33 to a physical Electron radio journey.
 
-WinRT compile and ABI checks are L2/L3 evidence only; alpha.32 makes no Windows
+WinRT compile and ABI checks are L2/L3 evidence only; alpha.33 makes no Windows
 live-radio claim.
 
 ## Main-process backend selection

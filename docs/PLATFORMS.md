@@ -16,10 +16,10 @@ page is stale. This document deliberately does not restate that evidence as a
 manually maintained host matrix.
 
 `unified-ble-manager@4.0.0-alpha.33` remains the published **Experimental**
-prerelease. No current evidence record binds the published alpha.32 artifact
+prerelease. No current evidence record binds the published alpha.33 artifact
 to a passed physical-radio scenario, so it does not authorize a Preview, Live
 Preview, Supported, or Reliability-qualified label. WinRT compile and ABI
-checks remain L2/L3 evidence only; alpha.32 makes no Windows live-radio claim.
+checks remain L2/L3 evidence only; alpha.33 makes no Windows live-radio claim.
 
 Meta Quest and an nRF52840-based controllable fault-injection controller are deferred to 4.1.
 Neither has a 4.0 entrypoint, support label, or release gate.

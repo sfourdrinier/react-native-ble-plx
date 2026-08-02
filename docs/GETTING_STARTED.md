@@ -20,13 +20,13 @@ pnpm add unified-ble-manager@4.0.0-alpha.33
 
 The alpha train is published under npm's mutable `next` dist-tag. Pin the exact version you validate; do
 not use a bare install or `@latest` to select 4.0 alpha. The package is
-Experimental, and no current evidence record binds the published alpha.32
+Experimental, and no current evidence record binds the published alpha.33
 artifact to a physical-radio backend result. Package builds
 and deterministic tests remain useful proof at their own scope, but do not
 create a platform support label.
 
 The package support label remains Experimental. WinRT compile and ABI checks are
-L2/L3 evidence only; alpha.32 makes no Windows live-radio claim.
+L2/L3 evidence only; alpha.33 makes no Windows live-radio claim.
 
 The root import is host-neutral. Import the selected integration explicitly:
 

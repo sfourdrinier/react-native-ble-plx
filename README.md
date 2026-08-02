@@ -22,10 +22,10 @@ npm's `next` dist-tag with an npm SLSA provenance attestation. The
 proves the package release path, not Bluetooth behavior.
 
 `v4.0.0-alpha.31` is the previous published prerelease; it is not the
-current prerelease or an alpha.32 evidence record.
+current prerelease or an alpha.33 evidence record.
 
 The package and deterministic contract surface are **Experimental**. No current
-evidence record binds the published alpha.32 artifact to a hardware-backed
+evidence record binds the published alpha.33 artifact to a hardware-backed
 backend scenario, so no React Native, Web, Node, or Electron backend is
 Preview, Live Preview, Supported, or Reliability-qualified. Missing hardware
 evidence blocks those labels only; it does not invalidate deterministic or
@@ -33,7 +33,7 @@ package-artifact proof. See [`docs/PLATFORMS.md`](docs/PLATFORMS.md) for the
 per-host boundary.
 
 The package remains **Experimental**. WinRT compile and ABI checks are L2/L3
-evidence only; alpha.32 makes no Windows live-radio claim.
+evidence only; alpha.33 makes no Windows live-radio claim.
 
 Meta Quest and an nRF52840-based controllable fault-injection controller are
 deferred to 4.1. Neither is a 4.0 backend claim, release gate, or hardware
@@ -55,7 +55,7 @@ Pin the exact prerelease you validated. pnpm is used in this repository:
 pnpm add unified-ble-manager@4.0.0-alpha.33
 ```
 
-`next` is the mutable prerelease dist-tag. Pin the exact alpha.32 version you
+`next` is the mutable prerelease dist-tag. Pin the exact alpha.33 version you
 evaluate; a later alpha can change
 it without changing your lockfile intent. Do not install
 the bare package name or `@latest` when adopting 4.0 alpha: those do not select

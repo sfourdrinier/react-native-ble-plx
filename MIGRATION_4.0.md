@@ -26,10 +26,10 @@ pnpm add unified-ble-manager@4.0.0-alpha.33
 `next` is the mutable prerelease dist-tag. Pin the exact version you evaluate, and do not use
 a bare install or `@latest`
 to select the 4.0 alpha train. The prerelease package is Experimental: no
-current evidence record links alpha.32's published artifact to a hardware-backed
+current evidence record links alpha.33's published artifact to a hardware-backed
 backend support claim. See [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
 
-WinRT compile and ABI checks are L2/L3 evidence only; alpha.32 makes no Windows
+WinRT compile and ABI checks are L2/L3 evidence only; alpha.33 makes no Windows
 live-radio claim.
 
 Use only documented package subpaths. The root export is host-neutral; import

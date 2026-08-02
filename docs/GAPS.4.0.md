@@ -22,7 +22,7 @@ binds the exact source and package artifact.
 `unified-ble-manager@4.0.0-alpha.33` is the published Experimental prerelease,
 and no current record in `evidence/v1/records/` binds that artifact to a passed
 physical-radio backend scenario. The records below are historical L0 context and
-must not be read as Preview-or-higher evidence for the alpha.32 prerelease.
+must not be read as Preview-or-higher evidence for the alpha.33 prerelease.
 
 ## Proof levels
 

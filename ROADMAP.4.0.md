@@ -53,13 +53,13 @@ or examples. The alpha has no 3.x compatibility layer. `v4.0.0-alpha.31` is the
 previous published prerelease, not the current prerelease.
 
 The prerelease package support label is Experimental. There is no current
-evidence record linking alpha.32's published artifact to a passed physical-radio
+evidence record linking alpha.33's published artifact to a passed physical-radio
 backend scenario, so it makes no Preview-or-higher platform claim. Hardware
 evidence is required
 only for the corresponding support label; it does not erase package or
 deterministic proof.
 
-WinRT compile and ABI checks are L2/L3 evidence only; alpha.32 makes no Windows
+WinRT compile and ABI checks are L2/L3 evidence only; alpha.33 makes no Windows
 live-radio claim.
 
 Support labels are evidence-based:

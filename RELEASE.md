@@ -25,18 +25,18 @@ especially its package, evidence, deletion, and Section 31 release gates.
 npm identifies GitHub Actions as the trusted publisher, exposes the package on
 the `next` dist-tag, and includes an npm SLSA provenance attestation. The
 [GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.33)
-is a prerelease with notes generated from the alpha.32 section of
+is a prerelease with notes generated from the alpha.33 section of
 [`CHANGELOG.md`](CHANGELOG.md).
 
 `v4.0.0-alpha.31` is the previous published prerelease. It is not the
-current prerelease and does not bind alpha.32's package or evidence state.
+current prerelease and does not bind alpha.33's package or evidence state.
 
 The prerelease support label is Experimental. Its source and deterministic
 package gates verify the intended public package contract; publication does not
 establish that any backend has hardware support. The prerelease has no bound
 physical-radio scenario. No backend is thereby Preview,
 Live Preview, Supported, or Reliability-qualified.
-WinRT compile and ABI checks are L2/L3 evidence only; alpha.32 makes no Windows
+WinRT compile and ABI checks are L2/L3 evidence only; alpha.33 makes no Windows
 live-radio claim.
 See [`docs/PLATFORMS.md`](docs/PLATFORMS.md) and
 [`evidence/v1/README.md`](evidence/v1/README.md).
@@ -114,7 +114,7 @@ Then cross-check the matching tag and GitHub Release:
 gh release view v4.0.0-alpha.33 --repo sfourdrinier/react-native-ble-plx --json tagName,isPrerelease,publishedAt,url
 ```
 
-After alpha.32 publication, npm must report the exact version, `next`, integrity,
+After alpha.33 publication, npm must report the exact version, `next`, integrity,
 a SLSA provenance attestation, and GitHub Actions trusted publisher; GitHub must
 report the matching `v4.0.0-alpha.33` tag with `isPrerelease: true`. These checks verify release
 identity and supply chain metadata only. They do not verify BLE hardware

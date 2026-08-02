@@ -249,7 +249,7 @@ describe('4.0 documentation honesty', () => {
     expect(release).not.toMatch(/publishes the \*\*4\.0 dual identity\*\*/i)
   })
 
-  test('public README provides only current alpha.32 prerelease construction and plugin guidance', () => {
+  test('public README provides only current alpha.33 prerelease construction and plugin guidance', () => {
     const readme = read('README.md')
     const changelog = read('CHANGELOG.md')
 
@@ -274,7 +274,7 @@ describe('4.0 documentation honesty', () => {
     expect(changelog).toContain('hostSessionScope')
   })
 
-  test('alpha.32 published documentation preserves exact release, evidence, and deferral boundaries', () => {
+  test('alpha.33 published documentation preserves exact release, evidence, and deferral boundaries', () => {
     const readme = read('README.md')
     const release = read('RELEASE.md')
     const platforms = read('docs/PLATFORMS.md')
@@ -286,7 +286,7 @@ describe('4.0 documentation honesty', () => {
     expect(release).toContain('`v4.0.0-alpha.31` is the previous published prerelease')
     expect(release).toMatch(/GitHub Actions\s+as the trusted publisher/)
     expect(release).toContain('SLSA provenance')
-    expect(platforms).toContain('No current evidence record binds the published alpha.32')
+    expect(platforms).toContain('No current evidence record binds the published alpha.33')
     expect(platforms).toContain('makes no Windows live-radio claim')
     expect(platforms).toContain('Meta Quest and an nRF52840-based controllable fault-injection controller are deferred to 4.1')
   })
