@@ -232,7 +232,7 @@ describe('4.0 documentation honesty', () => {
     const release = read('RELEASE.md')
 
     expect(migration).toContain('current published 4.0 prerelease')
-    expect(migration).toContain('unified-ble-manager@4.0.0-alpha.34')
+    expect(migration).toContain('unified-ble-manager@4.0.0-alpha.35')
     expect(migration).toContain('stable `hostSessionScope`')
     expect(migration).toContain('`Uint8Array`')
     expect(migration).toContain('`AbortSignal`')
@@ -253,10 +253,10 @@ describe('4.0 documentation honesty', () => {
     const readme = read('README.md')
     const changelog = read('CHANGELOG.md')
 
-    expect(readme).toContain('unified-ble-manager@4.0.0-alpha.34')
-    expect(readme).toContain('pnpm add unified-ble-manager@4.0.0-alpha.34')
+    expect(readme).toContain('unified-ble-manager@4.0.0-alpha.35')
+    expect(readme).toContain('pnpm add unified-ble-manager@4.0.0-alpha.35')
     expect(readme).toContain('`v4.0.0-alpha.33` is the previous published prerelease')
-    expect(changelog).toContain('## [4.0.0-alpha.34] - 2026-08-01 (published prerelease)')
+    expect(changelog).toContain('## [4.0.0-alpha.35] - 2026-08-01 (published prerelease)')
     expect(changelog).toContain('## [4.0.0-alpha.28] - 2026-08-01 (published prerelease)')
     expect(changelog).toContain('## [4.0.0-alpha.27] - 2026-08-01 (published historical prerelease)')
     expect(readme).toContain('createReactNativeBleManager')
@@ -281,7 +281,7 @@ describe('4.0 documentation honesty', () => {
 
     expect(readme).toContain('`next` dist-tag')
     expect(readme).toMatch(/Do not install\s+the bare package name or `@latest`/)
-    expect(release).toContain('v4.0.0-alpha.34')
+    expect(release).toContain('v4.0.0-alpha.35')
     expect(release).toContain('protected GitHub Actions trusted-publishing workflow')
     expect(release).toContain('`v4.0.0-alpha.33` is the previous published prerelease')
     expect(release).toMatch(/GitHub Actions\s+as the trusted publisher/)

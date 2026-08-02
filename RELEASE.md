@@ -20,11 +20,11 @@ especially its package, evidence, deletion, and Section 31 release gates.
 
 ## Current prerelease
 
-`unified-ble-manager@4.0.0-alpha.34` was published from
-`v4.0.0-alpha.34` by the protected GitHub Actions trusted-publishing workflow.
+`unified-ble-manager@4.0.0-alpha.35` was published from
+`v4.0.0-alpha.35` by the protected GitHub Actions trusted-publishing workflow.
 npm identifies GitHub Actions as the trusted publisher, exposes the package on
 the `next` dist-tag, and includes an npm SLSA provenance attestation. The
-[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.34)
+[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.35)
 is a prerelease with notes generated from the alpha.34 section of
 [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -52,7 +52,7 @@ verifying that the pushed `vX.Y.Z` tag exactly matches `package.json`:
 
 | Version form | npm dist-tag | GitHub Release state | Consumer guidance |
 | --- | --- | --- | --- |
-| Hyphenated SemVer prerelease, such as `4.0.0-alpha.34` | `next` | prerelease | Pin the exact version for reproducible evaluation; `@next` is mutable. |
+| Hyphenated SemVer prerelease, such as `4.0.0-alpha.35` | `next` | prerelease | Pin the exact version for reproducible evaluation; `@next` is mutable. |
 | Final SemVer version, such as `4.0.0` | `latest` | normal release | Use the final version only after its published evidence supports the required host claim. |
 
 Do not use a bare install or `@latest` to select a 4.0 alpha. The exact package
@@ -105,18 +105,18 @@ Check the published version, dist-tag, integrity, attestation, and trusted
 publisher from npm:
 
 ```sh
-npm view unified-ble-manager@4.0.0-alpha.34 version dist-tags dist.integrity dist.attestations _npmUser --json
+npm view unified-ble-manager@4.0.0-alpha.35 version dist-tags dist.integrity dist.attestations _npmUser --json
 ```
 
 Then cross-check the matching tag and GitHub Release:
 
 ```sh
-gh release view v4.0.0-alpha.34 --repo sfourdrinier/react-native-ble-plx --json tagName,isPrerelease,publishedAt,url
+gh release view v4.0.0-alpha.35 --repo sfourdrinier/react-native-ble-plx --json tagName,isPrerelease,publishedAt,url
 ```
 
 After alpha.34 publication, npm must report the exact version, `next`, integrity,
 a SLSA provenance attestation, and GitHub Actions trusted publisher; GitHub must
-report the matching `v4.0.0-alpha.34` tag with `isPrerelease: true`. These checks verify release
+report the matching `v4.0.0-alpha.35` tag with `isPrerelease: true`. These checks verify release
 identity and supply chain metadata only. They do not verify BLE hardware
 behavior, platform permissions, browser availability, background operation,
 restoration, reconnect, or reliability.

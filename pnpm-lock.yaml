@@ -77,6 +77,9 @@ importers:
       commitlint:
         specifier: ^17.0.2
         version: 17.8.1
+      dbus-next:
+        specifier: ^0.10.2
+        version: 0.10.2
       del-cli:
         specifier: ^5.1.0
         version: 5.1.0
@@ -168,12 +171,6 @@ importers:
         specifier: 2.9.0
         version: 2.9.0
     optionalDependencies:
-      '@expo/config-plugins':
-        specifier: 57.0.6
-        version: 57.0.6(typescript@5.8.3)
-      dbus-next:
-        specifier: ^0.10.2
-        version: 0.10.2
       node-addon-api:
         specifier: 8.9.0
         version: 8.9.0
@@ -11604,8 +11601,7 @@ snapshots:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.19.1
 
-  '@nornagon/put@0.0.8':
-    optional: true
+  '@nornagon/put@0.0.8': {}
 
   '@octokit/auth-token@6.0.0': {}
 
@@ -11904,9 +11900,7 @@ snapshots:
       metro-runtime: 0.84.4
     transitivePeerDependencies:
       - '@babel/core'
-      - bufferutil
       - supports-color
-      - utf-8-validate
 
   '@react-native/normalize-colors@0.86.0': {}
 
@@ -13588,7 +13582,6 @@ snapshots:
       xml2js: 0.4.23
     optionalDependencies:
       usocket: 0.3.0
-    optional: true
 
   de-indent@1.0.2: {}
 
@@ -13837,8 +13830,7 @@ snapshots:
     dependencies:
       readable-stream: 2.3.8
 
-  duplexer@0.1.2:
-    optional: true
+  duplexer@0.1.2: {}
 
   duplexify@3.7.1:
     dependencies:
@@ -14356,7 +14348,6 @@ snapshots:
       split: 0.3.3
       stream-combiner: 0.0.4
       through: 2.3.8
-    optional: true
 
   event-target-shim@5.0.1: {}
 
@@ -14731,8 +14722,7 @@ snapshots:
 
   fresh@0.5.2: {}
 
-  from@0.1.7:
-    optional: true
+  from@0.1.7: {}
 
   fs-extra@11.3.0:
     dependencies:
@@ -15131,8 +15121,7 @@ snapshots:
     dependencies:
       hermes-estree: 0.36.1
 
-  hexy@0.2.11:
-    optional: true
+  hexy@0.2.11: {}
 
   highlight.js@9.18.5: {}
 
@@ -16017,8 +16006,7 @@ snapshots:
     dependencies:
       argparse: 2.0.1
 
-  jsbi@2.0.5:
-    optional: true
+  jsbi@2.0.5: {}
 
   jsbn@0.1.1:
     optional: true
@@ -16283,8 +16271,7 @@ snapshots:
       is-unicode-supported: 2.1.0
       yoctocolors: 2.1.2
 
-  long@4.0.0:
-    optional: true
+  long@4.0.0: {}
 
   longest-streak@2.0.4: {}
 
@@ -16333,8 +16320,7 @@ snapshots:
 
   map-obj@4.3.0: {}
 
-  map-stream@0.1.0:
-    optional: true
+  map-stream@0.1.0: {}
 
   map-visit@1.0.0:
     dependencies:
@@ -17218,7 +17204,6 @@ snapshots:
   pause-stream@0.0.11:
     dependencies:
       through: 2.3.8
-    optional: true
 
   perfect-debounce@2.1.0: {}
 
@@ -18232,7 +18217,6 @@ snapshots:
   split@0.3.3:
     dependencies:
       through: 2.3.8
-    optional: true
 
   sprintf-js@1.0.3: {}
 
@@ -18310,7 +18294,6 @@ snapshots:
   stream-combiner@0.0.4:
     dependencies:
       duplexer: 0.1.2
-    optional: true
 
   stream-shift@1.0.3: {}
 
@@ -19321,7 +19304,6 @@ snapshots:
     dependencies:
       sax: 1.4.1
       xmlbuilder: 11.0.1
-    optional: true
 
   xml2js@0.6.0:
     dependencies:

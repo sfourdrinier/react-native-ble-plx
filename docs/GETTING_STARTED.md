@@ -4,7 +4,7 @@
 
 ## 4.0 status
 
-`unified-ble-manager@4.0.0-alpha.34` is the current published 4.0 alpha package.
+`unified-ble-manager@4.0.0-alpha.35` is the current published 4.0 alpha package.
 It is a clean API line with no released 4.0 consumer baseline:
 choose one explicit host entrypoint and build the matching native integration
 before making a Bluetooth claim. It is not a source-compatible rename of the
@@ -15,7 +15,7 @@ The architecture and implementation sequence are controlled by [`UNIFIED_BLE_4.0
 ## Install and select a host
 
 ```sh
-pnpm add unified-ble-manager@4.0.0-alpha.34
+pnpm add unified-ble-manager@4.0.0-alpha.35
 ```
 
 The alpha train is published under npm's mutable `next` dist-tag. Pin the exact version you validate; do
@@ -51,7 +51,10 @@ public transaction IDs, automatic radio selection, or a fallback backend.
 ## Native and Expo setup
 
 The React Native Expo plugin is configured as `unified-ble-manager` and cannot
-run in Expo Go. Its optional `iosNativeProtocolRestoration` object requires all
+run in Expo Go. Expo consumers install the plugin host peer explicitly with
+`pnpm add unified-ble-manager@4.0.0-alpha.35 expo@^57.0.0`; the plugin uses
+Expo's public `expo/config-plugins` subpath.
+Its optional `iosNativeProtocolRestoration` object requires all
 five native identity values: identifier, namespace, epoch, client ID, and
 host-session scope. See [`EXPO_PLUGIN.md`](EXPO_PLUGIN.md) before configuring
 restoration.

@@ -1,4 +1,4 @@
-import { AndroidConfig, withAndroidManifest, withInfoPlist, type ConfigPlugin } from '@expo/config-plugins'
+import { AndroidConfig, withAndroidManifest, withInfoPlist, type ConfigPlugin } from 'expo/config-plugins'
 
 export const BLEPLX_DEBUG_LOGGING_PLIST_KEY = 'BlePlxDebugLogging'
 export const BLEPLX_DEBUG_LOGGING_ANDROID_META_DATA_NAME = 'BlePlxDebugLogging'

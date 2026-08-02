@@ -15,7 +15,7 @@ package artifact where possible, and fails the package build when the generated
 page is stale. This document deliberately does not restate that evidence as a
 manually maintained host matrix.
 
-`unified-ble-manager@4.0.0-alpha.34` remains the published **Experimental**
+`unified-ble-manager@4.0.0-alpha.35` remains the published **Experimental**
 prerelease. No current evidence record binds the published alpha.34 artifact
 to a passed physical-radio scenario, so it does not authorize a Preview, Live
 Preview, Supported, or Reliability-qualified label. WinRT compile and ABI

@@ -25,15 +25,18 @@ const isolatedConsumerToolVersions = Object.freeze({
 })
 const G6A_CHILD_TIMEOUT_MS = 120000
 const requiredPackedOptionalHostDependencies = Object.freeze({
-  '@expo/config-plugins': '57.0.6',
-  'dbus-next': '^0.10.2',
   'node-addon-api': '8.9.0',
   'node-gyp': '12.4.0'
+})
+const requiredPackedOptionalPeerHostDependencies = Object.freeze({
+  'dbus-next': '^0.10.2',
+  expo: '^57.0.0'
 })
 const browserBundleForbiddenHostDependencies = Object.freeze([
   '@expo/config-plugins',
   'dbus-next',
   'electron',
+  'expo',
   'node-addon-api',
   'node-gyp',
   'react',
@@ -583,6 +586,19 @@ function verifyInstalledPublishedHostDependencies(consumer) {
       expectedRange
     )
   }
+  for (const [dependencyName, expectedRange] of Object.entries(requiredPackedOptionalPeerHostDependencies)) {
+    assertInstalledDependencySatisfiesPackedManifest(
+      consumer,
+      packageRoot,
+      'peerDependencies',
+      dependencyName,
+      expectedRange
+    )
+    const packedManifest = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'))
+    if (packedManifest.peerDependenciesMeta?.[dependencyName]?.optional !== true) {
+      throw new Error(`Packed manifest peerDependenciesMeta.${dependencyName}.optional must equal true`)
+    }
+  }
 }
 
 function verifyInstalledNativeTooling(consumer) {
@@ -865,6 +881,8 @@ function main(options = {}) {
           private: true,
           version: '0.0.0',
           dependencies: {
+            'dbus-next': '0.10.2',
+            expo: '57.0.9',
             react: 'file:../react-stub',
             'react-native': 'file:../react-native-stub'
           },
@@ -914,8 +932,8 @@ function main(options = {}) {
       "assert.strictEqual(electronNativeBuildDependency.name, 'node-addon-api', 'packed Electron native build dependency resolves');",
       "const electronNativeBuildTool = require('node-gyp/package.json');",
       "assert.strictEqual(electronNativeBuildTool.name, 'node-gyp', 'packed Electron native build tool resolves');",
-      "const expoConfigPlugins = require('@expo/config-plugins/package.json');",
-      "assert.strictEqual(expoConfigPlugins.name, '@expo/config-plugins', 'packed Expo config-plugin runtime resolves');",
+      "const expo = require('expo/package.json');",
+      "assert.strictEqual(expo.name, 'expo', 'packed Expo config-plugin runtime resolves through the Expo host peer');",
       "const canonical = require('unified-ble-manager');",
       "assert.strictEqual(typeof canonical.BleManager, 'function', 'canonical BleManager');",
       "for (const privateSpecifier of ['unified-ble-manager/NativeUnifiedBleProtocolControl', 'unified-ble-manager/native-protocol/v1-codec', 'unified-ble-manager/native-protocol/rn-apple-boundary', 'unified-ble-manager/native-protocol/rn-jsi-binary-runtime', 'unified-ble-manager/profiles/heartRate']) {",

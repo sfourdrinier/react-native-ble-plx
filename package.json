@@ -1,6 +1,6 @@
 {
   "name": "unified-ble-manager",
-  "version": "4.0.0-alpha.34",
+  "version": "4.0.0-alpha.35",
   "description": "Unified Bluetooth Low Energy manager for React Native, Electron, Web, and desktop (4.0 train)",
   "packageManager": "pnpm@10.14.0",
   "main": "lib/commonjs/index.js",
@@ -153,6 +153,7 @@
     "@typescript-eslint/parser": "^8.47.0",
     "babel-plugin-syntax-hermes-parser": "^0.15.1",
     "commitlint": "^17.0.2",
+    "dbus-next": "^0.10.2",
     "del-cli": "^5.1.0",
     "documentation": "12.3.0",
     "electron": "43.2.0",
@@ -188,10 +189,18 @@
     "@types/react": "^19.0.0"
   },
   "peerDependencies": {
+    "dbus-next": "^0.10.2",
+    "expo": "^57.0.0",
     "react": "*",
     "react-native": ">=0.86.0"
   },
   "peerDependenciesMeta": {
+    "expo": {
+      "optional": true
+    },
+    "dbus-next": {
+      "optional": true
+    },
     "react": {
       "optional": true
     },
@@ -497,8 +506,6 @@
     }
   },
   "optionalDependencies": {
-    "@expo/config-plugins": "57.0.6",
-    "dbus-next": "^0.10.2",
     "node-addon-api": "8.9.0",
     "node-gyp": "12.4.0"
   }

@@ -97,19 +97,23 @@ describe('package artifact honesty gate', () => {
     const packInstallSmokeSource = fs.readFileSync(path.join(root, 'scripts', 'ci', 'pack-install-smoke.js'), 'utf8')
 
     expect(packageJson.peerDependencies).toMatchObject({
+      'dbus-next': '^0.10.2',
+      expo: '^57.0.0',
       react: '*',
       'react-native': '>=0.86.0'
     })
     expect(packageJson.peerDependenciesMeta).toMatchObject({
+      'dbus-next': { optional: true },
+      expo: { optional: true },
       react: { optional: true },
       'react-native': { optional: true }
     })
     expect(packageJson.optionalDependencies).toMatchObject({
-      '@expo/config-plugins': '57.0.6',
-      'dbus-next': '^0.10.2',
       'node-addon-api': '8.9.0',
       'node-gyp': '12.4.0'
     })
+    expect(packageJson.optionalDependencies).not.toHaveProperty('@expo/config-plugins')
+    expect(packageJson.optionalDependencies).not.toHaveProperty('dbus-next')
     expect(packageJson.dependencies).toBeUndefined()
     expect(packageJson.devDependencies.webpack).toBe('5.109.2')
     expect(packInstallSmokeSource).toContain('createPackedBrowserBundleConsumer')
@@ -169,12 +173,13 @@ describe('package artifact honesty gate', () => {
     const tarballVerifierSource = fs.readFileSync(tarballVerifier, 'utf8')
 
     expect(packageJson.optionalDependencies).toMatchObject({
-      '@expo/config-plugins': '57.0.6',
       'node-addon-api': '8.9.0',
       'node-gyp': '12.4.0'
     })
+    expect(packageJson.peerDependencies).toMatchObject({ expo: '^57.0.0' })
+    expect(packageJson.peerDependenciesMeta).toMatchObject({ expo: { optional: true } })
     expect(packageJson.dependencies).toBeUndefined()
-    expect(packageJson.devDependencies).not.toHaveProperty('@expo/config-plugins')
+    expect(packageJson.devDependencies.expo).toBe('^57.0.0')
     expect(packageJson.devDependencies.semver).toBe('^7.8.5')
     expect(packageJson.devDependencies).not.toHaveProperty('node-addon-api')
     expect(packageJson.devDependencies).not.toHaveProperty('node-gyp')

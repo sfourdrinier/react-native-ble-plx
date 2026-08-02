@@ -6,7 +6,7 @@ The root `unified-ble-manager` entrypoint is host-neutral. Node applications
 must select an owned backend through an explicit subpath; a package import never
 chooses an adapter, enables a mock, or falls back to Noble.
 
-The Node host surfaces in the published `4.0.0-alpha.34` prerelease are
+The Node host surfaces in the published `4.0.0-alpha.35` prerelease are
 Experimental. No current evidence record binds the published package artifact to a physical BlueZ,
 CoreBluetooth, or WinRT scenario, so these entrypoints are not Preview-or-higher
 support claims.
@@ -20,7 +20,12 @@ Use exactly one of these factories in the host composition root:
   loads the package-controlled CoreBluetooth Node-API artifact.
 - `unified-ble-manager/node/bluez` exports
   `createDbusNextBluezBackendProvider({ busKind, now })`. Callers explicitly
-  choose the BlueZ system or session D-Bus bus.
+  choose the BlueZ system or session D-Bus bus. Install its optional host peer
+  only in a BlueZ composition root:
+
+  ```sh
+  pnpm add unified-ble-manager@4.0.0-alpha.35 dbus-next@^0.10.2
+  ```
 - `unified-ble-manager/node/winrt` exports
   `createNativeWinRtBackendProvider({ now })`. It is Windows-only and rejects
   an absent or protocol-incompatible native boundary.

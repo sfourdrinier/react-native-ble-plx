@@ -6,7 +6,7 @@
 
 **Architecture and sequencing authority:** [`docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)
 
-`unified-ble-manager@4.0.0-alpha.34` is the current published 4.0 prerelease. 4.0
+`unified-ble-manager@4.0.0-alpha.35` is the current published 4.0 prerelease. 4.0
 started as a new package with no released 4.0 consumer baseline. This is an
 adoption guide for a project that chooses to move from another BLE integration,
 not a supported in-place upgrade from `@sfourdrinier/react-native-ble-plx`.
@@ -20,7 +20,7 @@ Install the exact prerelease package line with your application's
 package manager:
 
 ```sh
-pnpm add unified-ble-manager@4.0.0-alpha.34
+pnpm add unified-ble-manager@4.0.0-alpha.35
 ```
 
 `next` is the mutable prerelease dist-tag. Pin the exact version you evaluate, and do not use

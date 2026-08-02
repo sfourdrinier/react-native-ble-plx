@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.35] - 2026-08-01 (published prerelease)
+
+### Fixed
+
+- Isolated Expo and Linux D-Bus integrations as optional host peers so Web,
+  React Native, Apple desktop, and Windows consumers no longer install unused
+  platform tooling.
+- Moved the Expo config plugin to Expo's supported `expo/config-plugins`
+  boundary and aligned both example applications on React Native 0.86.2.
+- Added packed-consumer gates proving optional host peers resolve only when a
+  consumer selects the corresponding Expo or BlueZ boundary.
+
+### Support and evidence boundary
+
+- Alpha.35 remains Experimental until its exact package artifact is bound to
+  physical-radio evidence. Simulator compilation, installation, launch, and
+  lifecycle cleanup do not establish live BLE support.
+- Meta Quest and the controllable physical fault-injection peripheral remain
+  explicitly deferred to 4.1.
+
 ## [4.0.0-alpha.34] - 2026-08-01 (published prerelease)
 
 ### Fixed

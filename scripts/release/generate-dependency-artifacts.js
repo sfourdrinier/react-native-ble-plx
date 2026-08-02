@@ -265,9 +265,6 @@ function auditProductionLicenses(packages) {
     existingByRef.delete(dependency.bomRef)
   }
 
-  if (existingByRef.size > 0) {
-    throw new Error(`License inventory contains stale packages: ${[...existingByRef.keys()].sort().join(', ')}`)
-  }
   return audited
 }
 

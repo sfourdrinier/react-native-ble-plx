@@ -1,6 +1,6 @@
 // plugin/src/withBLE.ts
 
-import { type ConfigPlugin, createRunOncePlugin, withInfoPlist } from '@expo/config-plugins'
+import { type ConfigPlugin, createRunOncePlugin, withInfoPlist } from 'expo/config-plugins'
 
 // Path is ../../package.json because this file is compiled to plugin/build/withBLE.js
 const pkg = require('../../package.json')

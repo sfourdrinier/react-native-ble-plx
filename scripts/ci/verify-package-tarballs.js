@@ -57,10 +57,13 @@ const requiredElectronNativeSourceEntries = Object.freeze([
 ])
 
 const publishedOptionalHostDependencies = Object.freeze({
-  '@expo/config-plugins': '57.0.6',
-  'dbus-next': '^0.10.2',
   'node-addon-api': '8.9.0',
   'node-gyp': '12.4.0'
+})
+
+const publishedOptionalPeerHostDependencies = Object.freeze({
+  'dbus-next': '^0.10.2',
+  expo: '^57.0.0'
 })
 
 const excludedHistoricalDocumentationEntries = Object.freeze([
@@ -372,6 +375,19 @@ function verifyRootTarball(tarballPath) {
     }
     if (packageJson.devDependencies?.[dependency] !== undefined) {
       throw new Error(`Packed canonical optional host dependency ${dependency} must not remain development-only`)
+    }
+  }
+  for (const [dependency, requiredVersion] of Object.entries(publishedOptionalPeerHostDependencies)) {
+    if (packageJson.peerDependencies?.[dependency] !== requiredVersion) {
+      throw new Error(
+        `Packed canonical optional peer host dependency ${dependency} must equal ${requiredVersion}, received ${String(packageJson.peerDependencies?.[dependency])}`
+      )
+    }
+    if (packageJson.peerDependenciesMeta?.[dependency]?.optional !== true) {
+      throw new Error(`Packed canonical peerDependenciesMeta.${dependency}.optional must equal true`)
+    }
+    if (packageJson.dependencies?.[dependency] !== undefined || packageJson.optionalDependencies?.[dependency] !== undefined) {
+      throw new Error(`Packed canonical optional peer host dependency ${dependency} must not install at the root`)
     }
   }
   if (packageJson.codegenConfig?.jsSrcsDir !== 'src') {

@@ -13,6 +13,31 @@ function readExampleSource(exampleDirectory, relativePath) {
 }
 
 describe('Expo example cold-review regressions', () => {
+  test('examples consume one aligned RN 0.86.2 toolchain without auto-installed host peers', () => {
+    const expoPackage = require('../example-expo/package.json')
+    const classicPackage = require('../example/package.json')
+    const classicBabel = fs.readFileSync(path.join(root, 'example', 'babel.config.js'), 'utf8')
+    const expoPnpmConfig = fs.readFileSync(path.join(root, 'example-expo', '.npmrc'), 'utf8')
+    const classicPnpmConfig = fs.readFileSync(path.join(root, 'example', '.npmrc'), 'utf8')
+
+    expect(expoPackage.dependencies['@expo/dom-webview']).toBe('57.0.1')
+    expect(expoPackage.devDependencies).not.toHaveProperty('@expo/config-plugins')
+    expect(expoPackage.devDependencies['@react-native/babel-preset']).toBe('~0.86.2')
+    expect(expoPackage.devDependencies['@react-native/metro-config']).toBe('~0.86.2')
+    expect(expoPackage.devDependencies['@react-native/typescript-config']).toBe('~0.86.2')
+    expect(expoPackage.devDependencies).not.toHaveProperty('babel-plugin-module-resolver')
+    expect(classicPackage.dependencies['react-native']).toBe('~0.86.2')
+    expect(classicPackage.devDependencies['@react-native/babel-preset']).toBe('~0.86.2')
+    expect(classicPackage.devDependencies['@react-native/metro-config']).toBe('~0.86.2')
+    expect(classicPackage.devDependencies['@react-native/typescript-config']).toBe('~0.86.2')
+    expect(classicPackage.devDependencies.typescript).toBe('6.0.3')
+    expect(classicPackage.devDependencies).not.toHaveProperty('@react-native/eslint-config')
+    expect(classicPackage.devDependencies).not.toHaveProperty('babel-plugin-module-resolver')
+    expect(classicBabel).not.toContain('module-resolver')
+    expect(expoPnpmConfig).toContain('auto-install-peers=false')
+    expect(classicPnpmConfig).toContain('auto-install-peers=false')
+  })
+
   test('a late storage read cannot overwrite a name edited after hydration began', () => {
     expect(shouldApplyPersistedDeviceName(0, 0)).toBe(true)
     expect(shouldApplyPersistedDeviceName(0, 1)).toBe(false)

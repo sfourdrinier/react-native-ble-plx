@@ -10,7 +10,16 @@ remain host-specific
 Configure the published plugin as `unified-ble-manager`. The plugin's supported
 options are exactly the schema implemented in `plugin/src/withBLE.ts`:
 
-The plugin configuration is part of the published Experimental 4.0 alpha.34
+```sh
+pnpm add unified-ble-manager@4.0.0-alpha.35 expo@^57.0.0
+```
+
+`expo` is an optional host peer. The plugin imports Expo's supported
+`expo/config-plugins` subpath; applications must not install the internal
+`@expo/config-plugins` package directly. Web, bare React Native, and Node
+consumers do not resolve Expo tooling.
+
+The plugin configuration is part of the published Experimental 4.0 alpha.35
 prerelease. The
 release workflow validates Expo SDK 57 CNG prebuild and Android assembly, but no
 current evidence record binds alpha.34 to a physical device, permission,

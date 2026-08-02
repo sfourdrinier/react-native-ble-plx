@@ -44,7 +44,7 @@ Applications and vendor libraries own device choice, vendor protocols, product r
 
 ## Alpha prerelease and support claims
 
-`unified-ble-manager@4.0.0-alpha.34` is published under npm's `next` dist-tag
+`unified-ble-manager@4.0.0-alpha.35` is published under npm's `next` dist-tag
 through GitHub Actions trusted publishing, with npm SLSA provenance and a
 GitHub prerelease. Its host-neutral root and explicit public subpaths are the
 prerelease package contract; users must pin
