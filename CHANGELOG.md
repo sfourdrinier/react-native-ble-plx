@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.37] - 2026-08-02 (published prerelease)
+
+### Added
+
+- Added a certified, receipt-backed macOS CoreBluetooth live vertical-slice
+  command using only the public package, Node/CoreBluetooth, and Bluetooth SIG
+  profile entrypoints.
+- Added timestamp-safe live scenario receipt generation and a retained command
+  template that excludes device identifiers and GATT payloads from its output.
+
+### Fixed
+
+- Closed a CoreBluetooth initialization race where the central manager could
+  report its first powered state before the backend listener registered,
+  leaving Node or Electron attachment stuck on an obsolete unknown state.
+- Made the shared Node and Electron providers await the asynchronous initial
+  CoreBluetooth state before projecting or attaching the selected adapter.
+
+### Support and evidence boundary
+
+- Alpha.37 remains Experimental until its exact package artifact is bound to
+  physical-radio evidence. The live command reached a powered, attached
+  CoreBluetooth manager, but no Heart Rate Service peripheral advertised during
+  the retained scan window, so no L4 claim was created.
+- Meta Quest and the controllable physical fault-injection peripheral remain
+  explicitly deferred to 4.1.
+
 ## [4.0.0-alpha.36] - 2026-08-01 (published prerelease)
 
 ### Fixed
