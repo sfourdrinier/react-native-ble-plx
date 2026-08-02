@@ -18,7 +18,7 @@ describe('generated platform support evidence', () => {
     ).not.toThrow()
 
     const generated = fs.readFileSync(generatedPath, 'utf8')
-    expect(generated).toContain('unified-ble-manager@4.0.0-alpha.35')
+    expect(generated).toContain('unified-ble-manager@4.0.0-alpha.36')
     expect(generated).toContain('No evidence record is bound to this exact package version and artifact')
     expect(generated).toContain('reported-unverified-linux-bluez-live')
     expect(generated).toContain('reported-unverified-macos-corebluetooth-live')

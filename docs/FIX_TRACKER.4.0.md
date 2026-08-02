@@ -8,16 +8,16 @@ Generated from workflow `roadmap-4-e2e-review`. Updated after multi-lane fix run
 
 **Status values:** `open` | `verified` | `failed` | `skipped`
 
-**Last fix run summary:** Residual pass closed previously failed/open twins: **F003** (dual-identity publish residual — release notes both tarballs + RELEASE.md Path A + Jest guards), **F039** (CompatBase64/CompatRegression RN Base64 goldens), **F041** (device-scoped GATT/OO/descriptor queue + OO Descriptor concurrency + `_runForDevice` guard), **F085** (SDK×neverForLocation tests + `BluetoothPermissionOptions` export + GETTING_STARTED helper). Also re-confirmed this run: **F034** (Android last-subscriber setNotify(false) + stale monitor re-arm + tearDown on disconnect), **F067** (ELECTRON.md per-OS honesty + GAP-E-MAC-PKG L0), **F080** (iOS MTU report-only maximumWriteValueLength+3), **F086/F087** (shared nativeBleModule + fake-timer async helpers), **F091** (queue/OO/withResponse/scan cleanup tests), **F092** (honest RN Base64 interim docs/GAPS), **F093** (queue release in finally + auto-drop tails + destroy prune). Failed/skipped: none. Remaining open only: **F100**, **F114**, **F116**.
+**Last fix run summary:** Residual passes closed all findings, including **F100** (service-only Web Bluetooth optional-service lists), **F114** (package tests may not pass with zero discovered tests), and **F116** (case-normalized deterministic UUID keys). Failed/skipped/open: none.
 
 | Metric | Count |
 |--------|------:|
 | Total findings | 120 |
-| verified | 117 |
-| verified | 0 |
+| verified | 120 |
+| failed | 0 |
 | skipped | 0 |
-| open (untouched) | 3 (F100, F114, F116) |
-| remaining open estimate | 3 |
+| open (untouched) | 0 |
+| remaining open estimate | 0 |
 
 ## Tracker
 
@@ -144,14 +144,6 @@ Generated from workflow `roadmap-4-e2e-review`. Updated after multi-lane fix run
 | F119 | nit | docs | examples-shared | `example-shared/ui/createWebBleBridge.js` | verified |
 | F120 | nit | modernization | security-perf | `android/src/main/java/com/sfourdrinier/unifiedblemanager/radio/OwnedAndroidGattRadio.kt` | verified |
 
-## Remaining open (failed + untouched)
-
-| ID | Sev | Why open | Suggested next focus |
-|----|-----|----------|----------------------|
-| F100 | medium | Untouched (optionalServices includes characteristic UUIDs) | web-host / profiles: `optionalServicesFor` service-only lists + unit test |
-| F114 | low | Untouched (test:package `--passWithNoTests`) | Drop passWithNoTests; structure tests are guards not behavioral L1 |
-| F116 | low | Untouched (FakeBlePort UUID key case mismatch) | Normalize service/char tree keys; contract test mixed-case seed |
-
 ## Fixer notes by lane (this run)
 
 | Lane | Fixed (this run) | Notes |
@@ -163,6 +155,7 @@ Generated from workflow `roadmap-4-e2e-review`. Updated after multi-lane fix run
 | src-core | F041, F093, F085, F092 | F041: all device-scoped GATT/OO/descriptor queued + OO Descriptor concurrency + `_runForDevice` guard. F093: release in finally, auto-drop tails, destroy prune. F085: SDK×neverForLocation tests, export BluetoothPermissionOptions, GETTING_STARTED package helper. F092: honest interim RN Base64-bridge docs/GAP/PLATFORMS/MIGRATION. |
 | tests | F039, F086, F087, F091 | F039: CompatBase64/CompatRegression RN Base64 goldens. F086: shared installBleModuleMock + event constants (ServicesChangedEvent). F087: advanceTimersByTimeAsync/flushScan/delay helpers; suites hold-open via delay under fake timers. F091: phase2 OO+descriptor serialization; DeviceQueue withResponse spy, cancel-vs-long-write, startScan reject cleanup, chunkSize edges. |
 
-## Next run hint
+## Completion note
 
-Prefer remaining **only_ids**: `F100,F114,F116` (sev medium→low). No failed IDs. Optional sweep after those for re-verify flaky package suites if CI surfaces regressions on F039/F041/F085 goldens.
+All 120 historical findings are verified. Current 4.0 implementation and release
+status is tracked by [`GAPS.4.0.md`](GAPS.4.0.md), not by reopening this tracker.

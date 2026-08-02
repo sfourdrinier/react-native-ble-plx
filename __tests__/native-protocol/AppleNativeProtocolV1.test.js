@@ -354,7 +354,11 @@ describe('Apple Native Protocol v1 radio boundary', () => {
       const execution = childProcess.spawnSync('pnpm', ['test:native-protocol:apple'], {
         cwd: root,
         encoding: 'utf8',
-        timeout: 90_000
+        // The full Jest matrix runs this compiler-heavy harness concurrently
+        // with package and zero-diagnostic subprocesses on macOS CI. Keep the
+        // subprocess bounded without treating a loaded runner as a protocol
+        // failure; the dedicated Apple job executes the same harness again.
+        timeout: 240_000
       })
 
       expect(execution.error).toBeUndefined()

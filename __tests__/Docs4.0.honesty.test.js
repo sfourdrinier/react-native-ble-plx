@@ -1,7 +1,5 @@
 // __tests__/Docs4.0.honesty.test.js
 
-// __tests__/Docs4.0.honesty.test.js
-
 /**
  * Guards the clean-baseline 4.0 documentation decision.
  * Transitional source facts are allowed only when the document labels them as
@@ -12,6 +10,11 @@ const path = require('path')
 
 const root = path.join(__dirname, '..')
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8').replace(/\r\n/g, '\n')
+const packageVersion = JSON.parse(read('package.json')).version
+const alphaVersionMatch = /^4\.0\.0-alpha\.(\d+)$/u.exec(packageVersion)
+if (alphaVersionMatch === null) throw new Error(`Expected a 4.0 alpha package version, received ${packageVersion}`)
+const currentAlpha = Number(alphaVersionMatch[1])
+const previousAlphaVersion = `v4.0.0-alpha.${String(currentAlpha - 1)}`
 
 const architectureAuthorityDocuments = [
   'README.md',
@@ -64,6 +67,16 @@ const deletedTransitionalAdrs = [
 ]
 
 describe('4.0 documentation honesty', () => {
+  test('current public documentation cannot drift behind the package prerelease', () => {
+    for (const document of architectureAuthorityDocuments) {
+      const withoutDeclaredPreviousRelease = read(document).replaceAll(previousAlphaVersion, '')
+      const alphaReferences = [...withoutDeclaredPreviousRelease.matchAll(/alpha\.(\d+)/gu)]
+      for (const reference of alphaReferences) {
+        expect(Number(reference[1])).toBe(currentAlpha)
+      }
+    }
+  })
+
   test('controlling implementation plan records the clean-baseline decisions', () => {
     const plan = read('docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
 
@@ -232,7 +245,7 @@ describe('4.0 documentation honesty', () => {
     const release = read('RELEASE.md')
 
     expect(migration).toContain('current published 4.0 prerelease')
-    expect(migration).toContain('unified-ble-manager@4.0.0-alpha.35')
+    expect(migration).toContain('unified-ble-manager@4.0.0-alpha.36')
     expect(migration).toContain('stable `hostSessionScope`')
     expect(migration).toContain('`Uint8Array`')
     expect(migration).toContain('`AbortSignal`')
@@ -249,14 +262,14 @@ describe('4.0 documentation honesty', () => {
     expect(release).not.toMatch(/publishes the \*\*4\.0 dual identity\*\*/i)
   })
 
-  test('public README provides only current alpha.34 prerelease construction and plugin guidance', () => {
+  test('public README provides only current alpha.36 prerelease construction and plugin guidance', () => {
     const readme = read('README.md')
     const changelog = read('CHANGELOG.md')
 
-    expect(readme).toContain('unified-ble-manager@4.0.0-alpha.35')
-    expect(readme).toContain('pnpm add unified-ble-manager@4.0.0-alpha.35')
-    expect(readme).toContain('`v4.0.0-alpha.33` is the previous published prerelease')
-    expect(changelog).toContain('## [4.0.0-alpha.35] - 2026-08-01 (published prerelease)')
+    expect(readme).toContain('unified-ble-manager@4.0.0-alpha.36')
+    expect(readme).toContain('pnpm add unified-ble-manager@4.0.0-alpha.36')
+    expect(readme).toContain('`v4.0.0-alpha.35` is the previous published prerelease')
+    expect(changelog).toContain('## [4.0.0-alpha.36] - 2026-08-01 (published prerelease)')
     expect(changelog).toContain('## [4.0.0-alpha.28] - 2026-08-01 (published prerelease)')
     expect(changelog).toContain('## [4.0.0-alpha.27] - 2026-08-01 (published historical prerelease)')
     expect(readme).toContain('createReactNativeBleManager')
@@ -274,19 +287,19 @@ describe('4.0 documentation honesty', () => {
     expect(changelog).toContain('hostSessionScope')
   })
 
-  test('alpha.34 published documentation preserves exact release, evidence, and deferral boundaries', () => {
+  test('alpha.36 published documentation preserves exact release, evidence, and deferral boundaries', () => {
     const readme = read('README.md')
     const release = read('RELEASE.md')
     const platforms = read('docs/PLATFORMS.md')
 
     expect(readme).toContain('`next` dist-tag')
     expect(readme).toMatch(/Do not install\s+the bare package name or `@latest`/)
-    expect(release).toContain('v4.0.0-alpha.35')
+    expect(release).toContain('v4.0.0-alpha.36')
     expect(release).toContain('protected GitHub Actions trusted-publishing workflow')
-    expect(release).toContain('`v4.0.0-alpha.33` is the previous published prerelease')
+    expect(release).toContain('`v4.0.0-alpha.35` is the previous published prerelease')
     expect(release).toMatch(/GitHub Actions\s+as the trusted publisher/)
     expect(release).toContain('SLSA provenance')
-    expect(platforms).toContain('No current evidence record binds the published alpha.34')
+    expect(platforms).toContain('No current evidence record binds the published alpha.36')
     expect(platforms).toContain('makes no Windows live-radio claim')
     expect(platforms).toContain('Meta Quest and an nRF52840-based controllable fault-injection controller are deferred to 4.1')
   })

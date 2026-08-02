@@ -6,30 +6,30 @@
 
 **Architecture and sequencing authority:** [`docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md)
 
-`unified-ble-manager@4.0.0-alpha.35` is the current published 4.0 prerelease. 4.0
+`unified-ble-manager@4.0.0-alpha.36` is the current published 4.0 prerelease. 4.0
 started as a new package with no released 4.0 consumer baseline. This is an
 adoption guide for a project that chooses to move from another BLE integration,
 not a supported in-place upgrade from `@sfourdrinier/react-native-ble-plx`.
 There is no legacy scoped-name shim, Base64 compatibility surface, public
 transaction-ID API, Noble wrapper, singleton manager fallback, or
 source-compatible rename. It is not a source-compatible rename.
-`v4.0.0-alpha.31` is the previous published prerelease, not the
+`v4.0.0-alpha.35` is the previous published prerelease, not the
 current prerelease.
 
 Install the exact prerelease package line with your application's
 package manager:
 
 ```sh
-pnpm add unified-ble-manager@4.0.0-alpha.35
+pnpm add unified-ble-manager@4.0.0-alpha.36
 ```
 
 `next` is the mutable prerelease dist-tag. Pin the exact version you evaluate, and do not use
 a bare install or `@latest`
 to select the 4.0 alpha train. The prerelease package is Experimental: no
-current evidence record links alpha.34's published artifact to a hardware-backed
+current evidence record links alpha.36's published artifact to a hardware-backed
 backend support claim. See [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
 
-WinRT compile and ABI checks are L2/L3 evidence only; alpha.34 makes no Windows
+WinRT compile and ABI checks are L2/L3 evidence only; alpha.36 makes no Windows
 live-radio claim.
 
 Use only documented package subpaths. The root export is host-neutral; import

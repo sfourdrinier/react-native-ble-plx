@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.36] - 2026-08-01 (published prerelease)
+
+### Fixed
+
+- Corrected all current-release documentation to bind the package, release,
+  support, and evidence statements to one exact prerelease version.
+- Kept the compiled Apple protocol harness bounded while allowing enough time
+  for loaded macOS CI runners, preventing a false protocol failure at 90 seconds.
+- Reconciled the historical 4.0 fix tracker with its verified 120-of-120 finding
+  table so it no longer reports already-closed work as open.
+
+### Support and evidence boundary
+
+- Alpha.36 remains Experimental until its exact package artifact is bound to
+  physical-radio evidence. The successful macOS Electron scan is partial live
+  proof and does not establish connect, discovery, read, notify, or reliability.
+- Meta Quest and the controllable physical fault-injection peripheral remain
+  explicitly deferred to 4.1.
+
 ## [4.0.0-alpha.35] - 2026-08-01 (published prerelease)
 
 ### Fixed
