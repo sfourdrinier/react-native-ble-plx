@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.38] - 2026-08-02 (published prerelease)
+
+### Fixed
+
+- CoreBluetooth now exposes the optional restoration delegate callback only
+  when the consumer configured a restoration identifier. This removes Apple's
+  runtime API-misuse diagnostic for ordinary foreground managers without
+  weakening restoration-enabled managers.
+- Removed the promoted Phase-0 binary transport experiments and every active
+  example reference to them; the React Native examples now compile and launch
+  exclusively through the production JSI transport.
+- Made the BlueZ discovery-confirmation deadline regression deterministic so
+  it proves physical discovery started before asserting timeout cleanup.
+
+### Support and evidence boundary
+
+- The production React Native example builds and launches on the iOS Simulator
+  through the canonical manager. Simulator launch is L3 startup evidence only;
+  the simulator has no BLE radio and cannot establish an Apple live-support
+  claim.
+- Alpha.38 remains Experimental until its exact package artifact is bound to
+  the required physical-radio evidence. Meta Quest and the controllable
+  physical fault-injection peripheral remain deferred to 4.1.
+
 ## [4.0.0-alpha.37] - 2026-08-02 (published prerelease)
 
 ### Added

@@ -20,23 +20,23 @@ especially its package, evidence, deletion, and Section 31 release gates.
 
 ## Current prerelease
 
-`unified-ble-manager@4.0.0-alpha.37` was published from
-`v4.0.0-alpha.37` by the protected GitHub Actions trusted-publishing workflow.
+`unified-ble-manager@4.0.0-alpha.38` was published from
+`v4.0.0-alpha.38` by the protected GitHub Actions trusted-publishing workflow.
 npm identifies GitHub Actions as the trusted publisher, exposes the package on
 the `next` dist-tag, and includes an npm SLSA provenance attestation. The
-[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.37)
-is a prerelease with notes generated from the alpha.37 section of
+[GitHub Release](https://github.com/sfourdrinier/react-native-ble-plx/releases/tag/v4.0.0-alpha.38)
+is a prerelease with notes generated from the alpha.38 section of
 [`CHANGELOG.md`](CHANGELOG.md).
 
-`v4.0.0-alpha.36` is the previous published prerelease. It is not the
-current prerelease and does not bind alpha.37's package or evidence state.
+`v4.0.0-alpha.37` is the previous published prerelease. It is not the
+current prerelease and does not bind alpha.38's package or evidence state.
 
 The prerelease support label is Experimental. Its source and deterministic
 package gates verify the intended public package contract; publication does not
 establish that any backend has hardware support. The prerelease has no bound
 physical-radio scenario. No backend is thereby Preview,
 Live Preview, Supported, or Reliability-qualified.
-WinRT compile and ABI checks are L2/L3 evidence only; alpha.37 makes no Windows
+WinRT compile and ABI checks are L2/L3 evidence only; alpha.38 makes no Windows
 live-radio claim.
 See [`docs/PLATFORMS.md`](docs/PLATFORMS.md) and
 [`evidence/v1/README.md`](evidence/v1/README.md).
@@ -52,7 +52,7 @@ verifying that the pushed `vX.Y.Z` tag exactly matches `package.json`:
 
 | Version form | npm dist-tag | GitHub Release state | Consumer guidance |
 | --- | --- | --- | --- |
-| Hyphenated SemVer prerelease, such as `4.0.0-alpha.37` | `next` | prerelease | Pin the exact version for reproducible evaluation; `@next` is mutable. |
+| Hyphenated SemVer prerelease, such as `4.0.0-alpha.38` | `next` | prerelease | Pin the exact version for reproducible evaluation; `@next` is mutable. |
 | Final SemVer version, such as `4.0.0` | `latest` | normal release | Use the final version only after its published evidence supports the required host claim. |
 
 Do not use a bare install or `@latest` to select a 4.0 alpha. The exact package
@@ -105,18 +105,18 @@ Check the published version, dist-tag, integrity, attestation, and trusted
 publisher from npm:
 
 ```sh
-npm view unified-ble-manager@4.0.0-alpha.37 version dist-tags dist.integrity dist.attestations _npmUser --json
+npm view unified-ble-manager@4.0.0-alpha.38 version dist-tags dist.integrity dist.attestations _npmUser --json
 ```
 
 Then cross-check the matching tag and GitHub Release:
 
 ```sh
-gh release view v4.0.0-alpha.37 --repo sfourdrinier/react-native-ble-plx --json tagName,isPrerelease,publishedAt,url
+gh release view v4.0.0-alpha.38 --repo sfourdrinier/react-native-ble-plx --json tagName,isPrerelease,publishedAt,url
 ```
 
-After alpha.37 publication, npm must report the exact version, `next`, integrity,
+After alpha.38 publication, npm must report the exact version, `next`, integrity,
 a SLSA provenance attestation, and GitHub Actions trusted publisher; GitHub must
-report the matching `v4.0.0-alpha.37` tag with `isPrerelease: true`. These checks verify release
+report the matching `v4.0.0-alpha.38` tag with `isPrerelease: true`. These checks verify release
 identity and supply chain metadata only. They do not verify BLE hardware
 behavior, platform permissions, browser availability, background operation,
 restoration, reconnect, or reliability.
