@@ -1,0 +1,45 @@
+<!-- example-web/index.html -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Unified BLE 4.0 Web Bluetooth</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; background: Canvas; color: CanvasText; }
+      main { box-sizing: border-box; max-width: 56rem; margin: 0 auto; padding: 2rem; }
+      h1 { margin-top: 0; }
+      .controls { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 1.5rem 0; }
+      button { min-height: 2.75rem; padding: 0.5rem 0.9rem; font: inherit; }
+      output { display: block; padding: 1rem; border: 1px solid GrayText; border-radius: 0.5rem; }
+      dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.5rem 1rem; }
+      dt { font-weight: 700; }
+      dd { margin: 0; overflow-wrap: anywhere; }
+      #events { max-height: 18rem; overflow: auto; padding-left: 1.5rem; }
+      .error { color: #d33; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Unified BLE 4.0 Web Bluetooth</h1>
+      <p>Physical Heart Rate Service vertical-slice harness using public package entrypoints.</p>
+      <div class="controls" aria-label="Bluetooth controls">
+        <button id="choose-connect" type="button">Choose and connect</button>
+        <button id="reconnect" type="button" disabled>Reconnect</button>
+        <button id="disconnect" type="button" disabled>Disconnect</button>
+        <button id="destroy" type="button" disabled>Destroy manager</button>
+      </div>
+      <output id="status" role="status" aria-live="polite">Ready.</output>
+      <dl>
+        <dt>Peer</dt><dd id="peer">—</dd>
+        <dt>Battery</dt><dd id="battery">—</dd>
+        <dt>Heart rate</dt><dd id="heart-rate">—</dd>
+        <dt>Resources</dt><dd id="resources">—</dd>
+      </dl>
+      <h2>Operation log</h2>
+      <ol id="events" aria-live="polite"></ol>
+    </main>
+    <script src="./app.js" defer></script>
+  </body>
+</html>

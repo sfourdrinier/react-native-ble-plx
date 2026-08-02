@@ -98,6 +98,8 @@
     "build:electron:macos": "cd native/electron/corebluetooth && node-gyp rebuild --release",
     "build:electron:winrt": "cd native/electron/winrt && node-gyp rebuild --release",
     "example:electron": "pnpm prepack && node example-electron/smoke.js",
+    "build:example:web": "node scripts/examples/build-web-example.js",
+    "example:web": "pnpm prepack && pnpm build:example:web && node scripts/examples/serve-web-example.js",
     "prepare": "pnpm clean:plugin && pnpm build:plugin",
     "lint:plugin": "eslint plugin/src/*"
   },

@@ -46,7 +46,6 @@ const retiredExampleAndBenchmarkPaths = Object.freeze([
   'example-electron/preload.js',
   'example-web/centralDemo.mjs',
   'example-web/heartRate.mjs',
-  'example-web/index.html',
   'example-web/main.js',
   'example-web/vite.config.js',
   'example-shared/centralDemo.js',
@@ -91,6 +90,11 @@ describe('retired 3.x architecture absence', () => {
     )
 
     expect(remainingPaths).toEqual([])
+
+    const currentWebExample = fs.readFileSync(path.join(rootDirectory, 'example-web/app.js'), 'utf8')
+    expect(currentWebExample).toContain("from 'unified-ble-manager/web'")
+    expect(currentWebExample).not.toContain('react-native-ble-plx')
+    expect(currentWebExample).not.toContain('createWebBleBridge')
   })
 
   test('documents Electron only through the retained deterministic 4.0 smoke contract', () => {

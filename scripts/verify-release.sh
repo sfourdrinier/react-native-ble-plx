@@ -81,6 +81,9 @@ pnpm release:artifacts:check
 echo "== host export resolution (post-prepack, typeof BleManager) =="
 node scripts/ci/check-host-exports.js
 
+echo "== 4.0 Web Bluetooth public example bundle =="
+pnpm build:example:web
+
 echo "== Electron Fake multi-device demo smoke (L1) =="
 node example-electron/smoke.js
 

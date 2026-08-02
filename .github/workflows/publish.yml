@@ -99,6 +99,9 @@ jobs:
       - name: Build package artifacts
         run: pnpm prepack
 
+      - name: Build 4.0 Web Bluetooth public example
+        run: pnpm build:example:web
+
       - name: Production performance benchmark gate (host-native + JS)
         run: pnpm performance:check
 

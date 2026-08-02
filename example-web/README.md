@@ -1,37 +1,33 @@
 <!-- example-web/README.md -->
 
-# Historical Web Bluetooth example
+# 4.0 clean-baseline Web Bluetooth example
 
-> This example exercises transitional source behavior only. It is not a 4.0 public example, support claim, or package-install recipe. The future Web fixture must run against the packed clean-baseline artifact and its evidence manifest. See [`../docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](../docs/UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
+This browser example imports only the public `unified-ble-manager` package
+entrypoints. It exercises the real Web Bluetooth chooser and the shared 4.0
+manager/core path:
 
-**UI is shared** with Electron under [`example-shared/ui/`](../example-shared/ui/) (HTML + `app.js` + `boot.js`).
+`choose → connect → discover → battery read → heart-rate notify → disconnect → reconnect → destroy`
 
-| Host | Discovery | BLE location |
-| ---- | --------- | ------------ |
-| **Web** | `requestDevice` chooser | Browser Web Bluetooth |
-| **Electron** | continuous scan | Main process CoreBluetooth |
+It has no React Native dependency, compatibility adapter, Base64 path, static
+capability matrix, or product-specific transport contract.
 
-Bridge: `example-shared/ui/createWebBleBridge.js` (web) vs Electron `preload.js` → same button flows.
+## Run
 
-## Run (Chrome + Polar H10)
+Use a current Chrome installation on a secure context with a physical Heart Rate
+Service peripheral such as a Polar H10 or Polar 360:
 
 ```bash
-# prepack recommended (builds lib/module). Vite falls back to src/profiles when lib is missing.
-pnpm prepack
-npx --yes vite --config example-web/vite.config.js
-# open http://localhost:5173
+pnpm example:web
 ```
 
-**Note:** `example-shared/profiles.mjs` re-exports pure profile modules only (never the package
-main / RN entry). After a clean checkout, either run `pnpm prepack` or rely on Vite’s
-`lib/module/profiles → src/profiles` alias (R2-F108).
+Open [http://localhost:5173](http://localhost:5173), then:
 
-1. **Discover** (user gesture) → chooser → Polar H10  
-2. **Connect** → **Inspect**  
-3. **Start HR** → BPM + IBI/RR  
+1. Select **Choose and connect** and choose the physical sensor.
+2. Confirm that discovery, Battery Level read, and Heart Rate notifications succeed.
+3. Select **Disconnect**, then **Reconnect** to prove a fresh connection generation.
+4. Select **Destroy manager** and confirm that the displayed resource counters are zero.
 
-### Permitted reconnect (R3-F061)
-
-Chromium can list previously granted devices via `navigator.bluetooth.getDevices()` without reopening the chooser. The shared UI **Permitted** button calls `bleBridge.getPermittedDevices()` → `manager.getDevices()`, registers results in the central demo, and refreshes the device list. If the API is missing or throws `OperationNotSupported`, the bridge returns `[]` (honest empty — not a fake bond list).
-
-Requires Chromium, localhost/https, BLE adapter, Bluetooth permission.
+The example is a live validation harness, but running it does not itself create a
+release evidence receipt. A public support claim additionally requires retained,
+checksum-bound logs and the exact packed artifact, browser, OS, adapter, peripheral,
+and source identity required by `evidence/v1/`.

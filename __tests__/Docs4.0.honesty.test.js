@@ -37,11 +37,11 @@ const architectureAuthorityDocuments = [
 const transitionalCharacterizationDocuments = [
   'docs/CONNECTION_MANAGER.md',
   'docs/DISCOVERY_AND_PROFILES.md',
-  'docs/HELPERS.md',
-  'example-web/README.md'
+  'docs/HELPERS.md'
 ]
 
 const deterministicExampleDocuments = ['example-electron/README.md']
+const liveExampleDocuments = ['example-web/README.md']
 
 const supersededAuthorityDocuments = [
   'ROADMAP.md',
@@ -180,6 +180,15 @@ describe('4.0 documentation honesty', () => {
     expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
     expect(document).toMatch(/without\s+claiming live Electron-radio support/)
     expect(document).toContain('not a substitute for device-lab validation')
+    expect(document).not.toMatch(/legacy manager|transitional source/i)
+  })
+
+  test.each(liveExampleDocuments)('%s describes a clean-baseline live harness without claiming retained evidence', (relativePath) => {
+    const document = read(relativePath)
+
+    expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
+    expect(document).toContain('4.0 clean-baseline Web Bluetooth example')
+    expect(document).toMatch(/does not itself create a\s+release evidence receipt/u)
     expect(document).not.toMatch(/legacy manager|transitional source/i)
   })
 

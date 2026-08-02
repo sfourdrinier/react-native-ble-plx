@@ -66,6 +66,7 @@ buck-out/
 /.artifacts/
 /lib
 /test_project
+/example-web/dist/
 *.tsbuildinfo
 
 # Example app installs via pnpm (bootstrap / CI). No committed lock yet:
