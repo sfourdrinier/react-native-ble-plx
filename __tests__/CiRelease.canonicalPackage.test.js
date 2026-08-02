@@ -97,6 +97,10 @@ describe('ci-release canonical package (4.0)', () => {
     expect(sh).toContain('scripts/ci/check-host-exports.js')
     expect(sh).toContain('npm pack --dry-run')
     expect(sh).toContain('pnpm performance:check')
+    expect(sh).toContain('! -x "$JAVA_HOME/bin/java"')
+    expect(sh).toContain('/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home')
+    expect(sh).toContain('"$ROOT_DIR/android/.cxx"')
+    expect(sh).toContain('"$ROOT_DIR/example/android/app/.cxx"')
     expect(sh).not.toMatch(/prepare-shim|canonical \+ shim/i)
   })
 

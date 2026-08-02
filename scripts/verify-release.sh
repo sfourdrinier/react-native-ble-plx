@@ -18,6 +18,8 @@ GENERATED_DIR=""
 cleanup_generated_native_projects() {
   local android_dir="$ROOT_DIR/example-expo/android"
   local ios_dir="$ROOT_DIR/example-expo/ios"
+  local package_cxx_dir="$ROOT_DIR/android/.cxx"
+  local classic_example_cxx_dir="$ROOT_DIR/example/android/app/.cxx"
 
   if [[ -d "$android_dir" || -d "$ios_dir" ]]; then
     GENERATED_DIR="${GENERATED_DIR:-/tmp/react-native-ble-plx-generated-release-$(date +%s)}"
@@ -26,6 +28,11 @@ cleanup_generated_native_projects() {
     [[ -d "$ios_dir" ]] && mv "$ios_dir" "$GENERATED_DIR/ios"
     echo "Moved generated Expo native projects to $GENERATED_DIR"
   fi
+
+  # React Native codegen may place CMake intermediates in the package and
+  # classic-example source trees. They are disposable build outputs and must
+  # not leave a successful release verification checkout dirty.
+  rm -rf "$package_cxx_dir" "$classic_example_cxx_dir"
 }
 
 trap cleanup_generated_native_projects EXIT
@@ -38,6 +45,18 @@ fi
 
 if [[ -z "${ANDROID_SDK_ROOT:-}" && -n "${ANDROID_HOME:-}" ]]; then
   export ANDROID_SDK_ROOT="$ANDROID_HOME"
+fi
+
+if [[ -n "${JAVA_HOME:-}" && ! -x "$JAVA_HOME/bin/java" ]]; then
+  unset JAVA_HOME
+fi
+
+if [[ -z "${JAVA_HOME:-}" && "$(uname -s)" == "Darwin" ]]; then
+  if JAVA_HOME_CANDIDATE="$(/usr/libexec/java_home 2>/dev/null)" && [[ -x "$JAVA_HOME_CANDIDATE/bin/java" ]]; then
+    export JAVA_HOME="$JAVA_HOME_CANDIDATE"
+  elif [[ -x "/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home/bin/java" ]]; then
+    export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+  fi
 fi
 
 if [[ -z "${NODE_OPTIONS:-}" ]]; then
