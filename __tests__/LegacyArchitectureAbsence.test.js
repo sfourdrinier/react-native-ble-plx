@@ -91,7 +91,9 @@ describe('retired 3.x architecture absence', () => {
   })
 
   test('ships no legacy manager, port, host matrix, wrapper, or Base64 source', () => {
-    const remainingPaths = retiredSourcePaths.filter(relativePath => fs.existsSync(path.join(rootDirectory, relativePath)))
+    const remainingPaths = retiredSourcePaths.filter(relativePath =>
+      fs.existsSync(path.join(rootDirectory, relativePath))
+    )
 
     expect(remainingPaths).toEqual([])
   })
@@ -129,5 +131,44 @@ describe('retired 3.x architecture absence', () => {
     expect(electronReadme).not.toContain('createCoreBluetoothBlePort')
     expect(electronReadme).not.toContain('example-electron/main.js')
     expect(electronReadme).not.toContain('example-shared/ui/')
+  })
+
+  test('ships no retired manager or port vocabulary in active public documentation', () => {
+    const activeMarkdownPaths = [
+      'documentation.yml',
+      'docs/CONNECTION_MANAGER.md',
+      'docs/FORK.md',
+      'docs/HELPERS.md',
+      'docs/TUTORIALS.md'
+    ]
+    const retiredPublicIdentifiers = [
+      'PortBleManager',
+      'startDeviceScan',
+      'connectToDevice',
+      'writeCharacteristicWithResponseForDevice',
+      'cancelTransaction',
+      'TransactionId',
+      'example-electron/live-polar.js'
+    ]
+
+    for (const relativePath of activeMarkdownPaths) {
+      const contents = fs.readFileSync(path.join(rootDirectory, relativePath), 'utf8')
+      for (const retiredIdentifier of retiredPublicIdentifiers) {
+        expect(contents).not.toContain(retiredIdentifier)
+      }
+    }
+
+    const generatedReference = fs.readFileSync(path.join(rootDirectory, 'docs/index.html'), 'utf8')
+    const retiredGeneratedApiFragments = [
+      '#startDeviceScan',
+      'startDeviceScan(',
+      'connectToDevice(',
+      'writeCharacteristicWithResponseForDevice(',
+      'cancelTransaction(',
+      'transactionId:'
+    ]
+    for (const retiredFragment of retiredGeneratedApiFragments) {
+      expect(generatedReference).not.toContain(retiredFragment)
+    }
   })
 })

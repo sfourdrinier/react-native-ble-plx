@@ -1,140 +1,149 @@
 <!-- docs/HELPERS.md -->
 
-# Cross-host central helpers
+# Public manager helpers
 
-> **Transitional source characterization:** these duck-typed legacy helpers are audit input only. The future 4.0 helpers must be thin, bytes-only, cancellation-safe operations over the public primitives and must not preserve a second manager/port contract. See [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
+Unified BLE 4.0 ships a small host-neutral helper family over the public
+`BleManager`, `Connection`, `DiscoveredGattDatabase`, and `Subscription`
+handles. Helpers do not select a backend, infer capabilities from a host name,
+retry connections, or weaken cancellation, error, generation, and cleanup
+semantics.
 
-**Package:** `unified-ble-manager`  
-**Module:** `import { findDevice, connectAndDiscover, … } from 'unified-ble-manager'`
-
-These helpers are **host-agnostic recipes** for the boilerplate every central app rewrites: wait for radio, find a device, connect+discover, first notification, safe try-read, teardown. They duck-type any manager that looks like `BleManager` / `PortBleManager` (see `BleCentralLike`).
-
-They do **not** replace:
-
-- `ConnectionManager` (retry / auto-reconnect policy)
-- Discovery filter builders (`resolveDiscoveryScanFilter`, …) — [DISCOVERY_AND_PROFILES.md](./DISCOVERY_AND_PROFILES.md)
-- SIG profile parse/encode (`parseHeartRateMeasurement`, …)
-- Host-specific entrypoints (`unified-ble-manager/web`, `/electron`, `/node`)
-
-Prefer **`manager.supports('…')`** (or `assertSupported`) before optional surfaces. Helpers fail closed with `BleError` where possible.
-
-## Quick recipe (continuous-scan hosts)
+Import helpers from the host-neutral root:
 
 ```ts
 import {
-  waitForState,
-  findDevice,
+  collectNotifications,
   connectAndDiscover,
+  find,
   firstNotification,
-  tryReadCharacteristicBytes,
-  safeTeardown,
-  assertSupported,
-  heartRateScanServiceUUIDs,
-  parseHeartRateMeasurement
+  scanUntil,
+  withConnection
 } from 'unified-ble-manager'
-
-// RN / Electron main / Fake — not Web chooser path
-assertSupported(manager, 'continuousScan') // or check supports() yourself
-
-await waitForState(manager) // Port hosts without adapter state → assumed PoweredOn
-
-const ad = await findDevice(
-  manager,
-  d => (d.name || '').includes('Polar'),
-  { timeoutMs: 12_000, serviceUUIDs: heartRateScanServiceUUIDs() }
-)
-
-const { deviceId } = await connectAndDiscover(manager, ad.id)
-
-// Best-effort GATT read (skips indicate-only when meta says not readable)
-const bat = await tryReadCharacteristicBytes(
-  manager,
-  deviceId,
-  '0000180f-0000-1000-8000-00805f9b34fb',
-  '00002a19-0000-1000-8000-00805f9b34fb'
-)
-
-// First HR notification then auto-unsubscribe
-const raw = await firstNotification(
-  manager,
-  deviceId,
-  '0000180d-0000-1000-8000-00805f9b34fb',
-  '00002a37-0000-1000-8000-00805f9b34fb',
-  { timeoutMs: 15_000 }
-)
-const hr = parseHeartRateMeasurement(raw)
-
-await safeTeardown(manager, { deviceIds: [deviceId] })
 ```
 
-## Web Bluetooth
+## Scan and connect
 
-`findDevice` / continuous scan helpers **reject** with `OperationNotSupported` when `supports('continuousScan')` is false. On web:
-
-1. Use `requestDevice({ filters })` after a user gesture ([WEB.md](./WEB.md)).
-2. Then `connectAndDiscover`, `tryReadCharacteristicBytes`, `firstNotification` still apply.
+`scanUntil()` starts one public scan session, reads its bounded observation
+stream until the predicate matches, and always stops the session. `find()` is a
+compact alias. The caller supplies the complete `ScanOptions`, including its
+`AbortSignal`, monotonic deadline, delivery bounds, filter, and sharing policy.
 
 ```ts
-import { connectAndDiscover, firstNotification } from 'unified-ble-manager/web'
-// manager.requestDevice(...) → connectAndDiscover(manager, id)
+import { capacity, scanUntil } from 'unified-ble-manager'
+import { HEART_RATE_SERVICE } from 'unified-ble-manager/profiles/heart-rate'
+
+const abortController = new AbortController()
+const deadline = manager.monotonicNow() + 15_000
+
+const observation = await scanUntil(manager, {
+  scan: {
+    filter: {
+      serviceUuids: [HEART_RATE_SERVICE],
+      manufacturerData: [],
+      localNamePrefix: null
+    },
+    duplicatePolicy: 'first',
+    timestampPolicy: 'source-then-receipt',
+    delivery: {
+      itemCapacity: capacity(32),
+      byteCapacity: capacity(16 * 1024),
+      reservedControlCapacity: capacity(2),
+      overflowPolicy: 'drop-oldest'
+    },
+    deadline,
+    signal: abortController.signal,
+    sharing: { mode: 'owner', allowSharing: false }
+  },
+  matches: candidate => candidate.device.name?.includes('Polar') === true
+})
+
+const connected = await connectAndDiscover(manager, observation.device.id, {
+  signal: abortController.signal,
+  deadline
+})
 ```
 
-## API summary
+`connectAndDiscover()` returns the connection, its generation-bound database,
+and the corresponding immutable discovery snapshot. If discovery fails, it
+releases the partially acquired connection and preserves both the primary and
+cleanup errors when necessary.
 
-| Helper | Purpose | Notes |
-| ------ | ------- | ----- |
-| **`withTimeout(promise, ms, name?, onTimeout?)`** | Wall-clock race | `BleErrorCode.OperationTimedOut`; optional cleanup |
-| **`waitForState(manager, { timeoutMs, target })`** | Wait for `PoweredOn` (default) | Uses `onStateChange` or `state()`; Port without state → `{ assumed: true }` |
-| **`findDevice(manager, predicate, opts)`** | Scan until match | Stops scan; does **not** connect. Timeout → `DeviceNotFound` |
-| **`connectAndDiscover(manager, deviceId, opts)`** | Connect + discover | Timeout cancels connection when possible |
-| **`firstNotification(…)`** | First notify/indicate bytes | Prefers AsBytes path; removes subscription |
-| **`tryReadCharacteristicBytes(…)`** | Soft read | `{ ok, value }` or `{ skipped, reason }` — no throw for empty/indicate-only |
-| **`assertSupported(manager, capability)`** | Fail closed | Throws `OperationNotSupported` if `supports` is false |
-| **`safeTeardown(manager, { deviceIds, stopScan, destroy })`** | Best-effort cleanup | Collects warning strings; does not throw |
+## Notifications
 
-Related manager methods (already on managers, not helpers):
+Resolve a duplicate-safe characteristic path from the returned snapshot. Never
+construct service or characteristic occurrences, connection generations, or
+database generations yourself.
 
-- `findAndConnect` — scan **and** connect (RN + PortBleManager)
-- `writeLongCharacteristicForDeviceFromBytes` / `writeLongCharacteristicFromBytes`
-- `sortDevices`, discovery UUID filters, profile helpers
+```ts
+import { capacity, firstNotification } from 'unified-ble-manager'
+import { resolveCharacteristicPath } from 'unified-ble-manager/profiles/commands'
+import { heartRateMeasurementSelector, parseHeartRateMeasurement } from 'unified-ble-manager/profiles/heart-rate'
 
-## Errors
+const path = await resolveCharacteristicPath(connected.snapshot, heartRateMeasurementSelector())
 
-| Situation | Typical `errorCode` |
-| --------- | ------------------- |
-| Helper wall timeout | `OperationTimedOut` (3) |
-| Scan never matches | `DeviceNotFound` (… device not found family) |
-| Capability / no scan | `OperationNotSupported` (6) |
-| AbortSignal abort | `OperationCancelled` (2) |
+const bytes = await firstNotification(connected.database, path, {
+  signal: abortController.signal,
+  deadline,
+  delivery: {
+    itemCapacity: capacity(16),
+    byteCapacity: capacity(8 * 1024),
+    reservedControlCapacity: capacity(2),
+    overflowPolicy: 'drop-oldest'
+  }
+})
 
-Always branch on **`error.errorCode`**, not `error.code`.
-
-## Testing
-
-| Level | Command / path |
-| ----- | -------------- |
-| **L1 unit** | `pnpm test:package` → `__tests__/Helpers.central.test.js` (Fake + Port) |
-| **L1 smoke** | `pnpm prepack && node example-electron/smoke.js` — Fake multi-device **uses helpers** (`findDevice`, `connectAndDiscover`, `tryRead`, `firstNotification`) |
-| **L4 lab (Mac + Polar)** | See below |
-
-### L4 lab checklist — Electron CoreBluetooth + Polar H10
-
-```bash
-pnpm run build:electron:macos
-pnpm prepack
-# Wear Polar, Bluetooth on, grant Terminal/Node Bluetooth if prompted
-node example-electron/live-polar.js
-# Optional: POLAR_SCAN_MS=20000 POLAR_NAME=Polar POLAR_HR_MS=10000
+const measurement = parseHeartRateMeasurement(bytes)
 ```
 
-Expect: `waitForState` → `findDevice` → `connectAndDiscover` → battery tryRead → `firstNotification` → HR stream samples → `safeTeardown`. Log “LIVE CoreBluetooth Polar vertical slice OK”.
+`firstNotification()` removes the subscription before returning.
+`collectNotifications()` applies the same ownership rule while collecting no
+more than the caller's positive `maximumValues` bound. Stream overflow,
+terminal records, aborts, deadlines, and cleanup failures remain explicit.
 
-Helpers do not change radio fidelity — only app glue. Failure modes: no ad match (strap not advertising), permission denied, no HR notify (contact/pairing).
+## Scoped connection ownership
 
-## See also
+Use `withConnection()` when one operation should own exactly one connection
+lease:
 
-- [GETTING_STARTED.md](./GETTING_STARTED.md)
-- [PLATFORMS.md](./PLATFORMS.md) — `supports()` truth
-- [DISCOVERY_AND_PROFILES.md](./DISCOVERY_AND_PROFILES.md)
-- [CONNECTION_MANAGER.md](./CONNECTION_MANAGER.md) — reconnect policy (use after connect)
-- [WEB.md](./WEB.md) · [ELECTRON.md](./ELECTRON.md)
+```ts
+const batteryPercent = await withConnection(
+  manager,
+  observation.device.id,
+  { signal: abortController.signal, deadline },
+  async connection => {
+    const database = await connection.discover({
+      signal: abortController.signal,
+      deadline
+    })
+    return readBatteryLevel(database, {
+      signal: abortController.signal,
+      deadline
+    })
+  }
+)
+```
+
+The helper releases the lease on success and failure. Applications still own
+product reconnect policy; helpers never reconnect silently.
+
+## Capability and host boundaries
+
+Capabilities come from the instantiated backend's feature registry. Do not use
+a static host table. Web Bluetooth uses the chooser returned with
+`createNavigatorWebBleManager()` and intentionally rejects continuous scans.
+Electron renderers use the versioned renderer client; the main process alone
+owns the physical backend.
+
+## Verification
+
+- `__tests__/manager/public-helpers.test.js` covers primitive parity,
+  cancellation, deadlines, overflow, and cleanup aggregation.
+- `__tests__/manager/public-helper-stream-teardown.test.js` covers stream and
+  iterator teardown.
+- `scripts/evidence/corebluetooth-live.js` runs the final public
+  scan/connect/discover/read/notify/reconnect/destroy path for retained macOS
+  physical-radio evidence.
+
+See also [`PROFILES_AND_COMMANDS.md`](PROFILES_AND_COMMANDS.md),
+[`WEB.md`](WEB.md), [`ELECTRON.md`](ELECTRON.md), and
+[`PLATFORMS.md`](PLATFORMS.md).

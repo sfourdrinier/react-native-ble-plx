@@ -1,108 +1,147 @@
-### Monitoring device connection
+<!-- docs/TUTORIALS.md -->
 
-`onDeviceDisconnected` method allows you to monitor the disconnection of a device, more about the method can be found {@link #here|BleManager.onDeviceDisconnected()}. Using it you can implement your own logic to handle the disconnection event. For example, you can try to reconnect to the device or show a notification to the user.
+# Public API tutorials
 
-Note: connection will be monitored only when app is in foreground.
+These examples start after a host has explicitly constructed a 4.0 manager.
+See [`GETTING_STARTED.md`](GETTING_STARTED.md) for React Native, Web, Node, and
+Electron factories. All normal GATT values are bytes, all cancellable
+operations carry an `AbortSignal` and monotonic deadline, and all resources have
+explicit cleanup ownership.
+
+## Scan, connect, and discover
 
 ```ts
-const setupOnDeviceDisconnected = (deviceIdToMonitor: String) => {
-  bleManagerInstance.onDeviceDisconnected(deviceIdToMonitor, disconnectedListener)
-}
+import { capacity, scanUntil } from 'unified-ble-manager'
+import { HEART_RATE_SERVICE } from 'unified-ble-manager/profiles/heart-rate'
 
-const disconnectedListener = (error: BleError | null, device: Device | null) => {
-  if (error) {
-    console.error(JSON.stringify(error, null, 4))
+const controller = new AbortController()
+const deadline = manager.monotonicNow() + 20_000
+
+const observation = await scanUntil(manager, {
+  scan: {
+    filter: {
+      serviceUuids: [HEART_RATE_SERVICE],
+      manufacturerData: [],
+      localNamePrefix: null
+    },
+    duplicatePolicy: 'first',
+    timestampPolicy: 'source-then-receipt',
+    delivery: {
+      itemCapacity: capacity(32),
+      byteCapacity: capacity(16 * 1024),
+      reservedControlCapacity: capacity(2),
+      overflowPolicy: 'drop-oldest'
+    },
+    deadline,
+    signal: controller.signal,
+    sharing: { mode: 'owner', allowSharing: false }
+  },
+  matches: candidate => candidate.device.name !== null
+})
+
+const connection = await manager.connect(observation.device.id, {
+  signal: controller.signal,
+  deadline
+})
+
+const database = await connection.discover({
+  signal: controller.signal,
+  deadline
+})
+const snapshot = await database.snapshot()
+```
+
+Web Bluetooth replaces scanning with the typed chooser from
+`createNavigatorWebBleManager()`. After selection, the connection and GATT
+operations are the same public handles.
+
+## Read and write
+
+Resolve paths from the current discovery snapshot so repeated services and
+characteristics remain unambiguous:
+
+```ts
+import { resolveCharacteristicPath } from 'unified-ble-manager/profiles/commands'
+import { batteryLevelSelector } from 'unified-ble-manager/profiles/battery-service'
+
+const batteryPath = await resolveCharacteristicPath(snapshot, batteryLevelSelector())
+const bytes = await database.read(batteryPath, {
+  signal: controller.signal,
+  deadline
+})
+
+const receipt = await database.write(controlPointPath, new Uint8Array([1]), {
+  signal: controller.signal,
+  deadline,
+  mode: 'with-response'
+})
+```
+
+Never construct occurrences or generations manually. A new connection or
+rediscovery requires a fresh snapshot and fresh paths.
+
+## Notifications
+
+```ts
+import { capacity } from 'unified-ble-manager'
+
+const subscription = await database.subscribe(measurementPath, {
+  signal: controller.signal,
+  deadline,
+  delivery: {
+    itemCapacity: capacity(64),
+    byteCapacity: capacity(64 * 1024),
+    reservedControlCapacity: capacity(2),
+    overflowPolicy: 'drop-oldest'
   }
-  if (device) {
-    console.info(JSON.stringify(device, null, 4))
+})
 
-    // reconnect to the device
-    device.connect()
-  }
-}
-```
-
-### Reading and writing to characteristics
-
-#### Prepare the connection with your device
-
-The first thing you need to do is connect to your device. Once the connection is established you can only perform basic operations without the possibility of interacting with the services on the device. To be able to interact with the services on the device, so you need to call an additional command `device.discoverAllServicesAndCharacteristics()` because even though you know what service and characteristics are on the device, they all must be visible to the GATT client, which handles all operations.
-
-```js
-device
-  .connect()
-  .then(device => {
-    return device.discoverAllServicesAndCharacteristics()
-  })
-  .then(device => {
-    // A fully functional connection you can use, now you can read, write and monitor values
-  })
-  .catch(error => {
-    // Handle errors
-  })
-```
-
-#### Reading from a characteristic
-
-To read a value from a characteristic, you need to call the `readCharacteristic` method on the device object. The method returns a promise that resolves to the characteristic value.
-
-```js
-device
-  .readCharacteristicForService(serviceUUID, characteristicUUID)
-  .then(characteristic => {
-    console.log('Read characteristic value:', characteristic.value)
-  })
-  .catch(error => {
-    console.error('Read characteristic error:', error)
-  })
-```
-
-#### Writing to a characteristic
-
-To write a value to a characteristic, you need to call the `writeCharacteristicWithResponse` or `writeCharacteristicWithoutResponse` method on the device object. The method returns a promise that resolves when the write operation is completed.
-
-```js
-device
-  .writeCharacteristicWithResponseForService(serviceUUID, characteristicUUID, value)
-  .then(() => {
-    console.log('Write characteristic success')
-  })
-  .catch(error => {
-    console.error('Write characteristic error:', error)
-  })
-```
-
-### Connecting to a device that is already connected to the OS
-
-If you want to connect to a device that isn't discoverable because it is already connected to the system, you can use the `getConnectedDevices` method to get a list of connected devices. Then you can use the `connect` method on the device object to connect to the device, after making sure that the device is not already connected.
-
-```js
-bleManagerInstance
-  .getConnectedDevices([serviceUUIDs])
-  .then(devices => {
-    const device = devices.find(d => d.id === deviceIdWeWantToConnectTo)
-
-    if (device && !device.isConnected) {
-      device.connect()
+try {
+  for await (const item of subscription.values) {
+    if (item.kind === 'value') {
+      consumeBytes(item.value.value)
+    } else if (item.kind === 'overflow') {
+      reportDataLoss(item)
+    } else {
+      handleTerminalNotice(item)
+      break
     }
-  })
-  .catch(error => {
-    console.error('Get connected devices error:', error)
-  })
+  }
+} finally {
+  const cleanup = await subscription.remove()
+  if (cleanup.state === 'release-failed') {
+    throw new Error('The notification subscription did not release cleanly.')
+  }
+}
 ```
 
-### Collecting native logs
+The stream is bounded. Overflow is observable and never converted into silent
+loss.
 
-If you encounter any issues with the library, you can enable native logs to get more information about what is happening under the hood. To enable native logs, you need to set the `logLevel` property on the BleManager instance to `LogLevel.Verbose`.
+## Disconnect and destroy
 
-```js
-bleManagerInstance.setLogLevel(LogLevel.Verbose)
+```ts
+const connectionCleanup = await connection.release()
+if (connectionCleanup.state === 'release-failed') {
+  throw new Error('The connection did not release cleanly.')
+}
+
+const managerCleanup = await manager.destroy()
+if (managerCleanup.state === 'release-failed') {
+  throw new Error('The manager did not release cleanly.')
+}
 ```
 
-#### Android
+After `destroy()`, the manager admits no new operation. Applications must not
+hide cleanup failures or create a fallback manager/backend.
 
-To collect native logs on Android, you can open the Logcat in Android Studio and set filters to `package:mine (tag:BluetoothGatt | tag:ReactNativeJS | RxBle)`.
+## Diagnostics
 
-#### iOS
+Portable traces use the redacted trace format from the root diagnostics types.
+The CLI can inspect package/backend capabilities and run deterministic TCK or
+scenario commands; see [`CLI.md`](CLI.md). Platform support still comes from
+retained evidence records, never from a successful mock or compile alone.
 
-To collect native logs on iOS, you can open the Xcode console.
+See also [`HELPERS.md`](HELPERS.md),
+[`PROFILES_AND_COMMANDS.md`](PROFILES_AND_COMMANDS.md), and
+[`CONNECTION_MANAGER.md`](CONNECTION_MANAGER.md).

@@ -3,13 +3,13 @@
 /**
  * Guards the clean-baseline 4.0 documentation decision.
  * Transitional source facts are allowed only when the document labels them as
- * characterization; these tests deliberately make no claim about production code.
+ * characterization. Public 4.0 guides must describe the current package surface.
  */
 const fs = require('fs')
 const path = require('path')
 
 const root = path.join(__dirname, '..')
-const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8').replace(/\r\n/g, '\n')
+const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8').replace(/\r\n/g, '\n')
 const packageVersion = JSON.parse(read('package.json')).version
 const alphaVersionMatch = /^4\.0\.0-alpha\.(\d+)$/u.exec(packageVersion)
 if (alphaVersionMatch === null) throw new Error(`Expected a 4.0 alpha package version, received ${packageVersion}`)
@@ -31,14 +31,12 @@ const architectureAuthorityDocuments = [
   'docs/WEB.md',
   'docs/TVOS.md',
   'docs/PERFORMANCE.md',
-  'docs/BONDING.md',
+  'docs/BONDING.md'
 ]
 
-const transitionalCharacterizationDocuments = [
-  'docs/CONNECTION_MANAGER.md',
-  'docs/DISCOVERY_AND_PROFILES.md',
-  'docs/HELPERS.md'
-]
+const transitionalCharacterizationDocuments = ['docs/DISCOVERY_AND_PROFILES.md']
+
+const currentPublicGuideDocuments = ['docs/CONNECTION_MANAGER.md', 'docs/HELPERS.md']
 
 const deterministicExampleDocuments = ['example-electron/README.md']
 const liveExampleDocuments = ['example-web/README.md']
@@ -47,7 +45,7 @@ const supersededAuthorityDocuments = [
   'ROADMAP.md',
   'docs/FIX_TRACKER.4.0.md',
   'docs/FIX_TRACKER.4.0-round2.md',
-  'docs/FIX_TRACKER.4.0-round3.md',
+  'docs/FIX_TRACKER.4.0-round3.md'
 ]
 
 const canonicalAdrDocuments = [
@@ -57,13 +55,13 @@ const canonicalAdrDocuments = [
   'docs/ADR/2026-07-4.0-boundary.md',
   'docs/ADR/2026-07-4.0-rn-restoration-bootstrap.md',
   'docs/ADR/2026-07-4.0-packaging.md',
-  'docs/ADR/2026-07-4.0-open-source-governance.md',
+  'docs/ADR/2026-07-4.0-open-source-governance.md'
 ]
 
 const deletedTransitionalAdrs = [
   'docs/ADR/2026-07-4.0-host-and-bytes.md',
   'docs/ADR/2026-07-4.0-electron-macos-corebluetooth.md',
-  'docs/ADR/2026-07-4.0-owned-core-and-electron-natives.md',
+  'docs/ADR/2026-07-4.0-owned-core-and-electron-natives.md'
 ]
 
 describe('4.0 documentation honesty', () => {
@@ -159,22 +157,33 @@ describe('4.0 documentation honesty', () => {
     expect(backendContract).toContain('owner lease')
   })
 
-  test.each(architectureAuthorityDocuments)('%s identifies the controlling architecture authority', (relativePath) => {
+  test.each(architectureAuthorityDocuments)('%s identifies the controlling architecture authority', relativePath => {
     const document = read(relativePath)
 
     expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
     expect(document).toContain('UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
   })
 
-  test.each(transitionalCharacterizationDocuments)('%s labels inherited behavior as transitional characterization', (relativePath) => {
+  test.each(transitionalCharacterizationDocuments)(
+    '%s labels inherited behavior as transitional characterization',
+    relativePath => {
+      const document = read(relativePath)
+
+      expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
+      expect(document).toMatch(/transitional source characterization|transitional source behavior|legacy manager/i)
+      expect(document).toContain('UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
+    }
+  )
+
+  test.each(currentPublicGuideDocuments)('%s describes the current clean-baseline package surface', relativePath => {
     const document = read(relativePath)
 
     expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
-    expect(document).toMatch(/transitional source characterization|transitional source behavior|legacy manager/i)
-    expect(document).toContain('UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md')
+    expect(document).not.toMatch(/transitional source characterization|transitional source behavior|legacy manager/i)
+    expect(document).toMatch(/BleManager|withConnection|scanUntil/)
   })
 
-  test.each(deterministicExampleDocuments)('%s makes only deterministic package-surface claims', (relativePath) => {
+  test.each(deterministicExampleDocuments)('%s makes only deterministic package-surface claims', relativePath => {
     const document = read(relativePath)
 
     expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
@@ -183,16 +192,19 @@ describe('4.0 documentation honesty', () => {
     expect(document).not.toMatch(/legacy manager|transitional source/i)
   })
 
-  test.each(liveExampleDocuments)('%s describes a clean-baseline live harness without claiming retained evidence', (relativePath) => {
-    const document = read(relativePath)
+  test.each(liveExampleDocuments)(
+    '%s describes a clean-baseline live harness without claiming retained evidence',
+    relativePath => {
+      const document = read(relativePath)
 
-    expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
-    expect(document).toContain('4.0 clean-baseline Web Bluetooth example')
-    expect(document).toMatch(/does not itself create a\s+release evidence receipt/u)
-    expect(document).not.toMatch(/legacy manager|transitional source/i)
-  })
+      expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
+      expect(document).toContain('4.0 clean-baseline Web Bluetooth example')
+      expect(document).toMatch(/does not itself create a\s+release evidence receipt/u)
+      expect(document).not.toMatch(/legacy manager|transitional source/i)
+    }
+  )
 
-  test.each(supersededAuthorityDocuments)('%s cannot compete with the clean-baseline authority', (relativePath) => {
+  test.each(supersededAuthorityDocuments)('%s cannot compete with the clean-baseline authority', relativePath => {
     const document = read(relativePath)
 
     expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
@@ -203,15 +215,15 @@ describe('4.0 documentation honesty', () => {
   test('the seven canonical ADRs replace every transitional ADR path', () => {
     const adrDirectory = path.join(root, 'docs/ADR')
     const actual = fs.readdirSync(adrDirectory).sort()
-    const expected = canonicalAdrDocuments.map((relativePath) => path.basename(relativePath)).sort()
+    const expected = canonicalAdrDocuments.map(relativePath => path.basename(relativePath)).sort()
 
     expect(actual).toEqual(expected)
-    deletedTransitionalAdrs.forEach((relativePath) => {
+    deletedTransitionalAdrs.forEach(relativePath => {
       expect(fs.existsSync(path.join(root, relativePath))).toBe(false)
     })
   })
 
-  test.each(canonicalAdrDocuments)('%s is an accepted canonical decision record', (relativePath) => {
+  test.each(canonicalAdrDocuments)('%s is an accepted canonical decision record', relativePath => {
     const document = read(relativePath)
 
     expect(document.split('\n')[0]).toBe(`<!-- ${relativePath} -->`)
@@ -310,7 +322,9 @@ describe('4.0 documentation honesty', () => {
     expect(release).toContain('SLSA provenance')
     expect(platforms).toContain('No current evidence record binds the published alpha.38')
     expect(platforms).toContain('makes no Windows live-radio claim')
-    expect(platforms).toContain('Meta Quest and an nRF52840-based controllable fault-injection controller are deferred to 4.1')
+    expect(platforms).toContain(
+      'Meta Quest and an nRF52840-based controllable fault-injection controller are deferred to 4.1'
+    )
   })
 
   test('platform pages make instantiated backend evidence, not static source behavior, authoritative', () => {

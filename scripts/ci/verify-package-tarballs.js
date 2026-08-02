@@ -71,6 +71,23 @@ const excludedHistoricalDocumentationEntries = Object.freeze([
   'package/docs/MIGRATION_V1.md'
 ])
 
+const activePublicDocumentationEntries = Object.freeze([
+  'package/docs/CONNECTION_MANAGER.md',
+  'package/docs/FORK.md',
+  'package/docs/HELPERS.md',
+  'package/docs/TUTORIALS.md'
+])
+
+const retiredPublicDocumentationIdentifiers = Object.freeze([
+  'PortBleManager',
+  'startDeviceScan',
+  'connectToDevice',
+  'writeCharacteristicWithResponseForDevice',
+  'cancelTransaction',
+  'TransactionId',
+  'example-electron/live-polar.js'
+])
+
 function listFiles(directory) {
   const files = []
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -248,6 +265,21 @@ function assertNoPrivatePath(entryPath, contents) {
   }
 }
 
+function assertNoRetiredPublicDocumentation(files) {
+  for (const entryPath of activePublicDocumentationEntries) {
+    const contents = files.get(entryPath)
+    if (contents === undefined) {
+      throw new Error(`Packed active public documentation is missing: ${entryPath}`)
+    }
+    const text = contents.toString('utf8')
+    for (const retiredIdentifier of retiredPublicDocumentationIdentifiers) {
+      if (text.includes(retiredIdentifier)) {
+        throw new Error(`Packed active public documentation contains retired API ${retiredIdentifier}: ${entryPath}`)
+      }
+    }
+  }
+}
+
 function assertExactObjectKeys(value, expectedKeys, label) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} must be an object`)
@@ -386,7 +418,10 @@ function verifyRootTarball(tarballPath) {
     if (packageJson.peerDependenciesMeta?.[dependency]?.optional !== true) {
       throw new Error(`Packed canonical peerDependenciesMeta.${dependency}.optional must equal true`)
     }
-    if (packageJson.dependencies?.[dependency] !== undefined || packageJson.optionalDependencies?.[dependency] !== undefined) {
+    if (
+      packageJson.dependencies?.[dependency] !== undefined ||
+      packageJson.optionalDependencies?.[dependency] !== undefined
+    ) {
       throw new Error(`Packed canonical optional peer host dependency ${dependency} must not install at the root`)
     }
   }
@@ -432,11 +467,11 @@ function verifyRootTarball(tarballPath) {
     .filter(isCodegenSourceFile)
     .sort((left, right) => left.localeCompare(right))
   const expectedCodegenSourceEntries = new Set(codegenSourceFiles.map(codegenSourceArchivePath))
-  for (const requiredCodegenInput of [
-    'package/src/NativeUnifiedBleProtocolControl.ts'
-  ]) {
+  for (const requiredCodegenInput of ['package/src/NativeUnifiedBleProtocolControl.ts']) {
     if (!expectedCodegenSourceEntries.has(requiredCodegenInput)) {
-      throw new Error(`Required React Native Codegen source is missing from the package source tree: ${requiredCodegenInput}`)
+      throw new Error(
+        `Required React Native Codegen source is missing from the package source tree: ${requiredCodegenInput}`
+      )
     }
   }
   const expectedArtifacts = new Set([
@@ -519,12 +554,7 @@ function verifyRootTarball(tarballPath) {
 
   for (const entryPath of files.keys()) {
     if (
-      !isRootArchiveEntryAllowed(
-        entryPath,
-        expectedArtifacts,
-        expectedPluginArtifacts,
-        expectedCodegenSourceEntries
-      )
+      !isRootArchiveEntryAllowed(entryPath, expectedArtifacts, expectedPluginArtifacts, expectedCodegenSourceEntries)
     ) {
       throw new Error(`Packed entry is outside the package archive allowlist: ${entryPath}`)
     }
@@ -566,6 +596,7 @@ function verifyRootTarball(tarballPath) {
     [...files.entries()].map(([entryPath, contents]) => ({ path: entryPath, contents })),
     'Packed canonical runtime source/artifacts'
   )
+  assertNoRetiredPublicDocumentation(files)
 
   const targets = [
     { label: 'main', target: packageJson.main },

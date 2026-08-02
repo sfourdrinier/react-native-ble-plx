@@ -1,187 +1,113 @@
 <!-- docs/CONNECTION_MANAGER.md -->
 
-# ConnectionManager
+# Connection ownership and reconnect policy
 
-> **Transitional source characterization:** this legacy manager and its reconnect policy are audit input only. The 4.0 shared core owns portable connection mechanics, while applications own reconnect policy; this file is not a 4.0 API guide. See [`UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md`](UNIFIED_BLE_4.0_IMPLEMENTATION_PLAN.md).
+Unified BLE 4.0 has one public `BleManager` and generation-bound `Connection`
+handles. The shared core owns connection admission, cancellation, deadlines,
+late-completion quarantine, disconnect invalidation, and deterministic cleanup.
+Applications own product retry and reconnect policy.
 
-`ConnectionManager` is the supported reliability API for this fork. It unifies connection attempts, exponential backoff retries, timeouts, automatic reconnection, and (from **3.9.0**) host-owned **`attemptConnectOnce`** gated attempts in a **single state machine per device**.
+There is no separate package reconnect manager, hidden retry engine, or global
+radio singleton.
 
-## Why it exists
-
-Calling `device.connect()` / `BleManager.connectToDevice()` directly is fine for simple flows. Production apps usually also need:
-
-- retries when the radio is busy or the peripheral is slow to respond
-- a hard timeout so connect never hangs forever
-- auto-reconnect after unexpected disconnects without racing multiple retry engines
-
-Older fork versions briefly exposed separate helpers (`ConnectionQueue`, `ReconnectionManager`). Those modules are **removed**. Use `ConnectionManager` only.
-
-## Install / import
+## One connection lease
 
 ```ts
-import { BleManager, ConnectionManager } from 'unified-ble-manager'
-```
+const abortController = new AbortController()
+const options = {
+  signal: abortController.signal,
+  deadline: manager.monotonicNow() + 15_000
+}
 
-## Basic connect with retry and timeout
+const connection = await manager.connect(peerId, options)
 
-```ts
-const bleManager = new BleManager()
-const connections = new ConnectionManager(bleManager)
-
-const device = await connections.connect(deviceId, {
-  maxRetries: 5,
-  initialDelayMs: 1000,
-  maxDelayMs: 30000,
-  backoffMultiplier: 2,
-  timeoutMs: 15000,
-  // Optional: pass through native connect options
-  connectionOptions: {
-    autoConnect: false,
-    timeout: 15000
+try {
+  const database = await connection.discover(options)
+  const snapshot = await database.snapshot()
+  // Resolve paths from this snapshot and perform GATT operations.
+} finally {
+  const cleanup = await connection.release()
+  if (cleanup.state === 'release-failed') {
+    throw new Error('The connection lease did not release cleanly.')
   }
-})
-```
-
-### Option defaults
-
-| Option | Default | Meaning |
-| ------ | ------- | ------- |
-| `maxRetries` | `3` | **Total** connection attempts, including the first try. `1` = one attempt (no retries); `3` = up to three attempts. |
-| `initialDelayMs` | `1000` | Delay before the first retry after a failed attempt |
-| `maxDelayMs` | `30000` | Cap for exponential backoff |
-| `backoffMultiplier` | `2` | Multiplier applied between retries |
-| `timeoutMs` | `30000` | Per-attempt connection timeout; `0` disables |
-
-`ConnectionManager` increments an attempt counter before each connect and stops when that count reaches `maxRetries`. See `__tests__/ConnectionManager.test.js` for examples (`maxRetries: 1` is used for single-attempt cases).
-
-## Auto-reconnect
-
-```ts
-connections.enableAutoReconnect(
-  deviceId,
-  {
-    maxRetries: 10,
-    initialDelayMs: 2000,
-    timeoutMs: 15000
-  },
-  {
-    onConnect: (device) => {
-      // Fires on initial success and later reconnects
-      console.log('connected', device.id)
-    },
-    onDisconnect: (deviceId, error) => {
-      console.log('disconnected', deviceId, error)
-    },
-    onConnectFailed: (deviceId, error) => {
-      console.log('gave up', deviceId, error)
-    },
-    onConnecting: (deviceId, attempt, maxAttempts) => {
-      console.log(`connecting ${deviceId}: ${attempt}/${maxAttempts}`)
-    }
-  }
-)
-
-// Kick the first connection; later disconnects can auto-retry
-await connections.connect(deviceId, { maxRetries: 5, timeoutMs: 15000 })
-```
-
-Disable with:
-
-```ts
-connections.disableAutoReconnect(deviceId)
-```
-
-## Externally gated mode
-
-Use when **your app** owns reconnect policy (session/hub layer). `ConnectionManager`
-still runs race-hardened single connects (timeout, coalesce, cancel) but **never**
-schedules retries or auto-reconnect for that call.
-
-### API
-
-```ts
-const device = await connections.attemptConnectOnce(deviceId, {
-  timeoutMs: 15000,
-  connectionOptions: {
-    /* native options */
-  },
-  // maxRetries is forced to 1 (single attempt); prefer omitting it
-})
-```
-
-### Mode exclusivity (per `deviceId`)
-
-| Call | While auto-reconnect enabled | While `attemptConnectOnce` in flight |
-| ---- | ---------------------------- | ------------------------------------ |
-| `attemptConnectOnce` | Rejects `OperationStartFailed` | Coalesces with other gated calls |
-| `attemptConnectOnce` while non-gated `connect` in flight | — | Rejects `OperationStartFailed` (strict: does not join any non-gated in-flight connect) |
-| `enableAutoReconnect` | Updates options | **Throws** `OperationStartFailed` (use try/catch) |
-| `connect` | Allowed (existing behavior) | Coalesces onto gated flight (single attempt already started; does **not** re-arm multi-retry) |
-
-### Caller-owned backoff example
-
-```ts
-async function reconnectWithPolicy(deviceId: string) {
-  let delay = 1000
-  for (let i = 0; i < 10; i++) {
-    try {
-      return await connections.attemptConnectOnce(deviceId, { timeoutMs: 15000 })
-    } catch (e) {
-      // permanent failures: rethrow; transient: back off
-      await new Promise((r) => setTimeout(r, delay))
-      delay = Math.min(delay * 2, 30000)
-    }
-  }
-  throw new Error('gave up')
 }
 ```
 
-`setGlobalCallbacks` still observes gated attempts (`onConnecting` / `onConnect` / `onConnectFailed`).
+Every database and attribute path is bound to the connection/database
+generation that produced it. A reconnect creates a new generation; rediscover
+and resolve fresh paths instead of reusing the previous snapshot.
 
-After iOS state restoration, combine with [`getRestoredState`](./BACKGROUND.md) and a single gated attempt if the peripheral is no longer connected — see [BACKGROUND.md](./BACKGROUND.md).
+## Scoped helper
 
-## Cancellation and coalescing
-
-- Multiple concurrent `connect()` calls for the **same** device coalesce onto one in-flight attempt.
-- `cancel(deviceId)` aborts the current attempt and prevents stale retries from completing.
-- Native cancellation rejections during cleanup are intentionally ignored when the connection already ended.
-
-## Lifecycle helpers
+`withConnection()` owns one lease and releases it on every terminal path:
 
 ```ts
-connections.isConnecting(deviceId)
-connections.isAutoReconnectEnabled(deviceId)
-connections.activeCount
-connections.setGlobalCallbacks({ onConnect, onDisconnect, onConnecting, onConnectFailed })
-```
+import { withConnection } from 'unified-ble-manager'
 
-## Background pairing
-
-On Android 12+, enable the foreground service **while the app is in the foreground** before long background sessions. See the root README Android Background Mode section and [EXPO_PLUGIN.md](./EXPO_PLUGIN.md).
-
-```ts
-await bleManager.enableBackgroundMode({
-  notificationTitle: 'Sensor connected',
-  notificationText: 'Syncing health data'
+const value = await withConnection(manager, peerId, options, async connection => {
+  const database = await connection.discover(options)
+  return readBatteryLevel(database, options)
 })
-
-await connections.connect(deviceId, { maxRetries: 5, timeoutMs: 15000 })
 ```
 
-## Platform notes
+It does not retry or reconnect.
 
-| Platform | ConnectionManager | Notes |
-| -------- | ----------------- | ----- |
-| iOS | Supported | Combine with restoration + background modes for long sessions |
-| Android | Supported | Combine with FGS for background continuity |
-| tvOS | Supported for connect/retry | State restoration is iOS-only; see [TVOS.md](./TVOS.md) |
+## Application-owned retry loop
 
-## Migration
+Retry only normalized errors that your product policy explicitly classifies as
+transient. Create a fresh deadline for each attempt, retain cancellation across
+the entire policy, and release every acquired connection before waiting.
 
-If you previously used removed helpers:
+```ts
+async function connectWithProductPolicy(manager, peerId, signal) {
+  let delayMilliseconds = 1_000
 
-| Old approach | New approach |
-| ------------ | ------------ |
-| Separate queue + reconnection classes | One `ConnectionManager` |
-| Manual retry loops around `connectToDevice` | `connections.connect(id, { maxRetries, timeoutMs })` |
-| Hand-rolled disconnect listeners | `enableAutoReconnect` + callbacks |
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    if (signal.aborted) {
+      throw new Error('Connection policy was aborted.')
+    }
+
+    try {
+      return await manager.connect(peerId, {
+        signal,
+        deadline: manager.monotonicNow() + 15_000
+      })
+    } catch (error) {
+      if (!isProductRetryableBleError(error) || attempt === 5) {
+        throw error
+      }
+      await waitForProductBackoff(delayMilliseconds, signal)
+      delayMilliseconds = Math.min(delayMilliseconds * 2, 30_000)
+    }
+  }
+
+  throw new Error('Connection policy exhausted without a terminal result.')
+}
+```
+
+`isProductRetryableBleError()` and `waitForProductBackoff()` are intentionally
+application functions: retry budgets, user intent, session state, and medical
+workflow policy do not belong in the generic BLE package.
+
+## Disconnects and lifecycle loss
+
+Consume the public connection lifecycle stream using bounded delivery. Adapter
+loss, permission loss, backend restart, and disconnect invalidate affected
+resources through the shared core. Do not keep a path alive by catching an
+invalidation error, and do not create a second manager to work around the
+owner's lifecycle.
+
+Apple restoration is an explicit native-owner adoption flow, not automatic
+reconnect. See [`BACKGROUND.md`](BACKGROUND.md) and
+[`EXPO_PLUGIN.md`](EXPO_PLUGIN.md). Electron renderer resources remain owned by
+their authorized renderer lease; the main process owns the physical backend.
+
+## Cleanup failures
+
+Cleanup records are data. A `release-failed` result retains retry ownership and
+must be surfaced or retried by the current owner. Never discard a cleanup error
+because the primary operation also failed; public helpers preserve both errors
+with `AggregateError` where required.
+
+See [`UNIFIED_SEMANTICS.md`](UNIFIED_SEMANTICS.md) for normative state-machine
+rules and [`HELPERS.md`](HELPERS.md) for the helper surface.

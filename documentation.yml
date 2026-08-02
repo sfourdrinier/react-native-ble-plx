@@ -1,58 +1,30 @@
 toc:
   - name: Getting started
     file: ./docs/GETTING_STARTED.md
-  - name: Fork notes
-    file: ./docs/FORK.md
-  - name: ConnectionManager guide
-    file: ./docs/CONNECTION_MANAGER.md
-  - name: Background / iOS restoration
-    file: ./docs/BACKGROUND.md
-  - name: Expo config plugin
-    file: ./docs/EXPO_PLUGIN.md
-  - name: tvOS / Apple TV
-    file: ./docs/TVOS.md
   - name: Tutorials
     file: ./docs/TUTORIALS.md
-  - name: Main Classes
+  - name: Public helpers
+    file: ./docs/HELPERS.md
+  - name: Profiles and commands
+    file: ./docs/PROFILES_AND_COMMANDS.md
+  - name: Backend authoring
+    file: ./docs/BACKEND_AUTHORING.md
+  - name: Expo config plugin
+    file: ./docs/EXPO_PLUGIN.md
+  - name: Electron
+    file: ./docs/ELECTRON.md
+  - name: Platform evidence
+    file: ./docs/PLATFORMS.md
+  - name: Public API
     description: |
-      Classes described below are main building blocks for your BLE support. They
-      are presented in order which aligns them with usage.
+      Host-neutral manager, handles, helpers, contracts, and diagnostics exported
+      by the package root. Host factories live behind explicit package subpaths.
   - BleManager
-  - Device
-  - Service
-  - Characteristic
-  - Descriptor
-  - ConnectionManager
-  - name: Utils
-    description: |
-      Utility functions and classes.
-  - fullUUID
-  - name: BLE Error
-    description: |
-      Types and classes related to BLE errors.
-  - BleError
-  - BleErrorCode
-  - BleErrorCodeMessage
-  - BleATTErrorCode
-  - BleAndroidErrorCode
-  - BleIOSErrorCode
-  - name: Flow Types
-    description: |
-      All Flow aliases and Flow types used in this library.
-  - LogLevel
-  - ConnectionPriority
-  - State
-  - BleErrorCodeMessageMapping
-  - BleManagerOptions
-  - BleRestoredState
-  - ScanOptions
-  - ScanCallbackType
-  - ScanMode
-  - ConnectionOptions
-  - DeviceId
-  - Identifier
-  - UUID
-  - TransactionId
-  - Subscription
-  - Base64
-  - RefreshGattMoment
+  - createBleManagerFromProvider
+  - createBleManager
+  - scanUntil
+  - find
+  - connectAndDiscover
+  - firstNotification
+  - collectNotifications
+  - withConnection

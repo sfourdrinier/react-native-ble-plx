@@ -44,9 +44,11 @@ describe('package artifact honesty gate', () => {
     expect(tarballVerifierSource).toContain('expectedCodegenSourceEntries')
     expect(tarballVerifierSource).toContain('Packed React Native Codegen source set differs')
     expect(tarballVerifierSource).toContain('excludedHistoricalDocumentationEntries')
+    expect(tarballVerifierSource).toContain('activePublicDocumentationEntries')
+    expect(tarballVerifierSource).toContain('assertNoRetiredPublicDocumentation(files)')
     expect(tarballVerifierSource).toContain('assertNoForbiddenNobleManifestDependencies')
     expect(tarballVerifierSource).toContain('assertNoForbiddenNobleRuntimeReferences')
-    expect(tarballVerifierSource).toContain("Usage: node scripts/ci/verify-package-tarballs.js <canonical.tgz>")
+    expect(tarballVerifierSource).toContain('Usage: node scripts/ci/verify-package-tarballs.js <canonical.tgz>')
     expect(buildSource).toContain("process.platform === 'win32'")
     expect(buildSource).toContain("shell: process.platform === 'win32'")
     expect(packInstallSmokeSource).toContain("process.platform === 'win32' ? 'npm.cmd' : 'npm'")
@@ -126,7 +128,7 @@ describe('package artifact honesty gate', () => {
     expect(packInstallSmokeSource).not.toContain("path.join(root, 'node_modules', '.pnpm')")
     expect(packInstallSmokeSource).toContain("'--loglevel=warn'")
     expect(packInstallSmokeSource).toContain("target: 'web'")
-    expect(packInstallSmokeSource).toContain("unified-ble-manager/web")
+    expect(packInstallSmokeSource).toContain('unified-ble-manager/web')
     expect(packInstallSmokeSource).toContain('Browser bundle must not resolve forbidden host request')
     expect(packInstallSmokeSource).toContain('Browser bundle must not include forbidden host module')
     expect(packInstallSmokeSource).toContain('stats.hasWarnings()')
@@ -156,8 +158,12 @@ describe('package artifact honesty gate', () => {
 
     expect(packInstallSmokeSource).toContain("typescript: '5.8.3'")
     expect(packInstallSmokeSource).toContain("webpack: '5.109.2'")
-    expect(packInstallSmokeSource).toContain('devDependencies: {\n          webpack: isolatedConsumerToolVersions.webpack')
-    expect(packInstallSmokeSource).toContain('devDependencies: {\n            typescript: isolatedConsumerToolVersions.typescript')
+    expect(packInstallSmokeSource).toContain(
+      'devDependencies: {\n          webpack: isolatedConsumerToolVersions.webpack'
+    )
+    expect(packInstallSmokeSource).toContain(
+      'devDependencies: {\n            typescript: isolatedConsumerToolVersions.typescript'
+    )
     expect(packInstallSmokeSource).toContain("'typescript/bin/tsc'")
     expect(packInstallSmokeSource).not.toContain("path.join(root, 'node_modules', 'typescript', 'bin', 'tsc')")
     expect(thirdPartyFixtureManifest.devDependencies).toEqual({ typescript: '5.8.3' })
