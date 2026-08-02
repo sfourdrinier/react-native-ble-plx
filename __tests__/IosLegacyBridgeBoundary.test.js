@@ -37,6 +37,7 @@ const requiredProtocolPaths = Object.freeze([
   'ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm',
   'ios/NativeProtocol/UnifiedBleProtocolAppleBinaryDelivery.hpp',
   'ios/NativeProtocol/UnifiedBleProtocolAppleBinaryDelivery.mm',
+  'ios/Owned/OwnedCoreBluetoothCentralDelegate.swift',
   'ios/Owned/OwnedCoreBluetoothProtocolRadio.swift',
   'ios/Owned/OwnedCoreBluetoothProtocolRadioSupport.swift'
 ])

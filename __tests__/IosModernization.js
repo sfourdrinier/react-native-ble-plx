@@ -35,6 +35,7 @@ describe('iOS and tvOS 4.0 Native Protocol defaults', () => {
 
     expect(podspec).toContain('ios/UnifiedBleProtocolControl.mm')
     expect(podspec).toContain('ios/NativeProtocol/**/*.{h,m,mm}')
+    expect(podspec).toContain('ios/Owned/OwnedCoreBluetoothCentralDelegate.swift')
     expect(podspec).toContain('ios/Owned/OwnedCoreBluetoothProtocolRadio.swift')
     expect(podspec).toContain('ios/Owned/OwnedCoreBluetoothProtocolRadioSupport.swift')
     expect(podspec).not.toMatch(/ios\/\*\.\{h,m,mm\}|MultiplatformBleAdapter|Restoration|BleAdapter|SafePromise/)
@@ -47,5 +48,19 @@ describe('iOS and tvOS 4.0 Native Protocol defaults', () => {
     expect(tvosGate).toContain('OwnedCoreBluetoothProtocolRadioCancellation.swift')
     expect(radio).toContain('let desiredCancellationState = cancellationDesiredState(')
     expect(radio).not.toContain('let cancellationDesiredState = cancellationDesiredState(')
+  })
+
+  test('advertises CoreBluetooth restoration only when a restoration identifier is configured', () => {
+    const radio = read('ios/Owned/OwnedCoreBluetoothProtocolRadio.swift')
+    const centralDelegate = read('ios/Owned/OwnedCoreBluetoothCentralDelegate.swift')
+    const restoringDelegateOffset = centralDelegate.indexOf('final class OwnedCoreBluetoothRestoringCentralDelegate')
+
+    expect(restoringDelegateOffset).toBeGreaterThan(0)
+    expect(centralDelegate.slice(0, restoringDelegateOffset)).not.toContain('willRestoreState')
+    expect(centralDelegate.slice(restoringDelegateOffset)).toContain('willRestoreState')
+    expect(radio).toContain('configuredCentralDelegate = OwnedCoreBluetoothRestoringCentralDelegate(radio: self)')
+    expect(radio).toContain('configuredCentralDelegate = OwnedCoreBluetoothCentralDelegate(radio: self)')
+    expect(radio).toContain('delegate: configuredCentralDelegate')
+    expect(radio).not.toContain('CBCentralManager(delegate: self')
   })
 })

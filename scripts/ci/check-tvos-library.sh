@@ -53,6 +53,7 @@ fi
 # explicit podspec entries so a retired Swift bridge cannot slip into tvOS CI.
 SWIFT_FILES=(
   "$OWNED_DIR/OwnedCoreBluetoothProtocolRadioSupport.swift"
+  "$OWNED_DIR/OwnedCoreBluetoothCentralDelegate.swift"
   "$OWNED_DIR/OwnedCoreBluetoothProtocolRadioDescriptors.swift"
   "$OWNED_DIR/OwnedCoreBluetoothProtocolRadioCancellation.swift"
   "$OWNED_DIR/OwnedCoreBluetoothProtocolRadio.swift"

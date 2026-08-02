@@ -17,7 +17,7 @@ import Foundation
  * Data only. Every mutable CoreBluetooth object stays confined to its serial radio queue.
  */
 @objc(OwnedCoreBluetoothProtocolRadio)
-public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
+public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBPeripheralDelegate {
   static let maximumBinaryPayloadBytes = 512 * 1024
   private static let radioQueue = DispatchQueue(
     label: "com.sfourdrinier.unifiedblemanager.unified-protocol-radio"
@@ -27,6 +27,7 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
 
   let queue: DispatchQueue
   var central: CBCentralManager!
+  private var centralDelegate: OwnedCoreBluetoothCentralDelegate!
   var peripheralByIdentifier = [String: CBPeripheral]()
   var servicesByPeer = [String: [CBService]]()
   var pendingConnect = [String: PendingVoid]()
@@ -100,12 +101,23 @@ public final class OwnedCoreBluetoothProtocolRadio: NSObject, CBCentralManagerDe
     queue = Self.radioQueue
     super.init()
     var options = [String: Any]()
+    let configuredCentralDelegate: OwnedCoreBluetoothCentralDelegate
     #if os(iOS)
     if let restoreIdentifierKey, !restoreIdentifierKey.isEmpty {
       options[CBCentralManagerOptionRestoreIdentifierKey] = restoreIdentifierKey
+      configuredCentralDelegate = OwnedCoreBluetoothRestoringCentralDelegate(radio: self)
+    } else {
+      configuredCentralDelegate = OwnedCoreBluetoothCentralDelegate(radio: self)
     }
+    #else
+    configuredCentralDelegate = OwnedCoreBluetoothCentralDelegate(radio: self)
     #endif
-    central = CBCentralManager(delegate: self, queue: queue, options: options.isEmpty ? nil : options)
+    centralDelegate = configuredCentralDelegate
+    central = CBCentralManager(
+      delegate: configuredCentralDelegate,
+      queue: queue,
+      options: options.isEmpty ? nil : options
+    )
   }
 
   @objc public func adapterSnapshot() -> NSDictionary {

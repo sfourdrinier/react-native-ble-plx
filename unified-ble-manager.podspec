@@ -24,6 +24,7 @@ Pod::Spec.new do |s|
     "ios/UnifiedBleProtocolControl.mm",
     "ios/Generated/**/*.swift",
     "ios/NativeProtocol/**/*.{h,m,mm}",
+    "ios/Owned/OwnedCoreBluetoothCentralDelegate.swift",
     "ios/Owned/OwnedCoreBluetoothProtocolRadioDescriptors.swift",
     "ios/Owned/OwnedCoreBluetoothProtocolRadio.swift",
     "ios/Owned/OwnedCoreBluetoothProtocolRadioCancellation.swift",
