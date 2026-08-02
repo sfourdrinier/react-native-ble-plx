@@ -1226,6 +1226,13 @@ void dispatchCommand(
     }];
     return;
   }
+  if (kind == "destroy") {
+    [radio releaseProtocolClientWithCompletion:^(NSError* error) {
+      if (error == nil) static_cast<void>(success(state, command));
+      else fail(state, command, "destroyFailed", error);
+    }];
+    return;
+  }
   const auto path = requiredRecord(command, 4U);
   const auto endpoint = endpointFor(path);
   const auto peer = [NSString stringWithUTF8String:endpoint.peer.c_str()];
@@ -1276,13 +1283,6 @@ void dispatchCommand(
     } else {
       [radio unsubscribeWithPeerIdentifier:peer serviceUUID:service serviceOccurrence:endpoint.serviceOccurrence characteristicUUID:characteristic characteristicOccurrence:endpoint.characteristicOccurrence subscriptionIdentifier:subscriptionIdentifier operationIdentifier:operation completion:completion];
     }
-    return;
-  }
-  if (kind == "destroy") {
-    [radio releaseProtocolClientWithCompletion:^(NSError* error) {
-      if (error == nil) static_cast<void>(success(state, command));
-      else fail(state, command, "destroyFailed", error);
-    }];
     return;
   }
   fail(state, command, "unsupportedCommand", nil);

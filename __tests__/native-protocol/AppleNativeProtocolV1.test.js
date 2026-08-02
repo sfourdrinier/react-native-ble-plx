@@ -249,6 +249,19 @@ describe('Apple Native Protocol v1 radio boundary', () => {
     expect(sharedBoundary).toContain('code: nativeCode')
   })
 
+  test('dispatches destroy before requiring a characteristic-scoped command path', () => {
+    const execution = read('ios/NativeProtocol/UnifiedBleProtocolAppleExecution.mm')
+    const dispatch = execution.slice(
+      execution.indexOf('void dispatchCommand('),
+      execution.indexOf('class BinaryRuntime final')
+    )
+
+    expect(dispatch.indexOf('if (kind == "destroy")')).toBeGreaterThanOrEqual(0)
+    expect(dispatch.indexOf('if (kind == "destroy")')).toBeLessThan(
+      dispatch.indexOf('const auto path = requiredRecord(command, 4U)')
+    )
+  })
+
   test('keeps the queue-confined radio under the file cap by moving stateless projections to support', () => {
     const radio = read('ios/Owned/OwnedCoreBluetoothProtocolRadio.swift')
     const support = read('ios/Owned/OwnedCoreBluetoothProtocolRadioSupport.swift')

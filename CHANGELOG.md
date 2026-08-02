@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.32] - 2026-08-01 (published prerelease)
+
+### Fixed
+
+- Corrected Apple destroy-command routing so manager-scoped teardown executes
+  before characteristic-path decoding instead of being rejected as malformed.
+- Added a regression guard for the manager-scoped versus characteristic-scoped
+  dispatch boundary exposed by the iOS Simulator restoration-startup path.
+
+### Support and evidence boundary
+
+- Alpha.32 remains Experimental until its exact package artifact is bound to
+  physical-radio evidence. Simulator compilation, installation, launch, and
+  lifecycle cleanup do not establish live BLE support.
+- Meta Quest and the controllable physical fault-injection peripheral remain
+  explicitly deferred to 4.1.
+
 ## [4.0.0-alpha.31] - 2026-08-01 (published prerelease)
 
 ### Fixed

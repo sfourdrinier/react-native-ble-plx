@@ -4,7 +4,7 @@
   "schemaVersion": "1.0.0",
   "package": {
     "name": "unified-ble-manager",
-    "version": "4.0.0-alpha.31"
+    "version": "4.0.0-alpha.32"
   },
   "source": {
     "method": "pnpm-lock production graph with installed-manifest license audit",

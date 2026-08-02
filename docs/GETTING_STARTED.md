@@ -4,7 +4,7 @@
 
 ## 4.0 status
 
-`unified-ble-manager@4.0.0-alpha.31` is the current published 4.0 alpha package.
+`unified-ble-manager@4.0.0-alpha.32` is the current published 4.0 alpha package.
 It is a clean API line with no released 4.0 consumer baseline:
 choose one explicit host entrypoint and build the matching native integration
 before making a Bluetooth claim. It is not a source-compatible rename of the
@@ -15,18 +15,18 @@ The architecture and implementation sequence are controlled by [`UNIFIED_BLE_4.0
 ## Install and select a host
 
 ```sh
-pnpm add unified-ble-manager@4.0.0-alpha.31
+pnpm add unified-ble-manager@4.0.0-alpha.32
 ```
 
 The alpha train is published under npm's mutable `next` dist-tag. Pin the exact version you validate; do
 not use a bare install or `@latest` to select 4.0 alpha. The package is
-Experimental, and no current evidence record binds the published alpha.31
+Experimental, and no current evidence record binds the published alpha.32
 artifact to a physical-radio backend result. Package builds
 and deterministic tests remain useful proof at their own scope, but do not
 create a platform support label.
 
 The package support label remains Experimental. WinRT compile and ABI checks are
-L2/L3 evidence only; alpha.31 makes no Windows live-radio claim.
+L2/L3 evidence only; alpha.32 makes no Windows live-radio claim.
 
 The root import is host-neutral. Import the selected integration explicitly:
 
