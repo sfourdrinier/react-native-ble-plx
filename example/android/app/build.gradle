@@ -87,14 +87,6 @@ android {
         versionCode = 1
         versionName = "1.0"
     }
-    sourceSets {
-        main.java.srcDir("../../../spikes/rn-jsi-binary/platform/android/java")
-    }
-    externalNativeBuild {
-        cmake {
-            path file("../../../spikes/rn-jsi-binary/platform/android/CMakeLists.txt")
-        }
-    }
     signingConfigs {
         debug {
             storeFile = file('debug.keystore')

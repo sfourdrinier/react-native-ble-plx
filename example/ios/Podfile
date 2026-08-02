@@ -1,3 +1,5 @@
+# example/ios/Podfile
+
 # Resolve react_native_pods.rb with node to allow for hoisting
 require Pod::Executable.execute_command('node', ['-p',
   'require.resolve(
@@ -31,5 +33,11 @@ target 'BlePlxExample' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    hermes_target = installer.pods_project.targets.find { |target| target.name == 'hermes-engine' }
+    hermes_replace_phase = hermes_target&.shell_script_build_phases&.find do |phase|
+      phase.name == '[CP-User] [Hermes] Replace Hermes for the right configuration, if needed'
+    end
+    hermes_replace_phase.always_out_of_date = '1' if hermes_replace_phase != nil
   end
 end

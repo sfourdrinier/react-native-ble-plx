@@ -11,15 +11,10 @@ import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.load
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.facebook.react.soloader.OpenSourceMergedSoMapping
 import com.facebook.soloader.SoLoader
-import com.ub4.rnjsispike.Ub4JsiBinaryBootstrapPackage
 
 class MainApplication : Application(), ReactApplication {
 
-  private val packages: List<ReactPackage> =
-      PackageList(this).packages.apply {
-        // Ub4 is not autolinked because it is compiled from this example's native source set.
-        add(Ub4JsiBinaryBootstrapPackage())
-      }
+  private val packages: List<ReactPackage> = PackageList(this).packages
 
   override val reactHost: ReactHost =
       getDefaultReactHost(

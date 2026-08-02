@@ -5,6 +5,13 @@ const path = require('path')
 
 const rootDirectory = path.join(__dirname, '..')
 
+const retiredSpikePaths = Object.freeze([
+  'scripts/codemod',
+  'spikes/draft-contract',
+  'spikes/rn-binary',
+  'spikes/rn-jsi-binary'
+])
+
 const retiredSourcePaths = Object.freeze([
   'src/BleError.ts',
   'src/BleManager.ts',
@@ -65,6 +72,24 @@ const retiredExampleAndBenchmarkPaths = Object.freeze([
 ])
 
 describe('retired 3.x architecture absence', () => {
+  test('ships no Phase-0 experiment, codemod, or example dependency on spike code', () => {
+    const remainingSpikes = retiredSpikePaths.filter(relativePath =>
+      fs.existsSync(path.join(rootDirectory, relativePath))
+    )
+    const activeExampleSources = [
+      'example/src/App.tsx',
+      'example/android/app/build.gradle',
+      'example/android/app/src/main/java/com/bleplxexample/MainApplication.kt',
+      'example/ios/BlePlxExample.xcodeproj/project.pbxproj'
+    ].map(relativePath => fs.readFileSync(path.join(rootDirectory, relativePath), 'utf8'))
+
+    expect(remainingSpikes).toEqual([])
+    for (const source of activeExampleSources) {
+      expect(source).not.toMatch(/(?:\.\.\/)*spikes\//u)
+      expect(source).not.toMatch(/(?:JsiBinaryRuntimeProbe|Ub4JsiBinary|rnjsispike)/u)
+    }
+  })
+
   test('ships no legacy manager, port, host matrix, wrapper, or Base64 source', () => {
     const remainingPaths = retiredSourcePaths.filter(relativePath => fs.existsSync(path.join(rootDirectory, relativePath)))
 
