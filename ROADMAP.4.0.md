@@ -44,22 +44,22 @@ Applications and vendor libraries own device choice, vendor protocols, product r
 
 ## Alpha prerelease and support claims
 
-`unified-ble-manager@4.0.0-alpha.33` is published under npm's `next` dist-tag
+`unified-ble-manager@4.0.0-alpha.34` is published under npm's `next` dist-tag
 through GitHub Actions trusted publishing, with npm SLSA provenance and a
 GitHub prerelease. Its host-neutral root and explicit public subpaths are the
 prerelease package contract; users must pin
 an exact alpha version rather than infer an API from transitional source files
-or examples. The alpha has no 3.x compatibility layer. `v4.0.0-alpha.31` is the
+or examples. The alpha has no 3.x compatibility layer. `v4.0.0-alpha.33` is the
 previous published prerelease, not the current prerelease.
 
 The prerelease package support label is Experimental. There is no current
-evidence record linking alpha.33's published artifact to a passed physical-radio
+evidence record linking alpha.34's published artifact to a passed physical-radio
 backend scenario, so it makes no Preview-or-higher platform claim. Hardware
 evidence is required
 only for the corresponding support label; it does not erase package or
 deterministic proof.
 
-WinRT compile and ABI checks are L2/L3 evidence only; alpha.33 makes no Windows
+WinRT compile and ABI checks are L2/L3 evidence only; alpha.34 makes no Windows
 live-radio claim.
 
 Support labels are evidence-based:

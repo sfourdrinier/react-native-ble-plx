@@ -6,7 +6,7 @@ The root `unified-ble-manager` entrypoint is host-neutral. Node applications
 must select an owned backend through an explicit subpath; a package import never
 chooses an adapter, enables a mock, or falls back to Noble.
 
-The Node host surfaces in the published `4.0.0-alpha.33` prerelease are
+The Node host surfaces in the published `4.0.0-alpha.34` prerelease are
 Experimental. No current evidence record binds the published package artifact to a physical BlueZ,
 CoreBluetooth, or WinRT scenario, so these entrypoints are not Preview-or-higher
 support claims.

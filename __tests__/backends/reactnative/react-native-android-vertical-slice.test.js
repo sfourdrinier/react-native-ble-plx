@@ -469,6 +469,43 @@ describe('React Native Android canonical protocol vertical slice', () => {
     }
   )
 
+  test.each([
+    {
+      name: 'Android',
+      createProvider: createReactNativeAndroidBackendProvider,
+      ownerId: 'deterministic-react-native-android-unavailable-adapter'
+    },
+    {
+      name: 'Apple',
+      createProvider: createReactNativeAppleBackendProvider,
+      ownerId: 'deterministic-react-native-apple-unavailable-adapter'
+    }
+  ])('$name provider opens an unavailable adapter and preserves its reported state', async fixture => {
+    const unavailableState = {
+      availability: 'unavailable',
+      authorization: 'unavailable',
+      power: 'unknown'
+    }
+    const control = new DeterministicAndroidControl(null, 0, unavailableState)
+    const runtime = new DeterministicAndroidProtocolRuntime(control)
+    global.__unifiedBleNativeProtocolV1 = runtime
+    const provider = fixture.createProvider({
+      control,
+      now: () => 20,
+      createOwnerId: () => fixture.ownerId
+    })
+
+    const [adapter] = await provider.listAdapters()
+    const backend = await provider.create({ selectedAdapterId: adapter.adapterId })
+
+    expect(adapter.state).toMatchObject({ ...unavailableState, safeReason: null })
+    expect(backend.identity.attachment.adapter.state).toMatchObject({
+      ...unavailableState,
+      safeReason: null
+    })
+    await expect(backend.destroy()).resolves.toEqual({ state: 'released', failures: [] })
+  })
+
   test('releases raw scan bytes, terminalizes a failed scan, and permits reconnect after Android link loss', async () => {
     const control = new DeterministicAndroidControl()
     const runtime = new DeterministicAndroidProtocolRuntime(control)
@@ -1135,12 +1172,17 @@ function deterministicTckBoundary(runtime) {
 }
 
 class DeterministicAndroidControl {
-  constructor(installFailure = null, closeAttachmentFailuresRemaining = 0) {
+  constructor(
+    installFailure = null,
+    closeAttachmentFailuresRemaining = 0,
+    initialAdapterState = { availability: 'available', authorization: 'granted', power: 'on' }
+  ) {
     this.handshakes = []
     this.closedAttachments = []
     this.closeAttachmentAttempts = []
     this.installFailure = installFailure
     this.closeAttachmentFailuresRemaining = closeAttachmentFailuresRemaining
+    this.initialAdapterState = initialAdapterState
     this.restorationJournalSeeded = false
     this.restorationConsumed = false
   }
@@ -1318,8 +1360,16 @@ class DeterministicAndroidProtocolRuntime {
       throw this.sinkFailure
     }
     this.listener = listener
+    const initialAdapterState = this.control.initialAdapterState
     this.emitEvent('adapterState', [
-      field(15, record('adapterStateSnapshot', [field(1, 'available'), field(2, 'granted'), field(3, 'on')]))
+      field(
+        15,
+        record('adapterStateSnapshot', [
+          field(1, initialAdapterState.availability),
+          field(2, initialAdapterState.authorization),
+          field(3, initialAdapterState.power)
+        ])
+      )
     ])
   }
 

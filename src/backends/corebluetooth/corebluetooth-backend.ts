@@ -454,7 +454,9 @@ export class CoreBluetoothBackend implements BleCentralBackend<string, HostNeutr
     return this.attachmentLifecycle.attachment()
   }
   refreshAttachmentState(): void {
-    this.assertUsable('corebluetooth.refresh-attachment-state')
+    if (this.admissionClosed || this.destroyed) {
+      throw contractError('lifecycle.destroyed', 'core', 'corebluetooth.refresh-attachment-state')
+    }
     this.attachmentLifecycle.refreshAttachmentState()
   }
   assertUsable(operation: string): void {

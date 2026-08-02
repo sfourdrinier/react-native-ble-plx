@@ -31,7 +31,7 @@ describe('production performance benchmark harness', () => {
       const report = JSON.parse(fs.readFileSync(outputPath, 'utf8'))
       expect(report).toMatchObject({
         schema: 'unified-ble-performance-report/v1',
-        package: { name: 'unified-ble-manager', version: '4.0.0-alpha.33' },
+        package: { name: 'unified-ble-manager', version: '4.0.0-alpha.34' },
         nativeHost: {
           status: 'not-run',
           proofLevel: 'none'

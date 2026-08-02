@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.34] - 2026-08-01 (published prerelease)
+
+### Fixed
+
+- Allowed backend attachment identity to incorporate an authoritative adapter
+  snapshot while radio-loss cleanup is pending, without admitting radio work or
+  weakening destruction guards.
+- Added React Native Android and Apple regression coverage for opening a backend
+  whose native adapter initially reports unavailable.
+
+### Support and evidence boundary
+
+- Alpha.34 remains Experimental until its exact package artifact is bound to
+  physical-radio evidence. Simulator compilation, installation, launch, and
+  lifecycle cleanup do not establish live BLE support.
+- Meta Quest and the controllable physical fault-injection peripheral remain
+  explicitly deferred to 4.1.
+
 ## [4.0.0-alpha.33] - 2026-08-01 (published prerelease)
 
 ### Fixed
