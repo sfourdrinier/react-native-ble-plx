@@ -96,7 +96,8 @@ function createRouter(
   managerOverrides = {},
   maximumMessageBytes = 4096,
   publish = async () => 'delivered',
-  maximumOutstandingOperations = 4
+  maximumOutstandingOperations = 4,
+  cancellationClock = () => 0
 ) {
   const authority = createAuthority()
   const manager = {
@@ -110,7 +111,8 @@ function createRouter(
     maximumMessageBytes,
     maximumOutstandingOperations,
     maximumRetainedBytes: 64 * 1024,
-    publish
+    publish,
+    cancellationClock
   })
   return { ...authority, manager, router }
 }
@@ -159,6 +161,55 @@ function route(current, bootstrapValue, ordinal, command, payload, correlation =
 
 function released() {
   return { state: 'released', failures: [] }
+}
+
+function installDestructiveCleanupResource(resources, command, handle, cleanup) {
+  if (command === 'scan.stop') {
+    resources.scans.set(handle, {
+      scan: { stop: cleanup },
+      pump: Promise.resolve(),
+      cleanupRequested: false,
+      retryHandle: null,
+      terminalPublished: false
+    })
+    return { scanHandle: handle, deadline: null }
+  }
+  if (command === 'connection.disconnect') {
+    resources.connections.set(handle, { disconnect: cleanup })
+    return { connectionHandle: handle, deadline: null }
+  }
+  if (command === 'connection.events.unsubscribe') {
+    resources.connectionEventSubscriptions.set(handle, {
+      connectionHandle: 'connection-cleanup',
+      iterator: { return: cleanup },
+      pump: Promise.resolve(),
+      cleanupRequested: false,
+      cleanupResult: null,
+      terminalHandled: false,
+      admitted: true,
+      retryHandle: null
+    })
+    return { connectionEventsHandle: handle, deadline: null }
+  }
+  resources.subscriptions.set(handle, {
+    databaseHandle: 'database-cleanup',
+    subscription: { remove: cleanup },
+    pump: Promise.resolve(),
+    cleanupRequested: false,
+    retryHandle: null,
+    terminalPublished: false
+  })
+  return { subscriptionHandle: handle, deadline: null }
+}
+
+function deferred() {
+  let resolve
+  let reject
+  const promise = new Promise((settle, fail) => {
+    resolve = settle
+    reject = fail
+  })
+  return { promise, reject, resolve }
 }
 
 async function flushAsyncWork() {
@@ -236,7 +287,217 @@ describe('Electron IPC hardening', () => {
     expect(operationSignal.aborted).toBe(true)
 
     resolveConnection(connection)
-    await expect(pending).resolves.toMatchObject({ kind: 'route', payload: { peerId: 'peer-cancellation-capacity' } })
+    await expect(pending).rejects.toMatchObject({
+      normalized: { code: 'operation.aborted', operation: 'electron-main-router.connection.connect' }
+    })
+    expect(connection.disconnect).toHaveBeenCalledTimes(1)
+    await current.router.destroy()
+  })
+
+  test('consumes a lease-scoped cancellation received before its operation route is registered', async () => {
+    const connect = jest.fn(async () => ({ peerId: 'peer-pre-cancel', disconnect: jest.fn(async () => released()) }))
+    const current = createRouter({ connect })
+    const sender = trusted('pre-cancel-client')
+    const bootstrapValue = await bootstrap(current, sender)
+
+    await expect(
+      current.router.dispatch(
+        sender,
+        route(current, bootstrapValue, 1, 'operation.cancel', { targetCorrelation: 'pre-cancelled-operation' })
+      )
+    ).resolves.toMatchObject({ kind: 'route', payload: { state: 'cancellation-pending' } })
+    await expect(
+      current.router.dispatch(
+        sender,
+        route(
+          current,
+          bootstrapValue,
+          2,
+          'connection.connect',
+          { peerId: 'peer-pre-cancel' },
+          'pre-cancelled-operation'
+        )
+      )
+    ).rejects.toMatchObject({
+      normalized: { code: 'operation.aborted', operation: 'electron-main-router.connection.connect' }
+    })
+    expect(connect).not.toHaveBeenCalled()
+    expect(current.router.resources.get(String(bootstrapValue.rendererLease.leaseId)).preCancelledOperations).toHaveProperty(
+      'size',
+      0
+    )
+    await current.router.destroy()
+  })
+
+  test('bounds lease-scoped pre-cancellation tombstones and rejects a false acknowledgement when full', async () => {
+    const current = createRouter({}, 4096, async () => 'delivered', 1)
+    const sender = trusted('pre-cancel-capacity-client')
+    const bootstrapValue = await bootstrap(current, sender)
+
+    await current.router.dispatch(
+      sender,
+      route(current, bootstrapValue, 1, 'operation.cancel', { targetCorrelation: 'pending-cancel-1' })
+    )
+    await expect(
+      current.router.dispatch(
+        sender,
+        route(current, bootstrapValue, 2, 'operation.cancel', { targetCorrelation: 'pending-cancel-2' })
+      )
+    ).rejects.toMatchObject({
+      normalized: { code: 'stream.quota', operation: 'electron-main-router.pre-cancellation-capacity' }
+    })
+    await current.router.destroy()
+  })
+
+  test('does not turn a late cancellation for a settled operation into a pre-cancellation tombstone', async () => {
+    const connection = { peerId: 'peer-settled-cancellation', disconnect: jest.fn(async () => released()) }
+    const current = createRouter({ connect: jest.fn(async () => connection) })
+    const sender = trusted('settled-cancellation-client')
+    const bootstrapValue = await bootstrap(current, sender)
+
+    await expect(
+      current.router.dispatch(
+        sender,
+        route(
+          current,
+          bootstrapValue,
+          1,
+          'connection.connect',
+          { peerId: 'peer-settled-cancellation' },
+          'settled-operation'
+        )
+      )
+    ).resolves.toMatchObject({ kind: 'route', payload: { peerId: 'peer-settled-cancellation' } })
+
+    await expect(
+      current.router.dispatch(
+        sender,
+        route(current, bootstrapValue, 2, 'operation.cancel', { targetCorrelation: 'settled-operation' })
+      )
+    ).resolves.toMatchObject({ kind: 'route', payload: { state: 'already-terminal' } })
+    await current.router.destroy()
+  })
+
+  test('expires lease-scoped pre-cancellation tombstones so their bounded capacity remains reusable', async () => {
+    let now = 0
+    const current = createRouter({}, 4096, async () => 'delivered', 1, () => now)
+    const sender = trusted('pre-cancellation-expiry-client')
+    const bootstrapValue = await bootstrap(current, sender)
+
+    await expect(
+      current.router.dispatch(
+        sender,
+        route(current, bootstrapValue, 1, 'operation.cancel', { targetCorrelation: 'expired-pending-cancel' })
+      )
+    ).resolves.toMatchObject({ kind: 'route', payload: { state: 'cancellation-pending' } })
+
+    now = 30_001
+    await expect(
+      current.router.dispatch(
+        sender,
+        route(current, bootstrapValue, 2, 'operation.cancel', { targetCorrelation: 'replacement-pending-cancel' })
+      )
+    ).resolves.toMatchObject({ kind: 'route', payload: { state: 'cancellation-pending' } })
+    const resources = current.router.resources.get(String(bootstrapValue.rendererLease.leaseId))
+    expect(resources.preCancelledOperations).toHaveProperty('size', 1)
+    expect(resources.preCancelledOperations.has('replacement-pending-cancel')).toBe(true)
+    await current.router.destroy()
+  })
+
+  test.each(['scan.stop', 'connection.disconnect', 'connection.events.unsubscribe', 'gatt.unsubscribe'])(
+    '%s returns its irreversible cleanup receipt when cancellation or deadline arrives after cleanup starts',
+    async command => {
+      let now = 0
+      const current = createRouter({ monotonicNow: () => now })
+      const sender = trusted(`destructive-cleanup-${command}`)
+      const bootstrapValue = await bootstrap(current, sender)
+      const resources = current.router.resources.get(String(bootstrapValue.rendererLease.leaseId))
+
+      for (const terminalCondition of ['cancelled', 'timed-out']) {
+        const cleanupStarted = deferred()
+        const cleanupResult = deferred()
+        const handle = `${command}-${terminalCondition}`
+        const cleanup = jest.fn(async () => {
+          cleanupStarted.resolve()
+          return cleanupResult.promise
+        })
+        const payload = installDestructiveCleanupResource(resources, command, handle, cleanup)
+        if (terminalCondition === 'timed-out') {
+          payload.deadline = 10
+        }
+        const correlation = `${command}-${terminalCondition}-operation`
+        const operation = current.router.dispatch(
+          sender,
+          route(current, bootstrapValue, 10, command, payload, correlation)
+        )
+        await cleanupStarted.promise
+        if (terminalCondition === 'cancelled') {
+          await expect(
+            current.router.dispatch(
+              sender,
+              route(current, bootstrapValue, 11, 'operation.cancel', { targetCorrelation: correlation })
+            )
+          ).resolves.toMatchObject({ kind: 'route', payload: { state: 'cancellation-requested' } })
+        } else {
+          now = 20
+        }
+        cleanupResult.resolve(released())
+        await expect(operation).resolves.toMatchObject({ kind: 'route', payload: { state: 'released', failureCount: 0 } })
+        expect(cleanup).toHaveBeenCalledTimes(1)
+        now = 0
+      }
+      await current.router.destroy()
+    }
+  )
+
+  test('compensates a late deadline during lifecycle readiness by detaching its newly admitted iterator', async () => {
+    let nextCalls = 0
+    let resolveNext
+    const iterator = {
+      next: jest.fn(() => {
+        nextCalls += 1
+        return new Promise(resolve => {
+          resolveNext = resolve
+        })
+      }),
+      return: jest.fn(async () => {
+        resolveNext({ done: true, value: undefined })
+        return { done: true, value: undefined }
+      })
+    }
+    const current = createRouter({ monotonicNow: () => (nextCalls === 0 ? 0 : 20) })
+    const sender = trusted('lifecycle-ready-deadline-client')
+    const bootstrapValue = await bootstrap(current, sender)
+    const resources = current.router.resources.get(String(bootstrapValue.rendererLease.leaseId))
+    resources.connectionEventSubscriptions.set('connection-events-ready-deadline', {
+      connectionHandle: 'connection-ready-deadline',
+      iterator,
+      pump: Promise.resolve(),
+      cleanupRequested: false,
+      cleanupResult: null,
+      terminalHandled: false,
+      admitted: false,
+      retryHandle: null
+    })
+
+    const readiness = current.router.dispatch(
+      sender,
+      route(
+        current,
+        bootstrapValue,
+        1,
+        'connection.events.ready',
+        { connectionEventsHandle: 'connection-events-ready-deadline', deadline: 10 },
+        'ready-deadline'
+      )
+    )
+    await flushAsyncWork()
+    await expect(readiness).rejects.toMatchObject({
+      normalized: { code: 'operation.timed-out', operation: 'electron-main-router.connection.events.ready' }
+    })
+    expect(nextCalls).toBe(1)
+    expect(iterator.return).toHaveBeenCalledTimes(1)
+    expect(resources.connectionEventSubscriptions).toHaveProperty('size', 0)
     await current.router.destroy()
   })
 

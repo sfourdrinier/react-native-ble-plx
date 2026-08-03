@@ -97,10 +97,16 @@ describe('4.0 public package surface', () => {
     expect(typeof electronMain.ElectronMainBleRouter).toBe('function')
     expect(typeof electronRenderer.ElectronRendererBleClient).toBe('function')
     expect(typeof electronRenderer.assertElectronAdvertisementObservation).toBe('function')
+    expect(typeof electronRenderer.isElectronConnectionEventsStreamHandle).toBe('function')
+    expect(electronRenderer.isElectronConnectionEventsStreamHandle('connection-events-public-1')).toBe(true)
+    expect(electronRenderer.isElectronConnectionEventsStreamHandle('scan-1')).toBe(false)
     expect(Object.keys(electronRenderer).sort()).toEqual([
       'ELECTRON_BLE_IPC_CHANNEL',
+      'ELECTRON_CONNECTION_EVENTS_STREAM_HANDLE_PREFIX',
+      'ELECTRON_CONNECTION_LIFECYCLE_EVENT_SCHEMA_VERSION',
       'ElectronRendererBleClient',
-      'assertElectronAdvertisementObservation'
+      'assertElectronAdvertisementObservation',
+      'isElectronConnectionEventsStreamHandle'
     ])
     expect(packageJson.exports['./web']).toBeDefined()
     expect(packageJson.exports['./codecs']).toBeDefined()
@@ -215,7 +221,7 @@ describe('4.0 public package surface', () => {
 
     expect(electronRendererSource.match(/^\/\/ src\/electron-renderer\.ts$/gm)).toHaveLength(1)
     expect(electronRendererSource).toBe(
-      "// src/electron-renderer.ts\n\nexport * from './electron/protocol'\nexport { ElectronRendererBleClient } from './electron/renderer'\nexport { assertAdvertisementObservation as assertElectronAdvertisementObservation } from './electron/advertisement-observation'\n"
+      "// src/electron-renderer.ts\n\nexport * from './electron/protocol'\nexport { ElectronRendererBleClient } from './electron/renderer'\nexport type { ElectronConnectionEventCleanupReceipt, ElectronConnectionEventSubscription } from './electron/renderer'\nexport { assertAdvertisementObservation as assertElectronAdvertisementObservation } from './electron/advertisement-observation'\n"
     )
   })
 })

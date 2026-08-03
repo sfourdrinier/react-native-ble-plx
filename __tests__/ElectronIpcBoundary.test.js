@@ -247,6 +247,59 @@ function createControlledStream() {
   }
 }
 
+function createConnectionLifecycleStream() {
+  const queued = []
+  const waiters = []
+  let closed = false
+  let returnCount = 0
+
+  function settleWaiters() {
+    while (waiters.length > 0 && (queued.length > 0 || closed)) {
+      const waiter = waiters.shift()
+      if (queued.length > 0) {
+        waiter.resolve({ done: false, value: queued.shift() })
+      } else {
+        waiter.resolve({ done: true, value: undefined })
+      }
+    }
+  }
+
+  return {
+    close() {
+      closed = true
+      settleWaiters()
+    },
+    push(value) {
+      queued.push(value)
+      settleWaiters()
+    },
+    returnCount() {
+      return returnCount
+    },
+    [Symbol.asyncIterator]() {
+      return {
+        next() {
+          if (queued.length > 0) {
+            return Promise.resolve({ done: false, value: queued.shift() })
+          }
+          if (closed) {
+            return Promise.resolve({ done: true, value: undefined })
+          }
+          const next = deferred()
+          waiters.push(next)
+          return next.promise
+        },
+        return() {
+          returnCount += 1
+          closed = true
+          settleWaiters()
+          return Promise.resolve({ done: true, value: undefined })
+        }
+      }
+    }
+  }
+}
+
 function released() {
   return { state: 'released', failures: [] }
 }
@@ -289,11 +342,36 @@ function createDatabase(subscription) {
   }
 }
 
-function createConnection(peerId, database, disconnect = jest.fn(async () => released())) {
+function createConnection(
+  peerId,
+  database,
+  disconnect = jest.fn(async () => released()),
+  events = createConnectionLifecycleStream()
+) {
   return {
     peerId,
+    connectionId: `connection-${peerId}`,
+    connectionGeneration: `connection-generation-${peerId}`,
     discover: jest.fn(async () => database),
-    disconnect
+    disconnect,
+    events
+  }
+}
+
+function connectionLifecycleEvent(fixture, connection, cause, previous = 'connected') {
+  return {
+    kind: 'connection-lifecycle',
+    attachment: fixture.currentAttachment,
+    attachmentId: fixture.currentAttachment.attachmentId,
+    peerId: connection.peerId,
+    connectionId: connection.connectionId,
+    connectionGeneration: connection.connectionGeneration,
+    ownerLeaseId: `owner-lease-${connection.peerId}`,
+    sequence: 1,
+    backendIngressOrdinal: cause === 'adapter-loss' || cause === 'backend-restart' ? 8 : null,
+    previous,
+    current: cause === 'peer-link-loss' || cause === 'adapter-loss' || cause === 'backend-restart' ? 'lost' : 'connected',
+    cause
   }
 }
 
@@ -380,6 +458,18 @@ async function bootstrap(current, sender) {
   }
   expect(response.kind).toBe('bootstrap')
   return response.bootstrap
+}
+
+async function readyConnectionEvents(current, sender, renderer, ordinal, connectionEventsHandle) {
+  await expect(
+    current.port.handler(
+      { sender },
+      commandRequest(current, renderer, ordinal, 'connection.events.ready', {
+        connectionEventsHandle,
+        deadline: null
+      })
+    )
+  ).resolves.toMatchObject({ kind: 'route', payload: { state: 'ready' } })
 }
 
 function expectIpcFailure(response, error) {
@@ -1488,6 +1578,828 @@ describe('Electron v4 IPC boundary', () => {
     await current.binding.destroy()
   })
 
+  test.each([
+    ['peer-link-loss', 'lost'],
+    ['adapter-loss', 'lost'],
+    ['backend-restart', 'lost']
+  ])('forwards one generation-bound %s lifecycle invalidation and its terminal', async (cause, expectedCurrent) => {
+    const lifecycleStream = createConnectionLifecycleStream()
+    const connection = createConnection(
+      'peer-lifecycle',
+      createDatabase({ values: createControlledStream(), remove: jest.fn(async () => released()) }),
+      jest.fn(async () => released()),
+      lifecycleStream
+    )
+    const current = createMainFixture({ connect: jest.fn(async () => connection) })
+    const sender = createSender('client-lifecycle', 'window-lifecycle', 'session-lifecycle')
+    const renderer = await bootstrap(current, sender)
+    const connected = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 1, 'connection.connect', { peerId: 'peer-lifecycle' })
+    )
+    const subscribed = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 2, 'connection.events.subscribe', {
+        connectionHandle: connected.payload.handle,
+        connectionEventsHandle: 'connection-events-lifecycle-1',
+        deadline: null
+      })
+    )
+    await readyConnectionEvents(current, sender, renderer, 3, subscribed.payload.handle)
+
+    const lifecycle = connectionLifecycleEvent(current, connection, cause)
+    lifecycleStream.push({ kind: 'value', value: lifecycle })
+    lifecycleStream.push({
+      kind: 'terminal',
+      reason: 'connection-lost',
+      droppedItems: 0,
+      droppedBytes: 0,
+      replacedItems: 0
+    })
+    await flushAsyncWork()
+
+    const streamEvents = sender.sent.filter(({ event }) => event.streamId === subscribed.payload.handle)
+    expect(streamEvents.filter(({ event }) => event.item.kind === 'value')).toHaveLength(1)
+    expect(streamEvents[0].event.item).toMatchObject({
+      kind: 'value',
+      value: {
+        kind: 'connection-lifecycle',
+        schemaVersion: 1,
+        connectionId: connection.connectionId,
+        connectionGeneration: connection.connectionGeneration,
+        cause,
+        current: expectedCurrent
+      }
+    })
+    expect(streamEvents.filter(({ event }) => event.item.kind === 'terminal')).toHaveLength(1)
+    expect(
+      current.router.resources
+        .get(String(renderer.rendererLease.leaseId))
+        .connectionEventSubscriptions.has(subscribed.payload.handle)
+    ).toBe(false)
+    await current.binding.destroy()
+  })
+
+  test('holds terminal-first and more-than-buffer-capacity lifecycle records until renderer admission is ready', async () => {
+    const lifecycleStream = createConnectionLifecycleStream()
+    const connection = createConnection(
+      'peer-lifecycle-admission',
+      createDatabase({ values: createControlledStream(), remove: jest.fn(async () => released()) }),
+      jest.fn(async () => released()),
+      lifecycleStream
+    )
+    const current = createMainFixture({ connect: jest.fn(async () => connection) })
+    const sender = createSender('client-lifecycle-admission', 'window-lifecycle-admission', 'session-lifecycle-admission')
+    const renderer = await bootstrap(current, sender)
+    const connected = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 1, 'connection.connect', { peerId: 'peer-lifecycle-admission' })
+    )
+    const streamHandle = 'connection-events-admission-1'
+    const subscribed = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 2, 'connection.events.subscribe', {
+        connectionHandle: connected.payload.handle,
+        connectionEventsHandle: streamHandle,
+        deadline: null
+      })
+    )
+    expect(subscribed).toMatchObject({ kind: 'route', payload: { handle: streamHandle } })
+
+    for (let sequence = 1; sequence <= 10; sequence += 1) {
+      lifecycleStream.push({
+        kind: 'value',
+        value: { ...connectionLifecycleEvent(current, connection, 'backend-transition'), sequence }
+      })
+    }
+    lifecycleStream.push({
+      kind: 'terminal',
+      reason: 'connection-lost',
+      droppedItems: 0,
+      droppedBytes: 0,
+      replacedItems: 0
+    })
+    await flushAsyncWork()
+    expect(sender.sent.filter(({ event }) => event.streamId === streamHandle)).toEqual([])
+
+    await expect(
+      current.port.handler(
+        { sender },
+        commandRequest(current, renderer, 3, 'connection.events.ready', {
+          connectionEventsHandle: streamHandle,
+          deadline: null
+        })
+      )
+    ).resolves.toMatchObject({ kind: 'route', payload: { state: 'ready' } })
+    await flushAsyncWork()
+    await new Promise(resolve => setImmediate(resolve))
+    await flushAsyncWork()
+
+    const delivered = sender.sent.filter(({ event }) => event.streamId === streamHandle)
+    expect(delivered.filter(({ event }) => event.item.kind === 'value')).toHaveLength(10)
+    expect(delivered.filter(({ event }) => event.item.kind === 'terminal')).toHaveLength(1)
+    expect(delivered.at(-1).event.item).toMatchObject({ kind: 'terminal', reason: 'connection-lost' })
+    await current.binding.destroy()
+  })
+
+  test('maps oversized and renderer-backpressure lifecycle terminals into renderer-supported reasons', async () => {
+    const oversizedStream = createConnectionLifecycleStream()
+    const backpressureStream = createConnectionLifecycleStream()
+    const sourceFailureStream = createConnectionLifecycleStream()
+    const oversizedConnection = createConnection(
+      'peer-lifecycle-oversized',
+      createDatabase({ values: createControlledStream(), remove: jest.fn(async () => released()) }),
+      jest.fn(async () => released()),
+      oversizedStream
+    )
+    const backpressureConnection = createConnection(
+      'peer-lifecycle-backpressure',
+      createDatabase({ values: createControlledStream(), remove: jest.fn(async () => released()) }),
+      jest.fn(async () => released()),
+      backpressureStream
+    )
+    const sourceFailureConnection = createConnection(
+      'peer-lifecycle-source-failed',
+      createDatabase({ values: createControlledStream(), remove: jest.fn(async () => released()) }),
+      jest.fn(async () => released()),
+      sourceFailureStream
+    )
+    const current = createMainFixture({
+      connect: jest.fn(async peerId => {
+        if (peerId === 'peer-lifecycle-oversized') {
+          return oversizedConnection
+        }
+        if (peerId === 'peer-lifecycle-backpressure') {
+          return backpressureConnection
+        }
+        return sourceFailureConnection
+      })
+    })
+    const sender = createSender('client-lifecycle-terminal-map', 'window-lifecycle-terminal-map', 'session-lifecycle-terminal-map')
+    const renderer = await bootstrap(current, sender)
+    const oversizedConnected = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 1, 'connection.connect', { peerId: 'peer-lifecycle-oversized' })
+    )
+    const oversizedSubscribed = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 2, 'connection.events.subscribe', {
+        connectionHandle: oversizedConnected.payload.handle,
+        connectionEventsHandle: 'connection-events-oversized-1',
+        deadline: null
+      })
+    )
+    await readyConnectionEvents(current, sender, renderer, 3, oversizedSubscribed.payload.handle)
+    const oversizedEvent = connectionLifecycleEvent(current, oversizedConnection, 'backend-transition')
+    oversizedStream.push({
+      kind: 'value',
+      value: {
+        ...oversizedEvent,
+        attachment: {
+          ...oversizedEvent.attachment,
+          adapter: { ...oversizedEvent.attachment.adapter, limitations: ['x'.repeat(8192)] }
+        }
+      }
+    })
+    await flushAsyncWork()
+    expectConsoleError('[ElectronConnectionEventStreamRegistry] Lifecycle event exceeded the configured IPC message limit:', {
+      handle: oversizedSubscribed.payload.handle
+    })
+    expect(
+      sender.sent.find(({ event }) => event.streamId === oversizedSubscribed.payload.handle && event.item.kind === 'terminal')
+        .event.item
+    ).toEqual({
+      kind: 'terminal',
+      reason: 'overflow',
+      droppedItems: 0,
+      droppedBytes: 0,
+      replacedItems: 0
+    })
+
+    const backpressureConnected = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 4, 'connection.connect', { peerId: 'peer-lifecycle-backpressure' })
+    )
+    const backpressureSubscribed = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 5, 'connection.events.subscribe', {
+        connectionHandle: backpressureConnected.payload.handle,
+        connectionEventsHandle: 'connection-events-backpressure-1',
+        deadline: null
+      })
+    )
+    await readyConnectionEvents(current, sender, renderer, 6, backpressureSubscribed.payload.handle)
+    await current.router.terminateStream(
+      renderer.rendererLease,
+      backpressureSubscribed.payload.handle,
+      'renderer-backpressure'
+    )
+    expect(
+      sender.sent.find(({ event }) => event.streamId === backpressureSubscribed.payload.handle && event.item.kind === 'terminal')
+        .event.item
+    ).toEqual({
+      kind: 'terminal',
+      reason: 'source-failed',
+      droppedItems: 0,
+      droppedBytes: 0,
+      replacedItems: 0
+    })
+
+    const sourceFailureConnected = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 7, 'connection.connect', { peerId: 'peer-lifecycle-source-failed' })
+    )
+    const sourceFailureSubscribed = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 8, 'connection.events.subscribe', {
+        connectionHandle: sourceFailureConnected.payload.handle,
+        connectionEventsHandle: 'connection-events-source-failed-1',
+        deadline: null
+      })
+    )
+    await readyConnectionEvents(current, sender, renderer, 9, sourceFailureSubscribed.payload.handle)
+    sourceFailureStream.close()
+    await flushAsyncWork()
+    expectConsoleError('[ElectronConnectionEventStreamRegistry] Lifecycle stream ended without a terminal item:', {
+      handle: sourceFailureSubscribed.payload.handle
+    })
+    expect(
+      sender.sent.find(({ event }) => event.streamId === sourceFailureSubscribed.payload.handle && event.item.kind === 'terminal')
+        .event.item
+    ).toEqual({
+      kind: 'terminal',
+      reason: 'source-failed',
+      droppedItems: 0,
+      droppedBytes: 0,
+      replacedItems: 0
+    })
+    await current.binding.destroy()
+  })
+
+  test('quarantines stale lifecycle generations, enforces renderer ownership, and detaches on unsubscribe', async () => {
+    const lifecycleStream = createConnectionLifecycleStream()
+    const disconnect = jest.fn(async () => released())
+    const connection = createConnection(
+      'peer-lifecycle-ownership',
+      createDatabase({ values: createControlledStream(), remove: jest.fn(async () => released()) }),
+      disconnect,
+      lifecycleStream
+    )
+    const current = createMainFixture({ connect: jest.fn(async () => connection) })
+    const senderA = createSender('client-lifecycle-a', 'window-lifecycle-a', 'session-lifecycle-a')
+    const senderB = createSender('client-lifecycle-b', 'window-lifecycle-b', 'session-lifecycle-b')
+    const rendererA = await bootstrap(current, senderA)
+    const rendererB = await bootstrap(current, senderB)
+    const connected = await current.port.handler(
+      { sender: senderA },
+      commandRequest(current, rendererA, 1, 'connection.connect', { peerId: 'peer-lifecycle-ownership' })
+    )
+    const subscribed = await current.port.handler(
+      { sender: senderA },
+      commandRequest(current, rendererA, 2, 'connection.events.subscribe', {
+        connectionHandle: connected.payload.handle,
+        connectionEventsHandle: 'connection-events-ownership-1',
+        deadline: null
+      })
+    )
+    await readyConnectionEvents(current, senderA, rendererA, 3, subscribed.payload.handle)
+
+    await expectIpcFailure(
+      current.port.handler(
+        { sender: senderB },
+        commandRequest(current, rendererB, 1, 'connection.events.subscribe', {
+          connectionHandle: connected.payload.handle,
+          connectionEventsHandle: 'connection-events-ownership-2',
+          deadline: null
+        })
+      ),
+      { code: 'ownership.denied', operation: 'electron-main-router.connection-ownership' }
+    )
+
+    lifecycleStream.push({
+      kind: 'value',
+      value: {
+        ...connectionLifecycleEvent(current, connection, 'backend-transition'),
+        connectionGeneration: 'stale-connection-generation'
+      }
+    })
+    lifecycleStream.push({ kind: 'value', value: connectionLifecycleEvent(current, connection, 'backend-transition') })
+    await flushAsyncWork()
+    const deliveredValues = senderA.sent.filter(
+      ({ event }) => event.streamId === subscribed.payload.handle && event.item.kind === 'value'
+    )
+    expect(deliveredValues).toHaveLength(1)
+    expect(deliveredValues[0].event.item.value.connectionGeneration).toBe(connection.connectionGeneration)
+    expectConsoleInfo('[ElectronConnectionEventStreamRegistry] Stale lifecycle event quarantined:', {
+      handle: subscribed.payload.handle,
+      connectionId: connection.connectionId,
+      connectionGeneration: connection.connectionGeneration
+    })
+
+    await expect(
+      current.port.handler(
+        { sender: senderA },
+        commandRequest(current, rendererA, 4, 'connection.events.unsubscribe', {
+          connectionEventsHandle: subscribed.payload.handle
+        })
+      )
+    ).resolves.toMatchObject({ kind: 'route', payload: { state: 'released' } })
+    expect(lifecycleStream.returnCount()).toBe(1)
+    expect(
+      current.router.resources
+        .get(String(rendererA.rendererLease.leaseId))
+        .connectionEventSubscriptions.has(subscribed.payload.handle)
+    ).toBe(false)
+
+    lifecycleStream.push({ kind: 'value', value: connectionLifecycleEvent(current, connection, 'peer-link-loss') })
+    await flushAsyncWork()
+    expect(
+      senderA.sent.filter(({ event }) => event.streamId === subscribed.payload.handle && event.item.kind === 'value')
+    ).toHaveLength(1)
+    expect(disconnect).not.toHaveBeenCalled()
+    await current.binding.destroy()
+  })
+
+  test('rejects a renderer lifecycle stream identifier that collides with a main-issued scan stream', async () => {
+    let lifecycleIteratorCount = 0
+    const lifecycleSource = {
+      [Symbol.asyncIterator]() {
+        lifecycleIteratorCount += 1
+        return createConnectionLifecycleStream()[Symbol.asyncIterator]()
+      }
+    }
+    const connection = createConnection(
+      'peer-lifecycle-stream-id-collision',
+      createDatabase({ values: createControlledStream(), remove: jest.fn(async () => released()) }),
+      jest.fn(async () => released()),
+      lifecycleSource
+    )
+    const current = createMainFixture({
+      connect: jest.fn(async () => connection),
+      scan: jest.fn(async () => ({ observations: createControlledStream(), stop: jest.fn(async () => released()) }))
+    })
+    const sender = createSender('client-lifecycle-stream-id-collision', 'window-lifecycle-stream-id-collision', 'session-lifecycle-stream-id-collision')
+    const renderer = await bootstrap(current, sender)
+    const connected = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 1, 'connection.connect', { peerId: 'peer-lifecycle-stream-id-collision' })
+    )
+    const scan = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 2, 'scan.start', {
+        serviceUuids: [],
+        manufacturerData: [],
+        localNamePrefix: null,
+        deadline: null
+      })
+    )
+
+    await expectIpcFailure(
+      current.port.handler(
+        { sender },
+        commandRequest(current, renderer, 3, 'connection.events.subscribe', {
+          connectionHandle: connected.payload.handle,
+          connectionEventsHandle: scan.payload.handle,
+          deadline: null
+        })
+      ),
+      { code: 'argument.invalid', operation: 'electron-main-router.connection-events-handle' }
+    )
+    expect(lifecycleIteratorCount).toBe(0)
+    await current.binding.destroy()
+  })
+
+  test('admits one exclusive lifecycle iterator per renderer connection without allocating a competing consumer', async () => {
+    const lifecycleStream = createConnectionLifecycleStream()
+    let iteratorCount = 0
+    const lifecycleSource = {
+      [Symbol.asyncIterator]() {
+        iteratorCount += 1
+        return lifecycleStream[Symbol.asyncIterator]()
+      }
+    }
+    const connection = createConnection(
+      'peer-lifecycle-exclusive',
+      createDatabase({ values: createControlledStream(), remove: jest.fn(async () => released()) }),
+      jest.fn(async () => released()),
+      lifecycleSource
+    )
+    const current = createMainFixture({ connect: jest.fn(async () => connection) })
+    const sender = createSender('client-lifecycle-exclusive', 'window-lifecycle-exclusive', 'session-lifecycle-exclusive')
+    const renderer = await bootstrap(current, sender)
+    const connected = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 1, 'connection.connect', { peerId: 'peer-lifecycle-exclusive' })
+    )
+    const first = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 2, 'connection.events.subscribe', {
+        connectionHandle: connected.payload.handle,
+        connectionEventsHandle: 'connection-events-exclusive-1',
+        deadline: null
+      })
+    )
+
+    await expectIpcFailure(
+      current.port.handler(
+        { sender },
+        commandRequest(current, renderer, 3, 'connection.events.subscribe', {
+          connectionHandle: connected.payload.handle,
+          connectionEventsHandle: 'connection-events-exclusive-2',
+          deadline: null
+        })
+      ),
+      { code: 'lifecycle.invalid-state', operation: 'electron-connection-events.exclusive-consumer' }
+    )
+    expect(iteratorCount).toBe(1)
+    expect(
+      current.router.resources.get(String(renderer.rendererLease.leaseId)).connectionEventSubscriptions
+    ).toHaveProperty('size', 1)
+
+    await readyConnectionEvents(current, sender, renderer, 4, first.payload.handle)
+    await expect(
+      current.port.handler(
+        { sender },
+        commandRequest(current, renderer, 5, 'connection.events.unsubscribe', {
+          connectionEventsHandle: first.payload.handle
+        })
+      )
+    ).resolves.toMatchObject({ kind: 'route', payload: { state: 'released' } })
+    await current.binding.destroy()
+  })
+
+  test('uses renderer lifecycle cleanup to detach connection event consumers before destroying their connection', async () => {
+    const lifecycleStream = createConnectionLifecycleStream()
+    const disconnect = jest.fn(async () => released())
+    const connection = createConnection(
+      'peer-lifecycle-destroy',
+      createDatabase({ values: createControlledStream(), remove: jest.fn(async () => released()) }),
+      disconnect,
+      lifecycleStream
+    )
+    const current = createMainFixture({ connect: jest.fn(async () => connection) })
+    const sender = createSender('client-lifecycle-destroy', 'window-lifecycle-destroy', 'session-lifecycle-destroy')
+    const renderer = await bootstrap(current, sender)
+    const connected = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 1, 'connection.connect', { peerId: 'peer-lifecycle-destroy' })
+    )
+    const subscribed = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 2, 'connection.events.subscribe', {
+        connectionHandle: connected.payload.handle,
+        connectionEventsHandle: 'connection-events-destroy-1',
+        deadline: null
+      })
+    )
+    await readyConnectionEvents(current, sender, renderer, 3, subscribed.payload.handle)
+
+    sender.destroy()
+    await flushAsyncWork()
+    await new Promise(resolve => setImmediate(resolve))
+    await flushAsyncWork()
+
+    expect(lifecycleStream.returnCount()).toBe(1)
+    expect(disconnect).toHaveBeenCalledTimes(1)
+    expect(current.router.resources).toHaveProperty('size', 0)
+    expect(current.binding.renderers).toHaveProperty('size', 0)
+    await current.binding.destroy()
+  })
+
+  test('decodes the versioned connection lifecycle stream in the renderer and quarantines stale deliveries', async () => {
+    const listeners = []
+    const currentAttachment = attachment()
+    const bootstrapValue = {
+      attachment: currentAttachment,
+      attachmentId: currentAttachment.attachmentId,
+      versions: { ...versions(), ipcProtocol: negotiated('ipc-protocol') },
+      renderer: {
+        clientId: opaqueId('renderer-lifecycle-client', 'client', 'renderer:lifecycle'),
+        windowScope: 'renderer-lifecycle-window',
+        sessionScope: 'renderer-lifecycle-session'
+      },
+      rendererLease: rendererLease('renderer-lifecycle-client')
+    }
+    const transport = {
+      invoke: jest.fn(async request => {
+        if (request.kind === 'bootstrap') {
+          return { kind: 'bootstrap', bootstrap: bootstrapValue }
+        }
+        if (request.kind === 'release') {
+          return { kind: 'release', cleanup: released() }
+        }
+        if (request.envelope.command === 'connection.events.subscribe') {
+          return {
+            kind: 'route',
+            payload: {
+              handle: request.envelope.payload.connectionEventsHandle,
+              connectionId: 'connection-renderer',
+              connectionGeneration: 'generation-renderer',
+              ownerLeaseId: 'owner-renderer',
+              eventSchemaVersion: 1
+            }
+          }
+        }
+        if (request.envelope.command === 'connection.events.ready') {
+          return { kind: 'route', payload: { state: 'ready' } }
+        }
+        return { kind: 'route', payload: { state: 'released', failureCount: 0 } }
+      }),
+      acknowledge: jest.fn(async () => ({ kind: 'event.ack' })),
+      subscribe(listener) {
+        listeners.push(listener)
+        return () => listeners.splice(listeners.indexOf(listener), 1)
+      }
+    }
+    const client = new ElectronRendererBleClient(transport)
+    const subscription = await client.subscribeConnectionEvents('connection-handle-renderer')
+    listeners[0]({
+      rendererLease: bootstrapValue.rendererLease,
+      eventId: 'stale-lifecycle-event',
+      streamId: 'connection-events-client-1',
+      item: {
+        kind: 'value',
+        value: {
+          kind: 'connection-lifecycle',
+          schemaVersion: 1,
+          attachment: currentAttachment,
+          attachmentId: currentAttachment.attachmentId,
+          peerId: 'peer-renderer',
+          connectionId: 'connection-renderer',
+          connectionGeneration: 'stale-generation',
+          ownerLeaseId: 'owner-renderer',
+          sequence: 2,
+          backendIngressOrdinal: 3,
+          previous: 'connected',
+          current: 'lost',
+          cause: 'adapter-loss'
+        }
+      }
+    })
+    listeners[0]({
+      rendererLease: bootstrapValue.rendererLease,
+      eventId: 'current-lifecycle-event',
+      streamId: 'connection-events-client-1',
+      item: {
+        kind: 'value',
+        value: {
+          kind: 'connection-lifecycle',
+          schemaVersion: 1,
+          attachment: currentAttachment,
+          attachmentId: currentAttachment.attachmentId,
+          peerId: 'peer-renderer',
+          connectionId: 'connection-renderer',
+          connectionGeneration: 'generation-renderer',
+          ownerLeaseId: 'owner-renderer',
+          sequence: 3,
+          backendIngressOrdinal: 4,
+          previous: 'connected',
+          current: 'lost',
+          cause: 'backend-restart'
+        }
+      }
+    })
+    const iterator = subscription.events[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'value', value: { cause: 'backend-restart', connectionGeneration: 'generation-renderer' } }
+    })
+    expectConsoleInfo('[ElectronRendererBleClient] Stale connection lifecycle event quarantined:', {
+      streamId: 'connection-events-client-1',
+      connectionId: 'connection-renderer',
+      connectionGeneration: 'stale-generation'
+    })
+    await expect(subscription.unsubscribe()).resolves.toEqual({ state: 'released', failureCount: 0 })
+    expect(transport.invoke).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        kind: 'route',
+        envelope: expect.objectContaining({
+          command: 'connection.events.unsubscribe',
+          payload: { connectionEventsHandle: 'connection-events-client-1' }
+        })
+      })
+    )
+    await client.destroy()
+  })
+
+  test('retains and acknowledges a terminal-first lifecycle event delivered while readiness is in flight', async () => {
+    const listeners = []
+    const bootstrapValue = rendererBootstrap('renderer-terminal-first')
+    let streamHandle = null
+    const transport = {
+      invoke: jest.fn(async request => {
+        if (request.kind === 'bootstrap') {
+          return { kind: 'bootstrap', bootstrap: bootstrapValue }
+        }
+        if (request.kind === 'release') {
+          return { kind: 'release', cleanup: released() }
+        }
+        if (request.envelope.command === 'connection.events.subscribe') {
+          streamHandle = request.envelope.payload.connectionEventsHandle
+          return {
+            kind: 'route',
+            payload: {
+              handle: streamHandle,
+              connectionId: 'connection-terminal-first',
+              connectionGeneration: 'generation-terminal-first',
+              eventSchemaVersion: 1
+            }
+          }
+        }
+        if (request.envelope.command === 'connection.events.ready') {
+          listeners[0]({
+            rendererLease: bootstrapValue.rendererLease,
+            eventId: 'terminal-first-event',
+            streamId: streamHandle,
+            item: {
+              kind: 'terminal',
+              reason: 'overflow',
+              droppedItems: 1,
+              droppedBytes: 128,
+              replacedItems: 0
+            }
+          })
+          return { kind: 'route', payload: { state: 'ready' } }
+        }
+        return { kind: 'route', payload: { state: 'released', failureCount: 0 } }
+      }),
+      acknowledge: jest.fn(async () => ({ kind: 'event.ack' })),
+      subscribe(listener) {
+        listeners.push(listener)
+        return () => listeners.splice(listeners.indexOf(listener), 1)
+      }
+    }
+    const client = new ElectronRendererBleClient(transport)
+    const subscription = await client.subscribeConnectionEvents('connection-handle-terminal-first')
+    const iterator = subscription.events[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { kind: 'terminal', reason: 'overflow' }
+    })
+    await flushAsyncWork()
+    expect(transport.acknowledge).toHaveBeenCalledWith(bootstrapValue.rendererLease, 'terminal-first-event')
+    await client.destroy()
+  })
+
+  test('decodes every synthetic lifecycle terminal mapping with its required counters in the renderer', async () => {
+    const listeners = []
+    const bootstrapValue = rendererBootstrap('renderer-synthetic-lifecycle-terminals')
+    const transport = {
+      invoke: jest.fn(async request => {
+        if (request.kind === 'bootstrap') {
+          return { kind: 'bootstrap', bootstrap: bootstrapValue }
+        }
+        if (request.kind === 'release') {
+          return { kind: 'release', cleanup: released() }
+        }
+        if (request.envelope.command === 'connection.events.subscribe') {
+          return {
+            kind: 'route',
+            payload: {
+              handle: request.envelope.payload.connectionEventsHandle,
+              connectionId: 'connection-synthetic-terminal',
+              connectionGeneration: 'generation-synthetic-terminal',
+              eventSchemaVersion: 1
+            }
+          }
+        }
+        return { kind: 'route', payload: { state: 'ready' } }
+      }),
+      acknowledge: jest.fn(async () => ({ kind: 'event.ack' })),
+      subscribe(listener) {
+        listeners.push(listener)
+        return () => listeners.splice(listeners.indexOf(listener), 1)
+      }
+    }
+    const client = new ElectronRendererBleClient(transport)
+    const syntheticMappings = [
+      ['overflow', 'overflow'],
+      ['source-failed', 'source-failed'],
+      ['renderer-backpressure', 'source-failed']
+    ]
+
+    for (const [mapping, expectedReason] of syntheticMappings) {
+      const subscription = await client.subscribeConnectionEvents(`connection-handle-${mapping}`)
+      listeners[0]({
+        rendererLease: bootstrapValue.rendererLease,
+        eventId: `synthetic-terminal-${mapping}`,
+        streamId: subscription.handle,
+        item: {
+          kind: 'terminal',
+          reason: expectedReason,
+          droppedItems: 0,
+          droppedBytes: 0,
+          replacedItems: 0
+        }
+      })
+      await expect(subscription.events[Symbol.asyncIterator]().next()).resolves.toMatchObject({
+        done: false,
+        value: { kind: 'terminal', reason: expectedReason }
+      })
+    }
+    await client.destroy()
+  })
+
+  test('retries remote lifecycle detach after a malformed admission response before allowing a clean resubscription', async () => {
+    jest.useFakeTimers()
+    try {
+      const listeners = []
+      const bootstrapValue = rendererBootstrap('renderer-admission-detach-retry')
+      let subscribeCount = 0
+      let detachCount = 0
+      const transport = {
+        invoke: jest.fn(async request => {
+          if (request.kind === 'bootstrap') {
+            return { kind: 'bootstrap', bootstrap: bootstrapValue }
+          }
+          if (request.kind === 'release') {
+            return { kind: 'release', cleanup: released() }
+          }
+          if (request.envelope.command === 'connection.events.subscribe') {
+            subscribeCount += 1
+            return {
+              kind: 'route',
+              payload:
+                subscribeCount === 1
+                  ? {
+                      handle: request.envelope.payload.connectionEventsHandle,
+                      connectionId: 'connection-admission-retry',
+                      connectionGeneration: 'generation-admission-retry',
+                      eventSchemaVersion: 2
+                    }
+                  : {
+                      handle: request.envelope.payload.connectionEventsHandle,
+                      connectionId: 'connection-admission-retry',
+                      connectionGeneration: 'generation-admission-retry',
+                      eventSchemaVersion: 1
+                    }
+            }
+          }
+          if (request.envelope.command === 'connection.events.unsubscribe') {
+            detachCount += 1
+            return {
+              kind: 'route',
+              payload:
+                detachCount === 1
+                  ? { state: 'release-failed', failureCount: 1 }
+                  : { state: 'released', failureCount: 0 }
+            }
+          }
+          return { kind: 'route', payload: { state: 'ready' } }
+        }),
+        acknowledge: jest.fn(async () => ({ kind: 'event.ack' })),
+        subscribe(listener) {
+          listeners.push(listener)
+          return () => listeners.splice(listeners.indexOf(listener), 1)
+        }
+      }
+      const client = new ElectronRendererBleClient(transport)
+      await expect(client.subscribeConnectionEvents('connection-admission-retry')).rejects.toMatchObject({
+        normalized: { code: 'protocol.incompatible' }
+      })
+      expectConsoleErrorMatching(
+        '[ElectronRendererBleClient] Connection lifecycle admission failed; local stream quarantined:',
+        {
+          handle: 'connection-events-client-1',
+          error: expect.objectContaining({ normalized: expect.objectContaining({ code: 'protocol.incompatible' }) })
+        }
+      )
+      expect(detachCount).toBe(1)
+      expect(client.connectionEventSubscriptions).toHaveProperty('size', 1)
+
+      await jest.advanceTimersByTimeAsync(100)
+      expect(detachCount).toBe(2)
+      expect(client.connectionEventSubscriptions).toHaveProperty('size', 0)
+
+      const resubscribed = await client.subscribeConnectionEvents('connection-admission-retry')
+      listeners[0]({
+        rendererLease: bootstrapValue.rendererLease,
+        eventId: 'malformed-lifecycle-event',
+        streamId: resubscribed.handle,
+        item: { kind: 'terminal', reason: 'source-failed' }
+      })
+      await flushAsyncWork()
+      expectConsoleErrorMatching(
+        '[ElectronRendererBleClient] Connection lifecycle event decoding failed; stream quarantined:',
+        {
+          streamId: resubscribed.handle,
+          error: expect.objectContaining({ normalized: expect.objectContaining({ code: 'protocol.malformed' }) })
+        }
+      )
+      expect(detachCount).toBe(3)
+      expect(client.connectionEventSubscriptions).toHaveProperty('size', 0)
+      await jest.advanceTimersByTimeAsync(500)
+      expect(detachCount).toBe(3)
+
+      const cleanResubscription = await client.subscribeConnectionEvents('connection-admission-retry')
+      await expect(cleanResubscription.unsubscribe()).resolves.toEqual({ state: 'released', failureCount: 0 })
+      expect(detachCount).toBe(4)
+      await client.destroy()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   test('aborts and drains a destroyed renderer in-flight operation before releasing a late connection result', async () => {
     const connectStarted = deferred()
     const connectResult = deferred()
@@ -1516,7 +2428,10 @@ describe('Electron v4 IPC boundary', () => {
     await flushAsyncWork()
     expect(signal.aborted).toBe(true)
     connectResult.resolve(connection)
-    await expect(pendingRoute).resolves.toMatchObject({ kind: 'route', payload: { peerId: 'peer-pending' } })
+    await expect(pendingRoute).resolves.toMatchObject({
+      kind: 'failure',
+      error: { code: 'operation.aborted', operation: 'electron-main-router.connection.connect' }
+    })
     await flushAsyncWork()
     expect(disconnect).toHaveBeenCalledTimes(1)
     await expectIpcFailure(
@@ -1527,6 +2442,242 @@ describe('Electron v4 IPC boundary', () => {
       { code: 'ownership.denied' }
     )
     await current.binding.destroy()
+  })
+
+  test('quarantines a late connect success after its Electron IPC deadline expires', async () => {
+    const connectStarted = deferred()
+    const connectResult = deferred()
+    const disconnect = jest.fn(async () => released())
+    const connection = createConnection(
+      'peer-deadline',
+      createDatabase({ values: createControlledStream(), remove: jest.fn(async () => released()) }),
+      disconnect
+    )
+    const current = createMainFixture({
+      connect: jest.fn(async () => {
+        connectStarted.resolve()
+        return connectResult.promise
+      }),
+      monotonicNow: jest.fn().mockReturnValueOnce(0).mockReturnValueOnce(20)
+    })
+    const sender = createSender('client-deadline', 'window-deadline', 'session-deadline')
+    const renderer = await bootstrap(current, sender)
+    const pendingRoute = current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 1, 'connection.connect', { peerId: 'peer-deadline', deadline: 10 })
+    )
+    await connectStarted.promise
+    connectResult.resolve(connection)
+
+    await expect(pendingRoute).resolves.toMatchObject({
+      kind: 'failure',
+      error: { code: 'operation.timed-out', operation: 'electron-main-router.connection.connect' }
+    })
+    expect(disconnect).toHaveBeenCalledTimes(1)
+    expect(current.router.resources.get(String(renderer.rendererLease.leaseId)).connections).toHaveProperty('size', 0)
+    await current.binding.destroy()
+  })
+
+  test('retains a failed lifecycle iterator detach for an explicit unsubscribe retry', async () => {
+    const lifecycleStream = createConnectionLifecycleStream()
+    const iterator = lifecycleStream[Symbol.asyncIterator]()
+    const returnIterator = iterator.return.bind(iterator)
+    iterator.return = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('first lifecycle iterator detach failed'))
+      .mockImplementationOnce(returnIterator)
+    const lifecycleSource = {
+      [Symbol.asyncIterator]: () => iterator
+    }
+    const connection = createConnection(
+      'peer-lifecycle-retry',
+      createDatabase({ values: createControlledStream(), remove: jest.fn(async () => released()) }),
+      jest.fn(async () => released()),
+      lifecycleSource
+    )
+    const current = createMainFixture({ connect: jest.fn(async () => connection) })
+    const sender = createSender('client-lifecycle-retry', 'window-lifecycle-retry', 'session-lifecycle-retry')
+    const renderer = await bootstrap(current, sender)
+    const connected = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 1, 'connection.connect', { peerId: 'peer-lifecycle-retry' })
+    )
+    const subscribed = await current.port.handler(
+      { sender },
+      commandRequest(current, renderer, 2, 'connection.events.subscribe', {
+        connectionHandle: connected.payload.handle,
+        connectionEventsHandle: 'connection-events-retry-1',
+        deadline: null
+      })
+    )
+
+    await expect(
+      current.port.handler(
+        { sender },
+        commandRequest(current, renderer, 3, 'connection.events.unsubscribe', {
+          connectionEventsHandle: subscribed.payload.handle
+        })
+      )
+    ).resolves.toMatchObject({ kind: 'route', payload: { state: 'release-failed', failureCount: 1 } })
+    expect(
+      current.router.resources
+        .get(String(renderer.rendererLease.leaseId))
+        .connectionEventSubscriptions.has(subscribed.payload.handle)
+    ).toBe(true)
+    expectConsoleErrorMatching('[ElectronConnectionEventStreamRegistry] Lifecycle iterator return failed:', {
+      error: expect.objectContaining({ message: 'first lifecycle iterator detach failed' })
+    })
+
+    await expect(
+      current.port.handler(
+        { sender },
+        commandRequest(current, renderer, 4, 'connection.events.unsubscribe', {
+          connectionEventsHandle: subscribed.payload.handle
+        })
+      )
+    ).resolves.toMatchObject({ kind: 'route', payload: { state: 'released', failureCount: 0 } })
+    expect(iterator.return).toHaveBeenCalledTimes(2)
+    await current.binding.destroy()
+  })
+
+  test('retries a failed natural lifecycle terminal detach without publishing a second terminal', async () => {
+    jest.useFakeTimers()
+    try {
+      const lifecycleStream = createConnectionLifecycleStream()
+      const iterator = lifecycleStream[Symbol.asyncIterator]()
+      const returnIterator = iterator.return.bind(iterator)
+      iterator.return = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('natural terminal detach failed once'))
+        .mockImplementationOnce(returnIterator)
+      const lifecycleSource = { [Symbol.asyncIterator]: () => iterator }
+      const connection = createConnection(
+        'peer-lifecycle-natural-retry',
+        createDatabase({ values: createControlledStream(), remove: jest.fn(async () => released()) }),
+        jest.fn(async () => released()),
+        lifecycleSource
+      )
+      const current = createMainFixture({ connect: jest.fn(async () => connection) })
+      const sender = createSender('client-lifecycle-natural-retry', 'window-lifecycle-natural-retry', 'session-lifecycle-natural-retry')
+      const renderer = await bootstrap(current, sender)
+      const connected = await current.port.handler(
+        { sender },
+        commandRequest(current, renderer, 1, 'connection.connect', { peerId: 'peer-lifecycle-natural-retry' })
+      )
+      const subscribed = await current.port.handler(
+        { sender },
+        commandRequest(current, renderer, 2, 'connection.events.subscribe', {
+          connectionHandle: connected.payload.handle,
+          connectionEventsHandle: 'connection-events-natural-retry-1',
+          deadline: null
+        })
+      )
+      await readyConnectionEvents(current, sender, renderer, 3, subscribed.payload.handle)
+      lifecycleStream.push({
+        kind: 'terminal',
+        reason: 'closed',
+        droppedItems: 0,
+        droppedBytes: 0,
+        replacedItems: 0
+      })
+      await flushAsyncWork()
+      expect(iterator.return).toHaveBeenCalledTimes(1)
+      expectConsoleErrorMatching('[ElectronConnectionEventStreamRegistry] Lifecycle iterator return failed:', {
+        error: expect.objectContaining({ message: 'natural terminal detach failed once' })
+      })
+      expectConsoleErrorMatching('[ElectronConnectionEventStreamRegistry] Lifecycle terminal detach failed:', {
+        handle: subscribed.payload.handle,
+        cleanup: expect.objectContaining({ state: 'release-failed' })
+      })
+      expect(
+        current.router.resources
+          .get(String(renderer.rendererLease.leaseId))
+          .connectionEventSubscriptions.has(subscribed.payload.handle)
+      ).toBe(true)
+
+      await jest.advanceTimersByTimeAsync(100)
+      expect(iterator.return).toHaveBeenCalledTimes(2)
+      expect(
+        current.router.resources
+          .get(String(renderer.rendererLease.leaseId))
+          .connectionEventSubscriptions.has(subscribed.payload.handle)
+      ).toBe(false)
+      expect(sender.sent.filter(({ event }) => event.streamId === subscribed.payload.handle && event.item.kind === 'terminal'))
+        .toHaveLength(1)
+      await current.binding.destroy()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('defers renderer teardown connection disconnect until a failed lifecycle detach succeeds on retry', async () => {
+    jest.useFakeTimers()
+    try {
+      const order = []
+      const lifecycleStream = createConnectionLifecycleStream()
+      const iterator = lifecycleStream[Symbol.asyncIterator]()
+      const returnIterator = iterator.return.bind(iterator)
+      iterator.return = jest
+        .fn()
+        .mockImplementationOnce(async () => {
+          order.push('detach-failed')
+          throw new Error('renderer teardown lifecycle detach failed once')
+        })
+        .mockImplementationOnce(async () => {
+          order.push('detach-succeeded')
+          return returnIterator()
+        })
+      const disconnect = jest.fn(async () => {
+        order.push('disconnect')
+        return released()
+      })
+      const connection = createConnection(
+        'peer-lifecycle-teardown-retry',
+        createDatabase({ values: createControlledStream(), remove: jest.fn(async () => released()) }),
+        disconnect,
+        { [Symbol.asyncIterator]: () => iterator }
+      )
+      const current = createMainFixture({ connect: jest.fn(async () => connection) })
+      const sender = createSender(
+        'client-lifecycle-teardown-retry',
+        'window-lifecycle-teardown-retry',
+        'session-lifecycle-teardown-retry'
+      )
+      const renderer = await bootstrap(current, sender)
+      const connected = await current.port.handler(
+        { sender },
+        commandRequest(current, renderer, 1, 'connection.connect', { peerId: 'peer-lifecycle-teardown-retry' })
+      )
+      const subscribed = await current.port.handler(
+        { sender },
+        commandRequest(current, renderer, 2, 'connection.events.subscribe', {
+          connectionHandle: connected.payload.handle,
+          connectionEventsHandle: 'connection-events-teardown-retry-1',
+          deadline: null
+        })
+      )
+      await readyConnectionEvents(current, sender, renderer, 3, subscribed.payload.handle)
+
+      sender.destroy()
+      await flushAsyncWork()
+      await jest.advanceTimersByTimeAsync(0)
+      expect(order).toEqual(['detach-failed'])
+      expect(disconnect).not.toHaveBeenCalled()
+      expectConsoleErrorMatching('[ElectronConnectionEventStreamRegistry] Lifecycle iterator return failed:', {
+        error: expect.objectContaining({ message: 'renderer teardown lifecycle detach failed once' })
+      })
+      expectConsoleErrorMatching('[ElectronMainBleBinding] Renderer lifetime cleanup reported failures:', {
+        rendererLeaseId: String(renderer.rendererLease.leaseId),
+        cleanup: expect.objectContaining({ state: 'release-failed' })
+      })
+
+      await jest.advanceTimersByTimeAsync(100)
+      expect(order).toEqual(['detach-failed', 'detach-succeeded', 'disconnect'])
+      expect(disconnect).toHaveBeenCalledTimes(1)
+      await current.binding.destroy()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   test('terminalizes failed sources and oversize subscription values exactly once after native cleanup', async () => {
@@ -1919,6 +3070,118 @@ describe('Electron v4 IPC boundary', () => {
 
     await expect(client.destroy()).resolves.toEqual(released())
     expect(listeners).toEqual([])
+  })
+
+  test('terminalizes lifecycle subscriptions after mixed main release cleanup and retries without a double detach', async () => {
+    const firstLifecycleStream = createConnectionLifecycleStream()
+    const secondLifecycleStream = createConnectionLifecycleStream()
+    const scanStream = createControlledStream()
+    const scanStop = jest
+      .fn()
+      .mockResolvedValueOnce(failed('scan'))
+      .mockResolvedValueOnce(released())
+    const firstConnection = createConnection(
+      'peer-partial-release-first',
+      createDatabase({ values: createControlledStream(), remove: jest.fn(async () => released()) }),
+      jest.fn(async () => released()),
+      firstLifecycleStream
+    )
+    const secondConnection = createConnection(
+      'peer-partial-release-second',
+      createDatabase({ values: createControlledStream(), remove: jest.fn(async () => released()) }),
+      jest.fn(async () => released()),
+      secondLifecycleStream
+    )
+    const connections = [firstConnection, secondConnection]
+    const current = createMainFixture({
+      connect: jest.fn(async () => {
+        const connection = connections.shift()
+        if (connection === undefined) {
+          throw new Error('unexpected connection request')
+        }
+        return connection
+      }),
+      scan: jest.fn(async () => ({ observations: scanStream, stop: scanStop }))
+    })
+    const sender = createSender('client-partial-release', 'window-partial-release', 'session-partial-release')
+    const listeners = []
+    sender.send = (channel, event) => {
+      sender.sent.push({ channel, event })
+      for (const listener of listeners) {
+        listener(event)
+      }
+    }
+    const transport = {
+      invoke: jest.fn(request => current.port.handler({ sender }, request)),
+      acknowledge: (rendererLease, eventId) =>
+        current.port.handler({ sender }, { kind: 'event.ack', rendererLease, eventId }),
+      subscribe(listener) {
+        listeners.push(listener)
+        return () => listeners.splice(listeners.indexOf(listener), 1)
+      }
+    }
+    const client = new ElectronRendererBleClient(transport)
+    const firstConnectionReceipt = await client.request({
+      command: 'connection.connect',
+      payload: { peerId: 'peer-partial-release-first', deadline: null },
+      binaryPayload: null,
+      signal: null
+    })
+    const staleSubscription = await client.subscribeConnectionEvents(firstConnectionReceipt.payload.handle)
+    firstLifecycleStream.push({
+      kind: 'overflow',
+      policy: 'drop-oldest',
+      droppedItems: 7,
+      droppedBytes: 29,
+      replacedItems: 3
+    })
+    await flushAsyncWork()
+    expect(client.connectionEventSubscriptions.get(staleSubscription.handle).stream.overflowCounters()).toEqual({
+      droppedItems: 7,
+      droppedBytes: 29,
+      replacedItems: 3
+    })
+    await client.request({
+      command: 'scan.start',
+      payload: { serviceUuids: [], manufacturerData: [], localNamePrefix: null, deadline: null },
+      binaryPayload: null,
+      signal: null
+    })
+
+    await expect(client.destroy()).resolves.toMatchObject({ state: 'release-failed' })
+    await expect(staleSubscription.events[Symbol.asyncIterator]().next()).resolves.toEqual({
+      done: false,
+      value: {
+        kind: 'terminal',
+        reason: 'source-failed',
+        droppedItems: 0,
+        droppedBytes: 0,
+        replacedItems: 0
+      }
+    })
+    expect(firstLifecycleStream.returnCount()).toBe(1)
+    expect(client.connectionEventSubscriptions).toHaveProperty('size', 0)
+    await expect(staleSubscription.unsubscribe()).resolves.toEqual({ state: 'released', failureCount: 0 })
+
+    const secondConnectionReceipt = await client.request({
+      command: 'connection.connect',
+      payload: { peerId: 'peer-partial-release-second', deadline: null },
+      binaryPayload: null,
+      signal: null
+    })
+    const replacementSubscription = await client.subscribeConnectionEvents(secondConnectionReceipt.payload.handle)
+    expect(replacementSubscription.handle).toBe('connection-events-client-2')
+
+    await expect(client.destroy()).resolves.toEqual(released())
+    expect(firstLifecycleStream.returnCount()).toBe(1)
+    expect(secondLifecycleStream.returnCount()).toBe(1)
+    expect(scanStop).toHaveBeenCalledTimes(2)
+    const directLifecycleDetachRoutes = transport.invoke.mock.calls.filter(
+      ([request]) => request.kind === 'route' && request.envelope.command === 'connection.events.unsubscribe'
+    )
+    expect(directLifecycleDetachRoutes).toEqual([])
+    expect(client.connectionEventSubscriptions).toHaveProperty('size', 0)
+    await current.binding.destroy()
   })
 
   test('discards release-race events without stale acknowledgements after successful main cleanup', async () => {

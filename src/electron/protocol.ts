@@ -2,6 +2,8 @@
 
 import type { CleanupRecord, NormalizedBleError } from '../backend-contract/errors'
 import type { IpcEnvelope, RendererIdentity, RendererLeaseIdentity } from '../backend-contract/electron'
+import type { ConnectionState } from '../backend-contract/backend'
+import type { ConnectionLifecycleCause } from '../backend-contract/connection-lifecycle'
 import type {
   AttachmentId,
   IpcOperationCorrelation,
@@ -12,6 +14,71 @@ import type { AttachmentRecord } from '../backend-contract/identity'
 
 /** The one versioned request channel exposed by a host application's narrow preload bridge. */
 export const ELECTRON_BLE_IPC_CHANNEL = 'unified-ble-manager:v1'
+
+/** The version of the lifecycle value carried by the Electron v1 IPC stream. */
+export const ELECTRON_CONNECTION_LIFECYCLE_EVENT_SCHEMA_VERSION = 1
+
+/** Renderer-originated lifecycle stream identifiers occupy a reserved namespace. */
+export const ELECTRON_CONNECTION_EVENTS_STREAM_HANDLE_PREFIX = 'connection-events-'
+
+/** Validates the public renderer-originated lifecycle stream identifier format. */
+export function isElectronConnectionEventsStreamHandle(value: string): boolean {
+  return /^connection-events-[A-Za-z0-9][A-Za-z0-9-]*$/.test(value)
+}
+
+/** Serializable attachment identity carried with a connection lifecycle event. */
+export interface ElectronAttachmentRecordV1 extends SerializableRecord {
+  readonly attachmentId: string
+  readonly backendInstanceId: string
+  readonly backendGeneration: string
+  readonly adapter: ElectronAdapterRecordV1
+}
+
+export interface ElectronAdapterRecordV1 extends SerializableRecord {
+  readonly adapterId: string
+  readonly displayName: string | null
+  readonly state: ElectronAdapterStateV1
+  readonly adapterGeneration: string
+  readonly limitations: readonly string[]
+}
+
+export interface ElectronAdapterStateV1 extends SerializableRecord {
+  readonly availability: 'available' | 'unavailable' | 'unsupported' | 'unknown'
+  readonly authorization: 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unavailable'
+  readonly power: 'on' | 'off' | 'resetting' | 'unsupported' | 'unknown'
+  readonly backendGeneration: string
+  readonly updatedAt: number
+  readonly safeReason: string | null
+}
+
+/** Versioned, data-only projection of one public ConnectionLifecycleEvent. */
+export interface ElectronConnectionLifecycleEventV1 extends SerializableRecord {
+  readonly kind: 'connection-lifecycle'
+  readonly schemaVersion: typeof ELECTRON_CONNECTION_LIFECYCLE_EVENT_SCHEMA_VERSION
+  readonly attachment: ElectronAttachmentRecordV1
+  readonly attachmentId: string
+  readonly peerId: string
+  readonly connectionId: string
+  readonly connectionGeneration: string
+  readonly ownerLeaseId: string
+  readonly sequence: number
+  readonly backendIngressOrdinal: number | null
+  readonly previous: ConnectionState
+  readonly current: ConnectionState
+  readonly cause: ConnectionLifecycleCause
+}
+
+/**
+ * Result of the first connection lifecycle admission phase. `handle` is the
+ * renderer-generated opaque handle confirmed by main; main begins forwarding
+ * only after the matching readiness command.
+ */
+export interface ElectronConnectionEventsSubscribeResponseV1 extends SerializableRecord {
+  readonly handle: string
+  readonly connectionId: string
+  readonly connectionGeneration: string
+  readonly eventSchemaVersion: typeof ELECTRON_CONNECTION_LIFECYCLE_EVENT_SCHEMA_VERSION
+}
 
 /** Immutable bootstrap data issued by main after it authenticates a renderer. */
 export interface ElectronRendererBootstrap<Attachment extends string, Renderer extends string> {

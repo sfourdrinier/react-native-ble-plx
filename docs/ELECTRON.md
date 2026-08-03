@@ -72,6 +72,20 @@ manager. The binding handles operation correlation, event acknowledgement,
 bounded backpressure, cancellation routing, and retryable cleanup; applications
 must not duplicate those policies.
 
+For a connected opaque handle, `subscribeConnectionEvents(connectionHandle)`
+returns a versioned lifecycle subscription. Its `events` stream contains
+`ConnectionLifecycleEvent` projections, including the exact connection
+generation, plus an explicit terminal record; `unsubscribe()` detaches only
+that renderer consumer and is retryable when main reports cleanup failure. The subscription
+never polls, never exposes a native handle, and never closes the main-owned
+connection. Lifecycle consumption is exclusive per renderer-owned connection:
+a second subscription is rejected rather than competing for the single source
+iterator. The renderer generates the opaque stream handle, installs its local
+bounded stream, then sends the internal readiness acknowledgement; main does
+not pump any lifecycle record until that acknowledgement succeeds. Renderer and
+main both quarantine events whose attachment or connection generation no longer
+matches the subscription.
+
 ## Verification and evidence
 
 The packed-artifact L1 smoke proves the installed public Electron main/router,

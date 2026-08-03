@@ -93,7 +93,13 @@ import { createElectronMainWinRtBackendProvider } from 'unified-ble-manager/elec
 import type { ElectronMainBleBinding } from 'unified-ble-manager/electron/main'
 import {
   assertElectronAdvertisementObservation,
-  ElectronRendererBleClient
+  ElectronRendererBleClient,
+  isElectronConnectionEventsStreamHandle
+} from 'unified-ble-manager/electron/renderer'
+import type {
+  ElectronConnectionEventCleanupReceipt,
+  ElectronConnectionEventSubscription,
+  ElectronConnectionLifecycleEventV1
 } from 'unified-ble-manager/electron/renderer'
 import {
   createReactNativeAndroidBackendProvider,
@@ -148,6 +154,10 @@ declare const webChooserRequest: ChooserRequest
 declare const navigatorWebManagerOptions: NavigatorWebBleManagerOptions
 declare const webManagerOptions: WebBleManagerOptions
 declare const browserTimer: WebBluetoothTimerHandle
+declare const electronConnectionEventSubscription: ElectronConnectionEventSubscription
+declare const electronConnectionEventStreamHandle: string
+declare const electronConnectionEventCleanupReceipt: ElectronConnectionEventCleanupReceipt
+declare const electronConnectionLifecycleEvent: ElectronConnectionLifecycleEventV1
 declare const connectionOneDatabasePath: DatabasePath<'scope-test', 'connection-one', 'database-one'>
 declare const connectionTwoDatabasePath: DatabasePath<'scope-test', 'connection-two', 'database-one'>
 declare const differentDatabasePath: DatabasePath<'scope-test', 'connection-one', 'database-two'>
@@ -700,6 +710,11 @@ observe(createNativeWinRtBackendProvider)
 observe(createElectronMainWinRtBackendProvider)
 observe(ElectronRendererBleClient)
 observe(assertElectronAdvertisementObservation)
+observe(isElectronConnectionEventsStreamHandle(electronConnectionEventStreamHandle))
+observe(electronConnectionEventSubscription.events)
+observe(electronConnectionEventSubscription.unsubscribe())
+observe(electronConnectionEventCleanupReceipt.failureCount)
+observe(electronConnectionLifecycleEvent.connectionGeneration)
 observe(createReactNativeAndroidBackendProvider(nativeAndroidOptions))
 observe(createReactNativeAppleBackendProvider(nativeAppleOptions))
 observe(createReactNativeBleManager(nativeManagerOptions))

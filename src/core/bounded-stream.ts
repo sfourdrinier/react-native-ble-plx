@@ -115,6 +115,18 @@ export class CoreBoundedStream<Value> implements BoundedAsyncStream<Value> {
   }
 
   closeWithReason(reason: CoreStreamTerminalReason): void {
+    this.closeWithTerminal(reason, false)
+  }
+
+  /**
+   * Closes with a synthetic terminal that must not attribute earlier source or
+   * local overflow to the terminal's owning operation.
+   */
+  closeWithExactZeroCounters(reason: CoreStreamTerminalReason): void {
+    this.closeWithTerminal(reason, true)
+  }
+
+  private closeWithTerminal(reason: CoreStreamTerminalReason, zeroOverflowCounters: boolean): void {
     if (this.isTerminal()) {
       return
     }
@@ -122,6 +134,9 @@ export class CoreBoundedStream<Value> implements BoundedAsyncStream<Value> {
     this.retainedValueBytes = 0
     this.retainedPayloadByteCount = 0
     this.overflowNotice = null
+    if (zeroOverflowCounters) {
+      this.clearOverflowCounters()
+    }
     this.terminalNotice = this.makeTerminal(reason)
     this.flushPendingConsumers()
   }
@@ -416,6 +431,15 @@ export class CoreBoundedStream<Value> implements BoundedAsyncStream<Value> {
       droppedBytes: resourceCount(this.totalDroppedBytes()),
       replacedItems: resourceCount(this.totalReplacedItems())
     }
+  }
+
+  private clearOverflowCounters(): void {
+    this.droppedItems = 0
+    this.droppedBytes = 0
+    this.replacedItems = 0
+    this.sourceDroppedItems = 0
+    this.sourceDroppedBytes = 0
+    this.sourceReplacedItems = 0
   }
 
   private fits(byteLength: number): boolean {
