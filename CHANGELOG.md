@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.0-alpha.40] - 2026-08-02 (published prerelease)
+
+### Added
+
+- Added a versioned Electron renderer API for connection lifecycle
+  subscriptions, including client-generated stream admission, connection and
+  renderer ownership isolation, overflow reporting, terminal delivery, and
+  explicit unsubscribe cleanup.
+- Added deterministic coverage for link loss while the renderer is otherwise
+  idle, partial aggregate cleanup, cancellation and late completion, stale
+  generations, renderer destruction, bounded cancellation ledgers, and
+  retryable remote detach ownership.
+
+### Fixed
+
+- Prevented connection events from pumping before renderer admission and
+  prevented partially failed renderer destruction from leaving a local
+  subscription active after main-process ownership was already detached.
+- Made synthetic cleanup terminals deterministic and zero-counted without
+  changing ordinary overflow accounting, while preserving idempotent cleanup
+  retry and prohibiting duplicate native detach.
+
+### Support and evidence boundary
+
+- Alpha.40 adds deterministic Electron lifecycle transport and package proof;
+  it does not add a physical-radio evidence record or promote any backend
+  support label.
+- Alpha.40 remains Experimental. Meta Quest and the controllable physical
+  fault-injection peripheral remain deferred to 4.1.
+
 ## [4.0.0-alpha.39] - 2026-08-02 (published prerelease)
 
 ### Fixed

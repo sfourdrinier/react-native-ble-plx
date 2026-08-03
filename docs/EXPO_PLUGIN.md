@@ -11,7 +11,7 @@ Configure the published plugin as `unified-ble-manager`. The plugin's supported
 options are exactly the schema implemented in `plugin/src/withBLE.ts`:
 
 ```sh
-pnpm add unified-ble-manager@4.0.0-alpha.39 expo@^57.0.0
+pnpm add unified-ble-manager@4.0.0-alpha.40 expo@^57.0.0
 ```
 
 `expo` is an optional host peer. The plugin imports Expo's supported
@@ -19,10 +19,10 @@ pnpm add unified-ble-manager@4.0.0-alpha.39 expo@^57.0.0
 `@expo/config-plugins` package directly. Web, bare React Native, and Node
 consumers do not resolve Expo tooling.
 
-The plugin configuration is part of the published Experimental 4.0 alpha.39
+The plugin configuration is part of the published Experimental 4.0 alpha.40
 prerelease. The
 release workflow validates Expo SDK 57 CNG prebuild and Android assembly, but no
-current evidence record binds alpha.39 to a physical device, permission,
+current evidence record binds alpha.40 to a physical device, permission,
 background, or restoration scenario. Configuration and compilation therefore do
 not make a live-radio or restoration support claim.
 

@@ -6,15 +6,15 @@
   "metadata": {
     "component": {
       "type": "library",
-      "bom-ref": "pkg:npm/unified-ble-manager@4.0.0-alpha.39",
+      "bom-ref": "pkg:npm/unified-ble-manager@4.0.0-alpha.40",
       "name": "unified-ble-manager",
-      "version": "4.0.0-alpha.39",
+      "version": "4.0.0-alpha.40",
       "licenses": [
         {
           "expression": "MIT"
         }
       ],
-      "purl": "pkg:npm/unified-ble-manager@4.0.0-alpha.39"
+      "purl": "pkg:npm/unified-ble-manager@4.0.0-alpha.40"
     },
     "properties": [
       {
@@ -514,7 +514,7 @@
       "dependsOn": []
     },
     {
-      "ref": "pkg:npm/unified-ble-manager@4.0.0-alpha.39",
+      "ref": "pkg:npm/unified-ble-manager@4.0.0-alpha.40",
       "dependsOn": [
         "pkg:npm/node-addon-api@8.9.0",
         "pkg:npm/node-gyp@12.4.0"

@@ -19,10 +19,10 @@ passing deterministic, compile, or package tests are implementation proof; they
 do not become physical-radio support evidence unless a retained evidence record
 binds the exact source and package artifact.
 
-`unified-ble-manager@4.0.0-alpha.39` is the published Experimental prerelease,
+`unified-ble-manager@4.0.0-alpha.40` is the published Experimental prerelease,
 and no current record in `evidence/v1/records/` binds that artifact to a passed
 physical-radio backend scenario. The records below are historical L0 context and
-must not be read as Preview-or-higher evidence for the alpha.39 prerelease.
+must not be read as Preview-or-higher evidence for the alpha.40 prerelease.
 
 ## Proof levels
 
