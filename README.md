@@ -1,3 +1,8 @@
+<!-- unified-ble-manager-4x-handoff -->
+> [!IMPORTANT]
+> **Unified BLE Manager 4.x has moved to [sfourdrinier/unified-ble-manager](https://github.com/sfourdrinier/unified-ble-manager).**
+> This repository remains the historical and maintained home of the `react-native-ble-plx` 3.x line. New 4.x development, documentation, issues, and releases belong in the Unified BLE Manager repository.
+
 <h1 align="center">
   <img
     alt="react-native-ble-plx library logo"
